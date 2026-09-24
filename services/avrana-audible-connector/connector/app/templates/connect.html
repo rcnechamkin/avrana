@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Connect your Audible account</h1>
+<p class="lede">Add the audiobooks you already own to {{ brand }}. You sign in with Amazon
+directly, so {{ brand }} never sees your password.</p>
+
+<form method="post" action="/contribute/audible/start" class="card">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <label>Your Audible email
+    <input type="email" name="email" required autocomplete="email" placeholder="reader@example.invalid"
+           value="{{ prefill_email or '' }}">
+  </label>
+  <label>Your Audible region
+    <select name="marketplace" required>
+      {% for code, name in marketplaces %}<option value="{{ code }}">{{ name }}</option>{% endfor %}
+    </select>
+  </label>
+  <button type="submit" class="primary">Create login link</button>
+</form>
+
+<ol class="steps">
+  <li>{{ brand }} creates a secure Amazon login link.</li>
+  <li>You sign in on Amazon’s own page, including any code or CAPTCHA it asks for.</li>
+  <li>You copy the address your browser lands on and paste it back here.</li>
+</ol>
+{% endblock %}

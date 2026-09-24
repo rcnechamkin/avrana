@@ -1,0 +1,124 @@
+{
+  "date": "2026-09-23",
+  "method": "explicit regular-file allowlist; text/AST and credential-pattern review; no scripts executed",
+  "files": [
+    {
+      "path": "services/avrana-portal/portal.py",
+      "source": "/home/cody/avrana/services/avrana-portal/portal.py",
+      "source_sha256": "82989cadb19290fd780d280030bee3d51267428fb5660820e4cbffb4e2c12aad",
+      "import_sha256": "935740c5d3ee1f3e26821d82d6640aad5ac8658816abd99b19c78f0ad28f338d",
+      "changes": [
+        "Replaced personal sender address with explicit non-deliverable placeholder; configure before deployment"
+      ]
+    },
+    {
+      "path": "services/avrana-portal/Dockerfile",
+      "source": "/home/cody/avrana/services/avrana-portal/Dockerfile",
+      "source_sha256": "e498bb614e0406c8b0261d75837aa256d90848acabe5387951b9a29309ff204e",
+      "import_sha256": "e498bb614e0406c8b0261d75837aa256d90848acabe5387951b9a29309ff204e",
+      "changes": [
+        "Byte-identical source import"
+      ]
+    },
+    {
+      "path": "services/avrana-kindle-connector/kindle.py",
+      "source": "/home/cody/avrana/services/avrana-kindle-connector/kindle.py",
+      "source_sha256": "7c796bec0197e3ed93983c69505d6cacd7c6a6894601200215075c2c55eaad70",
+      "import_sha256": "7c97aba64aa7f96414e88fb4622ebf0fd46144ba7b92f7e7bac860ec592cdbef",
+      "changes": [
+        "Replaced personal sender address with explicit non-deliverable placeholder; configure before deployment"
+      ]
+    },
+    {
+      "path": "services/avrana-kindle-connector/Dockerfile",
+      "source": "/home/cody/avrana/services/avrana-kindle-connector/Dockerfile",
+      "source_sha256": "c8b5d1a14941945b354ab60d2b4837674cb55c4e91ad0bcf47a196ea7ae475bd",
+      "import_sha256": "c8b5d1a14941945b354ab60d2b4837674cb55c4e91ad0bcf47a196ea7ae475bd",
+      "changes": [
+        "Byte-identical source import"
+      ]
+    },
+    {
+      "path": "services/avrana-kindle-connector/tests/test_kindle.py",
+      "source": "/home/cody/avrana/services/avrana-kindle-connector/tests/test_kindle.py",
+      "source_sha256": "0defee4f48c1040dca69c751cd4056a4f69c4e52f8669fcc68e640cb507eb4fd",
+      "import_sha256": "b80d63bf2e1820dfa240587f3807a29eef55f102fc0d724e272cea330a088988",
+      "changes": [
+        "Removed live Docker/HTTP tests and replaced personal Kindle fixture with synthetic address",
+        "Normalized final blank lines during staged whitespace review"
+      ]
+    },
+    {
+      "path": "services/avrana-imax-verify/imax_verify.py",
+      "source": "/home/cody/avrana/services/avrana-imax-verify/imax_verify.py",
+      "source_sha256": "1bc49925a06787b05a25995ffdee314e3fc4f325a7d92ec01af64945ea3f286f",
+      "import_sha256": "1bc49925a06787b05a25995ffdee314e3fc4f325a7d92ec01af64945ea3f286f",
+      "changes": [
+        "Byte-identical source import"
+      ]
+    },
+    {
+      "path": "services/avrana-imax-verify/server.py",
+      "source": "/home/cody/avrana/services/avrana-imax-verify/server.py",
+      "source_sha256": "2132119f4748edc36f60a328e88d87675a06749127af2e9582a56a8fd6057b00",
+      "import_sha256": "2132119f4748edc36f60a328e88d87675a06749127af2e9582a56a8fd6057b00",
+      "changes": [
+        "Byte-identical source import"
+      ]
+    },
+    {
+      "path": "services/avrana-imax-verify/Dockerfile",
+      "source": "/home/cody/avrana/services/avrana-imax-verify/Dockerfile",
+      "source_sha256": "b6fe13f715ba8ed5ace2a7f760b0a88085c19a09a75d03d542c8494d7e90b137",
+      "import_sha256": "b6fe13f715ba8ed5ace2a7f760b0a88085c19a09a75d03d542c8494d7e90b137",
+      "changes": [
+        "Byte-identical source import"
+      ]
+    },
+    {
+      "path": "services/avrana-imax-verify/tests/test_classify.py",
+      "source": "/home/cody/avrana/services/avrana-imax-verify/tests/test_classify.py",
+      "source_sha256": "493c92286f6f95fe72b7de27ecc35edfff1725f04398c88b139fdf1a8a35a501",
+      "import_sha256": "493c92286f6f95fe72b7de27ecc35edfff1725f04398c88b139fdf1a8a35a501",
+      "changes": [
+        "Byte-identical source import"
+      ]
+    },
+    {
+      "path": "services/libation-status/status.py",
+      "source": "/home/cody/avrana/services/libation-status/status.py",
+      "source_sha256": "5106644b061a13a57320c07ff8a1282d70b1bf409b6ce4d6836030439dbcd4dc",
+      "import_sha256": "5106644b061a13a57320c07ff8a1282d70b1bf409b6ce4d6836030439dbcd4dc",
+      "changes": [
+        "Byte-identical source import"
+      ]
+    },
+    {
+      "path": "services/calibre-web-automated/avrana-patch/apply_avrana_patches.py",
+      "source": "/home/cody/avrana/services/calibre-web-automated/avrana-patch/apply_avrana_patches.py",
+      "source_sha256": "3627659c63b9a2de60d81e2cf2d5ec51681475c2e39f2f03a30c20055c04db67",
+      "import_sha256": "3627659c63b9a2de60d81e2cf2d5ec51681475c2e39f2f03a30c20055c04db67",
+      "changes": [
+        "Byte-identical source import"
+      ]
+    },
+    {
+      "path": "services/calibre-web-automated/Dockerfile",
+      "source": "/home/cody/avrana/services/calibre-web-automated/Dockerfile",
+      "source_sha256": "977ccaec64e5996fa1661740118b90db426ff227c14f03f1c83b1672f5e69ea1",
+      "import_sha256": "977ccaec64e5996fa1661740118b90db426ff227c14f03f1c83b1672f5e69ea1",
+      "changes": [
+        "Byte-identical source import"
+      ]
+    },
+    {
+      "path": "services/calibre-web-automated/tests/test_attachment_filename.py",
+      "source": "/home/cody/avrana/services/calibre-web-automated/tests/test_attachment_filename.py",
+      "source_sha256": "2140c8f0c4cedd3f6ea2bcefda2ba868bfba5b5def1a93b913f53c53ee9174a2",
+      "import_sha256": "2140c8f0c4cedd3f6ea2bcefda2ba868bfba5b5def1a93b913f53c53ee9174a2",
+      "changes": [
+        "Byte-identical source import"
+      ]
+    }
+  ]
+}

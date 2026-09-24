@@ -1,0 +1,8 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Disconnected</h1>
+<p class="lede">Your Audible account has been disconnected from {{ brand }} and its saved
+authorization removed. Nothing further will be scanned or imported.</p>
+<p class="hint">Books already imported stay in {{ brand }}.</p>
+<a href="/contribute/audible" class="primary as-button">Connect again</a>
+{% endblock %}

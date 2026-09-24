@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}{{ brand }} · Import progress{% endblock %}
+{% block content %}
+{% if revoked %}
+<div class="alert notice">All selected books are in {{ brand }}. Your Audible account has been
+  disconnected and nothing was kept.</div>
+{% endif %}
+<h1>Import progress</h1>
+<p class="lede">You can leave this page and come back any time. Refreshing will not start anything
+twice.</p>
+
+<meta http-equiv="refresh" content="10">
+
+<ul class="progress">
+  {% for r in rows %}
+  <li class="p-{{ r.book_status }}">
+    <span class="pt">{{ r.title or r.asin }}</span>
+    <span class="ps">
+      {% if r.book_status == 'imported' %}Imported
+      {% elif r.book_status == 'importing' %}Importing
+      {% elif r.book_status == 'queued' %}Queued
+      {% elif r.book_status == 'selected' %}Waiting
+      {% elif r.book_status == 'failed' %}Failed{% endif %}
+    </span>
+    {% if r.book_status == 'failed' %}
+    <form method="post" action="/contribute/audible/retry" class="inline">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="asin" value="{{ r.asin }}">
+      <button type="submit" class="ghost small">Retry</button>
+    </form>
+    {% if r.failure %}<span class="err">{{ r.failure }}</span>{% endif %}
+    {% endif %}
+  </li>
+  {% else %}
+  <li class="empty">Nothing queued.</li>
+  {% endfor %}
+</ul>
+
+<div class="rowbar">
+  <a href="/contribute/audible/library" class="ghost as-button">Back to library</a>
+  {% if connection and connection.state == 'connected' %}
+  <form method="post" action="/contribute/audible/disconnect" class="inline"
+        onsubmit="return confirm('Disconnect your Audible account?');">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <button type="submit" class="ghost danger">Disconnect</button>
+  </form>
+  {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}{{ brand }} · Contribute audiobooks{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css?v={{ asset_v }}">
+</head>
+<body>
+  <header class="topbar">
+    <span class="brand">{{ brand }}</span>
+    <span class="sub">Audible contribution</span>
+  </header>
+  <main class="wrap">
+    {% if error %}<div class="alert error">{{ error }}</div>{% endif %}
+    {% if notice %}<div class="alert notice">{{ notice }}</div>{% endif %}
+    {% block content %}{% endblock %}
+  </main>
+  <footer class="foot">
+    <span>You only ever see your own purchases. {{ brand }} never receives your Amazon password.</span>
+  </footer>
+</body>
+</html>

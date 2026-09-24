@@ -1,0 +1,238 @@
+{
+  "files": [
+    {
+      "path": "services/avrana-audible-connector/connector/app/__init__.py",
+      "source": "/home/cody/avrana/services/avrana-audible-connector/connector/app/__init__.py",
+      "source_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "destination_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "transformed": false,
+      "reason": "First-party application source; static value-free review; copied without execution."
+    },
+    {
+      "path": "services/avrana-audible-connector/connector/app/asgi.py",
+      "source": "/home/cody/avrana/services/avrana-audible-connector/connector/app/asgi.py",
+      "source_sha256": "6493385b4540deb93e7b4d5093723e89322dfa63df9d1471b9a3322692cc290e",
+      "destination_sha256": "6493385b4540deb93e7b4d5093723e89322dfa63df9d1471b9a3322692cc290e",
+      "transformed": false,
+      "reason": "First-party application source; static value-free review; copied without execution."
+    },
+    {
+      "path": "services/avrana-audible-connector/connector/app/audit.py",
+      "source": "/home/cody/avrana/services/avrana-audible-connector/connector/app/audit.py",
+      "source_sha256": "4a6e4a1e382bfebe2752d983f32381f1d7676799f1e1d44d1905cf0ad4165300",
+      "destination_sha256": "4a6e4a1e382bfebe2752d983f32381f1d7676799f1e1d44d1905cf0ad4165300",
+      "transformed": false,
+      "reason": "First-party application source; static value-free review; copied without execution."
+    },
+    {
+      "path": "services/avrana-audible-connector/connector/app/catalog.py",
+      "source": "/home/cody/avrana/services/avrana-audible-connector/connector/app/catalog.py",
+      "source_sha256": "bfbe38d4571b1ef9b11badf266e489d98c87bb834f79d04c9b30a8e0792a882f",
+      "destination_sha256": "bfbe38d4571b1ef9b11badf266e489d98c87bb834f79d04c9b30a8e0792a882f",
+      "transformed": false,
+      "reason": "First-party application source; static value-free review; copied without execution."
+    },
+    {
+      "path": "services/avrana-audible-connector/connector/app/companion_client.py",
+      "source": "/home/cody/avrana/services/avrana-audible-connector/connector/app/companion_client.py",
+      "source_sha256": "1f7f5e34dc6fe241ed3e2971f9b7e467857b97e5a8ad6bbfb306212dcc89eaa9",
+      "destination_sha256": "1f7f5e34dc6fe241ed3e2971f9b7e467857b97e5a8ad6bbfb306212dcc89eaa9",
+      "transformed": false,
+      "reason": "First-party application source; static value-free review; copied without execution."
+    },
+    {
+      "path": "services/avrana-audible-connector/connector/app/config.py",
+      "source": "/home/cody/avrana/services/avrana-audible-connector/connector/app/config.py",
+      "source_sha256": "d64f67bf95ca2abf705a04bfbd01a09407dc9e2909e7269ffd07f18463758211",
+      "destination_sha256": "d64f67bf95ca2abf705a04bfbd01a09407dc9e2909e7269ffd07f18463758211",
+      "transformed": false,
+      "reason": "First-party application source; static value-free review; copied without execution."
+    },
+    {
+      "path": "services/avrana-audible-connector/connector/app/db.py",
+      "source": "/home/cody/avrana/services/avrana-audible-connector/connector/app/db.py",
+      "source_sha256": "29287289a8355bab43c5986a0b14e54df27511db1749d70f32ebfa5dd9e55391",
+      "destination_sha256": "29287289a8355bab43c5986a0b14e54df27511db1749d70f32ebfa5dd9e55391",
+      "transformed": false,
+      "reason": "First-party application source; static value-free review; copied without execution."
+    },
+    {
+      "path": "services/avrana-audible-connector/connector/app/identity.py",
+      "source": "/home/cody/avrana/services/avrana-audible-connector/connector/app/identity.py",
+      "source_sha256": "74ceeb38114b435608b47e9160bd121b7d94393344ed2a9ec1a2b8980cba7b88",
+      "destination_sha256": "74ceeb38114b435608b47e9160bd121b7d94393344ed2a9ec1a2b8980cba7b88",
+      "transformed": false,
+      "reason": "First-party application source; static value-free review; copied without execution."
+    },
+    {
+      "path": "services/avrana-audible-connector/connector/app/jobs.py",
+      "source": "/home/cody/avrana/services/avrana-audible-connector/connector/app/jobs.py",
+      "source_sha256": "2c1595a5e515ddd54b2b93073e72f7a6dab0a421813600f21272b0463f89c498",
+      "destination_sha256": "2c1595a5e515ddd54b2b93073e72f7a6dab0a421813600f21272b0463f89c498",
+      "transformed": false,
+      "reason": "First-party application source; static value-free review; copied without execution."
+    },
+    {
+      "path": "services/avrana-audible-connector/connector/app/main.py",
+      "source": "/home/cody/avrana/services/avrana-audible-connector/connector/app/main.py",
+      "source_sha256": "34dd0aa06eacd31bb2e978183a3397d18f58a777dfffe903ab54940ead80030b",
+      "destination_sha256": "34dd0aa06eacd31bb2e978183a3397d18f58a777dfffe903ab54940ead80030b",
+      "transformed": false,
+      "reason": "First-party application source; static value-free review; copied without execution."
+    },
+    {
+      "path": "services/avrana-audible-connector/connector/app/migrations/001_init.sql",
+      "source": "/home/cody/avrana/services/avrana-audible-connector/connector/app/migrations/001_init.sql",
+      "source_sha256": "d679c099235851e800e2bd4487ec50ab1c7cc5b7ac224fd111b4219adf387256",
+      "destination_sha256": "d679c099235851e800e2bd4487ec50ab1c7cc5b7ac224fd111b4219adf387256",
+      "transformed": false,
+      "reason": "First-party application source; static value-free review; copied without execution."
+    },
+    {
+      "path": "services/avrana-audible-connector/connector/app/migrations/002_baseline.sql",
+      "source": "/home/cody/avrana/services/avrana-audible-connector/connector/app/migrations/002_baseline.sql",
+      "source_sha256": "411a6edd72378f75a1db8c0a907c9a353b8d52df69960282e34024b098319a62",
+      "destination_sha256": "411a6edd72378f75a1db8c0a907c9a353b8d52df69960282e34024b098319a62",
+      "transformed": false,
+      "reason": "First-party application source; static value-free review; copied without execution."
+    },
+    {
+      "path": "services/avrana-audible-connector/connector/app/oidc.py",
+      "source": "/home/cody/avrana/services/avrana-audible-connector/connector/app/oidc.py",
+      "source_sha256": "5bd62b387ef36af40f373eb28e96ff7c4e353472f67e1cd6597dedb795180925",
+      "destination_sha256": "5bd62b387ef36af40f373eb28e96ff7c4e353472f67e1cd6597dedb795180925",
+      "transformed": false,
+      "reason": "First-party application source; static value-free review; copied without execution."
+    },
+    {
+      "path": "services/avrana-audible-connector/connector/app/repo.py",
+      "source": "/home/cody/avrana/services/avrana-audible-connector/connector/app/repo.py",
+      "source_sha256": "131f20f33dd1fc2c50a55e24063cd7f76737ef5ba269697aae11ee009fd56b15",
+      "destination_sha256": "131f20f33dd1fc2c50a55e24063cd7f76737ef5ba269697aae11ee009fd56b15",
+      "transformed": false,
+      "reason": "First-party application source; static value-free review; copied without execution."
+    },
+    {
+      "path": "services/avrana-audible-connector/connector/app/routes/__init__.py",
+      "source": "/home/cody/avrana/services/avrana-audible-connector/connector/app/routes/__init__.py",
+      "source_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "destination_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "transformed": false,
+      "reason": "First-party application source; static value-free review; copied without execution."
+    },
+    {
+      "path": "services/avrana-audible-connector/connector/app/routes/flow.py",
+      "source": "/home/cody/avrana/services/avrana-audible-connector/connector/app/routes/flow.py",
+      "source_sha256": "782daeb2d55d1527132128f005ede31253a9d47295a748d758e1fa32c3465aaf",
+      "destination_sha256": "782daeb2d55d1527132128f005ede31253a9d47295a748d758e1fa32c3465aaf",
+      "transformed": false,
+      "reason": "First-party application source; static value-free review; copied without execution."
+    },
+    {
+      "path": "services/avrana-audible-connector/connector/app/routes/health.py",
+      "source": "/home/cody/avrana/services/avrana-audible-connector/connector/app/routes/health.py",
+      "source_sha256": "49facfa7e54c6d214538b4881d746a76617fefd0a97e3c0c7db6951b8f1d1d67",
+      "destination_sha256": "49facfa7e54c6d214538b4881d746a76617fefd0a97e3c0c7db6951b8f1d1d67",
+      "transformed": false,
+      "reason": "First-party application source; static value-free review; copied without execution."
+    },
+    {
+      "path": "services/avrana-audible-connector/connector/app/security.py",
+      "source": "/home/cody/avrana/services/avrana-audible-connector/connector/app/security.py",
+      "source_sha256": "5098631411cc39f6f9c7e43939935fa6ef3a4d95105a6e273a2b9578c0bdf8ed",
+      "destination_sha256": "5098631411cc39f6f9c7e43939935fa6ef3a4d95105a6e273a2b9578c0bdf8ed",
+      "transformed": false,
+      "reason": "First-party application source; static value-free review; copied without execution."
+    },
+    {
+      "path": "services/avrana-audible-connector/connector/app/static/style.css",
+      "source": "/home/cody/avrana/services/avrana-audible-connector/connector/app/static/style.css",
+      "source_sha256": "c85e3429ccc2746fdbc3cfaf92d3eeb3f09436f714e7fa2def70ff4fc28b283b",
+      "destination_sha256": "c85e3429ccc2746fdbc3cfaf92d3eeb3f09436f714e7fa2def70ff4fc28b283b",
+      "transformed": false,
+      "reason": "First-party application source; static value-free review; copied without execution."
+    },
+    {
+      "path": "services/avrana-audible-connector/connector/app/sync.py",
+      "source": "/home/cody/avrana/services/avrana-audible-connector/connector/app/sync.py",
+      "source_sha256": "825b3202da7ec2766c24d7eb2af7e2ffae48b88c44eabbdbf024fd849cba59a5",
+      "destination_sha256": "825b3202da7ec2766c24d7eb2af7e2ffae48b88c44eabbdbf024fd849cba59a5",
+      "transformed": false,
+      "reason": "First-party application source; static value-free review; copied without execution."
+    },
+    {
+      "path": "services/avrana-audible-connector/connector/app/templates/base.html",
+      "source": "/home/cody/avrana/services/avrana-audible-connector/connector/app/templates/base.html",
+      "source_sha256": "c4f86adab2dd3700be7a6131cbd880c945a074c7fe0d6eb704df90afcf503815",
+      "destination_sha256": "c4f86adab2dd3700be7a6131cbd880c945a074c7fe0d6eb704df90afcf503815",
+      "transformed": false,
+      "reason": "First-party application source; static value-free review; copied without execution."
+    },
+    {
+      "path": "services/avrana-audible-connector/connector/app/templates/connect.html",
+      "source": "/home/cody/avrana/services/avrana-audible-connector/connector/app/templates/connect.html",
+      "source_sha256": "32bce24dda6dfbcc6ac14eb834f559a090e3e0643e0160706518b29ded165816",
+      "destination_sha256": "35b4dee035852e8185d508d180d0c40eaaab56abf0408b431f65001387bdb0b4",
+      "transformed": true,
+      "reason": "Replace email-shaped UI placeholder with reserved example domain."
+    },
+    {
+      "path": "services/avrana-audible-connector/connector/app/templates/disconnected.html",
+      "source": "/home/cody/avrana/services/avrana-audible-connector/connector/app/templates/disconnected.html",
+      "source_sha256": "23e24df5bcfa6c4d34c0123ba3040757b1069ec34739682dc11c3ad1e6daa5d2",
+      "destination_sha256": "23e24df5bcfa6c4d34c0123ba3040757b1069ec34739682dc11c3ad1e6daa5d2",
+      "transformed": false,
+      "reason": "First-party application source; static value-free review; copied without execution."
+    },
+    {
+      "path": "services/avrana-audible-connector/connector/app/templates/library.html",
+      "source": "/home/cody/avrana/services/avrana-audible-connector/connector/app/templates/library.html",
+      "source_sha256": "1ce8a19a2a676ad45ae5dc7fd330563a9b3f24c4c16835e75b1e4a626fdb6086",
+      "destination_sha256": "1ce8a19a2a676ad45ae5dc7fd330563a9b3f24c4c16835e75b1e4a626fdb6086",
+      "transformed": false,
+      "reason": "First-party application source; static value-free review; copied without execution."
+    },
+    {
+      "path": "services/avrana-audible-connector/connector/app/templates/mode.html",
+      "source": "/home/cody/avrana/services/avrana-audible-connector/connector/app/templates/mode.html",
+      "source_sha256": "3a194aa750f6dbe015825b8aee21dd80494753870afbc4bafb90985eacacce58",
+      "destination_sha256": "3a194aa750f6dbe015825b8aee21dd80494753870afbc4bafb90985eacacce58",
+      "transformed": false,
+      "reason": "First-party application source; static value-free review; copied without execution."
+    },
+    {
+      "path": "services/avrana-audible-connector/connector/app/templates/paste_redirect.html",
+      "source": "/home/cody/avrana/services/avrana-audible-connector/connector/app/templates/paste_redirect.html",
+      "source_sha256": "8d83debd2c4444080b2cbc3c3c6047066b15faa87191038cfe124b5c2272fb32",
+      "destination_sha256": "8d83debd2c4444080b2cbc3c3c6047066b15faa87191038cfe124b5c2272fb32",
+      "transformed": false,
+      "reason": "First-party application source; static value-free review; copied without execution."
+    },
+    {
+      "path": "services/avrana-audible-connector/connector/app/templates/progress.html",
+      "source": "/home/cody/avrana/services/avrana-audible-connector/connector/app/templates/progress.html",
+      "source_sha256": "31c38e482f3dde1bf2d22aca2be7ca2ba07415e6dba31e8d80ce85d6c36d66f6",
+      "destination_sha256": "31c38e482f3dde1bf2d22aca2be7ca2ba07415e6dba31e8d80ce85d6c36d66f6",
+      "transformed": false,
+      "reason": "First-party application source; static value-free review; copied without execution."
+    },
+    {
+      "path": "services/avrana-audible-connector/connector/requirements.txt",
+      "source": "/home/cody/avrana/services/avrana-audible-connector/connector/requirements.txt",
+      "source_sha256": "f1badf6e2dea3322d1565ea51c6e8d2d396acfd844d3c5dc6ccdbb5e1f5bc772",
+      "destination_sha256": "f1badf6e2dea3322d1565ea51c6e8d2d396acfd844d3c5dc6ccdbb5e1f5bc772",
+      "transformed": false,
+      "reason": "First-party application source; static value-free review; copied without execution."
+    }
+  ],
+  "validation": "Python AST parsing only; no imports, migrations, dependency installation, or services executed.",
+  "deferred": [
+    "Dockerfile pending build-context and dependency review",
+    "all tests and fixtures pending complete offline isolation review",
+    "companion and mock-companion",
+    "compose and .env configuration",
+    "runtime data, profiles, secrets",
+    "credential generation scripts",
+    "historical README and PLAN"
+  ]
+}

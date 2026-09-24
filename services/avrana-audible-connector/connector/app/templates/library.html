@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Your Audible library</h1>
+<p class="lede">Pick the books to add to {{ brand }}. Only titles you have purchased can be
+imported. Audible Plus titles and books already in {{ brand }} are shown but cannot be selected.</p>
+
+<div class="chips">
+  <span class="chip">{{ counts.purchased }} owned</span>
+  <span class="chip muted">{{ counts.already }} already in {{ brand }}</span>
+  <span class="chip muted">{{ counts.plus }} Audible Plus</span>
+  {% if counts.imported %}<span class="chip ok">{{ counts.imported }} imported</span>{% endif %}
+</div>
+
+<form method="post" action="/contribute/audible/scan" class="inline">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <button type="submit" class="ghost">Re-scan library</button>
+</form>
+
+<form method="post" action="/contribute/audible/select">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <div class="rowbar">
+    <button type="submit" name="select_all" value="1" class="ghost">Select all new</button>
+    <button type="submit" class="primary">Continue with selected</button>
+  </div>
+  <ul class="cards">
+    {% for b in books %}
+    <li class="book status-{{ b.status }} elig-{{ b.eligibility }}">
+      {% if b.cover_url %}<img class="cover" src="{{ b.cover_url }}" alt="" loading="lazy">{% else %}<div class="cover ph"></div>{% endif %}
+      <div class="meta">
+        <div class="t">{{ b.title or b.asin }}</div>
+        <div class="a">{{ b.author or "" }}</div>
+        {% if b.narrator %}<div class="n">Narrated by {{ b.narrator }}</div>{% endif %}
+        {% if b.runtime_min %}<div class="r">{{ (b.runtime_min // 60) }}h {{ (b.runtime_min % 60) }}m</div>{% endif %}
+        <div class="badges">
+          {% if b.eligibility == 'plus' %}<span class="badge plus">Audible Plus</span>
+          {% elif b.status == 'already' %}<span class="badge muted">Already in {{ brand }}</span>
+          {% elif b.status == 'imported' %}<span class="badge ok">Imported</span>
+          {% elif b.status == 'selected' %}<span class="badge sel">Selected</span>
+          {% elif b.status == 'review' %}<span class="badge warn">Needs review</span>
+          {% elif b.status == 'pending' %}<span class="badge warn">New, pending</span>
+          {% elif b.eligibility == 'purchased' %}<span class="badge own">Owned</span>
+          {% else %}<span class="badge muted">Not purchased</span>{% endif %}
+        </div>
+      </div>
+      <div class="pick">
+        {% if b.eligibility == 'purchased' and b.status in ['available','review','selected','pending'] %}
+        <input type="checkbox" name="asin" value="{{ b.asin }}" {% if b.status == 'selected' %}checked{% endif %}
+               aria-label="Select {{ b.title or b.asin }}">
+        {% endif %}
+      </div>
+    </li>
+    {% else %}
+    <li class="empty">No books found yet. Try “Re-scan library”.</li>
+    {% endfor %}
+  </ul>
+</form>
+{% endblock %}

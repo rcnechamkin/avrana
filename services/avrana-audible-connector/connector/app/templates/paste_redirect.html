@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Finish connecting</h1>
+<p class="lede">Sign in with Amazon, then copy the address you land on.</p>
+
+{% if login_url %}
+<div class="card">
+  <p><strong>Step 1.</strong> Open your secure Amazon login page:</p>
+  <a class="primary as-button" href="{{ login_url }}" target="_blank" rel="noopener noreferrer">
+    Open Amazon sign-in</a>
+  <p class="hint">It opens in a new tab. Sign in as you normally would, including any texted code
+    or CAPTCHA. {{ brand }} does not see any of that.</p>
+</div>
+{% endif %}
+
+<div class="card">
+  <p><strong>Step 2.</strong> After you sign in, Amazon sends your browser to a page that may look
+     blank or show an error. That is expected. <strong>Copy the entire web address</strong> from
+     your browser’s address bar.</p>
+  <details><summary>How do I copy the address?</summary>
+    <p class="hint">Tap or click the address bar at the top of your browser so the whole address is
+      highlighted, then choose Copy. On a phone, press and hold the address, then choose Select All,
+      then Copy.</p>
+  </details>
+</div>
+
+<form method="post" action="/contribute/audible/complete" class="card">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <input type="hidden" name="session_id" value="{{ session_id }}">
+  <label><strong>Step 3.</strong> Paste that address here
+    <textarea name="response_url" required rows="3" placeholder="https://www.amazon.com/ap/maplanding?..."
+      autocomplete="off" spellcheck="false"></textarea>
+  </label>
+  <button type="submit" class="primary">Finish connecting</button>
+  <p class="hint">{{ brand }} uses this once to complete the connection, then discards it. It is
+    never stored.</p>
+</form>
+{% endblock %}

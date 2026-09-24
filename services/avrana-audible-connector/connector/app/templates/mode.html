@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>How should this connection work?</h1>
+<p class="lede">You have selected <strong>{{ selected }}</strong> book{{ '' if selected == 1 else 's' }}.
+Choose what happens next.</p>
+
+<form method="post" action="/contribute/audible/mode">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <fieldset class="choices">
+    <label class="choice">
+      <input type="radio" name="mode" value="once" checked>
+      <div><strong>Import these books once</strong>
+        <p>Import only what you selected. Once they are all in, {{ brand }} disconnects your
+           Audible account and keeps nothing.</p></div>
+    </label>
+    <label class="choice">
+      <input type="radio" name="mode" value="ask">
+      <div><strong>Stay connected and ask first</strong>
+        <p>{{ brand }} checks about once a day for new purchases and lists them here. Nothing
+           downloads until you approve it.</p></div>
+    </label>
+    <label class="choice">
+      <input type="radio" name="mode" value="auto">
+      <div><strong>Import future purchases automatically</strong>
+        <p>{{ brand }} checks about once a day and adds anything new you have bought. Borrowed
+           Audible Plus titles are never included.</p></div>
+    </label>
+  </fieldset>
+  <button type="submit" class="primary">Start import</button>
+</form>
+
+<form method="post" action="/contribute/audible/disconnect" class="inline"
+      onsubmit="return confirm('Disconnect your Audible account now?');">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <button type="submit" class="ghost danger">Disconnect now</button>
+</form>
+{% endblock %}
