@@ -156,8 +156,10 @@ stack-config|member|stack-config/stack-config.tar.zst|services/avrana-kindle-con
 stack-config|member|stack-config/stack-config.tar.zst|services/avrana-kindle-connector/.env
 stack-config|member|stack-config/stack-config.tar.zst|services/avrana-portal/docker-compose.yml
 stack-config|member|stack-config/stack-config.tar.zst|services/backups/avrana-backup.sh
-stack-config|member|stack-config/stack-config.tar.zst|services/backups/offhost-setup.md
-stack-config|member|stack-config/stack-config.tar.zst|services/backups/offhost-sync.sh
+stack-config|member|stack-config/stack-config.tar.zst|services/backups/offhost-backup.py
+stack-config|member|stack-config/stack-config.tar.zst|services/backups/offhost-setup.sh
+stack-config|member|stack-config/stack-config.tar.zst|services/backups/restore-map.txt
+stack-config|member|stack-config/stack-config.tar.zst|services/backups/restore-test.py
 stack-config|member|stack-config/stack-config.tar.zst|services/backups/README.md
 stack-config|member|stack-config/stack-config.tar.zst|services/backups/restore-test.sh
 stack-config|member|stack-config/stack-config.tar.zst|services/beszel/docker-compose.yml
