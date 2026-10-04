@@ -1,0 +1,11 @@
+[Unit]
+Description=Watch for an operator-requested stack backup (from OliveTin)
+
+[Path]
+# OliveTin writes this marker; it is the ONLY thing OliveTin can do to the host. It has no
+# Docker exec rights and no host shell, so a compromise of OliveTin can request a backup and
+# nothing else.
+PathExists=/home/cody/avrana/services/olivetin/state/request-backup
+
+[Install]
+WantedBy=default.target

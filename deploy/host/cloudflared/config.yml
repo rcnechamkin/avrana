@@ -1,0 +1,50 @@
+# Imported from /home/cody/.cloudflared/config.yml on 2026-10-04 (no secrets: the tunnel
+# credential is the separate JSON file named below, which is never in Git).
+tunnel: 1f77ba21-71ca-4360-8861-28b0a5a30f6f
+credentials-file: /home/cody/.cloudflared/1f77ba21-71ca-4360-8861-28b0a5a30f6f.json
+
+# Public-facing services only. Backend/admin services (SABnzbd, Sonarr,
+# Radarr, Prowlarr, Bazarr, Mylar3) are deliberately NOT routed here --
+# they stay LAN-only and are unreachable from the tunnel.
+ingress:
+  - hostname: watch.avrana.net
+    service: http://localhost:8096      # Jellyfin (host network)
+
+  - hostname: read.avrana.net
+    service: http://localhost:25600     # Komga (container)
+
+  - hostname: request.avrana.net
+    service: http://localhost:5055      # Seerr (container)
+
+  - hostname: requestacomic.avrana.net
+    service: http://10.0.0.218:5058     # Omnibus (native Authentik OIDC)
+
+  - hostname: requestabook.avrana.net
+    service: http://10.0.0.218:5056     # Shelfarr (native Authentik OIDC)
+
+  - hostname: listen.avrana.net
+    service: http://10.0.0.218:13378  # Audiobookshelf (LAN-bound container)
+
+  - hostname: auth.avrana.net
+    service: http://localhost:9000    # Authentik identity provider
+
+  - hostname: contribute.avrana.net
+    service: http://localhost:8092    # Avrana Audible Connector (OIDC-gated)
+
+  - hostname: books.avrana.net
+    service: http://10.0.0.218:8083   # Calibre-Web-Automated (LDAP login via Authentik)
+
+  - hostname: avrana.net
+    service: http://localhost:9000    # Avrana portal (Authentik embedded outpost, gated by
+                                      # avrana-users, reverse-proxies to the avrana-portal service)
+
+  - hostname: ops.avrana.net
+    service: http://localhost:9000    # OliveTin ops console (Authentik embedded outpost, gated by
+                                      # "authentik Admins", reverse-proxies to the olivetin service)
+
+  - hostname: kindle.avrana.net
+    service: http://localhost:9000    # Kindle connector (Authentik embedded outpost, gated by
+                                      # avrana-books, reverse-proxies to avrana-kindle-connector)
+
+  # Required catch-all: anything else gets 404 rather than reaching a service.
+  - service: http_status:404

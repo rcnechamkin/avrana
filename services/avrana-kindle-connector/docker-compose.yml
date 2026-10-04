@@ -1,0 +1,58 @@
+# Avrana Kindle Connector - set your Send-to-Kindle address once, written to both libraries.
+#
+# Same topology as avrana-portal: cloudflared -> Authentik embedded proxy outpost (gated by
+# avrana-books) -> this service. It publishes NO host port, so the outpost cannot be bypassed,
+# and the outpost strips client-supplied X-authentik-* headers before setting its own.
+services:
+  avrana-kindle-connector:
+    build: .
+    image: avrana-kindle-connector:local
+    container_name: avrana-kindle-connector
+    environment:
+      - PORT=8096
+      - TZ=America/Los_Angeles
+      - CWA_DB=/cwa/app.db
+      - ABS_URL=http://10.0.0.218:13378
+      - ABS_API_KEY=${ABS_API_KEY:?set ABS_API_KEY in services/avrana-kindle-connector/.env}
+      - SENDER_ADDRESS=cody@avrana.net
+      - REQUIRED_GROUP=avrana-books
+    volumes:
+      # Calibre-Web's user table, READ-WRITE because kindle_mail is a per-user column there.
+      #
+      # MOUNT THE DIRECTORY, NOT THE INDIVIDUAL FILES. app.db is in WAL mode, so SQLite creates
+      # app.db-wal / app.db-shm on open and DELETES them on every clean close. Bind-mounting those
+      # two paths individually meant that after any clean CWA shutdown Docker found the sources
+      # missing and recreated them as empty DIRECTORIES, which then killed CWA on the next start
+      # with "unable to open database file". That took CWA down twice on 2026-08-29 (reboot, and
+      # again on the rollback's daemon restart). A directory mount removes the fault class
+      # entirely: Docker never has to create a bind source, and SQLite owns its own sidecars.
+      #
+      # config/appdb/ contains ONLY app.db and its sidecars. CWA reaches it through the relative
+      # symlink config/app.db -> appdb/app.db; SQLite resolves the link and places -wal/-shm next
+      # to the TARGET, so both containers share one directory. The original reason for the
+      # per-file mounts still holds and is still satisfied: this container cannot see `.key` (the
+      # Fernet key that decrypts CWA's stored SMTP password), nor cwa.db, gdrive.db, or anything
+      # else under /config.
+      - /home/cody/avrana/services/calibre-web-automated/config/appdb:/cwa:rw
+    networks: [authentik_frontend]
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=16m
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    pids_limit: 64
+    mem_limit: 128m
+    cpus: 0.5
+    healthcheck:
+      test: ["CMD", "python3", "-c",
+             "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8096/healthz',timeout=3).status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    logging: {driver: json-file, options: {max-size: "10m", max-file: "3"}}
+    restart: unless-stopped
+
+networks:
+  authentik_frontend:
+    external: true

@@ -1,0 +1,29 @@
+path	source	reason
+.gitignore	live	Kern-era ignore rules; replaced by the canonical .gitignore
+bin/bs	live	BookStack API client; BookStack is being retired
+bin/kern-status.sh	live	Kern Prime status helper
+deploy/compose/komf.yml	live	komf was retired
+deploy/compose/komga.yml	live	hand mirror; canonical copy is services/komga/docker-compose.yml
+deploy/docker/ADDRESS-POOLS.md	live	plan for the abandoned address-pool migration
+deploy/docker/README.md	live	describes the abandoned address-pool migration
+deploy/docker/apply-address-pools-v2.sh	live	Aug 29 address-pool migration tooling; migration abandoned
+deploy/docker/apply-address-pools.v1-DO-NOT-RUN.sh	live	Aug 29 address-pool migration tooling (caused the incident)
+deploy/docker/clean-orphan-bridges.sh	live	Aug 29 incident cleanup, one-off
+deploy/docker/clean-orphan-container-records.sh	live	Aug 29 incident cleanup, one-off
+deploy/docker/daemon.json.proposed	live	Aug 29 proposal never adopted; live daemon.json is in deploy/host/
+deploy/docker/fix-imax-libvirt-collision.sh	live	Aug 29 incident cleanup, one-off
+deploy/docker/post-change-verify.sh	live	Aug 29 migration verification, superseded by verify-baseline.sh
+deploy/docker/preflight-address-pools.sh	live	Aug 29 address-pool migration tooling
+deploy/docker/renumber-networks.sh	live	Aug 29 migration scar
+deploy/docker/renumber-networks2.sh	live	Aug 29 migration scar
+deploy/docker/restore-networks.sh	live	Aug 29 migration scar
+deploy/docker/restore-stack.sh	live	Aug 29 migration scar
+deploy/docker/restore-stack2.sh	live	Aug 29 migration scar
+deploy/docker/restore-stack3.sh	live	Aug 29 migration scar
+deploy/docker/restore-stack4.sh	live	Aug 29 migration scar
+deploy/docker/rollback-docker-state.sh	live	Aug 29 migration tooling
+deploy/docker/snapshot-docker-state.sh	live	Aug 29 migration tooling
+deploy/systemd/cleanup-obsolete-units.sh	live	Aug 28 one-off unit cleanup, already run
+deploy/systemd/retire-health-api.sh	live	Aug 28 one-off retirement of the health API, already run
+requirements.txt	live	Kern Prime Python dependencies
+services/kavita/docker-compose.yml	live	Kavita is not deployed (no container); config dir is legacy state

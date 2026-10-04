@@ -1,0 +1,129 @@
+# ---------------------------------------------------------------------------
+# Shelfmark -- manual book/audiobook search + request frontend.
+#
+# What it is NOT: it does not manage a library, monitor for releases, or queue
+# future downloads. It is a search box that hands a finished download to a
+# destination directory. Do not wire it up expecting Readarr behaviour, and do
+# not point Komga/Kavita/Audiobookshelf at it as if it curated anything.
+#
+# Upstream is stable as of May 2026 but NOT actively maintained, so the image
+# is pinned to 1.3.6 rather than :latest -- an unattended pull of an
+# unmaintained project is how this breaks silently. Bump deliberately.
+#
+# Lives here (avrana/services/<name>/) rather than in the shared
+# /home/cody/docker/docker-compose.yml with the *arr stack, matching the
+# convention used for audiobookshelf, libation, komga and kavita. services/ is
+# gitignored, so ./config is not committed -- keep it that way.
+# ---------------------------------------------------------------------------
+
+services:
+  shelfmark:
+    # Standard variant, NOT lite: it bundles Chromium for Cloudflare bypass on
+    # Direct Download and wants >=2GB RAM. This host has 31G total with ~27G
+    # available, so there is plenty of headroom and no memory limit is set
+    # below (a limit is exactly what starves Chromium). If Direct Downloads
+    # ever fail with "403 detected; switching to bypasser" -> "No download URL
+    # found", check free RAM here FIRST -- that error misleadingly looks like
+    # an ISP/DNS problem.
+    image: ghcr.io/calibrain/shelfmark:1.3.6
+    container_name: shelfmark
+    user: "1000:1000"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      # Chromium/Selenium may execute helper binaries from temporary storage.
+      - /tmp:rw,exec,nosuid,nodev,size=2g
+    pids_limit: 512
+    mem_limit: 3g
+    cpus: 2.0
+
+    # PUID/PGID (not `user: "1000:1000"`) so the image keeps its normal root
+    # startup flow, matching radarr/sonarr/prowlarr. Rootless would also work
+    # here since every mounted path below is already cody-owned, but root
+    # startup is the only supported path if Tor or WireGuard are ever enabled
+    # -- neither is used on this box, see the egress note at the bottom.
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=America/Los_Angeles
+
+      # universal = aggregate metadata providers + sources (richer results).
+      # 'direct' would query configured sources only.
+      - SEARCH_MODE=universal
+
+      # Matches the /books mount below. This is the default, set explicitly so
+      # the destination is obvious when reading the file.
+      - INGEST_DIR=/books
+
+      # LOG_LEVEL is deliberately unset: the env var OVERRIDES the Settings
+      # value in the web UI, so setting it here would silently win over
+      # anything changed later in Settings. Set it only while debugging.
+
+    volumes:
+      # Config, database, artwork cache.
+      - ./config:/config
+
+      # Download destination. NOTE: this is /mnt/avrana_media/books (the 7.3T
+      # ext4 data disk), NOT /mnt/media/books -- the latter is a stale
+      # root-owned directory on the 57G rootfs that kavita's compose still
+      # points at. Do not copy that path here.
+      #
+      # CWA consumes this inbox, imports books into calibre-library, and
+      # deletes the successfully imported inbox copy.
+      - /mnt/avrana_media/books:/books
+
+      # Enabled 2026-08-13: Shelfmark is now pointed at SABnzbd (usenet via
+      # Prowlarr), which runs bare-metal (sabnzbd.service, port 8080) and writes
+      # completed downloads to real host paths under /mnt/avrana_media. The
+      # container path must match the download client's path EXACTLY, so this
+      # identity mount makes /mnt/avrana_media/incoming/... resolve to the same
+      # path inside the container -- Shelfmark can then import with no Remote
+      # Path Mapping, and the move into /books stays a same-mount rename.
+      - /mnt/avrana_media/incoming:/mnt/avrana_media/incoming
+      - /mnt/avrana_media/audiobooks:/mnt/avrana_media/audiobooks
+
+    # 8084 is the image default (FLASK_PORT) and is free on this host --
+    # verified against 22/53/80/5005/5055/7878/8080/8090/8096/8240/8989/9696/
+    # 13378/25600. No remap needed.
+    ports:
+      - 10.0.0.218:8084:8084
+
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8084/api/health"]
+      interval: 30s
+      timeout: 30s
+      retries: 3
+
+    logging:
+
+      driver: json-file
+
+      options:
+
+        max-size: "50m"
+
+        max-file: "5"
+
+    restart: unless-stopped
+
+# ---------------------------------------------------------------------------
+# Deliberately NOT configured:
+#
+# Egress (Tor / WireGuard): this stack has no VPN egress -- no gluetun, no
+#   wg0.conf, and cloudflared is an INBOUND tunnel, not an egress VPN. Adding
+#   either would need root + NET_ADMIN/NET_RAW, and WireGuard's DNS handling
+#   is a foot-gun (leave WIREGUARD_ENFORCE_DNS=true, pin the compose `dns:`
+#   list, and set LAN_NETWORK to 10.0.0.0/24 so the WebUI stays reachable).
+#
+# Auth: left off. Shelfmark is LAN-only here, same as audiobookshelf -- it is
+#   not published through the cloudflared tunnel. There is no Authelia/
+#   Authentik/OIDC on this box to reuse. If it is ever exposed, turn on auth
+#   in Settings; and if proxy/forward auth is used, strip or overwrite
+#   X-Auth-User at the reverse proxy and never expose Shelfmark directly.
+#
+# Prowlarr: reachable at http://10.0.0.218:9696 (it is on the docker_default
+#   network from the other compose project, so container-name DNS will not
+#   resolve from here). Configure it in Shelfmark's Settings, not here.
+# ---------------------------------------------------------------------------

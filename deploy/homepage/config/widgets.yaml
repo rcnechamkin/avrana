@@ -1,0 +1,16 @@
+- greeting:
+    text_size: xl
+    text: Avrana
+- resources:
+    cpu: true
+    memory: true
+    disk: /
+    cputemp: true
+    uptime: true
+    units: metric
+- datetime:
+    text_size: md
+    format:
+      dateStyle: long
+      timeStyle: short
+      hourCycle: h12

@@ -1,0 +1,128 @@
+# ---------------------------------------------------------------------------
+# Tracearr -- Avrana's primary Jellyfin analytics / playback-history service.
+#
+# Chosen over Jellystat and Streamystats deliberately. Those count what was
+# watched; Tracearr records HOW it played -- direct play vs direct stream vs
+# transcode, codecs, source/output resolution, HDR, bitrate, client/device --
+# which is the data needed to diagnose client compatibility and transcoding
+# problems on this hardware. Do not install Jellystat/Streamystats alongside.
+#
+# SUPERVISED IMAGE, deliberately. Upstream ships two shapes:
+#   :latest      -- app only; requires EXTERNAL PostgreSQL + TimescaleDB + Redis
+#   :supervised  -- one container, supervisord running Postgres + Redis + app
+# Supervised is correct here: the alternative is three more containers on a
+# 4-thread i3-6100T. TimescaleDB matters -- upstream warns plain Postgres
+# "works initially but long query histories kill performance", which is
+# exactly the workload this service exists for.
+#
+# NAMED VOLUMES, NOT BIND MOUNTS -- load-bearing, do not "fix" to match the
+# rest of the stack. Upstream explicitly requires Docker-managed volumes for
+# the supervised image to avoid permission conflicts between the bundled
+# PostgreSQL/Redis and host uid/gid. Consequence for backups: the nightly job
+# cannot simply tar a service directory the way backup_shelfarr does. See
+# backup_tracearr in services/backups/avrana-backup.sh, which dumps the
+# database through the container instead.
+#
+# LAN-only on 10.0.0.218:5057. NOT on the cloudflared tunnel: this is an
+# admin/analytics surface, and the tunnel ingress is reserved for
+# member-facing apps. 5057 because upstream's default 3000 is already taken by
+# the Homepage dashboard on this host. Reachable on the LAN for QuarterMaster
+# (phone server-health app).
+#
+# Jellyfin integration is API-based against http://10.0.0.218:8096 (Jellyfin
+# runs with host networking). NO Jellyfin-side plugin is installed: without
+# upstream's SSE plugin Tracearr falls back to polling for session updates,
+# which means zero modification to Jellyfin. If polling proves too coarse,
+# adding the SSE plugin is the documented next step -- and must be recorded.
+# ---------------------------------------------------------------------------
+
+services:
+  tracearr:
+    # Digest pin resolved 2026-08-20 for tag `supervised` = upstream release
+    # v2.1.0 (published 2026-08-14). Matches the repo-wide convention of
+    # pinning tag AND digest so an unattended pull cannot move the version.
+    image: ghcr.io/connorgallopo/tracearr:supervised@sha256:6096157b5f8915adf509bc5627f4de20007a6f5346545a051b57e17ad026c9b6
+    container_name: tracearr
+    restart: unless-stopped
+
+    env_file:
+      - .env
+
+    environment:
+      - TZ=America/Los_Angeles
+      - LOG_LEVEL=debug   # TEMPORARY 2026-08-20: diagnosing sessions never persisting
+      # Upstream defaults the pool to 95 against the bundled Postgres'
+      # max_connections=100, and logs at startup:
+      #   "[ConnectionBudget] DATABASE_POOL_MAX=95 exceeds postgres
+      #    max_connections=100 minus 8 reserved - expect 'sorry, too many
+      #    clients already' under load"
+      # 50 is the value upstream's own supervised example carries (commented
+      # out). Single-user workload; 50 is ample and leaves real headroom.
+      - DATABASE_POOL_MAX=50
+
+    volumes:
+      # ON THE SSD, NOT DOCKER'S DEFAULT NAMED VOLUMES -- load-bearing.
+      # Docker's data root on this host is /mnt/avrana_media/docker, i.e. the
+      # 7.3 TB SPINNING media array. A named volume therefore puts this
+      # container's bundled PostgreSQL on a spindle shared with all media I/O.
+      # Measured 2026-08-20: fsync latency 775 ms on the array (sdb) vs
+      # 1.33 ms on the SSD (sda) -- ~580x worse. The result was every session
+      # INSERT dying with PostgreSQL 57014 "canceling statement due to
+      # statement timeout", so playback history NEVER persisted, while
+      # SABnzbd unpacking 20 GB pinned the array's ext4 journal and wedged
+      # the container so hard it needed SIGKILL.
+      #
+      # These paths are under /home/cody, which is the SSD-backed root fs.
+      # Upstream recommends named volumes for the supervised image to avoid
+      # PostgreSQL permission conflicts; that concern does not apply here
+      # because the data was migrated with ownership preserved (uid 100 /
+      # gid 102, mode 0700) rather than letting Docker create empty dirs.
+      #
+      # Do NOT revert these to plain named volumes -- that puts a database
+      # back on a spinning disk shared with media writes.
+      - ./pgdata:/data/postgres
+      - ./redisdata:/data/redis
+      - ./appdata:/data/tracearr
+      - ./backupdata:/data/backup
+
+    ports:
+      - 10.0.0.218:5057:3000
+
+    # Upstream states a 3 GB minimum for the supervised image (Postgres +
+    # Redis + Node in one container). Host has ~22 GB available.
+    mem_limit: 3g
+    cpus: 2.0
+    pids_limit: 512
+    # PostgreSQL needs more shared memory than Docker's 64 MB default.
+    shm_size: 512mb
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+
+    security_opt:
+      - no-new-privileges:true
+
+    # cap_drop: ALL is NOT applied, matching the shelfmark/shelfarr/linuxserver
+    # exception in the hardening baseline. The entrypoint runs supervisord as
+    # root to initialise and own the bundled Postgres and Redis data
+    # directories before dropping to their service users; dropping CHOWN /
+    # SETUID / SETGID / DAC_OVERRIDE breaks first-boot initdb.
+    # read_only is likewise omitted: Postgres, Redis and supervisord all write
+    # outside the mounted volumes.
+
+    healthcheck:
+      # Tracearr's native endpoint -- returns 200 only once the app AND its
+      # bundled database are up, so this is a real readiness signal.
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:3000/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 120s
+      retries: 3
+
+    logging:
+      driver: json-file
+      options:
+        max-size: 50m
+        max-file: "5"
+

@@ -244,7 +244,7 @@ HELP = [
         ("Kindle", [
             ("Send to Kindle", None, None, [
                 "Set the Kindle address once at https://kindle.avrana.net",
-                "Add sender@example.invalid to the approved sender list on Amazon.",
+                "Add cody@avrana.net to the approved sender list on Amazon.",
                 "In the library, open a book and choose Send to Kindle.",
              ]),
         ]),

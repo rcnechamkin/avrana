@@ -1,0 +1,116 @@
+# Avrana Audible Sync Connector
+#
+# Topology:
+#   connector  -- public web tier (OIDC via Authentik). On the shared "edge" network so
+#                 cloudflared/LAN can reach it, AND on the private "internal" network to
+#                 reach the companion. Publishes 127.0.0.1 + LAN like the other services.
+#   companion  -- private execution tier (LibationCli per profile). On "internal" (how the
+#                 connector reaches it) plus "egress" (how LibationCli reaches Audible).
+#                 It has NO published port, so nothing outside Docker can reach IN to it.
+#
+# Why companion needs "egress": `internal: true` blocks OUTBOUND traffic as well as inbound
+# the container gets no default gateway and no DNS route off the bridge. LibationCli must
+# talk to Amazon/Audible, so an internal-only companion fails at `login-external` before it
+# ever prints a login URL (observed live 2026-08-14: /v1/auth/start -> 502). "egress" is a
+# plain bridge with NAT but no published ports and no other members, which is exactly the
+# posture of the admin `libation` container: outbound yes, inbound no.
+#
+# Secrets are files, mounted read-only:
+#   secrets/companion_token  -- bearer token shared connector<->companion (server-side only)
+#   secrets/session_key      -- cookie/CSRF signing key
+#   secrets/oidc_client_secret -- Authentik OIDC client secret
+#
+# Volumes:
+#   ./data                  -- connector SQLite (ownership map, jobs, audit)
+#   ./profiles              -- per-account isolated Libation state (companion only)
+#   /mnt/avrana_media/audiobooks -- the shared Audiobookshelf library (import target)
+
+services:
+  connector:
+    build: ./connector
+    image: avrana-audible-connector:local
+    container_name: avrana-audible-connector
+    environment:
+      - AUTH_MODE=oidc
+      - REQUIRED_GROUP=library-contributors
+      - OIDC_ISSUER=https://auth.avrana.net/application/o/audible-connector/
+      - OIDC_CLIENT_ID=${OIDC_CLIENT_ID:?set in .env}
+      - OIDC_CLIENT_SECRET_FILE=/run/secrets/oidc_client_secret
+      - PUBLIC_BASE_URL=https://contribute.avrana.net
+      - COMPANION_BASE_URL=http://companion:8080
+      - COMPANION_TOKEN_FILE=/run/secrets/companion_token
+      - SECRET_KEY_FILE=/run/secrets/session_key
+      - DB_PATH=/data/connector.db
+      - COOKIE_SECURE=true
+      - SCAN_INTERVAL_HOURS=24
+      - BRAND_NAME=Avrana
+      - TZ=America/Los_Angeles
+    volumes:
+      - ./data:/data
+      - ./secrets/companion_token:/run/secrets/companion_token:ro
+      - ./secrets/session_key:/run/secrets/session_key:ro
+      - ./secrets/oidc_client_secret:/run/secrets/oidc_client_secret:ro
+    ports:
+      # Behind cloudflared (contribute.avrana.net -> localhost:8092). LAN bind for admin.
+      - 127.0.0.1:8092:8080
+      - 10.0.0.218:8092:8080
+    networks: [edge, internal]
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=32m
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    pids_limit: 256
+    mem_limit: 512m
+    cpus: 1.0
+    depends_on:
+      companion: {condition: service_healthy}
+    logging: {driver: json-file, options: {max-size: "20m", max-file: "5"}}
+    restart: unless-stopped
+
+  companion:
+    build: ./companion
+    image: avrana-libation-companion:local
+    container_name: avrana-libation-companion
+    # NOTE: no `ports:`, private network only. The browser never reaches this service.
+    environment:
+      - PROFILES_ROOT=/profiles
+      - LIBATION_BOOKS_DIR=/data
+      - LIBATION_IN_PROGRESS_DIR=/inprogress
+      - COMPANION_TOKEN_FILE=/control/token
+      - LIBATION_CREATE_DB=true
+      # Must be >= the connector's SESSION_TTL (1800s = 30m). If the companion reaps the
+      # login-external process before the connector expires its session, a slow first-time
+      # user (Amazon sign-in + MFA + copying the URL) fails completion while the connector
+      # still thinks the session is live, the exact mismatch behind the "session not found"
+      # dead end. Kept equal at 30 minutes on both sides.
+      - AUTH_SESSION_TIMEOUT_MINUTES=30
+      - TZ=America/Los_Angeles
+    user: "1000:1000"
+    volumes:
+      - ./profiles:/profiles
+      - ./secrets/companion_token:/control/token:ro
+      - /mnt/avrana_media/audiobooks:/data
+      # In-progress staging MUST live on the same filesystem as /data (the array) so the
+      # finished-book move into the ABS library is an atomic same-fs rename, and so large
+      # downloads never fill the container root disk. Mirrors the admin Libation setup.
+      - /mnt/avrana_media/.audible-connector-inprogress:/inprogress
+    networks: [internal, egress]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    pids_limit: 512
+    mem_limit: 4g
+    cpus: 2.0
+    logging: {driver: json-file, options: {max-size: "50m", max-file: "5"}}
+    restart: unless-stopped
+
+networks:
+  edge:
+    driver: bridge
+  internal:
+    driver: bridge
+    internal: true   # no route to the internet or LAN; connector<->companion only
+  egress:
+    driver: bridge
+    # Outbound-only by construction: the companion is the sole member and publishes no
+    # ports, so this grants NAT to Audible without granting anyone a path back in.

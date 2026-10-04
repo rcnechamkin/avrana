@@ -1,0 +1,7 @@
+- Infrastructure:
+    - Router:
+        - icon: mdi-router-wireless
+          href: http://10.0.0.1
+    - Home Assistant:
+        - icon: home-assistant.png
+          href: http://haos.local

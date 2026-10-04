@@ -1,0 +1,262 @@
+services:
+  # ---------------------------------------------------------------------------
+  # Single shared mount: /mnt/avrana_media -> /data
+  # Library and downloads live under ONE mount so hardlinks + atomic moves work.
+  #   /data/movies            library (movies)
+  #   /data/tv                library (tv)
+  #   /data/incoming/movies   SABnzbd completed -> movies
+  #   /data/incoming/tv       SABnzbd completed -> tv
+  #
+  # NOT defined here (they run bare-metal / via systemd, and would port-conflict):
+  #   mylar3  -> bare-metal, port 8090
+  #   sabnzbd -> sabnzbd.service, port 8080 (/home/cody/.sabnzbd/sabnzbd.ini)
+  # ---------------------------------------------------------------------------
+
+  radarr:
+    networks:
+      - arr-core
+      - request-backend
+    image: linuxserver/radarr@sha256:a45b5ab0f850f39edb4cc9c95bbd967b52ddc3d4574a4dfb45561177db6c88f4
+    container_name: radarr
+    user: "1000:1000"
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /run:rw,exec,nosuid,nodev,size=64m,uid=1000,gid=1000
+      - /tmp:rw,noexec,nosuid,nodev,size=256m
+      # Shadow the stack backup tree, which lives on the array we mount below. Without this,
+      # radarr (uid 1000, same owner as the backups) can read Authentik's full pg_dump and
+      # every other service secret, and being rw could delete every backup. An empty ro tmpfs
+      # mounted over the path hides it; the container can't unmount it (CAP_SYS_ADMIN dropped).
+      # NB: we deliberately do NOT narrow /data to subdirs instead -- hardlinks between the
+      # download dir and the library are the point, and link() returns EXDEV across two
+      # separate bind mounts even of the same filesystem. Verified. One mount is required.
+      - /data/.backups:ro,noexec,nosuid,nodev,size=4k
+    pids_limit: 256
+    mem_limit: 2g
+    cpus: 1.5
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=America/Los_Angeles
+    volumes:
+      - /home/cody/docker/radarr:/config
+      - /mnt/avrana_media:/data
+    ports:
+      - 10.0.0.218:7878:7878
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:7878/ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+    restart: unless-stopped
+
+  sonarr:
+    networks:
+      - arr-core
+      - request-backend
+    image: linuxserver/sonarr@sha256:24acea2956a0ccb11f103877d9f4f8576600fb34bff34820ed749c2256dab89f
+    container_name: sonarr
+    user: "1000:1000"
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /run:rw,exec,nosuid,nodev,size=64m,uid=1000,gid=1000
+      - /tmp:rw,noexec,nosuid,nodev,size=256m
+      # Shadow the stack backup tree on the array -- see the radarr service above for why this
+      # is a tmpfs overlay rather than a narrowed /data mount (hardlinks need one mount).
+      - /data/.backups:ro,noexec,nosuid,nodev,size=4k
+    pids_limit: 256
+    mem_limit: 2g
+    cpus: 1.5
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=America/Los_Angeles
+    volumes:
+      - /home/cody/docker/sonarr:/config
+      - /mnt/avrana_media:/data
+    ports:
+      - 10.0.0.218:8989:8989
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8989/ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+    restart: unless-stopped
+
+  prowlarr:
+    networks:
+      - arr-core
+    image: linuxserver/prowlarr@sha256:2f3d31307beba3ba2dd226d191f5f5c14ee3b4d8b49277c64683f5ed97083179
+    container_name: prowlarr
+    user: "1000:1000"
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /run:rw,exec,nosuid,nodev,size=64m,uid=1000,gid=1000
+      - /tmp:rw,noexec,nosuid,nodev,size=256m
+    pids_limit: 256
+    mem_limit: 1g
+    cpus: 0.75
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=America/Los_Angeles
+    volumes:
+      - /home/cody/docker/prowlarr:/config
+    ports:
+      - 10.0.0.218:9696:9696
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:9696/ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+    restart: unless-stopped
+
+  # Request frontend (successor to Overseerr/Jellyseerr). Talks ONLY to
+  # Jellyfin + Radarr + Sonarr -- it has no indexer or usenet config of its
+  # own; those stay behind Radarr/Sonarr via Prowlarr and SABnzbd.
+  # Image runs as uid 1000 (node), which matches cody, so no PUID/PGID here.
+  seerr:
+    networks:
+      - request-backend
+    image: ghcr.io/seerr-team/seerr@sha256:f4768de5f616248d723e05891f3345a1402123775d03bf0890dbfedc0831bda1
+    container_name: seerr
+    init: true
+    environment:
+      - TZ=America/Los_Angeles
+      - PORT=5055
+    volumes:
+      - /home/cody/docker/seerr/config:/app/config
+    ports:
+      - 127.0.0.1:5055:5055
+      - 10.0.0.218:5055:5055
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=256m
+    pids_limit: 256
+    mem_limit: 1g
+    cpus: 1.0
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:5055/api/v1/status"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+    restart: unless-stopped
+
+  bazarr:
+    image: linuxserver/bazarr
+    container_name: bazarr
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=America/Los_Angeles
+    volumes:
+      - /home/cody/docker/bazarr:/config
+      - /mnt/avrana_media:/data
+    ports:
+      - 10.0.0.218:6767:6767
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+    restart: unless-stopped
+    profiles: ["optional"]
+
+  # Jellyfin uses an explicit profile and is not started by default:
+  # bring up explicitly with `docker compose --profile media up -d jellyfin`.
+  jellyfin:
+    image: jellyfin/jellyfin@sha256:aefb67e6a7ff1debdd154a78a7bbb780fd0c873d8639210a7f6a2016ad2b35db
+    container_name: jellyfin
+    user: "1000:1000"
+    group_add:
+      - "993" # host render group for /dev/dri/renderD128
+    environment:
+      - HOME=/config
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 512
+    mem_limit: 12g
+    cpus: 4.0
+    network_mode: host
+    # Intel HD 530 (Skylake) QuickSync passthrough for hardware transcoding.
+    # NOTE: Gen9 has only hybrid HEVC 10-bit decode -- 4K HDR still won't
+    # transcode usefully. This helps 1080p H.264 and 4K->1080p HEVC 8-bit.
+    devices:
+      - /dev/dri:/dev/dri
+    volumes:
+      - /home/cody/docker/jellyfin/config:/config
+      - /home/cody/docker/jellyfin/cache:/cache
+      # Only the two libraries Jellyfin actually serves, read-only -- NOT the array root, which
+      # would also expose the stack backup tree (Authentik pg_dump, service secrets) to a
+      # content-facing service. Destination paths are unchanged (/data/movies, /data/tv), so the
+      # existing library records keep resolving. Read-only is safe here: no subtitle fetcher
+      # plugin is installed, SaveLocalMetadata is false, and trickplay extraction is off, so
+      # nothing writes back into the media dirs. Jellyfin needs no hardlinks (only the *arr do).
+      - /mnt/avrana_media/movies:/data/movies:ro
+      - /mnt/avrana_media/tv:/data/tv:ro
+    # Transcode scratch in RAM instead of on the array. Capped so it cannot
+    # eat all 31G. Set Dashboard -> Playback -> Transcode path to /transcode.
+    tmpfs:
+      - /transcode:size=8g,mode=1777
+      - /tmp:rw,noexec,nosuid,nodev,size=512m
+      - /jellyfin/Dictionaries:rw,noexec,nosuid,nodev,size=64m,uid=1000,gid=1000
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8096/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+    restart: unless-stopped
+    profiles: ["media"]
+
+networks:
+  arr-core:
+  request-backend:

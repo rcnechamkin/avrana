@@ -1,13 +1,31 @@
-# Runtime state and secrets never belong in this development checkout.
+# Runtime state and secrets never belong in this repository.
+# The layout mirrors /home/cody/avrana, so these rules also protect a checkout placed there.
+
+# --- secrets -------------------------------------------------------------------------------
 .env
 .env.*
+*.env
 !.env.example
+!*.env.example
 **/secrets/
 **/kern_secrets/
+**/certs/
 *.pem
 *.key
 *.p12
 *.pfx
+# Authentik blueprints that embed secrets are deployed from backup; only *.template is tracked.
+/services/authentik/blueprints/audible-connector.yaml
+/services/authentik/blueprints/audiobookshelf.yaml
+/services/authentik/blueprints/avrana-enrollment.yaml
+/services/authentik/blueprints/avrana-recovery.yaml
+/services/authentik/blueprints/komga.yaml
+/services/authentik/blueprints/omnibus.yaml
+/services/authentik/blueprints/shelfarr.yaml
+# rclone configuration holds the B2 key and the crypt passwords.
+rclone.conf
+
+# --- application state ---------------------------------------------------------------------
 *.db
 *.db-*
 *.sqlite
@@ -29,6 +47,52 @@
 *.mp3
 *.m4b
 *.epub
+/media/
+/data/
+/logs/
+/backups/
+/recovery/
+**/runtime/
+**/appdata/
+**/backupdata/
+**/pgdata/
+**/redisdata/
+**/profiles/
+**/state/
+**/results/
+/services/*/config/
+/services/*/data/
+/services/*/metadata/
+/services/*/mariadb/
+/services/*/agent-data/
+/services/*/socket/
+/services/*/piper-data/
+/services/*/speech-to-phrase/
+/services/authentik/data/
+/services/mylar3/
+/deploy/homepage/config/logs/
+# Tracked configuration that lives inside an otherwise ignored state directory.
+!/services/olivetin/config/
+!/services/recyclarr/config/
+/services/recyclarr/config/*
+!/services/recyclarr/config/recyclarr.yml
+!/services/recyclarr/config/settings.yml
+
+# --- retired Kern Prime application (archived in rcnechamkin/Kern-Ecosystem) ----------------
+/api/
+/auth/
+/blackboxes/
+/config/
+/configs/
+/core/
+/filing_cabinet/
+/kern_calendar/
+/kern_sync/
+/scheduler/
+/utils/
+/venv/
+
+# --- build and editor noise ----------------------------------------------------------------
 **/__pycache__/
 *.py[cod]
 **/.pytest_cache/
@@ -37,18 +101,4 @@
 .venv/
 venv/
 node_modules/
-/media/
-/data/
-/logs/
-/backups/
-/recovery/
-/filing_cabinet/
-/blackboxes/
-/services/bookstack/
-/services/mylar3/
-**/runtime/
-**/appdata/
-**/pgdata/
-**/redisdata/
-**/profiles/
 .claude/settings.local.json

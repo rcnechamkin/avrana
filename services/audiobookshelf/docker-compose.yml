@@ -1,0 +1,83 @@
+# ---------------------------------------------------------------------------
+# Audiobookshelf -- the audiobook server (NOT Jellyfin; Jellyfin stays for
+# video only and should not be pointed at /mnt/avrana_media/audiobooks).
+#
+# Serves the library that Libation writes (services/libation). Both containers
+# bind-mount the same host path, /mnt/avrana_media/audiobooks. This was
+# originally :ro on the rule that Libation is the sole writer; that was
+# relaxed on 2026-08-13 so ABS can embed corrected metadata into the m4b
+# files (see the volume comment below). Libation's direct "auto-upload to
+# Audiobookshelf" feature is still deliberately unused.
+#
+# iOS playback is via AudioBooth, which talks to this server. LAN-only for
+# now: the cloudflared tunnel (~/.cloudflared/config.yml) is NOT configured to
+# publish this, matching how Sonarr/Radarr/SAB are kept off the tunnel. To
+# reach it from cellular later, add an ingress hostname -> http://localhost:13378.
+# ---------------------------------------------------------------------------
+
+services:
+  audiobookshelf:
+    image: ghcr.io/advplyr/audiobookshelf@sha256:180acad33d69c99ed208676465d8edcb268fa46967735579a7810859885b1a8e
+    container_name: audiobookshelf
+
+    # This image has no PUID/PGID support and runs as root unless told
+    # otherwise. Pin it to cody so ./config and ./metadata don't fill up with
+    # root-owned files.
+    user: "1000:1000"
+
+    environment:
+      - TZ=America/Los_Angeles
+
+    volumes:
+      # Server database, users, library definitions, API tokens.
+      - ./config:/config
+      # Cached covers, scanned metadata, backups.
+      - ./metadata:/metadata
+      # Read-WRITE, deliberately. ABS's "embed metadata" / quick-embed tool
+      # runs ffmpeg with -c copy (no re-encode) and writes
+      # "<book>.tmp.m4b" INTO THE BOOK'S OWN FOLDER, then copies it over the
+      # original and deletes the temp -- so it needs write permission on the
+      # directories, not just the files. That is the only reason this is not
+      # :ro. Consequences of allowing it:
+      #   - ABS may now also write metadata.json/covers into the library tree.
+      #   - Libation remains the only thing that CREATES books here; it will
+      #     not clobber ABS's tag edits, because Settings.json has
+      #     OverwriteExisting=false, so an existing file is never rewritten.
+      #   - An interrupted embed can leave a stray *.tmp.m4b behind. Harmless,
+      #     but delete them: find /mnt/avrana_media/audiobooks -name '*.tmp.m4b'
+      - /mnt/avrana_media/audiobooks:/audiobooks
+
+    # The container listens on 80 internally (PORT=80 in the image), NOT on
+    # 13378. 13378 is only the conventional host-side port.
+    ports:
+      - 10.0.0.218:13378:80
+
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost/healthcheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=512m
+    pids_limit: 256
+    mem_limit: 2g
+    cpus: 2.0
+
+    logging:
+
+      driver: json-file
+
+      options:
+
+        max-size: "50m"
+
+        max-file: "5"
+
+    restart: unless-stopped

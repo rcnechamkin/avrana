@@ -1,0 +1,16 @@
+[Unit]
+Description=Re-apply avrana DOCKER-USER firewall rules
+# Docker rebuilds its iptables chains every time the daemon starts, which discards
+# whatever was in DOCKER-USER. PartOf + After means this re-runs on every docker
+# restart -- including the one the default-address-pools migration performs.
+After=docker.service
+PartOf=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/home/cody/avrana/deploy/ufw/rules-docker-user.sh
+
+[Install]
+WantedBy=docker.service

@@ -1,0 +1,21 @@
+title: Avrana
+description: Avrana services dashboard
+theme: dark
+color: slate
+headerStyle: clean
+statusStyle: dot
+hideVersion: true
+showStats: true
+layout:
+  Media:
+    style: row
+    columns: 3
+  Books & Comics:
+    style: row
+    columns: 3
+  Automation:
+    style: row
+    columns: 3
+  Server:
+    style: row
+    columns: 3

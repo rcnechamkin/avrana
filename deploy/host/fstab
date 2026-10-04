@@ -1,0 +1,17 @@
+# /etc/fstab: static file system information.
+#
+# Use 'blkid' to print the universally unique identifier for a
+# device; this may be used with UUID= as a more robust way to name devices
+# that works even if disks are added and removed. See fstab(5).
+#
+# <file system> <mount point>   <type>  <options>       <dump>  <pass>
+# / was on /dev/ubuntu-vg/ubuntu-lv during curtin installation
+/dev/disk/by-id/dm-uuid-LVM-Fp3e4XNEsOlmIGP65KQTxGzJIpXMk9OpnBX3qNtS3cyxhnOEzWhrqZxdZrLIuoZK / ext4 defaults 0 1
+# /boot was on /dev/sda2 during curtin installation
+/dev/disk/by-uuid/27eb3f45-8d9c-45ee-9b78-2ffb515da3dd /boot ext4 defaults 0 1
+# /boot/efi was on /dev/sda1 during curtin installation
+/dev/disk/by-uuid/9D72-9BCB /boot/efi vfat defaults 0 1
+/swap.img	none	swap	sw	0	0
+
+UUID=f2276a43-a56c-4e18-80a1-1845918243d4 /mnt/avrana_media ext4 defaults,nofail 0 2
+/mnt/avrana_media/comics:/mnt/avrana_media/comics_omnibus/library /mnt/avrana_media/comics_merged fuse.mergerfs ro,allow_other,use_ino,category.create=epff,x-systemd.requires=/mnt/avrana_media,x-systemd.before=docker.service 0 0

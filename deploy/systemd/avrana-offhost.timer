@@ -1,0 +1,12 @@
+[Unit]
+Description=Ship the Avrana backup tree off-host daily
+
+[Timer]
+# 03:30 local — an hour after avrana-backup.timer (02:30), so it ships a completed run
+# rather than racing a partial one.
+OnCalendar=*-*-* 03:30:00
+Persistent=true
+RandomizedDelaySec=10min
+
+[Install]
+WantedBy=timers.target

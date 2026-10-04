@@ -1,0 +1,12 @@
+[Unit]
+Description=Watch for an operator-requested cloudflared restart (from OliveTin)
+Documentation=http://10.0.0.218:6875 BookStack -> OliveTin - operations console
+
+[Path]
+# OliveTin (uid 1000) drops this marker. That is the ONLY thing it can do here: the unit below
+# takes no arguments, so this grants exactly one capability - restart the tunnel - and nothing
+# resembling general root access.
+PathExists=/home/cody/avrana/services/olivetin/state/request-cloudflared-restart
+
+[Install]
+WantedBy=multi-user.target

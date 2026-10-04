@@ -1,0 +1,43 @@
+version: 1
+metadata:
+  name: Avrana - Portal (avrana.net proxy)
+  labels:
+    blueprints.goauthentik.io/instantiate: "true"
+# The role-aware front door at avrana.net. A proxy provider on the embedded outpost authenticates
+# the user (gated by avrana-users), then reverse-proxies to the avrana-portal container with
+# X-authentik-* headers injected. Adding the provider to the embedded outpost is done imperatively
+# after apply (the blueprint importer chokes on the outpost providers m2m — same as the LDAP one).
+entries:
+  - model: authentik_providers_proxy.proxyprovider
+    id: portal-provider
+    identifiers:
+      name: avrana-portal-proxy
+    attrs:
+      mode: proxy
+      external_host: https://avrana.net
+      internal_host: http://avrana-portal:8095
+      internal_host_ssl_validation: false
+      # Proxy apps use implicit consent (no consent screen); gating is the policy binding below.
+      authorization_flow: !Find [authentik_flows.flow, [slug, default-provider-authorization-implicit-consent]]
+      invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]
+      signing_key: !Find [authentik_crypto.certificatekeypair, [name, authentik Self-signed Certificate]]
+      access_token_validity: hours=24
+
+  - model: authentik_core.application
+    id: portal-app
+    identifiers:
+      slug: avrana-portal
+    attrs:
+      name: Avrana Home
+      provider: !KeyOf portal-provider
+      meta_launch_url: https://avrana.net
+      meta_description: Your Avrana front door
+
+  # Only enrolled Avrana users (avrana-users) can reach the portal at all.
+  - model: authentik_policies.policybinding
+    identifiers:
+      target: !KeyOf portal-app
+      group: !Find [authentik_core.group, [name, avrana-users]]
+      order: 0
+    attrs:
+      enabled: true

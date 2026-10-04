@@ -1,0 +1,18 @@
+# USER unit. Install with:
+#   ln -sf /home/cody/avrana/deploy/storage/systemd/avrana-boot-verify.service ~/.config/systemd/user/
+#   ln -sf /home/cody/avrana/deploy/storage/systemd/avrana-boot-verify.timer   ~/.config/systemd/user/
+#   systemctl --user daemon-reload && systemctl --user enable --now avrana-boot-verify.timer
+#
+# Deliberately a USER unit, not a system one: it needs no privilege, and `cody` is the account that
+# can actually run `docker compose` (root cannot -- see INCIDENT-2026-08-29 fault 1). Linger is
+# enabled for cody, so the user manager starts at boot and OnBootSec fires without a login.
+[Unit]
+Description=Avrana post-boot validation (storage preflight, docker baseline, service health)
+Documentation=file:///home/cody/avrana/deploy/storage/ENCLOSURE-MIGRATION.md
+
+[Service]
+Type=oneshot
+ExecStart=/home/cody/avrana/deploy/storage/boot-verify.sh
+# verify-baseline alone makes 26 probes plus 12 hostname checks over the tunnel; give it room
+# rather than have a slow WAN turn into a false failure.
+TimeoutStartSec=15min

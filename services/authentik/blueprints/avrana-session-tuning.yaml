@@ -1,0 +1,111 @@
+version: 1
+metadata:
+  name: Avrana - Session lifetime + passkey first factor
+  labels:
+    blueprints.goauthentik.io/description: |
+      Long-lived sessions for trusted personal devices, plus passkey (WebAuthn)
+      as an optional FIRST factor so iPhone/Safari can authenticate with Face ID.
+
+      Scope is deliberately narrow: it touches only the user-facing
+      default-authentication-flow. Enrollment, recovery, LDAP, every OIDC/proxy
+      provider and every outpost are left exactly as they were.
+
+      The upstream blueprint default/flow-default-authentication-flow.yaml
+      declares default-authentication-login and -identification with
+      identifiers ONLY (no attrs), so it will not revert what is set here.
+      user_fields is restated below at its upstream value: the identification
+      stage serializer validates the whole object, so omitting it reads as
+      "no user fields" and is rejected. Both blueprints therefore write the
+      same value and cannot fight.
+entries:
+
+  # ---------------------------------------------------------------------------
+  # Session lifetime.
+  # Previously session_duration=seconds=0, i.e. a browser-session cookie. iOS
+  # Safari discards those aggressively, which is why login was being demanded
+  # constantly. days=30 makes the session survive app restarts and reboots.
+  #
+  # remember_me_offset is an OFFSET, not a total: the "remember me" tickbox adds
+  # it on top of session_duration. 30 + 150 = ~180 days, as requested. A
+  # non-zero value is also what makes the tickbox render at all.
+  #
+  # !! remember_device IS CURRENTLY INERT -- READ BEFORE CHANGING !!
+  # In 2026.5.6, user_login/stage.py do_login() ends with:
+  #     if remember is None:
+  #         return self.set_known_device_cookie(user)
+  #     return self.executor.stage_ok()
+  # `remember` is None only when the remember-me prompt is NOT shown, i.e. when
+  # remember_me_offset == 0. So setting a non-zero remember_me_offset (which we
+  # need for the 180-day session) means the authentik_device cookie is NEVER
+  # written. The two features are mutually exclusive in this version.
+  # Verified empirically 2026-08-28: full login flow produced authentik_session
+  # at 30d / 180d, and no authentik_device cookie at all.
+  # days=365 is kept so the intent is recorded and takes effect immediately if
+  # remember_me_offset is ever set back to 0. Losing it costs nothing today:
+  # is_known_device() feeds only PLAN_CONTEXT_METHOD_ARGS_KNOWN_DEVICE, which is
+  # audit metadata on the login event. It does not extend a session, skip a
+  # stage, or bypass MFA.
+  #
+  # network_binding / geoip_binding are pinned to no_binding EXPLICITLY. They
+  # were already no_binding, but they are the two settings that would invalidate
+  # a session when the phone moves between Wi-Fi, cellular and public Wi-Fi, so
+  # they are declared here to stop a future change from silently re-enabling
+  # them. Same reasoning for terminate_other_sessions=false.
+  # ---------------------------------------------------------------------------
+  - model: authentik_stages_user_login.userloginstage
+    identifiers:
+      name: default-authentication-login
+    attrs:
+      session_duration: days=30
+      remember_me_offset: days=150
+      remember_device: days=365
+      terminate_other_sessions: false
+      network_binding: no_binding
+      geoip_binding: no_binding
+
+  # ---------------------------------------------------------------------------
+  # Dedicated validate stage used ONLY as the passkey first factor.
+  #
+  # A separate stage rather than reusing default-authentication-mfa-validation,
+  # because that stage runs at webauthn_user_verification=preferred. "Preferred"
+  # is correct for a SECOND factor (the password already proved knowledge), but
+  # as a FIRST factor it would permit a possession-only login: a stolen unlocked
+  # phone could sign in without Face ID. required forces user verification, so
+  # the passkey path stays two-factor (device + biometric/PIN).
+  #
+  # This stage is referenced, not bound into any flow, so it cannot alter the
+  # order or behaviour of the existing MFA validation stage.
+  # ---------------------------------------------------------------------------
+  - model: authentik_stages_authenticator_validate.authenticatorvalidatestage
+    id: avrana-passkey-first-factor
+    identifiers:
+      name: avrana-passkey-first-factor
+    attrs:
+      device_classes:
+        - webauthn
+      webauthn_user_verification: required
+      not_configured_action: skip
+
+  # ---------------------------------------------------------------------------
+  # Identification stage.
+  #
+  # webauthn_stage enables conditional WebAuthn: Safari offers the iCloud
+  # Keychain passkey inline on the login page, so Face ID replaces typing a
+  # password. It is strictly additive -- the username/password path is
+  # untouched, and users without a passkey see no change.
+  #
+  # enable_remember_me shows a "Remember me on this device" toggle that
+  # remembers the USERNAME so repeat users skip to the password field. This is a
+  # different feature from remember_me_offset above (which extends the session);
+  # both are wanted.
+  # ---------------------------------------------------------------------------
+  - model: authentik_stages_identification.identificationstage
+    identifiers:
+      name: default-authentication-identification
+    attrs:
+      # Restated at the upstream value -- required by the serializer, see header.
+      user_fields:
+        - email
+        - username
+      enable_remember_me: true
+      webauthn_stage: !Find [authentik_stages_authenticator_validate.authenticatorvalidatestage, [name, avrana-passkey-first-factor]]

@@ -1,0 +1,37 @@
+# Avrana portal — the role-aware front door served at avrana.net.
+#
+# Topology: cloudflared (avrana.net) -> Authentik embedded proxy outpost (authenticates, gated by
+# the avrana-users group) -> reverse-proxies HERE with X-authentik-* headers injected. This
+# service reads X-authentik-groups and renders only the tiles the user may use.
+#
+# It joins Authentik's `frontend` network so the embedded outpost (inside authentik-server) can
+# reach it by name, and it publishes NO host port — nothing can reach it except through the
+# outpost, so the auth gate can't be bypassed.
+services:
+  avrana-portal:
+    build: .
+    image: avrana-portal:local
+    container_name: avrana-portal
+    environment:
+      - PORT=8095
+      - TZ=America/Los_Angeles
+    networks: [authentik_frontend]
+    read_only: true
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    pids_limit: 128
+    mem_limit: 128m
+    cpus: 0.5
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8095/healthz',timeout=3).status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    logging: {driver: json-file, options: {max-size: "10m", max-file: "3"}}
+    restart: unless-stopped
+
+networks:
+  # Authentik's compose network (project "authentik" -> docker network "authentik_frontend").
+  authentik_frontend:
+    external: true

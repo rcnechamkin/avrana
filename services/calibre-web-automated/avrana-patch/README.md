@@ -1,13 +1,55 @@
-# Avrana CWA patch source
+# Avrana CWA patch — clean Kindle titles
 
-Imported from live source on 2026-09-23 without executing it. The Dockerfile targets CWA v4.0.6. This is a development snapshot, not permission to build or upgrade production.
+Custom Calibre-Web-Automated image = upstream `crocodilestick/calibre-web-automated:v4.0.6`
+plus one small build-time patch.
 
-The patch modifies five upstream files through exact-match substitutions:
+## What it fixes
 
-- Mail/helper/convert code separates MIME attachment display names from physical library filenames.
-- User management adds local-password fallback for existing local accounts in LDAP mode. Its behavior depends on account state; the source comments' assertion about LDAP accounts is not an independently verified security guarantee.
-- `scripts/cwa_db.py` adds write/close helpers expected by upstream callers.
+Amazon derives a **personal document's displayed title from the attachment filename** of the
+email it receives. Stock Calibre-Web sends the book under its on-disk name — Calibre's
+`"<title> - <author>.epub"` — so a book lands on the Kindle titled *"Cibola Burn - James S. A.
+Corey"*. This patch makes the sender pass a clean **`"<title>.epub"`** (no author) as the MIME
+attachment name, while:
 
-The older live README primarily described attachment naming and omitted later database-helper changes. It was not copied as an authoritative upgrade runbook. Imported source comments retain historical descriptions; inspect the actual `EDITS` mapping for scope.
+- the **physical file read from disk** and the **canonical Calibre library file are untouched**,
+- the EPUB's **embedded** title / author / cover metadata is unchanged,
+- the change applies to **manual**, **auto**, and **converted-file** sends.
 
-The imported integration tests require the upstream `cps` package. They were not run against production or a new container during migration. Local syntax review does not establish compatibility with a future upstream release. A later build must use an isolated workspace and reviewed version, then validate all substitutions and service behavior before any deployment approval.
+The clean name is produced by CWA's own `get_valid_filename(title)` (with
+`config_unicode_filename=0` it **preserves Unicode** and only strips filesystem-unsafe
+characters), then `+ ".<ext>"`.
+
+## How it's applied
+
+`avrana-patch/apply_avrana_patches.py` runs at image build (see `../Dockerfile`). It does exact
+string replacements against three files and **asserts each fragment matches exactly once**:
+
+| File | Change |
+|---|---|
+| `cps/tasks/mail.py` | `TaskEmail` gains `attachment_name`; MIME filename + mimetype guess use it, `attachment` still names the file to READ. |
+| `cps/helper.py` | `send_mail()` computes `get_valid_filename(title)+ext` and passes it as `attachment_name`. |
+| `cps/tasks/convert.py` | post-conversion send does the same for the converted file. |
+| `cps/usermanagement.py` | `verify_password()` (OPDS/API Basic auth): in LDAP login mode, fall back to the LOCAL password for existing local accounts. Upstream only tries an LDAP bind, so local service accounts not in the directory (the read-only Homepage dashboard user, break-glass admin) get a 401. Guarded by a non-empty local hash, so LDAP-managed users can't bypass LDAP. |
+
+> The `usermanagement.py` fix is unrelated to Kindle titles — it repairs the Homepage
+> Calibre-Web widget (and any local-account OPDS/API access) that broke when LDAP login mode was
+> enabled. Kept in this same patch layer since it's the same custom image.
+
+If a fragment isn't found (or matches more than once), the **build fails** — the deliberate
+signal that upstream changed.
+
+## Upgrade procedure (bumping CWA)
+
+1. Change the tag in **both** `Dockerfile` (`FROM …:vX`) and `docker-compose.yml`
+   (`image:` comment / build context) to the new version.
+2. `docker compose build calibre-web-automated`.
+3. If the build **fails** at `apply_avrana_patches.py`, the upstream source moved. Pull the new
+   `cps/tasks/mail.py`, `cps/helper.py`, `cps/tasks/convert.py`, update the `old`/`new`
+   fragments in `apply_avrana_patches.py` to match, and rebuild. (Check upstream first — if CWA
+   ever adds a native outgoing-filename template, drop this patch and use that instead.)
+4. `docker compose up -d calibre-web-automated`, then re-run the tests in `../tests/`.
+
+## Idempotency
+
+The applier is idempotent: if a fragment is already patched it skips it, so a rebuild on the
+same base is safe.

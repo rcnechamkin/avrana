@@ -1,0 +1,25 @@
+# Local / CI override: run the connector against the MOCK companion (fake data, no Audible,
+# no real Libation) and a static dev identity. Never use in production.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.mock.yml up --build
+#
+# Then browse http://127.0.0.1:8092/contribute/audible
+
+services:
+  connector:
+    environment:
+      - AUTH_MODE=dev
+      - DEV_IDENTITY=demo-sub:demo:demo@avrana.invalid:library-contributors
+      - COOKIE_SECURE=false
+      - PUBLIC_BASE_URL=http://127.0.0.1:8092
+    depends_on:
+      companion: {condition: service_healthy}
+
+  companion:
+    build: ./mock-companion
+    image: avrana-libation-companion-mock:local
+    # mock keeps no real Libation state; drop the media/profiles binds.
+    volumes:
+      - ./secrets/companion_token:/control/token:ro
+    environment:
+      - COMPANION_TOKEN_FILE=/control/token

@@ -1,0 +1,75 @@
+# ---------------------------------------------------------------------------
+# Complete Series -- finds incomplete audiobook series in Audiobookshelf and
+# shows which books are missing (checks against Audible by default; Apple /
+# Google Books / OpenLibrary optional). A discovery aid: it tells you what to
+# go grab (via Shelfmark / Libation) -- it does NOT download anything itself.
+#
+# How it works: it's a browser SPA plus a small proxy. Your browser talks to
+# Audiobookshelf directly at http://10.0.0.218:13378, and the container proxies
+# the Audible/Apple metadata lookups. ABS credentials are entered on the app's
+# login screen and kept browser-side (localStorage) -- nothing to mount here,
+# so this service is stateless (no volumes).
+#
+# Pinned by DIGEST, not a tag: this repo publishes no semver releases, only
+# branch/feature tags and :latest, so a tag pin would silently move. The digest
+# below is what :latest resolved to on 2026-08-13. Bump deliberately by
+# re-resolving the digest.
+#
+# Lives here (avrana/services/<name>/) per house convention. services/ is
+# gitignored.
+# ---------------------------------------------------------------------------
+
+services:
+  completeseries:
+    image: ghcr.io/xfriedspudx/completeseries@sha256:97c015b9e2e3422ea2a47bb6d64ee05e5b50f73490b970fdfafff557df2bb1d9
+    container_name: completeseries
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - NET_BIND_SERVICE
+      - SETGID
+      - SETUID
+    tmpfs:
+      - /run:rw,noexec,nosuid,nodev,size=16m
+      - /var/cache/nginx:rw,noexec,nosuid,nodev,size=64m
+      - /tmp:rw,noexec,nosuid,nodev,size=32m
+    pids_limit: 64
+    mem_limit: 256m
+    cpus: 0.5
+
+    environment:
+      - TZ=America/Los_Angeles
+      # Optional Google Books provider key. NOTE: this is a Vite build-time var
+      # baked into the static bundle, so setting it on a prebuilt image usually
+      # has NO effect -- left here only as a documentation breadcrumb. Audible
+      # (the default provider) needs no key.
+      # - VITE_GOOGLE_BOOKS_API_KEY=
+
+    # App serves on port 80 inside the container. Host 8085 chosen because 8080
+    # is SABnzbd; verified 8081/8085/8086/8087/8088 all free at build time.
+    ports:
+      - 10.0.0.218:8085:80
+
+    logging:
+
+      driver: json-file
+
+      options:
+
+        max-size: "50m"
+
+        max-file: "5"
+
+    restart: unless-stopped
+
+# ---------------------------------------------------------------------------
+# Usage: http://10.0.0.218:8085 -> log in with your Audiobookshelf server URL
+#   (http://10.0.0.218:13378), ABS username + password -> pick libraries ->
+#   scan. Results list missing series entries to hunt down in Shelfmark.
+#
+# LAN-only, no auth layer added (same posture as shelfmark/abs/cwa). Not
+# published through the cloudflared tunnel. ABS creds never leave your browser.
+# ---------------------------------------------------------------------------

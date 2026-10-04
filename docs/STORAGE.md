@@ -1,6 +1,8 @@
 # Storage
 
-Observed 2026-09-23 using block-device and container mount metadata.
+Historical inventory observed 2026-09-23 using block-device and container mount metadata.
+
+Update, 2026-09-28: the 20 GiB root recovery snapshot filled and became invalid. The owner archived and hash-verified its complete COW allocation and saved VG metadata, then removed only that snapshot. The active 58.09 GiB root volume remains read-write. The snapshot mount in the historical table below is no longer an available recovery source. Storage checks pass; private archived evidence is documented in [the recovery follow-up](findings/2026-09-27-recovery-followup.md).
 
 | Path/device | Role |
 |---|---|

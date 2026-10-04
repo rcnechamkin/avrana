@@ -1,0 +1,60 @@
+services:
+  komga:
+    image: gotson/komga@sha256:c4f9885fc077e2e9cd684dc95e8f6cfa5e33b100b46712b2de7f5cc2ff59e6fb
+    container_name: komga
+    user: "1000:1000"
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      # The SQLite JDBC driver loads a native library from /tmp.
+      - /tmp:rw,exec,nosuid,nodev,size=1g
+    pids_limit: 256
+    mem_limit: 2g
+    cpus: 2.0
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:25600:25600"
+      - "10.0.0.218:25600:25600"
+    volumes:
+      - /home/cody/avrana/services/komga/config:/config
+      # Preserve configured library paths while exposing only the comics tree. All five Komga
+      # libraries root under .../comics/, so mounting the array root instead would needlessly
+      # expose the stack backup tree (Authentik pg_dump, service secrets) to this service.
+      # The destination path is unchanged, so the configured library roots still resolve.
+      # UNION MOUNT (mergerfs), not the raw trees. /mnt/avrana_media/comics_merged
+      # merges Mylar's comics/ and Omnibus's comics_omnibus/library into one
+      # read-only view, so both tools' output appears in ONE set of Komga
+      # libraries instead of a separate "requested comics" shelf.
+      #
+      # The INTERNAL path is deliberately unchanged (/avrana_media/avrana_media/
+      # comics), so Komga's five existing library roots keep working untouched --
+      # no re-scan, nothing marked missing, no admin API call needed.
+      #
+      # Storage ownership is still fully separated underneath: Mylar writes only
+      # comics/, Omnibus writes only comics_omnibus/library/, and the union is ro
+      # so Komga can never write to either. See services/omnibus/docker-compose.yml.
+      #
+      # The mount is in /etc/fstab with x-systemd.before=docker.service so it is
+      # always up before Komga starts. If it were missing, Komga would bind an
+      # empty directory and flag the whole library as gone.
+      - /mnt/avrana_media/comics_merged:/avrana_media/avrana_media/comics:ro
+      # Omnibus-managed comics, added 2026-08-21. READ-ONLY, like the Mylar
+      # tree above: Komga only ever reads. This is a SEPARATE host directory
+      # (a sibling of comics/, not a subdirectory) because Mylar's
+      # destination_dir is the whole comics/ root -- see
+      # services/omnibus/docker-compose.yml for the full safety rationale.
+      # Kept as its own Komga library so the two automation services' output
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:25600/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s

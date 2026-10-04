@@ -1,0 +1,152 @@
+version: 1
+metadata:
+  name: Avrana - Landing (branding + link-only video apps)
+  labels:
+    blueprints.goauthentik.io/instantiate: "true"
+# Purpose: make https://auth.avrana.net (Authentik's "My applications" library) a complete,
+# branded, role-aware Avrana landing page. It already shows only the apps a user's groups
+# permit — the gaps were (1) it said "authentik", not Avrana, and (2) Jellyfin and Seerr were
+# absent because they don't use OIDC, so a video user saw an incomplete page. These are
+# link-only applications (no provider): the tile + group gating live here; the actual auth is
+# each app's own login (Jellyfin credential replication, Seerr-on-Jellyfin). Tile visibility
+# is presentation only — real enforcement stays at the app/proxy layer.
+entries:
+  # Brand the user-facing pages as Avrana. Partial update matched by domain; the brand's flow
+  # bindings and default flag are left untouched. The CSS intentionally applies to the flow
+  # executor and user library, not the admin interface: operators still need the product's real
+  # names there for troubleshooting. Prefer variables and exported parts over DOM internals so
+  # this survives frontend upgrades.
+  - model: authentik_brands.brand
+    identifiers:
+      domain: authentik-default
+    attrs:
+      branding_title: Avrana
+      attributes:
+        settings:
+          theme:
+            base: dark
+      branding_custom_css: |
+        :root,
+        html[data-theme="dark"],
+        html[data-theme="light"] {
+          color-scheme: dark;
+          --ak-font-family-sans-serif: "Times New Roman", Times, serif;
+          --ak-font-family-monospace: "Times New Roman", Times, serif;
+          --ak-global--Color--100: #ffffff;
+          --ak-global--Color--200: #b8b8b8;
+          --ak-global--BackgroundColor--100: #000000;
+          --ak-global--BackgroundColor--200: #000000;
+          --ak-accent: #ffffff;
+          --ak-dark-background: #000000;
+          --ak-flow-background: #000000;
+          --pf-global--FontFamily--sans-serif: "Times New Roman", Times, serif;
+          --pf-global--FontFamily--heading--sans-serif: "Times New Roman", Times, serif;
+          --pf-global--Color--100: #ffffff;
+          --pf-global--Color--200: #b8b8b8;
+          --pf-global--BackgroundColor--100: #000000;
+          --pf-global--BackgroundColor--200: #000000;
+          --pf-global--primary-color--100: #ffffff;
+          --pf-global--primary-color--200: #d8d8d8;
+          --pf-global--link--Color: #ffffff;
+          --pf-global--link--Color--hover: #ffffff;
+          --pf-global--BorderColor--100: #686868;
+        }
+
+        html,
+        body,
+        button,
+        input,
+        select,
+        textarea {
+          font-family: "Times New Roman", Times, serif !important;
+        }
+
+        html,
+        body,
+        .pf-c-page,
+        .pf-c-background-image,
+        .ak-login-container {
+          background: #000000 !important;
+          color: #ffffff !important;
+        }
+
+        .pf-c-background-image {
+          --ak-flow-background: #000000 !important;
+          background-image: none !important;
+        }
+
+        .pf-c-login__main,
+        .pf-c-card,
+        .pf-c-modal-box {
+          background: #000000 !important;
+          color: #ffffff !important;
+          border: 1px solid #686868 !important;
+          border-radius: 0 !important;
+          box-shadow: none !important;
+        }
+
+        .pf-c-button,
+        .pf-c-form-control,
+        input,
+        select,
+        textarea {
+          border-radius: 0 !important;
+          box-shadow: none !important;
+        }
+
+        .pf-c-button.pf-m-primary {
+          color: #000000 !important;
+          background: #ffffff !important;
+          border-color: #ffffff !important;
+        }
+
+        a,
+        .pf-c-button.pf-m-link {
+          color: #ffffff !important;
+          text-decoration-color: #686868 !important;
+        }
+
+        ak-flow-executor::part(locale-select),
+        .pf-c-login__footer {
+          display: none !important;
+        }
+
+  # --- Jellyfin (movies & TV) — gated by avrana-videos --------------------------------------
+  - model: authentik_core.application
+    id: jellyfin-app
+    identifiers:
+      slug: jellyfin
+    attrs:
+      name: TV and Movies
+      group: Watch
+      meta_launch_url: https://watch.avrana.net
+      meta_description: Movies & TV
+      open_in_new_tab: true
+  - model: authentik_policies.policybinding
+    identifiers:
+      target: !KeyOf jellyfin-app
+      group: !Find [authentik_core.group, [name, avrana-videos]]
+      order: 0
+    attrs:
+      enabled: true
+
+  # --- Seerr (requests) — gated by avrana-requests ------------------------------------------
+  # NOTE: Seerr login rides on a Jellyfin account, so an invite granting avrana-requests should
+  # also grant avrana-videos (the enrollment default set already grants both together).
+  - model: authentik_core.application
+    id: seerr-app
+    identifiers:
+      slug: seerr
+    attrs:
+      name: Requests
+      group: Watch
+      meta_launch_url: https://request.avrana.net
+      meta_description: Request new movies & shows
+      open_in_new_tab: true
+  - model: authentik_policies.policybinding
+    identifiers:
+      target: !KeyOf seerr-app
+      group: !Find [authentik_core.group, [name, avrana-requests]]
+      order: 0
+    attrs:
+      enabled: true

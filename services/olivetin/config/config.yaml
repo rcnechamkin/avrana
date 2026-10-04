@@ -1,0 +1,157 @@
+# OliveTin - Avrana operations console. Admin-only, default-deny.
+#
+# Identity arrives as trusted headers from Authentik's embedded proxy outpost, which is the ONLY
+# thing that can reach this service (no host port is published, and the container sits on
+# authentik_frontend). The outpost strips any client-supplied X-authentik-* headers and sets its
+# own, so these values cannot be forged by a client.
+logLevel: INFO
+listenAddressSingleHTTPFrontend: 0.0.0.0:1337
+
+# Authentik joins groups with "|" (see the avrana-portal notes); OliveTin splits on this.
+authHttpHeaderUsername: X-authentik-username
+authHttpHeaderUsergroup: X-authentik-groups
+authHttpHeaderUsergroupSep: "|"
+
+# --- default deny ---------------------------------------------------------------------------
+# Nobody sees or runs anything unless an ACL below grants it. Diagnostics and the log list are
+# off globally so an unexpected identity cannot enumerate the server.
+defaultPermissions:
+  view: false
+  exec: false
+  logs: false
+  # `kill` DEFAULTS TO TRUE in OliveTin and is easy to miss: without this line the parsed config
+  # reads Kill:true, so default-deny would be incomplete and an unexpected identity could kill a
+  # running action. Verified by dumping the parsed config at debug level.
+  kill: false
+
+defaultPolicy:
+  showDiagnostics: false
+  showLogList: false
+
+accessControlLists:
+  # "authentik Admins" is the existing dedicated administrator group; akadmin is Cody.
+  # Both are listed so access survives a group rename, and neither grants anyone else anything.
+  - name: avrana-admins
+    matchUsergroups:
+      - "authentik Admins"
+    matchUserNames:
+      - akadmin
+    permissions:
+      view: true
+      exec: true
+      logs: true
+      kill: true
+
+# --- actions --------------------------------------------------------------------------------
+# Every action is on the ACL above. No action takes free-form input: the only parameter anywhere
+# is the service name, and it is constrained to a fixed `choices` list AND re-validated against a
+# hardcoded allowlist inside the script.
+actions:
+  # 1. DIAGNOSTICS ---------------------------------------------------------------------------
+  - id: health_report
+    title: Avrana Health Report
+    icon: ❤️
+    shell: /opt/avrana/scripts/avrana-health.sh
+    timeout: 120
+    onclick: execution-dialog
+    acls: [avrana-admins]
+
+  # 2. SERVICE RECOVERY ----------------------------------------------------------------------
+  - id: restart_service
+    title: Restart a media service
+    icon: 🔄
+    # The choice value is substituted as a single argument; the script re-checks it against its
+    # own allowlist and refuses anything else, so the dropdown is convenience, not the control.
+    shell: /opt/avrana/scripts/restart-service.sh {{ service }}
+    timeout: 180
+    onclick: execution-dialog
+    acls: [avrana-admins]
+    # Control-plane services are deliberately absent: authentik-*, bookstack*, homepage*,
+    # olivetin*, the socket proxies and the databases. SABnzbd is a host systemd service, not a
+    # container, so it cannot be restarted here. Bazarr is not deployed.
+    arguments:
+      - name: service
+        title: Service
+        type: choices
+        default: jellyfin
+        choices:
+          - value: jellyfin
+            title: Jellyfin (video)
+          - value: audiobookshelf
+            title: Audiobookshelf
+          - value: komga
+            title: Komga (comics)
+          - value: calibre-web-automated
+            title: Calibre-Web (books)
+          - value: seerr
+            title: Seerr (requests)
+          - value: avrana-audible-connector
+            title: Audible Connector
+          - value: radarr
+            title: Radarr
+          - value: sonarr
+            title: Sonarr
+          - value: prowlarr
+            title: Prowlarr
+      - type: confirmation
+        title: Restart this service now? Playback in progress will be interrupted.
+
+  # 3. MEDIA JOBS ----------------------------------------------------------------------------
+  - id: jellyfin_scan
+    title: Jellyfin library scan
+    icon: 🎬
+    shell: /opt/avrana/scripts/media-scan.sh jellyfin
+    timeout: 120
+    onclick: execution-dialog
+    acls: [avrana-admins]
+
+  - id: abs_scan
+    title: Audiobookshelf library scan
+    icon: 🎧
+    shell: /opt/avrana/scripts/media-scan.sh audiobookshelf
+    timeout: 120
+    onclick: execution-dialog
+    acls: [avrana-admins]
+
+  # 4. BACKUPS -------------------------------------------------------------------------------
+  # Triggers the EXISTING whole-stack backup; this is not a second implementation.
+  # systemd will not run two instances of avrana-backup.service, so a manual run cannot race
+  # the nightly timer; maxRate is a second belt against button-mashing.
+  - id: backup_now
+    title: Run stack backup now
+    icon: 💾
+    shell: /opt/avrana/scripts/backup-run.sh
+    timeout: 1800
+    onclick: execution-dialog
+    maxRate:
+      - limit: 2
+        duration: 1h
+    acls: [avrana-admins]
+    arguments:
+      - type: confirmation
+        title: Run a full stack backup now? This takes a few minutes.
+
+  # 5. TUNNEL -------------------------------------------------------------------------------
+  # For rollouts: after adding a hostname to ~/.cloudflared/config.yml the tunnel must be
+  # restarted to pick it up, and that is a HOST SYSTEM unit needing root. OliveTin does not get
+  # root: it drops a marker that a root systemd.path unit watches, and that unit hardcodes the
+  # service name. See scripts/cloudflared-restart.sh.
+  #
+  # NOTE: this restarts the thing carrying your request. The page will blink for ~5-15s.
+  - id: cloudflared_restart
+    title: Restart Cloudflare tunnel
+    icon: 🌐
+    shell: /opt/avrana/scripts/cloudflared-restart.sh
+    timeout: 180
+    onclick: execution-dialog
+    maxRate:
+      - limit: 4
+        duration: 1h
+    acls: [avrana-admins]
+    arguments:
+      - type: confirmation
+        title: Restart the tunnel? Every avrana.net page drops for a few seconds, including this one.
+
+  # Restore is deliberately NOT exposed as a button. It is destructive, needs judgement about
+  # which run to restore and which components, and belongs in a terminal with the runbook open.
+  # See services/backups/README.md and the BookStack "Backups & Recovery" page.

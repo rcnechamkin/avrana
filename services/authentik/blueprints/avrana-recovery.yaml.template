@@ -1,0 +1,126 @@
+# TEMPLATE. Secret values were removed when this was imported from production on 2026-10-04.
+# The deployed file is services/authentik/blueprints/avrana-recovery.yaml (mode 0600, not in Git, restored from backup).
+# docs/SECRETS.md lists each removed value and where it comes from.
+version: 1
+metadata:
+  name: Avrana - self-service password recovery (SMTP2GO)
+  labels:
+    blueprints.goauthentik.io/instantiate: "true"
+# Self-service password recovery. Until this existed, Cody was the manual reset service for every
+# member, in TWO systems (Authentik plus the separate Jellyfin credential copy - see the SSO notes,
+# a reset here does NOT propagate to Jellyfin).
+#
+# Flow shape (the standard Authentik recovery sequence):
+#   10 identification  - user types their username or email
+#   20 email           - flow PAUSES here and resumes when they click the emailed link
+#   30 prompt          - new password + repeat
+#   40 user_write      - commit
+#
+# The email stage carries the SMTP2GO password, which is why this file stays gitignored, exactly
+# like the ABS/Komga OIDC secrets and the Jellyfin admin key in the other blueprints.
+entries:
+  # --- email transport ------------------------------------------------------------------------
+  - model: authentik_stages_email.emailstage
+    id: recovery-email
+    identifiers:
+      name: avrana-recovery-email
+    attrs:
+      use_global_settings: false
+      host: mail.smtp2go.com
+      port: 587
+      username: avrana-mail
+      password: "<SECRET - not in Git; see docs/SECRETS.md>"
+      # Port 587 is STARTTLS, not implicit TLS. use_ssl would be for 465.
+      use_tls: true
+      use_ssl: false
+      timeout: 30
+      from_address: cody@avrana.net
+      subject: Reset your Avrana password
+      template: email/password_reset.html
+      # A recovery link that lives too long is a standing credential in someone's inbox.
+      token_expiry: minutes=30
+      activate_user_on_success: false
+
+  # --- who are you ----------------------------------------------------------------------------
+  - model: authentik_stages_identification.identificationstage
+    id: recovery-ident
+    identifiers:
+      name: avrana-recovery-identification
+    attrs:
+      user_fields:
+        - email
+        - username
+      # Deliberately no password field: this stage only identifies, it never authenticates.
+      case_insensitive_matching: true
+      show_matched_user: false
+
+  # --- new password ---------------------------------------------------------------------------
+  - model: authentik_stages_prompt.promptstage
+    id: recovery-prompt
+    identifiers:
+      name: avrana-recovery-prompt
+    attrs:
+      fields:
+        - !Find [authentik_stages_prompt.prompt, [name, default-password-change-field-password]]
+        - !Find [authentik_stages_prompt.prompt, [name, default-password-change-field-password-repeat]]
+
+  - model: authentik_stages_user_write.userwritestage
+    id: recovery-write
+    identifiers:
+      name: avrana-recovery-write
+
+  # --- the flow -------------------------------------------------------------------------------
+  - model: authentik_flows.flow
+    id: flow-recovery
+    identifiers:
+      slug: avrana-recovery
+    attrs:
+      name: Reset your password
+      title: Reset your Avrana password
+      designation: recovery
+      # An authenticated user has no business in a recovery flow.
+      authentication: require_unauthenticated
+
+  - model: authentik_flows.flowstagebinding
+    identifiers:
+      target: !KeyOf flow-recovery
+      order: 10
+    attrs:
+      stage: !KeyOf recovery-ident
+      evaluate_on_plan: true
+      re_evaluate_policies: false
+
+  - model: authentik_flows.flowstagebinding
+    identifiers:
+      target: !KeyOf flow-recovery
+      order: 20
+    attrs:
+      stage: !KeyOf recovery-email
+      evaluate_on_plan: true
+      re_evaluate_policies: false
+
+  - model: authentik_flows.flowstagebinding
+    identifiers:
+      target: !KeyOf flow-recovery
+      order: 30
+    attrs:
+      stage: !KeyOf recovery-prompt
+      evaluate_on_plan: true
+      re_evaluate_policies: false
+
+  - model: authentik_flows.flowstagebinding
+    identifiers:
+      target: !KeyOf flow-recovery
+      order: 40
+    attrs:
+      stage: !KeyOf recovery-write
+      evaluate_on_plan: true
+      re_evaluate_policies: false
+
+  # --- surface it -----------------------------------------------------------------------------
+  # Setting the brand's recovery flow is what puts "Forgot password?" on the sign-in page.
+  - model: authentik_brands.brand
+    identifiers:
+      domain: authentik-default
+    attrs:
+      flow_recovery: !KeyOf flow-recovery

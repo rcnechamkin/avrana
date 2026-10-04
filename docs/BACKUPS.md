@@ -6,11 +6,13 @@ Stack backups live under `/mnt/avrana_media/.backups/avrana/<UTC timestamp>`. Th
 
 The September 20 golden backup has two preserved copies: the `.keep`-marked production backup `2026-09-20T09-34-23Z` and `recovery-20260920/GOLDEN-BACKUP-2026-09-20T09-34-23Z`. Preserve both exactly. The latter is outside normal retention. Do not remove sidecars or empty files created by earlier verification.
 
-## Confirmed Jellyfin coverage gap
+## Jellyfin coverage gap and September 27 repair
 
-The live backup function explicitly excludes `metadata`, `cache`, `transcodes`, `log` and `logs` from the Jellyfin config archive. The September 20 archive has no metadata subtree. Metadata artwork is therefore not recoverable from that backup, even though the database contains image paths. Artwork/custom selections are not equivalent to disposable transcoding cache.
+The function inspected on September 23 explicitly excluded `metadata`, `cache`, `transcodes`, `log` and `logs` from the Jellyfin config archive. The September 20 archive has no metadata subtree. Metadata artwork is therefore not recoverable from that backup, even though the database contains image paths. Artwork/custom selections are not equivalent to disposable transcoding cache.
 
-The Jellyfin function also archives database files directly with tar; its result should not be advertised as a transactionally consistent SQLite online backup. The examined golden working copy passed integrity, but this does not validate future captures. A proposed change should use a consistent SQLite backup plus config and metadata capture, distinguish transient cache from durable artwork, and validate on disposable copies. No production backup script was changed or run here.
+The Jellyfin function also archives database files directly with tar; its result should not be advertised as a transactionally consistent SQLite online backup. The examined golden working copy passed integrity, but this does not validate future captures. A proposed change should use a consistent SQLite backup plus config and metadata capture, distinguish transient cache from durable artwork, and validate on disposable copies. No production backup script was changed or run during the September 23 documentation work.
+
+On September 27, the owner authorized live recovery. The backup function now retains metadata artwork, creates a consistent online SQLite copy of data/jellyfin.db, excludes the live database/WAL/SHM entries from tar, and adds the consistent copy at the same data/jellyfin.db restore path. Its tar/compression pipeline propagates either failure. Komga application.yml is also captured with mode 0600. The fixture archive test verified replacement, sidecar exclusion and artwork inclusion. See findings/2026-09-27-recovery-followup.md for the completed backup and disposable integrity checks. No application shutdown is needed for this backup.
 
 ## Other gaps
 

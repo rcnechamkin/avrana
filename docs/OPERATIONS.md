@@ -1,6 +1,8 @@
 # Operations and recovery boundaries
 
-Evidence date: 2026-09-23. Start with read-only observations, not repair commands.
+Historical evidence date: 2026-09-23. Start with read-only observations, not repair commands.
+
+Current recovery verification (2026-09-28 04:24Z): all 40 containers and 88 bind mounts were checked with administrator-level process-root inspection; no stale mounts, unverified mounts or deleted-open persistent state were found. The invalid recovery snapshot was archived, hash-verified and retired by the owner. Storage preflight, Docker baseline and service health pass, and all seven requested application logins were owner-confirmed. See [the recovery follow-up](findings/2026-09-27-recovery-followup.md) for the retained backups, restore tests and limits. The older stale-mount counts below are historical and superseded by this audit.
 
 ```sh
 hostname

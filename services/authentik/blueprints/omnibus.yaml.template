@@ -1,0 +1,62 @@
+# TEMPLATE. Secret values were removed when this was imported from production on 2026-10-04.
+# The deployed file is services/authentik/blueprints/omnibus.yaml (not in Git, restored from backup).
+# docs/SECRETS.md lists each removed value and where it comes from.
+version: 1
+metadata:
+  name: Avrana - Omnibus OIDC
+  labels:
+    blueprints.goauthentik.io/instantiate: "true"
+entries:
+  - model: authentik_providers_oauth2.oauth2provider
+    id: omnibus-provider
+    identifiers:
+      name: omnibus
+    attrs:
+      authorization_flow: !Find [authentik_flows.flow, [slug, default-provider-authorization-implicit-consent]]
+      invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]
+      client_id: 3495c6106d0b19f97c1e6499ba6dfe8d8c71c97b
+      client_secret: "<SECRET - not in Git; see docs/SECRETS.md>"
+      # Omnibus is NextAuth (Next.js 15). Its OIDC provider is registered with
+      # id "oidc" (verified in the shipped bundle: id:"oidc",name:"OpenID
+      # Connect",type:"oauth",wellKnown), so the callback path is fixed at
+      # /api/auth/callback/oidc -- it is NOT configurable.
+      redirect_uris:
+        - matching_mode: strict
+          url: https://requestacomic.avrana.net/api/auth/callback/oidc
+          redirect_uri_type: authorization
+        - matching_mode: strict
+          url: http://10.0.0.218:5058/api/auth/callback/oidc
+          redirect_uri_type: authorization
+      grant_types:
+        - authorization_code
+        - refresh_token
+      property_mappings:
+        - !Find [authentik_providers_oauth2.scopemapping, [managed, goauthentik.io/providers/oauth2/scope-openid]]
+        - !Find [authentik_providers_oauth2.scopemapping, [managed, goauthentik.io/providers/oauth2/scope-email]]
+        - !Find [authentik_providers_oauth2.scopemapping, [managed, goauthentik.io/providers/oauth2/scope-profile]]
+      signing_key: !Find [authentik_crypto.certificatekeypair, [name, authentik Self-signed Certificate]]
+  # The SLUG is the OIDC issuer path (https://auth.avrana.net/application/o/omnibus/)
+  # and Omnibus stores it as oidc_issuer. Renaming the app in the web UI would
+  # break the issuer, so keep the slug declarative here. Same trap documented
+  # in komga.yaml / audiobookshelf.yaml.
+  - model: authentik_core.application
+    id: omnibus-app
+    identifiers:
+      slug: omnibus
+    attrs:
+      # "Comics" is already taken by Komga (the reader). This is the request app,
+      # sitting in the same Read category as Shelfarr (the book-request app).
+      name: Request Comics
+      group: Read
+      provider: !KeyOf omnibus-provider
+      meta_launch_url: https://requestacomic.avrana.net
+      meta_description: Discover and request comics and manga
+  # REUSES the existing avrana-comics group rather than creating a redundant
+  # identity group -- the same group that already gates Komga.
+  - model: authentik_policies.policybinding
+    identifiers:
+      target: !KeyOf omnibus-app
+      group: !Find [authentik_core.group, [name, avrana-comics]]
+      order: 0
+    attrs:
+      enabled: true

@@ -1,0 +1,38 @@
+# Acknowledged failed systemd units — the BASELINE for services-health.sh.
+#
+# Purpose: make NEW failures loud without re-alerting every 15 minutes on debt that is
+# already triaged and tracked. A unit listed here is reported as a counted "acknowledged"
+# failure, not an alert. Anything failing that is NOT listed here is a FAIL.
+#
+# This list is debt, not a carpet. Every line should end up either fixed or removed.
+# Classification and evidence: BookStack -> Runbook -> Known Issues (2026-08-28).
+#
+# Format: <scope>:<unit>    # CLASSIFICATION — evidence
+#
+# ---- SUPERSEDED: something else already does this job -------------------------------
+system:cloudflared-comics.service      # duplicate of cloudflared.service (runs config-comics.yml)
+system:cloudflared-health.service      # duplicate of the ACTIVE user unit cloudflared-health.service
+system:summarize_lastfm.service        # duplicate of the user unit of the same name
+system:sonarr.service                  # unit file no longer exists; the sonarr CONTAINER replaced it
+#
+# ---- ABANDONED: target is physically absent, can never start ------------------------
+system:comic-watcher.service           # /home/cody/scripts does not exist at all
+system:remote-faster-whisper.service   # /etc/remote-faster-whisper does not exist; wyoming containers replaced it
+system:jdownloader2.service            # WorkingDirectory /home/cody/.jdownloader does not exist
+#
+# ---- RESOLVED 2026-08-29, no longer failing ------------------------------------------
+#   parse_health_export  -- timer DISABLED. The Apple Health pipeline is obsolete: 20 requests
+#                           ever, and the last genuine phone POST was 2025-09-18 (the only 2026
+#                           entry is the security audit's own 127.0.0.1 test). It was failing
+#                           1,440x/day. Path fix deliberately NOT applied -- see Known Issues.
+#
+# ---- ACTIVE/FIX: path drift from the filing_cabinet reorg (media_sync/ -> media/) ----
+# Each target still exists at a new path; these are one-line ExecStart fixes, not dead units.
+user:tag_all.service                   # wants taggers/tag_all.py -> moved to utils/
+user:lastfm_fetcher.service            # wants media/usic/... -> real path media/music/fetchers/
+user:summarize_lastfm.service          # wants media_sync/music/... -> real path media/music/summarizers/
+#
+# ---- AMBIGUOUS: preserved deliberately, needs a human decision ----------------------
+system:avrana.service                  # legacy Kern Prime/AIRIK FastAPI app on :8000; modules exist, runtime error
+user:strava_fetch.service              # script exists; fails on expired token (credential, not code)
+user:blackbox.service                  # script exists; missing python module 'google'

@@ -6,6 +6,7 @@ spec = importlib.util.spec_from_file_location(
     'review', Path(__file__).resolve().parents[1] / 'scripts/review_git_content.py')
 review = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(review)
+NL = bytes([10])
 
 
 class ContentGateTests(unittest.TestCase):
@@ -33,6 +34,29 @@ class ContentGateTests(unittest.TestCase):
             issues = review.review_blob('source.py', '100644', sample)
             self.assertTrue(issues)
             self.assertNotIn(sample.decode(), '\n'.join(issues))
+
+    def test_canonical_layout_paths(self):
+        for path in ['services/backups/avrana-backup.sh', 'services/media/docker-compose.yml',
+                     'services/bookstack/docker-compose.yml', 'services/bookstack/.env.example',
+                     'services/homepage/widget-secrets.env.example']:
+            with self.subTest(path=path):
+                self.assertEqual([], review.review_blob(path, '100644', b'content' + NL))
+        for path in ['backups/run/app.txt', 'services/homepage/widget-secrets.env',
+                     'services/mylar3/Mylar.py', 'services/demo/secrets/token']:
+            with self.subTest(path=path):
+                self.assertTrue(review.review_blob(path, '100644', b'content' + NL))
+
+    def test_unquoted_and_embedded_credentials(self):
+        for sample in [b'      client_secret: ' + b'c0ffee' * 12,
+                       b'auth = base64.b64encode(b"user@example.org:' + b'p4ss' * 5 + b'").decode()']:
+            self.assertTrue(review.review_blob('services/authentik/blueprints/x.yaml', '100644', sample))
+        self.assertEqual([], review.review_blob(
+            'services/authentik/.env.example', '100644', b'PG_PASS=generate-with-openssl-rand-hex-36' + NL))
+
+    def test_archived_images_allowed_only_under_docs_archive(self):
+        png = bytes([0x89]) + b'PNG' + bytes([0])
+        self.assertEqual([], review.review_blob('docs/archive/bookstack/images/a.png', '100644', png))
+        self.assertTrue(review.review_blob('docs/a.png', '100644', png))
 
     def test_only_migration_sql_is_candidate(self):
         self.assertTrue(review.review_blob('dump.sql', '100644', b'SELECT 1;'))

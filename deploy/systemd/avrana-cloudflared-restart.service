@@ -1,0 +1,19 @@
+[Unit]
+Description=Restart the Avrana Cloudflare tunnel on operator request
+Documentation=http://10.0.0.218:6875 BookStack -> OliveTin - operations console
+
+[Service]
+Type=oneshot
+
+# Clear the marker FIRST, so a failed restart cannot wedge the path unit in a retrigger loop.
+ExecStartPre=/bin/rm -f /home/cody/avrana/services/olivetin/state/request-cloudflared-restart
+
+# Deliberate 3s delay. The request that pressed this button arrived THROUGH the tunnel, so
+# restarting immediately would kill the connection before OliveTin's response reached the
+# browser, and the operator would see a hang rather than a result. Sleeping first lets the
+# response return, then the tunnel bounces.
+ExecStart=/bin/sleep 3
+
+# Hardcoded unit name, no parameters accepted from the trigger. This cannot be turned into
+# "restart anything" - that is the whole reason it is a fixed unit rather than a sudo rule.
+ExecStart=/bin/systemctl restart cloudflared-avrana.service

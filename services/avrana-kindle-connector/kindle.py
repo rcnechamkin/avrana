@@ -41,7 +41,7 @@ CWA_DB = os.environ.get("CWA_DB", "/cwa/app.db")
 ABS_URL = os.environ.get("ABS_URL", "http://10.0.0.218:13378")
 ABS_KEY = os.environ.get("ABS_API_KEY", "")
 REQUIRED_GROUP = os.environ.get("REQUIRED_GROUP", "avrana-books")
-SENDER = os.environ.get("SENDER_ADDRESS", "sender@example.invalid")
+SENDER = os.environ.get("SENDER_ADDRESS", "cody@avrana.net")
 
 USERNAME_HEADER = "X-authentik-username"
 EMAIL_HEADER = "X-authentik-email"

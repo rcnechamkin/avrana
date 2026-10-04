@@ -1,0 +1,13 @@
+[Unit]
+Description=Mylar3 Comic Server
+After=network.target
+
+[Service]
+Type=simple
+User=cody
+WorkingDirectory=/home/cody/avrana/services/mylar3
+ExecStart=/home/cody/avrana/services/mylar3/.venv/bin/python /home/cody/avrana/services/mylar3/Mylar.py
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

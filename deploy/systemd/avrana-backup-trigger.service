@@ -1,0 +1,10 @@
+[Unit]
+Description=Start the Avrana stack backup on operator request
+
+[Service]
+Type=oneshot
+# Clear the marker FIRST so a failed run cannot wedge the path unit in a retrigger loop.
+ExecStartPre=/bin/rm -f /home/cody/avrana/services/olivetin/state/request-backup
+# systemd will not run two instances of avrana-backup.service, so this cannot race the 02:30
+# timer; a request during a run simply joins the run already in progress.
+ExecStart=/usr/bin/systemctl --user start avrana-backup.service

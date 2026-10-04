@@ -1,0 +1,71 @@
+version: 1
+metadata:
+  name: Avrana - Calibre-Web LDAP
+  labels:
+    blueprints.goauthentik.io/instantiate: "true"
+entries:
+  # Bind/search service account CWA authenticates as to look up users. It needs the
+  # search_full_directory permission (granted out-of-band via ak shell, since object
+  # permissions aren't clean to express in a blueprint). Its bind password is an
+  # app-password token, also created out-of-band.
+  - model: authentik_core.user
+    id: ldap-cwa-user
+    identifiers:
+      username: ldap-cwa
+    attrs:
+      name: CWA LDAP bind
+      type: service_account
+      path: goauthentik.io/outposts/ldap
+
+  - model: authentik_providers_ldap.ldapprovider
+    id: calibre-ldap-provider
+    identifiers:
+      name: calibre-ldap
+    attrs:
+      base_dn: DC=avrana,DC=net
+      # LDAP GOTCHA: the outpost runs the *authorization_flow* as the bind flow, so it must
+      # be an AUTHENTICATING flow (identification+password+user_login). The usual
+      # default-provider-authorization-implicit-consent assumes a pre-existing browser
+      # session and fails every bind with "Flow does not apply to current user". Use
+      # default-authentication-flow for both. App gating stays enforced by the avrana-books
+      # policy binding on the application (checked on bind access), not by this flow.
+      authentication_flow: !Find [authentik_flows.flow, [slug, default-authentication-flow]]
+      authorization_flow: !Find [authentik_flows.flow, [slug, default-authentication-flow]]
+      invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]
+      # CACHED, not direct (changed 2026-08-15). In `direct` mode every bind runs the full
+      # authentication flow server-side — measured ~3s PER BIND. That's invisible in the web
+      # UI (auth once, ride a session cookie) but brutal over OPDS, where reader apps send
+      # HTTP Basic auth on EVERY request (feed + each cover + download), each triggering the
+      # ldap-cwa service bind + user search + user bind = 3s+ apiece → "sluggish". Cached mode
+      # caches successful binds and syncs the directory locally, so repeats skip the flow.
+      # Trade-off (acceptable for a media library): a password change or avrana-books removal
+      # can lag by the cache window rather than applying instantly.
+      bind_mode: cached
+      search_mode: cached
+      mfa_support: false
+
+  # LDAP is a BACKCHANNEL provider -- it attaches to the app via backchannel_providers,
+  # not the primary provider slot. The avrana-books policy binding is what restricts who
+  # can bind/log in; Authentik LDAP rejects a bind from a user denied access to this app.
+  - model: authentik_core.application
+    id: calibre-web-app
+    identifiers:
+      slug: calibre-web
+    attrs:
+      name: Books
+      group: Read
+      backchannel_providers:
+        - !KeyOf calibre-ldap-provider
+      meta_launch_url: https://books.avrana.net
+  - model: authentik_policies.policybinding
+    identifiers:
+      target: !KeyOf calibre-web-app
+      group: !Find [authentik_core.group, [name, avrana-books]]
+      order: 0
+    attrs:
+      enabled: true
+
+  # NOTE: the LDAP outpost (name "avrana-ldap", type ldap, serving :3389) is created
+  # imperatively via ak shell, NOT here -- it needs its auto-generated connection token
+  # fed to the outpost container's AUTHENTIK_TOKEN env, which is an imperative step. The
+  # blueprint importer also choked on an outpost entry with a !KeyOf m2m to the provider.

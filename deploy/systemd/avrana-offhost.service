@@ -1,0 +1,13 @@
+[Unit]
+Description=Off-host copy of the Avrana backup tree (encrypted, to object storage)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Same posture as the local backup: never compete with media serving or downloads.
+Nice=15
+IOSchedulingClass=idle
+ExecStart=/home/cody/avrana/services/backups/offhost-sync.sh
+# The tree is small (~680 MB), but a first upload on a slow link needs room.
+TimeoutStartSec=3600

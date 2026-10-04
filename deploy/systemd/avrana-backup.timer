@@ -1,0 +1,11 @@
+[Unit]
+Description=Run the Avrana stack backup daily
+
+[Timer]
+# 02:30 local — after the nightly Libation scan/liberate loop, before morning use.
+OnCalendar=*-*-* 02:30:00
+Persistent=true
+RandomizedDelaySec=5min
+
+[Install]
+WantedBy=timers.target

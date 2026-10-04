@@ -15,11 +15,16 @@ def main():
     spec = importlib.util.spec_from_file_location('kindle_tests', path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    tests = [(name, value) for name, value in vars(module).items() if name.startswith('test_') and callable(value)]
+    # The production test file also holds live gating checks that start containers through
+    # Docker (anything using its curl() helper). Those are never run from here.
+    import inspect
+    tests = [(name, value) for name, value in vars(module).items()
+             if name.startswith('test_') and callable(value) and 'curl(' not in inspect.getsource(value)]
     for name, test in tests:
         test()
         print('PASS', name)
     print(f'{len(tests)} offline Kindle tests passed')
+    subprocess.run([sys.executable, '-B', '-m', 'unittest', 'discover', '-s', str(ROOT / 'services/backups/tests'), '-p', 'test_*.py'], check=True)
 
 
 if __name__ == '__main__':

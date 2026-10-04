@@ -1,0 +1,8 @@
+[Unit]
+Description=Validate Avrana media services
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/home/cody/avrana/scripts/services-health.sh

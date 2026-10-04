@@ -1,0 +1,20 @@
+[Unit]
+Description=Purge stale Omnibus CBZ/CBR extraction cache
+Documentation=BookStack page 71 (Omnibus)
+
+[Service]
+Type=oneshot
+# Omnibus leaves an omnibus_extraction_<uuid> directory behind after every
+# archive read/convert and never cleans them up. On 2026-08-26 that filled the
+# 57G root filesystem to 99% (48 dirs, 20G) -- note metadata_cache_max_mb is
+# 256, so its own cap is not enforced.
+#
+# Run through a root container because the extraction dirs are ROOT-OWNED while
+# the parent cache dir is cody's, so a plain user-level rm cannot descend into
+# them and fails silently.
+#
+# -mmin +720 = only purge dirs untouched for 12h, so an in-flight extraction is
+# never destroyed. cover_thumbs and issue_covers are left alone deliberately --
+# those are the real cache and total ~13M.
+ExecStart=/usr/bin/docker run --rm -v /home/cody/avrana/services/omnibus/config/cache:/c alpine \
+  find /c -maxdepth 1 -name 'omnibus_extraction_*' -type d -mmin +720 -exec rm -rf {} +

@@ -1,0 +1,88 @@
+# ---------------------------------------------------------------------------
+# Libation -- Audible library -> DRM-free M4B
+#
+# Pulls from BOTH Audible accounts on one instance. That is deliberate: a
+# single instance means a single SQLite database (config/LibationContext.db),
+# and that database tracks liberated ASINs across every configured account.
+# If both accounts own the same title it is downloaded once. Do not split this
+# into two containers -- that would give you two databases and two copies.
+#
+# Output lands in /mnt/avrana_media/audiobooks, which Audiobookshelf mounts
+# read-write from the same host path for metadata embedding. Both containers
+# share the filesystem directly; Libation's "Audiobookshelf auto-upload"
+# feature is deliberately NOT used and must stay disabled in Settings.json.
+#
+# This image has no web UI. All interaction is LibationCli via docker exec:
+#   docker exec -it libation LibationCli list-accounts --libationFiles /config
+# Always pass --libationFiles /config, or changes are written to the
+# container's internal scratch copy and lost on restart.
+# ---------------------------------------------------------------------------
+
+services:
+  libation:
+    image: rmcrackan/libation@sha256:a1b4a10150d785ddbb3359ccb0cfd089abd2a462330d30ffb68b638e8d3ad6d6
+    container_name: libation
+
+    # The image ships as USER 1001:1001. Cody is 1000:1000 and owns both the
+    # config dir and the media tree, so override it -- running as 1001 is the
+    # cause of the "unable to open database file" sqlite errors in the
+    # Libation issue tracker.
+    user: "1000:1000"
+
+    environment:
+      - TZ=America/Los_Angeles
+
+      # Scan + liberate every 12h. NOTE: the image's own default is -1, which
+      # means "run once and exit" -- the periodic loop only exists because
+      # this is set explicitly. Accepts sleep(1) suffixes (30m, 12h, ...).
+      - SLEEP_TIME=12h
+
+      # The image ignores the Books/InProgress values in Settings.json and
+      # uses these instead, so the output path is set here, not in settings.
+      - LIBATION_BOOKS_DIR=/data
+
+      # Create config/LibationContext.db on first run if absent. /db is not
+      # mounted, so the database lives alongside the config on the host.
+      - LIBATION_CREATE_DB=true
+
+    volumes:
+      # Audible auth tokens (AccountsSettings.json), Settings.json and the
+      # liberated-ASIN database. services/ is gitignored, so this is not
+      # committed -- keep it that way.
+      - ./config:/config
+
+      # Libation logs to an internal path that is not persisted by default.
+      # Settings.json routes its Serilog file sink here instead. Mounting
+      # /config-internal would work too but would shadow the container's
+      # staged config and database symlink, so don't.
+      - ./logs:/logs
+
+      # Same host path Audiobookshelf mounts read-write for metadata embedding.
+      - /mnt/avrana_media/audiobooks:/data
+
+      # In-progress download staging on DISK (the array), not RAM. Libation's
+      # liberate.sh hardcodes InProgress=/tmp; with /tmp as a tmpfs, staging a
+      # large audiobook there fills RAM and the memcg OOM-kills LibationCli
+      # (exit 137 -- first hit on "A Storm of Swords"). Backing /tmp with the
+      # array removes the RAM pressure and the size ceiling. Trade-off: /tmp is
+      # no longer noexec; acceptable for this image.
+      - /mnt/avrana_media/.libation-inprogress:/tmp
+
+    # A failed scan (expired/invalid Audible tokens) exits non-zero, so the
+    # container will restart-loop with docker's backoff until re-authed.
+    # Check `docker logs libation` if it is flapping.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # No tmpfs /tmp on purpose: /tmp is bind-mounted from the array (see
+    # volumes) so InProgress staging is disk-backed and cannot OOM the cgroup.
+    pids_limit: 256
+    mem_limit: 4g
+    cpus: 2.0
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+    restart: unless-stopped

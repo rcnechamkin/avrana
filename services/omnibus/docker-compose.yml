@@ -1,0 +1,192 @@
+# ---------------------------------------------------------------------------
+# Omnibus -- user-facing comic/manga discovery, request and acquisition.
+#
+# Sits ALONGSIDE Mylar3, which stays in production for Cody/admin use.
+# Mylar3 is NOT a container on this host: it runs bare-metal from
+# services/mylar3/ under the systemd *user* unit ~/.config/systemd/user/
+# mylar.service (python Mylar.py, port 8090). `docker ps | grep mylar` finds
+# nothing -- do not conclude it is absent.
+#
+#   Admin -> Mylar3        -> /mnt/avrana_media/comics           -\
+#                                                                  >-> Komga
+#   Users -> Authentik -> Omnibus -> Prowlarr/SAB
+#                                 -> /mnt/avrana_media/comics_omnibus -/
+#
+# ============================ SAFETY BOUNDARY ==============================
+# MYLAR AND OMNIBUS MUST NEVER MANAGE THE SAME WRITABLE DIRECTORY.
+#
+# Mylar's config.ini has `destination_dir = /mnt/avrana_media/comics` with
+# `folder_format = $Publisher/$Series ($Year)`. Mylar therefore owns the
+# ENTIRE comics/ tree, not a subfolder of it. Putting Omnibus under
+# comics/omnibus/ would place it inside Mylar's destination root, so instead
+# Omnibus gets a SIBLING directory, matching the existing comics_incoming /
+# comics_old / comics_quar naming already used on this array:
+#
+#   /mnt/avrana_media/comics           -> MYLAR writes    (Omnibus sees :ro)
+#   /mnt/avrana_media/comics_omnibus   -> OMNIBUS writes  (Mylar never sees)
+#
+# Verified non-overlapping at deploy time. Mylar also has
+# `enable_check_folder = False`, so it does not scan any watch directory and
+# cannot pick up Omnibus output. Do not point either service at the other's
+# tree, and do not "tidy" comics_omnibus into comics/.
+# ===========================================================================
+#
+# Three containers, per upstream's required architecture:
+#   omnibus         Next.js web UI + API           (the only exposed one)
+#   omnibus-engine  Rust sidecar: scans, downloads, conversion, metadata
+#   omnibus-redis   job queue shared by the two above
+#
+# Pinned to upstream release v1.4.4 (2026-08-13) by tag AND digest. Upstream's
+# README documents only `latest`, but real vX.Y.Z tags do exist on GHCR --
+# 795 tags on the web image, 243 on the engine. `latest` is NOT used here.
+
+services:
+
+  omnibus:
+    image: ghcr.io/hankscafe/omnibus:v1.4.4@sha256:a8bc2a8c7f334d871c1cc2a7f191e1e4836e89b688cca702c6c319128cbb69e7
+    container_name: omnibus
+    restart: unless-stopped
+    depends_on:
+      omnibus-redis: {condition: service_healthy}
+
+    env_file: [.env]
+    environment:
+      - TZ=America/Los_Angeles
+      # Canonical public URL, no trailing slash. Must match the cloudflared
+      # ingress hostname or OIDC callbacks break.
+      - NEXTAUTH_URL=https://requestacomic.avrana.net
+      - OMNIBUS_REDIS_URL=redis://omnibus-redis:6379
+      - OMNIBUS_ENGINE_URL=http://omnibus-engine:8000
+      - DATABASE_URL=file:/config/omnibus.db
+      - OMNIBUS_CACHE_DIR=/config/cache
+      - OMNIBUS_LOGS_DIR=/config/logs
+      - OMNIBUS_BACKUPS_DIR=/config/backups
+      - OMNIBUS_WATCHED_DIR=/data/watched
+      - OMNIBUS_AWAITING_MATCH_DIR=/data/unmatched
+      # 002 = group-writable, not 000. World-writable is unnecessary here
+      # because every mount is already uid/gid 1000.
+      - UMASK=002
+
+    volumes:
+      # STATE ON THE SSD, DELIBERATELY. Docker's data root on this host is
+      # /mnt/avrana_media/docker, i.e. the 7.3 TB SPINNING array, so a named
+      # volume would put this SQLite database on a spindle shared with all
+      # media I/O. Measured 2026-08-20: fsync 775 ms on the array vs 1.33 ms
+      # on the SSD. That is what broke Tracearr. ./config is under /home/cody
+      # = SSD-backed root fs. Holds omnibus.db, cache, logs, backups.
+      - ./config:/config
+      # OMNIBUS-OWNED media. The ONLY writable comic path. Single mount so the
+      # engine's post-processing moves stay atomic renames, not cross-device
+      # copies.
+      - /mnt/avrana_media/comics_omnibus:/data
+      # Mylar's library, READ-ONLY, for discovery / "already own this"
+      # awareness. :ro is the safety boundary -- Omnibus can see Mylar's
+      # collection but physically cannot modify or post-process it.
+      - /mnt/avrana_media/comics:/mylar-library:ro
+      # SABnzbd runs bare-metal with complete_dir=/mnt/avrana_media/incoming
+      # and reports HOST paths. Identity mount so those paths resolve inside
+      # the container with no Remote Path Mapping. Same trick shelfarr uses.
+      - /mnt/avrana_media/incoming:/mnt/avrana_media/incoming
+
+    ports:
+      - 10.0.0.218:5058:3000
+
+    networks: [omnibus]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 1500m
+    cpus: 1.5
+    pids_limit: 512
+    healthcheck:
+      # NODE, not wget/curl -- neither exists in this image (verified: only
+      # /usr/local/bin/node). And the probe MUST target the container's own
+      # hostname, not 127.0.0.1: Next.js here binds solely to the eth0 address
+      # (confirmed via /proc/net/tcp), so loopback and 0.0.0.0 both give
+      # ECONNREFUSED even while the app serves fine through the published port.
+      # /api/health returns 401 unauthenticated -- that still proves the app is
+      # up and routing, so anything under 500 counts as healthy; only a 5xx or
+      # a refused connection is a real failure.
+      test: ["CMD", "node", "-e", "const h=require('os').hostname();require('http').get({host:h,port:3000,path:'/api/health',timeout:8000},r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1)).on('timeout',()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      start_period: 120s
+      retries: 3
+    logging: &logging
+      driver: json-file
+      options: {max-size: "50m", max-file: "5"}
+
+  omnibus-engine:
+    image: ghcr.io/hankscafe/omnibus-engine:v1.4.4@sha256:3551d1f04edf4de978350269da4f8201753432deabd28e4c1c2f476c6cda2660
+    container_name: omnibus-engine
+    restart: unless-stopped
+    depends_on:
+      omnibus-redis: {condition: service_healthy}
+
+    env_file: [.env]
+    environment:
+      - TZ=America/Los_Angeles
+      - OMNIBUS_REDIS_URL=redis://omnibus-redis:6379
+      - DATABASE_URL=file:/config/omnibus.db
+      - OMNIBUS_CACHE_DIR=/config/cache
+      - OMNIBUS_LOGS_DIR=/config/logs
+      - OMNIBUS_BACKUPS_DIR=/config/backups
+      - OMNIBUS_WATCHED_DIR=/data/watched
+      - OMNIBUS_AWAITING_MATCH_DIR=/data/unmatched
+      - UMASK=002
+
+    # Engine shares the SAME /config and /data as the web container -- upstream
+    # requires identical NEXTAUTH_SECRET, DATABASE_URL and paths across both.
+    volumes:
+      - ./config:/config
+      - /mnt/avrana_media/comics_omnibus:/data
+      - /mnt/avrana_media/comics:/mylar-library:ro
+      - /mnt/avrana_media/incoming:/mnt/avrana_media/incoming
+
+    # NO published ports, deliberately. Upstream explicitly keeps engine :8000
+    # off the host so it cannot be reached externally; the web container talks
+    # to it over the internal compose network only.
+    networks: [omnibus]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 1500m
+    cpus: 1.5
+    pids_limit: 512
+    logging: *logging
+
+  omnibus-redis:
+    image: redis:7-alpine@sha256:ff02b58f971e7d7d156a1267e283fcbbeee91773b6aa36c49dac28ecfe28eadf
+    container_name: omnibus-redis
+    restart: unless-stopped
+    # Job queue only -- no persistence needed; a lost queue is re-derivable.
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    networks: [omnibus]
+    # Start AS the redis user rather than root. The image's entrypoint
+    # otherwise drops privileges with setpriv, which needs SETUID/SETGID --
+    # with cap_drop: ALL that fails as "setresuid: Operation not permitted"
+    # and the container crash-loops on exit 127. Starting non-root skips the
+    # drop entirely, so ALL capabilities can stay dropped.
+    user: "999:999"
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    read_only: true
+    # /data is redis' working directory; persistence is off (--save "" /
+    # --appendonly no) so a tmpfs is sufficient and nothing needs the array.
+    tmpfs:
+      - "/tmp:rw,noexec,nosuid,nodev,size=32m"
+      - "/data:rw,noexec,nosuid,nodev,size=64m,uid=999,gid=999"
+    mem_limit: 256m
+    pids_limit: 128
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    logging: *logging
+
+networks:
+  # ONE network, not two. This host is at Docker's default address-pool limit
+  # (32 networks; daemon.json sets only data-root, no default-address-pools),
+  # and asking for a second subnet failed with "all predefined address pools
+  # have been fully subnetted". A single network is sufficient: the engine and
+  # redis publish no ports, so they remain unreachable from outside regardless.
+  omnibus:
+    name: omnibus

@@ -1,0 +1,266 @@
+# ---------------------------------------------------------------------------
+# Kern HQ -- Home Assistant + local voice pipeline.
+#
+# This is the FIRST Kern HQ component. It is deliberately a standalone
+# smart-home deployment, NOT an orchestrator. Per the BookStack Kern shelf
+# (book "Kern HQ -- Home Assistant", page 62):
+#
+#     "Deploying Home Assistant earlier for its own sake is fine; wiring it
+#      as an orchestrator is not."
+#
+# HARD RULE, do not violate without revisiting the Kern docs:
+#   HA automations here control HOME DEVICES ONLY. Nothing in this instance
+#   may call Sonarr, Radarr, Seerr, Jellyfin, Audiobookshelf, Komga or any
+#   other Avrana service. Cross-subsystem logic belongs to Kern, which does
+#   not exist yet (roadmap step 7). If you find yourself adding a REST
+#   command or webhook pointing at 10.0.0.218:8989 etc., stop.
+#
+# Deployment shape decided 2026-08-18: container on the existing host, not a
+# dedicated appliance. Rationale is the Hardware Strategy page -- UPS first,
+# compute only on measured contention, no new hardware to start.
+#
+# Voice pipeline: fully local, no Nabu Casa, no cloud STT/TTS. Satisfies the
+# Kern invariant that everything keeps working if every external provider
+# disappears.
+#
+#     wake word (on-device, "Okay Nabu")  <- runs on the Voice PE puck itself
+#           |
+#     speech-to-phrase   :10300   local STT, vocabulary built from your entities
+#           |
+#     HA intent match             deterministic, no LLM
+#           |
+#     wyoming-piper      :10200   local TTS
+#
+# TWO-PHASE STARTUP. speech-to-phrase REQUIRES --hass-token at launch (it
+# connects to HA's websocket API to learn your entity names and trains a
+# Kaldi model from them). That token cannot exist until HA is up and
+# onboarded, so:
+#
+#   Phase 1:  docker compose up -d
+#             ...onboard HA at http://10.0.0.218:8123, adopt the puck,
+#             create a long-lived token, write it into .env
+#   Phase 2:  docker compose up -d          (again -- see below)
+#
+# speech-to-phrase sits behind the compose profile "stt". Phase 2 enables it
+# by adding BOTH lines to .env:
+#     HASS_TOKEN=<long-lived token>
+#     COMPOSE_PROFILES=stt
+# Putting the profile in .env rather than passing --profile on the command
+# line means every later `docker compose up -d` / restart Just Works and
+# nobody has to remember a flag.
+#
+# Hardening follows the stack baseline (see the docker-hardening memory):
+# no-new-privileges, cap_drop ALL + documented minimal cap_add, per-container
+# CPU/memory/PID limits, 50m x 5 log rotation. read_only root filesystems are
+# deliberately NOT set yet -- HA's s6 init and Kaldi's training step both
+# write outside their volumes, and the stack convention is to validate
+# hardening per service rather than guess. That is a follow-up, not an
+# oversight.
+#
+# LAN-only. Not on the cloudflared tunnel, matching how Sonarr/Radarr/SAB are
+# kept off it. Exposing voice publicly would also walk straight into the
+# shared-device identity problem described in "Identity, Permissions &
+# Security" -- a voice puck does not establish WHO is speaking.
+# ---------------------------------------------------------------------------
+
+services:
+
+  # -------------------------------------------------------------------------
+  # Home Assistant Core (container flavour -- no Supervisor, no add-on store).
+  # Add-ons are replaced by the standalone Wyoming containers below, which is
+  # how the rest of this stack already works.
+  # -------------------------------------------------------------------------
+  home-assistant:
+    image: ghcr.io/home-assistant/home-assistant@sha256:56690a89c79a0de98035e1719f8324a92d5859c1192ff45adb0230ea81cb42a5  # :stable = 2026.8.2
+    container_name: home-assistant
+    restart: unless-stopped
+
+    # HOST NETWORKING IS LOAD-BEARING, do not switch to bridge.
+    # The Voice PE puck is an ESPHome device discovered over mDNS/zeroconf.
+    # On a bridge network HA cannot see multicast traffic on the LAN and the
+    # puck will simply never appear in the UI. Same applies to most other
+    # local discovery (Cast, HomeKit, DHCP-based discovery).
+    # Consequence: no `ports:` stanza -- HA binds 8123 directly on the host.
+    network_mode: host
+
+    environment:
+      - TZ=America/Los_Angeles
+
+    volumes:
+      # HA's entire state: config, SQLite recorder DB, secrets, .storage.
+      # This directory IS the backup target for HA.
+      - ./config:/config
+      # NO /run/dbus MOUNT, deliberately. This host has no Bluetooth adapter
+      # at all (checked 2026-08-18: /sys/class/bluetooth is empty), so there
+      # is nothing to expose and no reason to widen the mount surface.
+      # The Voice PE puck does not need it either -- the puck talks WiFi, and
+      # its BLE provisioning is driven from your phone, not from the server.
+      #
+      # KNOWN COSMETIC LOG LINE: HA's built-in `bluetooth` component (pulled
+      # in by default_config) logs one PermissionError at every startup --
+      # "Missing NET_ADMIN/NET_RAW capabilities for Bluetooth management".
+      # It is harmless with no adapter present and only disables automatic
+      # adapter recovery, which is meaningless here. It is NOT caused by the
+      # missing dbus mount and does not go away by adding one. Silencing it
+      # would mean dropping `default_config:` and re-listing every component
+      # by hand, which costs more than the log line does. Ignore it.
+      #
+      # If a BLE adapter is ever added: mount `- /run/dbus:/run/dbus:ro`
+      # AND add NET_ADMIN to cap_add below. Not before.
+
+    # Runs as root and drops privileges via s6; the image has no PUID/PGID
+    # support. Caps below are the minimum s6-overlay + discovery need:
+    #   CHOWN/SETUID/SETGID/DAC_OVERRIDE/FOWNER -- s6 init fixing up perms
+    #   KILL                                    -- s6 supervising services
+    #   NET_RAW                                 -- ping + DHCP discovery
+    # NET_BIND_SERVICE is absent on purpose: 8123 is above 1024.
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETUID
+      - SETGID
+      - DAC_OVERRIDE
+      - FOWNER
+      - KILL
+      - NET_RAW
+
+    security_opt:
+      - no-new-privileges:true
+
+    # i3-6100T has 4 threads total and already runs ~28 containers. HA idles
+    # low but spikes hard on startup and during recorder purges.
+    cpus: 2.0
+    mem_limit: 2g
+    pids_limit: 512
+
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8123/manifest.json', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+
+    logging:
+      driver: json-file
+      options:
+        max-size: 50m
+        max-file: "5"
+
+  # -------------------------------------------------------------------------
+  # Piper -- local text-to-speech. This is what the puck speaks with.
+  # -------------------------------------------------------------------------
+  wyoming-piper:
+    image: rhasspy/wyoming-piper@sha256:72ee1b06b062cb14f4a70de002eb420a068efd5a7a8cb7620be6bf600307f867
+    container_name: wyoming-piper
+    restart: unless-stopped
+
+    # Voice model. "medium" is the quality/CPU sweet spot on this hardware;
+    # en_US-lessac-medium is the usual default. Swap for another Piper voice
+    # by changing this -- it is downloaded into ./piper-data on first run.
+    command: --voice en_US-lessac-medium
+
+    environment:
+      - TZ=America/Los_Angeles
+
+    volumes:
+      # Downloaded voice models (~60MB each).
+      - ./piper-data:/data
+
+    # Bound to localhost only. HA runs on HOST networking, so it reaches this
+    # at 127.0.0.1:10200. Nothing else on the LAN needs to talk to it.
+    ports:
+      - 127.0.0.1:10200:10200
+
+    user: "1000:1000"
+
+    cap_drop:
+      - ALL
+
+    security_opt:
+      - no-new-privileges:true
+
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+
+    cpus: 1.0
+    mem_limit: 1g
+    pids_limit: 128
+
+    logging:
+      driver: json-file
+      options:
+        max-size: 50m
+        max-file: "5"
+
+  # -------------------------------------------------------------------------
+  # Speech-to-Phrase -- local speech-to-text, PHASE 2 ONLY.
+  #
+  # Unlike Whisper this is not open-vocabulary. It reads your HA entities over
+  # the websocket API and trains a Kaldi model that recognises only sentences
+  # about things you actually own. That constraint is exactly why it is fast
+  # and accurate on a GPU-less 4-thread i3 -- and why it must be RETRAINED
+  # whenever you add or rename devices (--retrain-on-start handles restarts;
+  # there is also a "retrain" button in the HA UI).
+  #
+  # Gated behind the "stt" profile so it is not even created during phase 1.
+  # It would crash-loop without a real token, which would just be noise.
+  # -------------------------------------------------------------------------
+  speech-to-phrase:
+    image: rhasspy/wyoming-speech-to-phrase@sha256:85580e14114b866f5ccd6ed856b0b97f634d8d0936ed7e31edc7822840327422
+    container_name: speech-to-phrase
+    restart: unless-stopped
+
+    # Not started unless COMPOSE_PROFILES=stt is set in .env (phase 2).
+    profiles:
+      - stt
+
+    command: >
+      --hass-token ${HASS_TOKEN:-PHASE2_TOKEN_NOT_SET}
+      --hass-websocket-uri ws://10.0.0.218:8123/api/websocket
+      --retrain-on-start
+
+    environment:
+      - TZ=America/Los_Angeles
+
+    volumes:
+      # Downloaded acoustic models, and the trained artefacts built from your
+      # entity names. Both are regenerable -- not critical backup targets.
+      - ./speech-to-phrase/models:/models
+      - ./speech-to-phrase/train:/train
+
+    # Localhost only, same reasoning as Piper.
+    ports:
+      - 127.0.0.1:10300:10300
+
+    # NOTE: reaches HA via the LAN IP above, not 127.0.0.1 -- this container
+    # is on a bridge network, so localhost is its own namespace.
+    networks:
+      - kern-hq
+
+    user: "1000:1000"
+
+    cap_drop:
+      - ALL
+
+    security_opt:
+      - no-new-privileges:true
+
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+
+    # Kaldi training is the heaviest thing here and is CPU-bound. Capped so a
+    # retrain cannot starve Jellyfin or the *arrs.
+    cpus: 2.0
+    mem_limit: 2g
+    pids_limit: 256
+
+    logging:
+      driver: json-file
+      options:
+        max-size: 50m
+        max-file: "5"
+
+networks:
+  kern-hq:
+    name: kern-hq

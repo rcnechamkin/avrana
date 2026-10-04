@@ -1,0 +1,580 @@
+# TEMPLATE. Secret values were removed when this was imported from production on 2026-10-04.
+# The deployed file is services/authentik/blueprints/avrana-enrollment.yaml (mode 0600, not in Git, restored from backup).
+# docs/SECRETS.md lists each removed value and where it comes from.
+version: 1
+metadata:
+  name: Avrana - Invite enrollment
+  labels:
+    blueprints.goauthentik.io/instantiate: "true"
+entries:
+  # Application access is gated by group membership (see the policybinding entries in
+  # audiobookshelf.yaml / komga.yaml, and the Jellyfin creation policy below).
+  # Superusers are NOT exempt from those bindings, so akadmin has to be a member of every
+  # avrana-* group or the admin loses access to its own apps. "authentik Admins" is listed
+  # explicitly because this is a full m2m assignment -- omitting it would strip akadmin's
+  # superuser status.
+  - model: authentik_core.user
+    identifiers:
+      username: akadmin
+    attrs:
+      groups:
+        - !Find [authentik_core.group, [name, authentik Admins]]
+        - !Find [authentik_core.group, [name, avrana-users]]
+        - !Find [authentik_core.group, [name, avrana-audiobooks]]
+        - !Find [authentik_core.group, [name, avrana-comics]]
+        - !Find [authentik_core.group, [name, avrana-books]]
+        - !Find [authentik_core.group, [name, avrana-videos]]
+        - !Find [authentik_core.group, [name, avrana-requests]]
+
+  # --- enrollment prompts -------------------------------------------------------
+  - model: authentik_stages_prompt.prompt
+    id: prompt-username
+    identifiers:
+      name: avrana-enrollment-username
+    attrs:
+      field_key: username
+      label: Username
+      type: username
+      required: true
+      placeholder: Pick a username
+      order: 0
+  - model: authentik_stages_prompt.prompt
+    id: prompt-name
+    identifiers:
+      name: avrana-enrollment-name
+    attrs:
+      field_key: name
+      label: Display name
+      type: text
+      required: true
+      placeholder: Your name
+      order: 10
+  - model: authentik_stages_prompt.prompt
+    id: prompt-email
+    identifiers:
+      name: avrana-enrollment-email
+    attrs:
+      field_key: email
+      label: Email
+      type: email
+      required: true
+      placeholder: you@example.com
+      sub_text: Used to match your account across Avrana's apps -- use a real address.
+      order: 20
+  # Two password-type prompts are validated against each other automatically by the
+  # prompt stage (_validate_password_fields), so no extra policy is needed.
+  - model: authentik_stages_prompt.prompt
+    id: prompt-password
+    identifiers:
+      name: avrana-enrollment-password
+    attrs:
+      field_key: password
+      label: Password
+      type: password
+      required: true
+      order: 30
+  - model: authentik_stages_prompt.prompt
+    id: prompt-password-repeat
+    identifiers:
+      name: avrana-enrollment-password-repeat
+    attrs:
+      field_key: password_repeat
+      label: Repeat password
+      type: password
+      required: true
+      order: 40
+
+  # --- stages -------------------------------------------------------------------
+  - model: authentik_stages_invitation.invitationstage
+    id: stage-invitation
+    identifiers:
+      name: avrana-enrollment-invitation
+    attrs:
+      # false = no token, no enrollment. This is what keeps the flow invite-only
+      # rather than open self-registration.
+      continue_flow_without_invitation: false
+  - model: authentik_stages_prompt.promptstage
+    id: stage-prompt
+    identifiers:
+      name: avrana-enrollment-prompt
+    attrs:
+      fields:
+        - !KeyOf prompt-username
+        - !KeyOf prompt-name
+        - !KeyOf prompt-email
+        - !KeyOf prompt-password
+        - !KeyOf prompt-password-repeat
+  - model: authentik_stages_user_write.userwritestage
+    id: stage-user-write
+    identifiers:
+      name: avrana-enrollment-user-write
+    attrs:
+      user_creation_mode: always_create
+      create_users_group: !Find [authentik_core.group, [name, avrana-users]]
+      user_type: internal
+      # Created INACTIVE on purpose. The email stage that follows flips this on success, so an
+      # abandoned or failed verification leaves an account that cannot authenticate and that no
+      # downstream service ever sees. See the verification stage above for why the order cannot
+      # simply be reversed.
+      create_users_as_inactive: true
+  - model: authentik_stages_user_login.userloginstage
+    id: stage-user-login
+    identifiers:
+      name: avrana-enrollment-login
+  # Land a finished invitee on the portal instead of Authentik's own app library. The portal is
+  # role-aware, so "the right page" needs no per-invite configuration: it renders exactly the
+  # tiles the groups the invite carried permit. Must be bound AFTER stage-user-login (order 30),
+  # because avrana.net sits behind the proxy outpost and an unauthenticated hit would bounce the
+  # brand-new user straight back into a sign-in.
+  - model: authentik_stages_redirect.redirectstage
+    id: stage-portal-redirect
+    identifiers:
+      name: avrana-enrollment-portal-redirect
+    attrs:
+      mode: static
+      target_static: https://avrana.net
+
+  # --- Jellyfin account creation ------------------------------------------------
+  - model: authentik_policies_expression.expressionpolicy
+    id: policy-jellyfin-create
+    identifiers:
+      name: avrana-jellyfin-create
+    attrs:
+      execution_logging: true
+      expression: |
+        import hashlib
+        from urllib.parse import urljoin
+
+        plan = request.context.get("flow_plan")
+        if not plan:
+            return True
+
+        prompt = plan.context.get("prompt_data", {})
+
+        # Two independent signals, both set via the invitation's fixed_data (never a form
+        # field the enrollee fills in themselves):
+        #   avrana_groups containing "avrana-videos"  -> real access: create ENABLED, tile
+        #                                                 visible (existing behaviour).
+        #   avrana_precreate_jellyfin: true            -> identity only: create the account
+        #                                                 now but leave it DISABLED, so it
+        #                                                 exists for an admin to flip on
+        #                                                 later without a second enrollment.
+        # Jellyfin has no concept of Authentik groups, so hiding the tile alone would NOT
+        # block login -- IsDisabled is the only real gate, which is why the precreate path
+        # explicitly sets it after creation.
+        groups = plan.context.get("groups", [])
+        want_access = any(g.name == "avrana-videos" for g in groups)
+        want_precreate = bool(prompt.get("avrana_precreate_jellyfin"))
+        if not (want_access or want_precreate):
+            ak_logger.info("jellyfin-create: no avrana-videos and no precreate flag, skipping")
+            return True
+
+        username = prompt.get("username")
+        password = prompt.get("password")
+        email = prompt.get("email")
+
+        if not (username and password and email):
+            ak_logger.warning("jellyfin-create: missing prompt data", username=bool(username), password=bool(password), email=bool(email))
+            return True
+
+        # Jellyfin runs on HOST networking, so it is NOT reachable by container name
+        # from the authentik-server container -- it must be addressed by the host LAN IP.
+        # POST /Users/New (CreateUserByName) takes {Name, Password} and sets the password
+        # server-side. This is credential REPLICATION, not SSO: Jellyfin stores its own
+        # copy, so a later Authentik password change will not propagate here.
+        jellyfin_url = "http://10.0.0.218:8096"
+        api_key = "<SECRET - see docs/SECRETS.md>"
+        headers = {"X-MediaBrowser-Token": api_key}
+
+        try:
+            resp = requests.post(
+                urljoin(jellyfin_url, "/Users/New"),
+                json={"Name": username, "Password": password},
+                headers=headers,
+                timeout=10,
+            )
+            if resp.status_code not in (200, 204):
+                ak_logger.warning("jellyfin-create: unexpected status", username=username, status=resp.status_code, body=resp.text[:200])
+                return True
+            ak_logger.info("jellyfin-create: user created", username=username, status=resp.status_code)
+
+            if not want_access:
+                # Precreate-only: disable the freshly created account. Send back the FULL
+                # policy Jellyfin just assigned (with IsDisabled flipped) rather than a
+                # partial body -- /Users/{id}/Policy replaces the whole object.
+                created = resp.json() if resp.content else {}
+                uid = created.get("Id")
+                if not uid:
+                    lookup = requests.get(urljoin(jellyfin_url, "/Users"), headers=headers, timeout=10)
+                    match = next((u for u in lookup.json() if u.get("Name") == username), None)
+                    uid = match.get("Id") if match else None
+                    created = match or {}
+                policy = created.get("Policy") or {}
+                policy["IsDisabled"] = True
+                if uid:
+                    pr = requests.post(urljoin(jellyfin_url, f"/Users/{uid}/Policy"),
+                                        json=policy, headers=headers, timeout=10)
+                    if pr.status_code in (200, 204):
+                        ak_logger.info("jellyfin-create: account disabled pending access grant", username=username)
+                    else:
+                        ak_logger.warning("jellyfin-create: failed to disable precreated account",
+                                           username=username, status=pr.status_code, body=pr.text[:200])
+                else:
+                    ak_logger.error("jellyfin-create: could not resolve new user id to disable it", username=username)
+        except Exception as e:
+            ak_logger.error("jellyfin-create: request failed", username=username, error=str(e))
+            # Don't fail the enrollment flow if Jellyfin is unreachable
+            return True
+
+        return True
+
+  # --- invitation fixed_data -> real group membership ---------------------------
+  # The invitation stage merges fixed_data into plan.context["prompt_data"], but
+  # user_write reads group assignments from the TOP-LEVEL plan.context["groups"] and
+  # explicitly blocklists "groups" as a writable user attribute. This policy is the
+  # bridge. It is bound to the user_write stage with re_evaluate_policies, which is
+  # what makes it run at execution time (with prompt_data populated) rather than at
+  # plan time -- see ReevaluateMarker, which passes the live flow_plan and disables
+  # policy caching.
+  - model: authentik_policies_expression.expressionpolicy
+    id: policy-invite-groups
+    identifiers:
+      name: avrana-invite-groups
+    attrs:
+      execution_logging: true
+      expression: |
+        from authentik.core.models import Group
+
+        plan = request.context.get("flow_plan")
+        if not plan:
+            return True
+
+        # ABS refuses to auto-register a user whose email_verified claim is false, and
+        # the Avrana email scope mapping reads it from this per-user attribute (only
+        # akadmin had it, so every invited user was rejected with "email is not
+        # verified" until this was added). The invitation is the trust anchor here:
+        # an account only exists because a single-use invite was issued for it.
+        # user_write turns the "attributes." prefix into a nested user attribute.
+        plan.context.setdefault("prompt_data", {})["attributes.email_verified"] = True
+
+        names = plan.context.get("prompt_data", {}).get("avrana_groups", [])
+        if isinstance(names, str):
+            names = [n.strip() for n in names.split(",") if n.strip()]
+        if names:
+            found = list(Group.objects.filter(name__in=names))
+            missing = set(names) - {group.name for group in found}
+            if missing:
+                ak_message("Unknown group(s) in invitation: " + ", ".join(sorted(missing)))
+            plan.context["groups"] = found
+        return True
+
+  # --- Komga account creation ----------------------------------------------------
+  - model: authentik_policies_expression.expressionpolicy
+    id: policy-komga-create
+    identifiers:
+      name: avrana-komga-create
+    attrs:
+      execution_logging: true
+      expression: |
+        import base64
+        from urllib.parse import urljoin
+
+        plan = request.context.get("flow_plan")
+        if not plan:
+            return True
+
+        prompt = plan.context.get("prompt_data", {})
+
+        # Only for people who actually get comics.
+        groups = plan.context.get("groups", [])
+        if not any(g.name == "avrana-comics" for g in groups):
+            ak_logger.info("komga-create: no avrana-comics, skipping")
+            return True
+
+        email = prompt.get("email")
+        password = prompt.get("password")
+        if not (email and password):
+            ak_logger.warning("komga-create: missing prompt data", email=bool(email), password=bool(password))
+            return True
+
+        # WHY THIS EXISTS: Komga's OIDC covers the web UI, but OPDS clients (comic reader
+        # apps) speak HTTP Basic only, and an account created by signing in with Avrana has
+        # no password the member knows. Creating the account here with the SAME email and
+        # password they just chose means those apps work without a second credential.
+        #
+        # This is credential REPLICATION, not SSO, exactly like the Jellyfin policy above:
+        # Komga keeps its own copy, so a later Authentik password change does NOT propagate.
+        #
+        # Komga sits on its own compose network (komga_default) and authentik-server is on
+        # authentik_backend/frontend, so the container name does NOT resolve between them.
+        # Addressed by host LAN IP for the same reason the Jellyfin policy above is.
+        komga_url = "http://10.0.0.218:25600"
+        auth = base64.b64encode(b"<SECRET - see docs/SECRETS.md>").decode()
+        headers = {"Authorization": "Basic " + auth}
+
+        try:
+            # If OIDC already auto-created this account (oauth2-account-creation is on), a
+            # second create would 4xx. Check first and set the password on the existing row
+            # instead, so whichever happens first still ends with usable credentials.
+            existing = None
+            resp = requests.get(urljoin(komga_url, "/api/v2/users"), headers=headers, timeout=10)
+            if resp.status_code == 200:
+                for u in resp.json():
+                    if (u.get("email") or "").lower() == email.lower():
+                        existing = u.get("id")
+                        break
+
+            if existing:
+                resp = requests.patch(
+                    urljoin(komga_url, "/api/v2/users/" + existing + "/password"),
+                    json={"password": password}, headers=headers, timeout=10,
+                )
+                ak_logger.info("komga-create: set password on existing account", email=email, status=resp.status_code)
+            else:
+                resp = requests.post(
+                    urljoin(komga_url, "/api/v2/users"),
+                    json={"email": email, "password": password,
+                          "roles": ["FILE_DOWNLOAD", "PAGE_STREAMING"]},
+                    headers=headers, timeout=10,
+                )
+                if resp.status_code not in (200, 201):
+                    ak_logger.warning("komga-create: unexpected status", email=email, status=resp.status_code, body=resp.text[:200])
+                    return True
+                ak_logger.info("komga-create: created", email=email)
+        except Exception as exc:
+            # Never block enrollment because a downstream service is unreachable.
+            ak_logger.warning("komga-create: failed", error=str(exc)[:200])
+
+        return True
+
+  # --- email verification -------------------------------------------------------
+  # Uses the SAME SMTP as password recovery. Placed AFTER user_write because Authentik's email
+  # stage hard-fails with "No pending user" unless PLAN_CONTEXT_PENDING_USER is set, and only
+  # user_write sets it (see stages/email/stage.py). So the account is created INACTIVE and this
+  # stage activates it on success -- an inactive user cannot authenticate anywhere, and no
+  # downstream provisioning runs, because those policies are bound to the LOGIN stage which
+  # comes after this one.
+  - model: authentik_stages_email.emailstage
+    id: stage-verify-email
+    identifiers:
+      name: avrana-enrollment-verify-email
+    attrs:
+      use_global_settings: false
+      host: mail.smtp2go.com
+      port: 587
+      username: avrana-mail
+      password: "<SECRET - not in Git; see docs/SECRETS.md>"
+      use_tls: true
+      use_ssl: false
+      timeout: 30
+      from_address: cody@avrana.net
+      subject: Confirm your Avrana email
+      template: email/account_confirmation.html
+      # Short enough that an abandoned link is not a standing invitation.
+      token_expiry: minutes=30
+      # THE GATE: the account stays inactive until this succeeds.
+      activate_user_on_success: true
+
+  # --- passkey enrollment -------------------------------------------------------
+  # A dedicated stage rather than editing the shared default-authenticator-webauthn-setup,
+  # which other flows use.
+  # Both settings are "preferred", NOT "required", so Face ID is offered rather than demanded:
+  #   user_verification: preferred        -> Authentik's own wording is "user verification would
+  #     be great, but if not that's okay too". iPhones still present Face ID; a device without
+  #     biometrics is not shut out.
+  #   resident_key_requirement: preferred -> still produces a discoverable credential (a real
+  #     passkey that syncs into iCloud Keychain) on iOS, Android and modern browsers, without
+  #     hard-failing on authenticators that cannot store one.
+  # authenticator_attachment is left unset so a hardware key also works; forcing "platform"
+  # would lock out anyone who prefers one.
+  - model: authentik_stages_authenticator_webauthn.authenticatorwebauthnstage
+    id: stage-passkey
+    identifiers:
+      name: avrana-enrollment-passkey
+    attrs:
+      friendly_name: Avrana
+      user_verification: preferred
+      resident_key_requirement: preferred
+      # Because setup is optional, people WILL skip it -- so there has to be a way back.
+      # configure_flow is what puts a "Configure" button on the MFA section of the account page,
+      # letting someone add a passkey later without a second enrollment. Reuses Authentik's own
+      # setup flow rather than a parallel one.
+      configure_flow: !Find [authentik_flows.flow, [slug, default-authenticator-webauthn-setup]]
+
+  # --- passkey opt-in -----------------------------------------------------------
+  # Authentik's WebAuthn stage has NO skip button: once the flow reaches it, the person must
+  # register a credential. So "optional" cannot be expressed by stage settings alone -- it needs
+  # an explicit question first, and a policy that skips the stage when the answer is no.
+  - model: authentik_stages_prompt.prompt
+    id: prompt-passkey-optin
+    identifiers:
+      name: avrana-enrollment-passkey-optin
+    attrs:
+      field_key: setup_passkey
+      label: Set up Face ID or a passkey now
+      type: checkbox
+      required: false
+      # MUST STAY EMPTY (2026-08-19). It was "true" so the box arrived pre-ticked as the
+      # encouraged path -- but that made it IMPOSSIBLE TO DECLINE, and every enrollee was forced
+      # into Face ID / passkey setup no matter what they clicked.
+      #
+      # Why: authentik builds the serializer field as BooleanField(default=<initial_value>)
+      # whenever initial_value is truthy, and DROPS `required` when it sets a default
+      # (stages/prompt/models.py, "May not set both `required` and `default`"). An unchecked HTML
+      # checkbox is omitted from the submission entirely, so DRF substitutes that default and
+      # stage.py's `prompt_data.update(response.validated_data)` writes setup_passkey=True
+      # regardless of the actual choice. The opt-in policy then reads a truthy value and passes.
+      #
+      # Ticked-by-default and declinable are mutually exclusive for a CHECKBOX here. If the
+      # encouraged-path default is wanted back, switch this prompt to a radio/dropdown with
+      # explicit yes/no choices, which always submits a value.
+      initial_value: ""
+      sub_text: >-
+        Sign in later with Face ID, Touch ID or your device PIN instead of typing a password.
+        You can skip this and add it any time from your account page.
+      order: 0
+  - model: authentik_stages_prompt.promptstage
+    id: stage-passkey-offer
+    identifiers:
+      name: avrana-enrollment-passkey-offer
+    attrs:
+      fields:
+        - !KeyOf prompt-passkey-optin
+
+  - model: authentik_policies_expression.expressionpolicy
+    id: policy-passkey-optin
+    identifiers:
+      name: avrana-passkey-optin
+    attrs:
+      execution_logging: true
+      expression: |
+        # Returning False SKIPS the stage this is bound to. Must be evaluated at execution time
+        # (evaluate_on_plan: false + re_evaluate_policies: true on the binding), because at plan
+        # time the answer has not been given yet and every enrollment would skip.
+        plan = request.context.get("flow_plan")
+        if not plan:
+            return True
+        prompt = plan.context.get("prompt_data", {})
+        wants = prompt.get("setup_passkey")
+        # An unticked checkbox may arrive as False, "false", or be absent entirely.
+        if isinstance(wants, str):
+            wants = wants.strip().lower() not in ("", "false", "0", "off", "no")
+        if not wants:
+            ak_logger.info("passkey-optin: declined, skipping passkey setup")
+            return False
+        return True
+
+  # --- flow ---------------------------------------------------------------------
+  - model: authentik_flows.flow
+    id: flow-enrollment
+    identifiers:
+      slug: avrana-invite
+    attrs:
+      name: Join Avrana
+      # Matches the login flow. Changed 2026-08-21 alongside the brand wordmark;
+      # this file auto-applies from the mounted blueprints dir, so editing the
+      # flow only in the database would silently revert on the next apply.
+      title: Welcome to Avrana!
+      designation: enrollment
+      authentication: require_unauthenticated
+  - model: authentik_flows.flowstagebinding
+    identifiers:
+      target: !KeyOf flow-enrollment
+      order: 0
+    attrs:
+      stage: !KeyOf stage-invitation
+      evaluate_on_plan: true
+      re_evaluate_policies: false
+  - model: authentik_flows.flowstagebinding
+    identifiers:
+      target: !KeyOf flow-enrollment
+      order: 10
+    attrs:
+      stage: !KeyOf stage-prompt
+      evaluate_on_plan: true
+      re_evaluate_policies: false
+  - model: authentik_flows.flowstagebinding
+    id: binding-user-write
+    identifiers:
+      target: !KeyOf flow-enrollment
+      order: 20
+    attrs:
+      stage: !KeyOf stage-user-write
+      evaluate_on_plan: false
+      re_evaluate_policies: true
+  # 30: verify the email. Nothing below this line runs until it succeeds.
+  - model: authentik_flows.flowstagebinding
+    identifiers:
+      target: !KeyOf flow-enrollment
+      order: 30
+    attrs:
+      stage: !KeyOf stage-verify-email
+      evaluate_on_plan: true
+      re_evaluate_policies: false
+  # 40: log in. The Jellyfin and Komga provisioning policies hang off THIS binding, so they
+  # cannot run before verification.
+  - model: authentik_flows.flowstagebinding
+    id: binding-user-login
+    identifiers:
+      target: !KeyOf flow-enrollment
+      order: 40
+    attrs:
+      stage: !KeyOf stage-user-login
+      evaluate_on_plan: false
+      re_evaluate_policies: true
+  # 45: ask whether they want a passkey at all.
+  - model: authentik_flows.flowstagebinding
+    identifiers:
+      target: !KeyOf flow-enrollment
+      order: 45
+    attrs:
+      stage: !KeyOf stage-passkey-offer
+      evaluate_on_plan: true
+      re_evaluate_policies: false
+  # 50: register the passkey, but ONLY if they said yes. re_evaluate_policies is what makes the
+  # gate work: the answer does not exist at plan time.
+  - model: authentik_flows.flowstagebinding
+    id: binding-passkey
+    identifiers:
+      target: !KeyOf flow-enrollment
+      order: 50
+    attrs:
+      stage: !KeyOf stage-passkey
+      evaluate_on_plan: false
+      re_evaluate_policies: true
+  - model: authentik_flows.flowstagebinding
+    identifiers:
+      target: !KeyOf flow-enrollment
+      order: 60
+    attrs:
+      stage: !KeyOf stage-portal-redirect
+      evaluate_on_plan: true
+      re_evaluate_policies: false
+  - model: authentik_policies.policybinding
+    identifiers:
+      target: !KeyOf binding-passkey
+      policy: !KeyOf policy-passkey-optin
+      order: 0
+    attrs:
+      enabled: true
+  - model: authentik_policies.policybinding
+    identifiers:
+      target: !KeyOf binding-user-write
+      policy: !KeyOf policy-invite-groups
+      order: 0
+    attrs:
+      enabled: true
+  - model: authentik_policies.policybinding
+    identifiers:
+      target: !KeyOf binding-user-login
+      policy: !KeyOf policy-jellyfin-create
+      order: 0
+    attrs:
+      enabled: true
+  - model: authentik_policies.policybinding
+    identifiers:
+      target: !KeyOf binding-user-login
+      policy: !KeyOf policy-komga-create
+      order: 1
+    attrs:
+      enabled: true

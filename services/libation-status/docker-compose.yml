@@ -1,0 +1,49 @@
+# ---------------------------------------------------------------------------
+# libation-status -- tiny read-only HTTP status endpoint for a Homepage
+# customapi widget. Libation has no web UI; this exposes liberation progress
+# (library / downloaded / pending + Downloading state) as JSON at :8087.
+#
+# Reads ONLY: Libation's SQLite DB (read-only, journal_mode=delete so the
+# single file is safe cross-container) and the on-disk in-progress staging
+# dir (read-only). Audible tokens / master key are deliberately NOT mounted.
+# Server code: services/libation-status/status.py (versioned via a .gitignore
+# exception -- the only non-compose file under services/ that is committed).
+# ---------------------------------------------------------------------------
+services:
+  libation-status:
+    image: python@sha256:4b5b91c1040aeb90137a7ed5235e3caf7a1a45da015066c5305fb64e70262ba2  # python:3.12-alpine
+    container_name: libation-status
+    user: "1000:1000"
+    environment:
+      - TZ=America/Los_Angeles
+      - PYTHONDONTWRITEBYTECODE=1
+      - PYTHONUNBUFFERED=1
+    command: ["python3", "/app/status.py"]
+    volumes:
+      - ./status.py:/app/status.py:ro
+      - /home/cody/avrana/services/libation/config/LibationContext.db:/data/LibationContext.db:ro
+      - /mnt/avrana_media/.libation-inprogress:/inprogress:ro
+    ports:
+      - 10.0.0.218:8087:8087
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=8m
+    pids_limit: 64
+    mem_limit: 128m
+    cpus: 0.25
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8087',timeout=3)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+    restart: unless-stopped

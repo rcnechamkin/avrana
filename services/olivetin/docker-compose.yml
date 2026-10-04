@@ -1,0 +1,152 @@
+# OliveTin - admin-only operations console for Avrana, at ops.avrana.net.
+#
+# TOPOLOGY
+#   cloudflared (ops.avrana.net) -> Authentik embedded proxy outpost (gated by "authentik Admins")
+#     -> olivetin:1337 with X-authentik-* headers injected
+#
+# There is no Caddy in this stack; cloudflared terminates public traffic and Authentik's embedded
+# outpost is the authenticating reverse proxy, exactly as avrana-portal does. OliveTin publishes
+# NO host port, so 1337 is unreachable directly or anonymously: the only route in is through the
+# outpost, which strips client-supplied X-authentik-* headers and sets its own.
+#
+# DOCKER ACCESS - the important part
+#   OliveTin never sees /var/run/docker.sock. It talks to two single-purpose socket proxies:
+#
+#   olivetin-docker-ro       GET-only inspection (CONTAINERS/INFO/PING/VERSION). POST=0.
+#   olivetin-docker-restart  POST=1 with ALLOW_RESTARTS=1 and CONTAINERS=0.
+#
+#   That split matters. In the tecnativa proxy, ALLOW_RESTARTS matches
+#   POST /containers/<name>/(stop|restart|kill) by path, INDEPENDENTLY of the CONTAINERS flag.
+#   Leaving CONTAINERS=0 on the restart proxy means /containers/create and /exec fall through to
+#   the final deny - so a compromise of OliveTin cannot create a privileged container, bind-mount
+#   the host, or exec into anything. It is NOT root-equivalent access.
+#
+#   Residual risk, stated plainly: the restart proxy can stop/restart/kill ANY container by name,
+#   including Authentik. That is a denial-of-service capability, not privilege escalation. The
+#   service allowlist is enforced above it, in scripts/restart-service.sh and in OliveTin's fixed
+#   argument choices, never by free-form input.
+services:
+  olivetin:
+    image: ghcr.io/olivetin/olivetin@sha256:af9d7c4db6dc37d488f058f92c698b860f1bcc22de6aa4aee184a2f1c6d1931e  # 3000.19.0
+    container_name: olivetin
+    user: "1000:1000"
+    environment:
+      - TZ=America/Los_Angeles
+      # Consumed by scripts/. Populated from .env (gitignored); see .env.example.
+      - JELLYFIN_URL=${JELLYFIN_URL:?set in services/olivetin/.env}
+      - JELLYFIN_API_KEY=${JELLYFIN_API_KEY:?set in services/olivetin/.env}
+      - ABS_URL=${ABS_URL:?set in services/olivetin/.env}
+      - ABS_API_KEY=${ABS_API_KEY:?set in services/olivetin/.env}
+      - DOCKER_HOST_RO=tcp://olivetin-docker-ro:2375
+      - DOCKER_HOST_RESTART=tcp://olivetin-docker-restart:2375
+    volumes:
+      # Configuration and scripts are READ-ONLY to the container: OliveTin can execute the
+      # actions it is given and cannot rewrite its own ACLs or add new ones.
+      - ./config/config.yaml:/config/config.yaml:ro
+      - ./scripts:/opt/avrana/scripts:ro
+      # Backup freshness checks read the local backup tree; READ-ONLY, so OliveTin can never
+      # alter or delete a backup.
+      - /mnt/avrana_media/.backups:/backups:ro
+      # The only writable host path. Holds one marker file that asks the host's systemd path unit
+      # to start the real backup. Nothing else is writable outside tmpfs.
+      - ./state:/state:rw
+    networks: [authentik_frontend, olivetin-docker]
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=32m
+      - /var/tmp:rw,noexec,nosuid,nodev,size=16m
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    pids_limit: 256
+    mem_limit: 256m
+    cpus: 0.75
+    healthcheck:
+      # Image is Fedora-based: ships curl, not wget. /healthz is the 3000.x health endpoint
+      # (/api/ServerInfo is not a route in this series - verified against the pinned digest).
+      test: ["CMD", "curl", "-fsS", "-o", "/dev/null", "http://127.0.0.1:1337/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    logging: {driver: json-file, options: {max-size: "10m", max-file: "3"}}
+    restart: unless-stopped
+    depends_on:
+      olivetin-docker-ro: {condition: service_healthy}
+      olivetin-docker-restart: {condition: service_healthy}
+
+  # --- inspection only: no POST at all -------------------------------------------------------
+  olivetin-docker-ro:
+    image: ghcr.io/tecnativa/docker-socket-proxy@sha256:1f5038b54f06c3e18422902cf00ba21803d1c97805aae032e5e6673d532d3459
+    container_name: olivetin-docker-ro
+    environment:
+      CONTAINERS: 1
+      INFO: 1
+      PING: 1
+      VERSION: 1
+      POST: 0          # nothing mutating can pass this proxy at all
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks: [olivetin-docker]
+    read_only: true
+    # haproxy writes its pidfile to /run; without this tmpfs it exits fatally under
+    # read_only. Matches the long-running homepage-dockerproxy config exactly.
+    tmpfs: ["/run:rw,noexec,nosuid,nodev,size=16m", "/tmp:rw,noexec,nosuid,nodev,size=16m"]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    pids_limit: 64
+    mem_limit: 64m
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:2375/_ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging: {driver: json-file, options: {max-size: "10m", max-file: "3"}}
+    restart: unless-stopped
+
+  # --- restart only: POST allowed, but CONTAINERS=0 so create/exec stay denied ----------------
+  olivetin-docker-restart:
+    image: ghcr.io/tecnativa/docker-socket-proxy@sha256:1f5038b54f06c3e18422902cf00ba21803d1c97805aae032e5e6673d532d3459
+    container_name: olivetin-docker-restart
+    environment:
+      POST: 1
+      ALLOW_RESTARTS: 1   # POST /containers/<name>/(stop|restart|kill), by path, independent of CONTAINERS
+      CONTAINERS: 0       # keeps /containers/create and generic /containers denied
+      EXEC: 0
+      IMAGES: 0
+      VOLUMES: 0
+      NETWORKS: 0
+      BUILD: 0
+      COMMIT: 0
+      SWARM: 0
+      SECRETS: 0
+      CONFIGS: 0
+      PING: 1
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks: [olivetin-docker]
+    read_only: true
+    # haproxy writes its pidfile to /run; without this tmpfs it exits fatally under
+    # read_only. Matches the long-running homepage-dockerproxy config exactly.
+    tmpfs: ["/run:rw,noexec,nosuid,nodev,size=16m", "/tmp:rw,noexec,nosuid,nodev,size=16m"]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    pids_limit: 64
+    mem_limit: 64m
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:2375/_ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging: {driver: json-file, options: {max-size: "10m", max-file: "3"}}
+    restart: unless-stopped
+
+networks:
+  # Authentik's compose network, so the embedded outpost can reach olivetin by name.
+  authentik_frontend:
+    external: true
+  # Private: only OliveTin and its two proxies. No published ports, no other members.
+  olivetin-docker:
+    driver: bridge
+    internal: true

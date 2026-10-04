@@ -1,0 +1,33 @@
+# Recyclarr: syncs TRaSH guide recommendations into Radarr on a schedule.
+#
+# It talks to Radarr's API over the LAN and never touches media, so it publishes no port and
+# joins no media network. The API key comes from .env (gitignored), never from this file.
+#
+# PINNED TO AN EDGE BUILD ON PURPOSE. Recyclarr's current stable (7.4.0) implements an older
+# config schema and cannot parse the current TRaSH templates: `trash_id` on quality profiles and
+# `custom_format_groups` are v8 features, and the config-templates repo has only a `master`
+# branch which has already migrated. Stable errors out with
+# "Property 'trash_id' not found on type QualityProfileConfigYaml". This digest is v8.7.2-dev.10,
+# verified to plan correctly against this Radarr. Revisit when 8.x ships stable.
+services:
+  recyclarr:
+    image: ghcr.io/recyclarr/recyclarr@sha256:714a409e2fbc3f61950107cb487e514b69d1ac98881e0739764da3028f475c92
+    container_name: recyclarr
+    user: "1000:1000"
+    environment:
+      - TZ=America/Los_Angeles
+      # Nightly, well clear of the 02:30 stack backup.
+      - CRON_SCHEDULE=0 4 * * *
+      - RADARR_API_KEY=${RADARR_API_KEY:?set RADARR_API_KEY in services/recyclarr/.env}
+      - SONARR_API_KEY=${SONARR_API_KEY:?set SONARR_API_KEY in services/recyclarr/.env}
+    volumes:
+      # Holds recyclarr.yml plus its cloned guide repos, sync state and logs, so it must be
+      # writable. Nothing else on the host is mounted.
+      - ./config:/config
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    pids_limit: 128
+    mem_limit: 512m
+    cpus: 1.0
+    logging: {driver: json-file, options: {max-size: "10m", max-file: "3"}}
+    restart: unless-stopped

@@ -1,0 +1,13 @@
+[Unit]
+Description=Avrana stack backup (databases, config, secrets) to the array
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Backups are never urgent; stay out of the way of media serving and downloads.
+Nice=15
+IOSchedulingClass=idle
+ExecStart=/home/cody/avrana/services/backups/avrana-backup.sh
+# Give a large first run (compressing metadata) room, but don't hang forever.
+TimeoutStartSec=1800

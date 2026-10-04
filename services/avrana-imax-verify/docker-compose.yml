@@ -1,0 +1,63 @@
+services:
+  avrana-imax-verify:
+    build: .
+    image: avrana-imax-verify:1
+    container_name: avrana-imax-verify
+    user: "1000:1000"
+
+    environment:
+      - TZ=America/Los_Angeles
+      # 60 samples across the runtime. Enough to catch a short IMAX sequence without decoding
+      # a meaningful fraction of a 4K HEVC file.
+      - IMAX_SAMPLES=60
+      # SAFETY: this service only records and tags. Nothing is deleted, blocklisted or
+      # re-searched, and it never scans the library on its own.
+      # Radarr: used ONLY to write the verdict back as a tag (imax-verified / imax-failed /
+      # imax-unknown). Never to delete, blocklist or search.
+      - RADARR_URL=http://10.0.0.218:7878
+      - RADARR_API_KEY=${RADARR_API_KEY}
+      # Jellyfin: defer verification while a transcode is in flight. Playback wins; this box
+      # cannot do both. Leave blank to disable the check.
+      - JELLYFIN_URL=http://10.0.0.218:8096
+      - JELLYFIN_API_KEY=${JELLYFIN_API_KEY}
+      - IMAX_DEFER_POLL_S=60
+      - IMAX_DEFER_MAX_S=10800
+      # One ffmpeg thread. The host has 4 and Jellyfin needs them more than verification does.
+      - IMAX_FFMPEG_THREADS=1
+      # Pluggable FAIL hook. Avrana has no notification platform, so none is built here: set a
+      # command and {json}/{title}/{reason} are substituted. Empty = no notification.
+      - IMAX_NOTIFY_CMD=
+
+    volumes:
+      # Config + expectations + results. The expectations store is meant to be edited by hand.
+      - ./:/config
+      # Media, READ-ONLY, mounted at the SAME path Radarr uses (/data). Radarr's webhook reports
+      # container paths like /data/movies/..., so identical mounts mean no path translation and
+      # nothing to get wrong. Read-only because this service must never touch the library.
+      - /mnt/avrana_media:/data:ro
+
+    ports:
+      # LAN-only. No Authentik integration, so it must not be tunneled.
+      - 10.0.0.218:8099:8099
+
+    # ffmpeg is CPU-only here and the host is already tight; cap it so a verification can never
+    # starve Jellyfin or the *arr stack. One worker inside, one CPU outside.
+    cpus: 1.0
+    mem_limit: 512m
+    pids_limit: 256
+
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+
+    healthcheck:
+      test: ["CMD", "python3", "-c",
+             "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8099/health',timeout=5).status==200 else 1)"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+
+    logging:
+      driver: json-file
+      options: {max-size: "10m", max-file: "3"}
+
+    restart: unless-stopped

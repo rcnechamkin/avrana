@@ -1,0 +1,98 @@
+services:
+  beszel-socket-proxy:
+    image: ghcr.io/tecnativa/docker-socket-proxy@sha256:1f5038b54f06c3e18422902cf00ba21803d1c97805aae032e5e6673d532d3459
+    container_name: beszel-socket-proxy
+    environment: {CONTAINERS: 1, INFO: 1, PING: 1, VERSION: 1, POST: 0}
+    volumes: [/var/run/docker.sock:/var/run/docker.sock:ro]
+    ports: [127.0.0.1:2376:2375]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    read_only: true
+    tmpfs:
+      - /run:rw,noexec,nosuid,nodev,size=16m
+      - /tmp:rw,noexec,nosuid,nodev,size=16m
+    pids_limit: 64
+    mem_limit: 128m
+    cpus: 0.25
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:2375/_ping"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging: {driver: json-file, options: {max-size: "50m", max-file: "5"}}
+    restart: unless-stopped
+
+  beszel:
+    image: ghcr.io/henrygd/beszel/beszel:0.18.7@sha256:2a06a179f48338db1dcdf266757145c946fb7de443948eaf190acfb0eae478f1
+    container_name: beszel
+    user: "1000:1000"
+    environment:
+      APP_URL: http://10.0.0.218:8093
+      TZ: America/Los_Angeles
+      CHECK_UPDATES: "false"
+    volumes: [./data:/beszel_data, ./socket:/beszel_socket]
+    ports: [10.0.0.218:8093:8090]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
+    pids_limit: 128
+    mem_limit: 512m
+    cpus: 1.0
+    healthcheck:
+      test: ["CMD", "/beszel", "health", "--url", "http://localhost:8090"]
+      interval: 120s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging: {driver: json-file, options: {max-size: "50m", max-file: "5"}}
+    restart: unless-stopped
+
+  beszel-agent:
+    image: ghcr.io/henrygd/beszel/beszel-agent-intel:0.18.7@sha256:8b99977d14e14f9a43c15fe820d5fe8bc995fabc648743da71c6859b934d7fa8
+    container_name: beszel-agent
+    user: "1000:1000"
+    group_add:
+      - "993"
+    depends_on:
+      beszel: {condition: service_healthy}
+      beszel-socket-proxy: {condition: service_healthy}
+    network_mode: host
+    environment:
+      LISTEN: /beszel_socket/beszel.sock
+      HUB_URL: http://127.0.0.1:8093
+      KEY_FILE: /run/secrets/beszel_agent_key
+      TOKEN_FILE: /run/secrets/beszel_agent_token
+      DOCKER_HOST: tcp://127.0.0.1:2376
+      DATA_DIR: /var/lib/beszel-agent
+      DISK_USAGE_CACHE: 5m
+      SKIP_GPU: "true"
+      TZ: America/Los_Angeles
+    volumes:
+      - ./agent-data:/var/lib/beszel-agent
+      - ./socket:/beszel_socket
+      - ./rootfs-marker:/extra-filesystems/dm-0__Root:ro
+      - /mnt/avrana_media/.beszel:/extra-filesystems/sdb1__Media:ro
+    secrets: [beszel_agent_key, beszel_agent_token]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
+    pids_limit: 128
+    mem_limit: 256m
+    cpus: 0.5
+    healthcheck:
+      test: ["CMD", "/agent", "health"]
+      interval: 120s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging: {driver: json-file, options: {max-size: "50m", max-file: "5"}}
+    restart: unless-stopped
+
+secrets:
+  beszel_agent_key: {file: ./secrets/agent-key}
+  beszel_agent_token: {file: ./secrets/agent-token}

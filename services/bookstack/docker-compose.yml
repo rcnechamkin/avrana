@@ -1,0 +1,153 @@
+# ---------------------------------------------------------------------------
+# BookStack -- self-hosted documentation / wiki (shelves > books > chapters >
+# pages; markdown or WYSIWYG; full-text search).
+#
+# Role in the stack: the durable home for operational docs that currently live
+# as scattered markdown (e.g. avrana/docs/services-operations.md) and in
+# session handoffs. This is NOT a media service -- it mounts no array paths,
+# only its own ./config and ./mariadb.
+#
+# Two containers:
+#   * bookstack          -- LinuxServer/s6 PHP+nginx app, published on the LAN.
+#   * bookstack-mariadb  -- its private database. Deliberately has NO `ports:`,
+#                           so 3306 is never on 10.0.0.218; BookStack reaches it
+#                           by service name over this project's default network.
+#
+# Secrets (DB passwords, Laravel APP_KEY, APP_URL) live in ./.env, which is
+# gitignored (.env / *.env). Only THIS compose file is committed -- the
+# gitignore `!services/*/docker-compose.yml` exception covers it. Never inline
+# secrets here.
+#
+# Images pinned deliberately (house convention -- cf. CWA v4.0.6, shelfmark
+# 1.3.6). Bump on purpose; never rely on :latest.
+#
+# Hardening mirrors CWA (also a LinuxServer/s6 image): s6 starts as root and
+# drops to abc(1000); we keep only the caps s6/nginx/mysqld need. BookStack
+# KEEPS NET_BIND_SERVICE (unlike CWA) because its nginx binds :80 inside the
+# container; MariaDB drops it (mysqld binds 3306).
+# ---------------------------------------------------------------------------
+
+services:
+  bookstack:
+    image: lscr.io/linuxserver/bookstack:26.05.3
+    container_name: bookstack
+    depends_on:
+      bookstack-mariadb:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      # CWA's denylist MINUS NET_BIND_SERVICE (BookStack's nginx binds :80).
+      - AUDIT_WRITE
+      - FSETID
+      - KILL
+      - MKNOD
+      - NET_RAW
+      - SETFCAP
+      - SETPCAP
+      - SYS_CHROOT
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=512m
+    pids_limit: 512
+    mem_limit: 2g
+    cpus: 2.0
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=America/Los_Angeles
+      # APP_URL must match EXACTLY how the app is reached (scheme+host+port) or
+      # BookStack emits broken absolute links/redirects. LAN-only for now; if
+      # this is ever fronted by the cloudflared tunnel, change APP_URL to the
+      # public https hostname and recreate the container.
+      - APP_URL=${BOOKSTACK_APP_URL}
+      - APP_KEY=${BOOKSTACK_APP_KEY}
+      - DB_HOST=bookstack-mariadb
+      - DB_PORT=3306
+      - DB_DATABASE=${BOOKSTACK_DB_NAME}
+      - DB_USERNAME=${BOOKSTACK_DB_USER}
+      - DB_PASSWORD=${BOOKSTACK_DB_PASSWORD}
+      # Email/export jobs run inline unless a queue worker is added later.
+      # - QUEUE_CONNECTION=database
+    volumes:
+      # App config + uploaded images live here. Part of a valid backup (see
+      # footer) -- images are NOT in the database.
+      - ./config:/config
+    ports:
+      # 6875 is BookStack's LinuxServer default and is free on this host
+      # (verified against 3000/5055/7878/8080/8083/8084/8085/8090/8096/8989/
+      # 9696/13378/25600/32400). Bound to the LAN IP, not 0.0.0.0.
+      - 10.0.0.218:6875:80
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:80/"]
+      interval: 30s
+      timeout: 15s
+      retries: 3
+      start_period: 120s
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+    restart: unless-stopped
+
+  bookstack-mariadb:
+    image: lscr.io/linuxserver/mariadb:11.8.8
+    container_name: bookstack-mariadb
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - AUDIT_WRITE
+      - FSETID
+      - KILL
+      - MKNOD
+      - NET_BIND_SERVICE
+      - NET_RAW
+      - SETFCAP
+      - SETPCAP
+      - SYS_CHROOT
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=256m
+    pids_limit: 512
+    mem_limit: 1g
+    cpus: 1.0
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=America/Los_Angeles
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
+      - MYSQL_DATABASE=${BOOKSTACK_DB_NAME}
+      - MYSQL_USER=${BOOKSTACK_DB_USER}
+      - MYSQL_PASSWORD=${BOOKSTACK_DB_PASSWORD}
+    volumes:
+      # MariaDB data + logs. This is where all BookStack CONTENT lives.
+      - ./mariadb:/config
+    # No `ports:` on purpose -- the DB is not published to the host/LAN.
+    healthcheck:
+      test: ["CMD-SHELL", "mariadb-admin ping -h localhost -uroot -p\"$$MYSQL_ROOT_PASSWORD\" --silent"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 45s
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+    restart: unless-stopped
+
+# ---------------------------------------------------------------------------
+# First-run:
+#   1. http://10.0.0.218:6875  ->  default login: admin@admin.com / password
+#   2. CHANGE THE ADMIN EMAIL + PASSWORD IMMEDIATELY (Settings -> Users).
+#      Defaults are public knowledge; LAN-only is not an excuse to keep them.
+#   3. Set your name/logo under Settings -> Customization; create a first Shelf.
+#
+# Exposure: LAN-only, same posture as audiobookshelf/CWA/shelfmark -- not on
+#   the cloudflared tunnel. If exposed later: set APP_URL to the https
+#   hostname, put real auth in front, and never leave default creds reachable.
+#
+# Backups: BookStack content = MariaDB (./mariadb) + uploaded images
+#   (./config). Back up BOTH together; a DB-only or config-only copy will not
+#   restore. APP_KEY (in ./.env) is required to decrypt existing sessions --
+#   keep it with the backup.
+# ---------------------------------------------------------------------------

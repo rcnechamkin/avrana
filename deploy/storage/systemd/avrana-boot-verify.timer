@@ -1,0 +1,14 @@
+[Unit]
+Description=Run Avrana post-boot validation once the fleet has settled
+
+[Timer]
+# 41 containers take ~2 min to load and several more to pass their health-check start periods.
+# Five minutes clears both with margin; running earlier just produces false "starting" failures.
+OnBootSec=5min
+# systemd timers default to AccuracySec=1min and will happily fire a minute late. This one is a
+# one-shot gate, so pin it.
+AccuracySec=1s
+Unit=avrana-boot-verify.service
+
+[Install]
+WantedBy=timers.target

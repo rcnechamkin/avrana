@@ -1,0 +1,197 @@
+# ---------------------------------------------------------------------------
+# Shelfarr -- request + management platform for ebooks and audiobooks.
+#
+# Think Jellyseerr, but for books: users request a title, Shelfarr searches the
+# configured indexers, hands the download to SABnzbd, and files the finished
+# book into the SAME inbox directories the rest of the stack already consumes.
+#
+# COEXISTS WITH SHELFMARK, DELIBERATELY. Shelfmark (:8084) stays in service
+# while Shelfarr is evaluated. They overlap but are not the same thing:
+# Shelfmark is a search box that hands off a finished download; Shelfarr
+# manages requests, users and monitoring. Do not migrate users or retire
+# Shelfmark until the evaluation concludes. Both write into the same inboxes,
+# so a title requested in both places will be fetched twice.
+#
+# UPSTREAM IS v0.1.0. This is early software: pinned by tag AND digest so an
+# unattended pull cannot move it. `latest` is already ahead of 0.1.0 on GHCR.
+# Bump deliberately, and read the upstream changelog first.
+#
+# Lives here (avrana/services/<name>/) matching audiobookshelf, komga,
+# shelfmark and the rest. services/*/* is gitignored except this file, so
+# ./data and .env are never committed -- keep it that way.
+# ---------------------------------------------------------------------------
+
+services:
+  shelfarr:
+    # Digest pin resolved 2026-08-20 for tag 0.1.0, matching the repo-wide
+    # convention (23 of 32 running containers are digest-pinned).
+    image: ghcr.io/pedro-revez-silva/shelfarr:0.1.0@sha256:61c38fc13aeabeb6bdb71ec2f53fe2008fd38571444ebea0fc26394c1c664cca
+    container_name: shelfarr
+
+    # PUID/PGID rather than `user:` -- the image runs a root startup flow that
+    # chowns its storage volume, then drops privileges. Same pattern as
+    # shelfmark/radarr/sonarr. Every mounted path below is already cody-owned
+    # (uid/gid 1000), so CHOWN_ON_START has nothing to widen.
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=America/Los_Angeles
+      # false, not auto. The image's startup runs `chown -R rails:rails
+      # /rails/storage /rails/tmp` before booting Puma. `rails` inside the
+      # image is already uid/gid 1000 and ./data is already 1000:1000, so the
+      # chown has nothing to do -- but observed 2026-08-20 it wedged in
+      # uninterruptible-sleep (D) state for minutes and the web server never
+      # started, leaving the container Up-but-unhealthy with an empty log after
+      # "Seeding complete!". Skipping it is correct here precisely because
+      # ownership already matches; do NOT set this to auto/true unless the
+      # mounted paths stop being cody-owned.
+      - CHOWN_ON_START=false
+
+      # Rails' background job runner in-process; avoids a second container for
+      # a single-user-scale workload.
+      - SOLID_QUEUE_IN_PUMA=1
+
+      # RAILS_MASTER_KEY IS DELIBERATELY NOT SET. Upstream auto-generates the
+      # encryption key on first run and stores it inside ./data. Supplying our
+      # own does NOT work: the key has to decrypt the credentials.yml.enc that
+      # ships inside the image, so an arbitrary value aborts the boot with
+      # `ActiveSupport::MessageEncryptor::InvalidMessage` (and a wrong-length
+      # one with `key must be 16 bytes` -- upstream's README claiming a 64-char
+      # hex key is incorrect; Rails wants 16 bytes / 32 hex chars).
+      # The generated key therefore lives in ./data, which is why ./data is the
+      # thing the backup has to capture. See backup_shelfarr.
+
+      # NOTE ON SETTINGS-VIA-ENV: only `oidc_*` and `webhook_*` settings can be
+      # driven by SHELFARR_SETTING_<KEY>. Prowlarr, Audiobookshelf, the output
+      # paths and the download client are NOT env-settable -- verified 2026-08-20
+      # by setting them here and reading the `settings` table back, where they
+      # stayed empty. They must be entered once in the admin UI. The credentials
+      # to paste are in .env so they are not duplicated in this file.
+
+      # AUDIBLE / LIBATION IS DELIBERATELY NOT ENABLED.
+      # Upstream ships a `shelfarr-libation` companion and the SHELFARR_LIBATION_*
+      # variables that drive it. Avrana already has its own Audible pipeline
+      # (services/avrana-audible-connector + avrana-libation-companion) with
+      # per-account profile isolation that Shelfarr's single-account companion
+      # does not provide. Running both would mean two Libation instances
+      # competing for the same Audible accounts and the same audiobook inbox.
+      # Do not add the companion service or those variables here.
+
+    volumes:
+      # Application state: SQLite database, generated secret, caches. This is
+      # the ONLY non-reconstructable state and is covered by the Avrana backup
+      # (services/backups/avrana-backup.sh -> backup_shelfarr).
+      - ./data:/rails/storage
+
+      # EBOOK OUTPUT -> the CWA ingest inbox. calibre-web-automated mounts this
+      # same host path as /cwa-book-ingest, imports each book into
+      # /mnt/avrana_media/calibre-library, and deletes the inbox copy on
+      # success. Writing anywhere else would create a parallel library that
+      # nothing ingests.
+      - /mnt/avrana_media/books:/ebooks
+
+      # AUDIOBOOK OUTPUT -> the live Audiobookshelf library folder. ABS mounts
+      # this same host path as /audiobooks and its watcher auto-adds new items.
+      - /mnt/avrana_media/audiobooks:/audiobooks
+
+      # HISTORY, so this is not "fixed" again by a future session:
+      # On 2026-08-20 these two mounts were repointed at
+      # /mnt/avrana_media/shelfarr-staging/{ebooks,audiobooks} after a completed
+      # request auto-imported into the curated Calibre library (book 124, since
+      # removed). They were reverted to direct auto-import the same day, as a
+      # DELIBERATE decision, on the reasoning that auto_select_enabled=false
+      # already forces a human to pick each release before it downloads -- so
+      # staging was a second review of an already-reviewed choice.
+      #
+      # Accepted residual risk: a release whose contents do not match its name,
+      # a corrupt/DRM'd file, or a Shelfarr 0.1.0 bug lands directly in the
+      # curated library, which is served publicly via books.avrana.net through
+      # the cloudflared tunnel and feeds Send-to-Kindle. Removing a bad import
+      # is: `docker exec calibre-web-automated calibredb remove <id>
+      # --library-path /calibre-library`, then clear
+      # /calibre-library/.caltrash/b/<id> FROM INSIDE the container (root-owned),
+      # and delete the SABnzbd copy under /mnt/avrana_media/incoming.
+      #
+      # Do not re-introduce staging without asking -- it was considered and
+      # declined on purpose.
+
+      # DOWNLOAD HANDOFF -- identity mount, and it must stay identical.
+      # SABnzbd runs bare-metal (sabnzbd.service) with
+      # complete_dir=/mnt/avrana_media/incoming, so it reports HOST paths.
+      # Mounting the path at the same location inside the container makes those
+      # paths resolve without any Remote Path Mapping, and keeps the move into
+      # /ebooks or /audiobooks a same-filesystem rename rather than a copy.
+      # Same trick shelfmark uses. Do not "tidy" this to /downloads.
+      - /mnt/avrana_media/incoming:/mnt/avrana_media/incoming
+
+      # The SAME directory also mounted at /downloads, because Shelfarr's
+      # seeded default for download_local_path is /downloads and that setting
+      # cannot be overridden by an environment variable. Mounting both means
+      # the out-of-the-box default is already valid, while the identity mount
+      # above keeps SABnzbd's reported host paths resolvable. Same directory,
+      # two names; no data is duplicated.
+      - /mnt/avrana_media/incoming:/downloads
+
+    # LAN-only, matching every other non-public Avrana service. Explicitly NOT
+    # 0.0.0.0 and NOT routed through the cloudflared tunnel: Shelfarr is an
+    # admin-facing request manager and the tunnel ingress is reserved for the
+    # member-facing apps. 5056 is the upstream default and was verified free on
+    # this host before allocation.
+    ports:
+      - 10.0.0.218:5056:80
+
+    # Native Rails health endpoint. /up returns 200 once the app has booted and
+    # the database is reachable, which is a real readiness signal rather than a
+    # "something is listening" check.
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:80/up || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+    # /rails/tmp ON RAM, NOT THE ARRAY. This is load-bearing, not tuning.
+    # Docker's root dir on this host is /mnt/avrana_media/docker, so a
+    # container's writable layer lives on the 7.3T media array. Shelfarr's
+    # entrypoint runs `chown -R rails:rails /rails/storage /rails/tmp` before
+    # booting Puma, and that recursive chown against the array's ext4 journal
+    # wedges in uninterruptible-sleep (jbd2_log_wait_commit), driving sdb to
+    # 99% utilisation at ~0.1 MB/s while the web server never starts. The
+    # container sits Up-but-unhealthy with the log stopping after
+    # "Seeding complete!". Reproduced twice on 2026-08-20.
+    # CHOWN_ON_START=false does NOT prevent this; upstream ignores it.
+    # Putting /rails/tmp on tmpfs means the chown walks RAM instead.
+    tmpfs:
+      - /rails/tmp:rw,nosuid,nodev,size=512m
+
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 512
+    mem_limit: 2g
+    cpus: 2.0
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+    restart: unless-stopped
+
+# ---------------------------------------------------------------------------
+# Deliberately NOT configured:
+#
+# cap_drop: ALL -- omitted because the image's startup chowns its storage
+#   volume before dropping to PUID/PGID, which needs CHOWN/DAC_OVERRIDE. The
+#   same reason shelfmark and the linuxserver images keep their defaults.
+#   Revisit if upstream adds a rootless variant.
+#
+# read_only: true -- Rails writes to /rails/tmp and /rails/log inside the
+#   image. Would need tmpfs mounts for both; not worth the fragility on a
+#   0.1.0 service.
+#
+# Public exposure -- none. No cloudflared ingress entry, no Authentik proxy
+#   provider. Reachable on the LAN only.
+#
+# shelfarr-libation -- see the Audible note above.
+# ---------------------------------------------------------------------------

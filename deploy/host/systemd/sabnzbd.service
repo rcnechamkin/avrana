@@ -1,0 +1,13 @@
+[Unit]
+Description=SABnzbd Usenet Client
+After=network.target
+
+[Service]
+User=cody
+Group=cody
+ExecStart=/usr/bin/sabnzbdplus --config-file /home/cody/.sabnzbd/sabnzbd.ini
+Restart=on-failure
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target
