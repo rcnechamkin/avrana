@@ -17,9 +17,10 @@ Design (docs/OFFHOST.md has the reasoning):
   * A run is uploaded only if it is complete: not named *.partial*, its MANIFEST.txt checksums
     verify, and it satisfies required-artifacts.txt. The newest run must also be the one
     LAST_RUN.json reports as ok.
-  * After upload, `rclone cryptcheck` compares every file with the encrypted remote copy, and
-    only then is OFFHOST-COMPLETE.json written into the remote run. A remote run without that
-    marker is not a recovery set.
+  * After upload, `rclone cryptcheck` compares every file with the encrypted remote copy and the
+    remote file count is compared with the local one; only then is OFFHOST-COMPLETE.json written
+    into the remote run. A remote run without that marker is not a recovery set. The marker counts
+    regular files only. Symlinks are not uploaded and are reported separately.
   * Names and contents are encrypted client-side by rclone crypt. The provider sees ciphertext.
   * The result is written to OFFHOST_LAST_RUN.json, which services-health.sh already checks, and
     a failure sends an alert e-mail.
@@ -33,12 +34,14 @@ import hashlib
 import json
 import os
 import pathlib
+import platform
 import re
+import stat
 import subprocess
 import sys
 import tempfile
 
-REPO = pathlib.Path(os.environ.get("AVRANA_REPO", "/home/cody/avrana"))
+REPO =pathlib.Path(os.environ.get("AVRANA_REPO", "/home/cody/avrana"))
 SRC = pathlib.Path(os.environ.get("AVRANA_BACKUP_ROOT", "/mnt/avrana_media/.backups/avrana"))
 CONF = pathlib.Path(os.environ.get("AVRANA_RCLONE_CONF", REPO / "services/backups/rclone.conf"))
 STATE = pathlib.Path(os.environ.get("AVRANA_OFFHOST_STATE", "/mnt/avrana_media/.backups/OFFHOST_LAST_RUN.json"))
@@ -97,17 +100,36 @@ def sha256_file(path):
     return digest.hexdigest()
 
 
+def inventory(run):
+    """Return (regular_files, total_bytes, symlinks). rclone uploads regular files and skips symlinks.
+
+    The only symlinks in a run are systemd/user/*.wants entries. They are not needed off-host:
+    systemd/enabled-user.txt records the same thing and BOOTSTRAP.md enables units explicitly.
+    """
+    files = size = links = 0
+    for base, _, names in os.walk(run):
+        for name in names:
+            info = os.lstat(os.path.join(base, name))
+            if stat.S_ISLNK(info.st_mode):
+                links += 1
+            elif stat.S_ISREG(info.st_mode):
+                files += 1
+                size += info.st_size
+    return files, size, links
+
+
 def verify_local(run):
-    """Return (ok, detail, file_count, total_bytes). Reads only."""
+    """Return (ok, detail, (regular_files, total_bytes, symlinks)). Reads only."""
+    none = (0, 0, 0)
     manifest = run / "MANIFEST.txt"
     if not manifest.is_file():
-        return False, "no MANIFEST.txt", 0, 0
+        return False, "no MANIFEST.txt", none
     verifier = REPO / "services/backups/verify-required.py"
     listing = REPO / "services/backups/required-artifacts.txt"
     result = subprocess.run([sys.executable, str(verifier), str(run), str(listing)], capture_output=True, text=True)
     if result.returncode != 0:
         first = (result.stdout.strip().splitlines() or ["verifier failed"])[0]
-        return False, f"incomplete: {first}", 0, 0
+        return False, f"incomplete: {first}", none
     listed = 0
     for line in manifest.read_text(encoding="utf-8", errors="replace").splitlines():
         match = re.match(r"^([0-9a-f]{64})\s+\*?(.+)$", line)
@@ -116,11 +138,16 @@ def verify_local(run):
         listed += 1
         target = run / match.group(2)
         if not target.is_file() or sha256_file(target) != match.group(1):
-            return False, f"manifest mismatch: {match.group(2)}", 0, 0
+            return False, f"manifest mismatch: {match.group(2)}", none
     if not listed:
-        return False, "empty manifest", 0, 0
-    files = [p for p in run.rglob("*") if p.is_file()]
-    return True, "ok", len(files), sum(p.stat().st_size for p in files)
+        return False, "empty manifest", none
+    return True, "ok", inventory(run)
+
+
+def describe(counts):
+    files, size, links = counts
+    skipped = f", {links} symlinks not uploaded" if links else ""
+    return f"{files} files, {size / 1e6:.0f} MB{skipped}"
 
 
 def remote_runs(remote):
@@ -138,9 +165,17 @@ def remote_runs(remote):
     return found
 
 
-def upload(run, remote, files, size):
+def marker_document(name, counts, manifest_sha256):
+    """The completion marker. files and bytes describe regular files only, which is what is uploaded."""
+    files, size, links = counts
+    return {"marker_version": 2, "run": name, "files": files, "bytes": size, "symlinks_skipped": links,
+            "manifest_sha256": manifest_sha256, "verified": "rclone cryptcheck --one-way",
+            "uploaded_at": now(), "host": platform.node()}
+
+
+def upload(run, remote, counts):
     name = run.name
-    log(f"upload {name} -> {remote}{name} ({files} files, {size / 1e6:.0f} MB)")
+    log(f"upload {name} -> {remote}{name} ({describe(counts)})")
     copied = rclone(["copy", f"/data/{name}", f"{remote}{name}", "--immutable", "--transfers", "4",
                      "--retries", "3", "--low-level-retries", "10", "--stats", "60s", "--stats-one-line",
                      "--log-level", "INFO"], mounts=[(SRC, "/data", "ro")], capture=False)
@@ -149,8 +184,11 @@ def upload(run, remote, files, size):
     checked = rclone(["cryptcheck", f"/data/{name}", f"{remote}{name}", "--one-way"], mounts=[(SRC, "/data", "ro")])
     if checked.returncode != 0:
         raise RuntimeError(f"cryptcheck of {name} failed: {checked.stderr.strip()[-200:]}")
-    marker = {"run": name, "files": files, "bytes": size, "manifest_sha256": sha256_file(run / "MANIFEST.txt"),
-              "verified": "rclone cryptcheck --one-way", "uploaded_at": now(), "host": os.uname().nodename}
+    listed = rclone(["lsf", "-R", "--files-only", f"{remote}{name}"])
+    present = len([line for line in listed.stdout.splitlines() if line.strip()]) if listed.returncode == 0 else -1
+    if present != counts[0]:
+        raise RuntimeError(f"{name}: {counts[0]} regular files locally but {present} on the remote; not marked complete")
+    marker = marker_document(name, counts, sha256_file(run / "MANIFEST.txt"))
     with tempfile.TemporaryDirectory() as scratch:
         os.chmod(scratch, 0o755)
         path = pathlib.Path(scratch) / MARKER
@@ -228,24 +266,24 @@ def main():
         for run in reversed(local):                      # newest first, then catch up
             if remote.get(run.name):
                 continue
-            good, detail, files, size = verify_local(run)
+            good, detail, counts = verify_local(run)
             if not good:
                 skipped.append(f"{run.name} ({detail})")
                 if run == newest:
                     raise RuntimeError(f"newest run {run.name} failed local verification: {detail}")
                 continue
             if args.dry_run:
-                log(f"would upload {run.name} ({files} files, {size / 1e6:.0f} MB)")
+                log(f"would upload {run.name} ({describe(counts)})")
                 continue
-            upload(run, DAILY, files, size)
+            upload(run, DAILY, counts)
             uploaded.append(run.name)
         if args.pin:
             target = SRC / args.pin
-            good, detail, files, size = verify_local(target) if target.is_dir() else (False, "no such run", 0, 0)
+            good, detail, counts = verify_local(target) if target.is_dir() else (False, "no such run", (0, 0, 0))
             if not good:
                 raise RuntimeError(f"cannot pin {args.pin}: {detail}")
             if not remote_runs(PINNED).get(args.pin) and not args.dry_run:
-                upload(target, PINNED, files, size)
+                upload(target, PINNED, counts)
         if args.dry_run:
             return 0
         final = remote_runs(DAILY)

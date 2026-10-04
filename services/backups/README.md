@@ -49,7 +49,8 @@ copies in a scratch directory that is removed afterwards. It verifies the manife
 the required artifacts, the restore map (including files that are renamed on restore, such as the
 Calibre-Web key), every SQLite database, every archive, the three SQL dumps, and the rebuild
 prerequisites (compose files, secrets, tunnel credential, units, fstab, Docker data-root, Dockerfiles,
-external networks named in `BOOTSTRAP.md`). The result of the scheduled run is in
+external networks named in `BOOTSTRAP.md`). A run downloaded from B2 also carries `OFFHOST-COMPLETE.json`;
+its manifest hash and file count are checked against the download. The result of the scheduled run is in
 `/mnt/avrana_media/.backups/avrana/RESTORE_TEST_LAST.json`; a failure sends an alert e-mail.
 
 It does not restore anything onto production and does not prove that each application starts on the

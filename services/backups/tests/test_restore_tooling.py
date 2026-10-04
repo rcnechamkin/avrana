@@ -1,5 +1,6 @@
 """Offline tests for the backup verification tooling. No production access, no Docker, no zstd."""
 import importlib.util
+import json
 import os
 import pathlib
 import sqlite3
@@ -139,6 +140,88 @@ class OffhostPolicyTests(unittest.TestCase):
         source = (BACKUPS / "offhost-backup.py").read_text(encoding="utf-8")
         for forbidden in ('"sync"', '"delete"', '"purge"', '"move"', '"cleanup"', "--b2-hard-delete"):
             self.assertNotIn(forbidden, source, forbidden)
+
+    def test_marker_counts_regular_files_only(self):
+        with tempfile.TemporaryDirectory() as root:
+            run = pathlib.Path(root) / "2026-10-04T09-00-00Z"
+            (run / "systemd/user/timers.target.wants").mkdir(parents=True)
+            (run / "MANIFEST.txt").write_bytes(b"m" * 10)
+            (run / "systemd/user/a.timer").write_bytes(b"t" * 5)
+            try:
+                os.symlink(run / "systemd/user/a.timer", run / "systemd/user/timers.target.wants/a.timer")
+            except (OSError, NotImplementedError):
+                self.skipTest("symlinks are not available here")
+            self.assertEqual((2, 15, 1), offhost.inventory(run))
+            marker = offhost.marker_document(run.name, offhost.inventory(run), "0" * 64)
+            self.assertEqual((2, 2, 15, 1), (marker["marker_version"], marker["files"], marker["bytes"],
+                                             marker["symlinks_skipped"]))
+
+
+class OffhostMarkerTests(unittest.TestCase):
+    """restore-test.py must verify the marker a downloaded run carries, not skip it."""
+
+    MANIFEST = b"0" * 64 + b"  seerr/settings.json\n"
+    SIZE = len(b"{}") + len(MANIFEST)
+
+    def make_run(self, root, marker):
+        run = pathlib.Path(root) / "2026-10-04T09-00-00Z"
+        (run / "seerr").mkdir(parents=True)
+        (run / "seerr/settings.json").write_bytes(b"{}")
+        (run / "MANIFEST.txt").write_bytes(self.MANIFEST)
+        if marker is not None:
+            document = {"run": run.name, "manifest_sha256": restore.sha256_file(run / "MANIFEST.txt")}
+            document.update(marker)
+            (run / restore.OFFHOST_MARKER).write_text(json.dumps(document))
+        return run
+
+    def check(self, marker):
+        with tempfile.TemporaryDirectory() as root:
+            report = restore.Report()
+            restore.check_offhost_marker(self.make_run(root, marker), report)
+            return report
+
+    def test_local_run_without_marker_is_not_checked(self):
+        report = self.check(None)
+        self.assertEqual(([], [], []), (report.passed, report.failed, report.warned))
+
+    def test_version_2_marker_passes_when_hash_and_counts_match(self):
+        report = self.check({"marker_version": 2, "files": 2, "bytes": self.SIZE})
+        self.assertEqual([], report.failed)
+        self.assertEqual(2, len(report.passed))
+
+    def test_wrong_manifest_hash_fails(self):
+        report = self.check({"marker_version": 2, "files": 2, "bytes": self.SIZE, "manifest_sha256": "f" * 64})
+        self.assertEqual(1, len(report.failed))
+        self.assertIn("hash mismatch", report.failed[0])
+
+    def test_version_2_count_mismatch_fails(self):
+        report = self.check({"marker_version": 2, "files": 3, "bytes": self.SIZE})
+        self.assertEqual(1, len(report.failed))
+
+    def test_version_1_count_mismatch_warns_but_hash_is_still_enforced(self):
+        report = self.check({"files": 15, "bytes": 9999})
+        self.assertEqual(([], 1), (report.failed, len(report.warned)))
+        report = self.check({"files": 15, "bytes": 9999, "manifest_sha256": "f" * 64})
+        self.assertEqual(1, len(report.failed))
+
+    def test_unreadable_marker_fails(self):
+        with tempfile.TemporaryDirectory() as root:
+            run = self.make_run(root, None)
+            (run / restore.OFFHOST_MARKER).write_text("{not json")
+            report = restore.Report()
+            restore.check_offhost_marker(run, report)
+            self.assertEqual(1, len(report.failed))
+
+    def test_marker_is_not_an_undocumented_restore_payload(self):
+        with tempfile.TemporaryDirectory() as root:
+            run = self.make_run(root, {"marker_version": 2, "files": 2, "bytes": self.SIZE})
+            report = restore.Report()
+            restore.check_restore_map(run, BACKUPS.parents[1], report)
+            self.assertFalse([line for line in report.failed if restore.OFFHOST_MARKER in line])
+            (run / "stray.bin").write_bytes(b"x")
+            report = restore.Report()
+            restore.check_restore_map(run, BACKUPS.parents[1], report)
+            self.assertTrue([line for line in report.failed if "stray.bin" in line])
 
 
 if __name__ == "__main__":

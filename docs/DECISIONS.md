@@ -29,7 +29,8 @@ Do not resolve uncertainty by copying newer-looking text without evidence. Recor
 
 | Decision | Consequence |
 |---|---|
-| `rcnechamkin/avrana` is canonical | Rebuilt from the live tree on 2026-10-04; `Kern-Ecosystem` is archived with an inventory of what was not migrated |
+| `rcnechamkin/avrana` is canonical | Rebuilt from the live tree on 2026-10-04; `Kern-Ecosystem` is archived at tag `archive-2026-10-04` (`d0dc3c5`) with an inventory of what was not migrated |
+| Off-host markers are never rewritten | The first upload's markers record a wrong file count; they stay as uploaded and the inaccuracy is documented in `services/backups/OFFHOST.md` |
 | BookStack is retired, not repaired | Content extracted from a disposable restore into `docs/archive/bookstack/`; 31 pages promoted into `docs/`; containers stay until the owner approves removal |
 | 1Password is the credential store | No secret in Git, chat, logs or shell history; owner-run scripts with hidden prompts |
 | Backblaze B2 with rclone crypt is the off-host destination | Add-only uploader, retention by bucket lifecycle (`services/backups/OFFHOST.md`) |

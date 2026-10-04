@@ -10,7 +10,8 @@ What it does, in order:
 
   1. fingerprints the run (every path, size and mtime) so it can prove afterwards that the
      test changed nothing
-  2. verifies MANIFEST.txt checksums
+  2. verifies MANIFEST.txt checksums and, for a run downloaded from off-host storage, checks
+     its OFFHOST-COMPLETE.json marker against the manifest and the files actually present
   3. checks the 24 expected components, required-artifacts.txt and restore-map.txt
   4. copies every SQLite database to a scratch directory and runs integrity_check on the COPY
   5. tests every .zst archive, lists every tar, and checks the three SQL dumps are complete
@@ -32,6 +33,7 @@ import pathlib
 import re
 import shutil
 import sqlite3
+import stat
 import subprocess
 import sys
 import tempfile
@@ -88,6 +90,8 @@ USER_UNITS = ["avrana-backup.service", "avrana-backup.timer", "services-health.s
 ABS_IMAGE = ("ghcr.io/advplyr/audiobookshelf@sha256:"
              "180acad33d69c99ed208676465d8edcb268fa46967735579a7810859885b1a8e")
 ABS_NAME, ABS_PORT = "abs-restore-test", "18378"
+# Written into every off-host copy of a run by offhost-backup.py. Metadata, not a restore payload.
+OFFHOST_MARKER = "OFFHOST-COMPLETE.json"
 
 
 class Report:
@@ -159,6 +163,45 @@ def check_manifest(run, report):
         report.fail("manifest: no checksum lines found")
 
 
+def check_offhost_marker(run, report):
+    """A run downloaded from off-host storage carries a completion marker. Verify it; never skip it."""
+    marker = run / OFFHOST_MARKER
+    if not marker.is_file():
+        return                                         # a local run: nothing to verify
+    try:
+        document = json.loads(marker.read_text(encoding="utf-8"))
+        recorded = document["manifest_sha256"]
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        report.fail(f"off-host marker: {OFFHOST_MARKER} is unreadable or has no manifest hash ({exc})")
+        return
+    manifest = run / "MANIFEST.txt"
+    actual = sha256_file(manifest) if manifest.is_file() else None
+    report.check(actual is not None and recorded == actual,
+                 "off-host marker: manifest hash matches MANIFEST.txt",
+                 "off-host marker: MANIFEST.txt is not the one that was uploaded (hash mismatch)")
+    if document.get("run") != run.name:
+        report.warn(f"off-host marker: written for run {document.get('run')}, directory is named {run.name}")
+    files = size = 0
+    for base, _, names in os.walk(run):
+        for name in names:
+            info = os.lstat(os.path.join(base, name))
+            if stat.S_ISREG(info.st_mode) and not (base == str(run) and name == OFFHOST_MARKER):
+                files += 1
+                size += info.st_size
+    counted = (document.get("files"), document.get("bytes"))
+    if document.get("marker_version", 1) >= 2:
+        report.check(counted == (files, size),
+                     f"off-host marker: {files} files and {size} bytes, as recorded at upload",
+                     f"off-host marker: recorded {counted[0]} files / {counted[1]} bytes, "
+                     f"found {files} / {size}")
+    elif counted != (files, size):
+        # Markers written before version 2 also counted symlinks, which are never uploaded.
+        report.warn(f"off-host marker: version 1 marker records {counted[0]} files, {files} present; "
+                    "version 1 counts included symlinks and are not enforced")
+    else:
+        report.ok(f"off-host marker: {files} files and {size} bytes, as recorded at upload")
+
+
 def check_components(run, report):
     present = {p.name for p in run.iterdir() if p.is_dir()}
     missing = sorted(set(COMPONENT_DIRS) - present)
@@ -211,7 +254,8 @@ def check_restore_map(run, repo, report):
     unmapped = []
     for path in sorted(run.rglob("*")):
         rel = path.relative_to(run).as_posix()
-        if path.is_file() and rel != "MANIFEST.txt" and rel not in mapped and not rel.startswith("systemd/"):
+        if (path.is_file() and rel not in ("MANIFEST.txt", OFFHOST_MARKER) and rel not in mapped
+                and not rel.startswith("systemd/")):
             unmapped.append(rel)
     for rel in unmapped:
         report.fail(f"restore map: {rel} is in the backup but has no documented restore path")
@@ -516,6 +560,7 @@ def main():
             print("FAIL  the scratch directory is inside the run being tested")
             return 2
         check_manifest(run, report)
+        check_offhost_marker(run, report)
         check_components(run, report)
         check_required(run, repo, report)
         check_restore_map(run, repo, report)

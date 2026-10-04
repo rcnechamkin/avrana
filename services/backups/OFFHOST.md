@@ -21,7 +21,7 @@ b2://<bucket>/pinned/<encrypted run>/             never expires; filled by --pin
 | Encrypted names and contents | Two rclone `crypt` remotes (`avrana-offsite-daily`, `avrana-offsite-pinned`) with file and directory name encryption. B2 stores only ciphertext under the two plain prefixes `daily/` and `pinned/`. |
 | Secrets not committed | `rclone.conf` is created on the host by `offhost-setup.sh` from hidden prompts, mode 0600, ignored by Git. The uploader refuses a config that is group or world readable. |
 | Incomplete backups are not promoted | A run is uploaded only if its name is a plain timestamp (never `*.partial*`), `required-artifacts.txt` is satisfied and every `MANIFEST.txt` checksum verifies. The newest run must be the one `LAST_RUN.json` reports `ok`, otherwise the job fails. |
-| Verification metadata travels with the data | `MANIFEST.txt` (SHA-256 of every file) is part of each run. After upload `rclone cryptcheck` compares every file with the encrypted remote copy; only then `OFFHOST-COMPLETE.json` (file count, bytes, manifest hash, time) is written into the remote run. A remote run without that marker is not a recovery set. |
+| Verification metadata travels with the data | `MANIFEST.txt` (SHA-256 of every file) is part of each run. After upload `rclone cryptcheck` compares every file with the encrypted remote copy and the remote file count is compared with the local one; only then `OFFHOST-COMPLETE.json` (file count, bytes, skipped symlinks, manifest hash, time) is written into the remote run. A remote run without that marker is not a recovery set. `restore-test.py` checks the marker of a downloaded run against its `MANIFEST.txt` and the files present, and fails on a mismatch. |
 | Failures are visible | Result goes to `/mnt/avrana_media/.backups/OFFHOST_LAST_RUN.json`. `services-health.sh` fails when it is not `ok` or older than 50 hours. A failure also sends an alert e-mail. |
 | Retention is explicit | Set on the bucket, below. The host cannot shorten it. |
 
@@ -72,6 +72,17 @@ docker run --rm --pull never --user 1000:1000 -e RCLONE_CONFIG=/c/rclone.conf \
 
 On a new machine with no configuration, run `offhost-setup.sh` first with the values from 1Password.
 The full rebuild procedure is `BOOTSTRAP.md`.
+
+## What is and is not uploaded
+
+Regular files only. The 13 symlinks under `systemd/user/*.wants/` are skipped by rclone and are not
+needed: `systemd/enabled-user.txt` in the same run lists the enabled units and `BOOTSTRAP.md` enables
+them explicitly. The marker's `files` and `bytes` count regular files; `symlinks_skipped` is informational.
+
+Known inaccuracy: the first upload of run `2026-10-04T20-52-13Z`, in both tiers, has a version 1 marker
+that records 126 files and 1,107,883,058 bytes. It counted the symlinks. The run holds 113 files and
+1,107,880,113 bytes, all verified. The markers are immutable and were left as they are; the restore test
+enforces their manifest hash and reports the count as a warning.
 
 ## What this does not cover
 
