@@ -1,0 +1,11 @@
+[Unit]
+Description=Run the Avrana restore test every Sunday
+
+[Timer]
+# After the 02:30 backup and the 03:30 off-host copy.
+OnCalendar=Sun *-*-* 04:30:00
+Persistent=false
+RandomizedDelaySec=10min
+
+[Install]
+WantedBy=timers.target

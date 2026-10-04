@@ -1,119 +1,61 @@
-# Avrana stack backups
+# Backups
 
-Automated nightly backup of the **non-recoverable state** of the Avrana stack — the
-databases, config, and secrets that no media re-download could rebuild. Media itself is not
-backed up (it is large and re-obtainable via Libation / the \*arr stack).
+| File | Purpose |
+|---|---|
+| `avrana-backup.sh` | Nightly local backup, 24 components. Timer `avrana-backup.timer`, 02:30. |
+| `required-artifacts.txt`, `verify-required.py` | The completeness gate: 182 files and archive members every run must contain. |
+| `restore-map.txt` | Where each artifact goes on a rebuilt host. |
+| `restore-test.py` (`restore-test.sh` is a wrapper) | Proves a run can rebuild the server without touching the run or production. Timer `avrana-restore-test.timer`, Sundays 04:30. |
+| `offhost-backup.py`, `offhost-setup.sh`, `OFFHOST.md` | Encrypted, add-only copy to Backblaze B2. Timer `avrana-offhost.timer`, 03:30. |
+| `tests/` | Offline tests for the tooling above. |
 
-## What, where, when
+## What a run contains
 
-- **Script:** `avrana-backup.sh` — one self-contained run per invocation.
-- **Destination:** `/mnt/avrana_media/.backups/avrana/<UTC-timestamp>/` — the media array
-  (`/dev/sdb1`), a **different physical disk** from the root LV where these databases live, so
-  a root-disk failure or corruption is recoverable.
-- **Schedule:** daily at 02:30 local via the user systemd timer `avrana-backup.timer`.
-- **Retention:** 7 daily runs (`AVRANA_BACKUP_KEEP`).
-- **Safety valve:** aborts before writing if the array has < 20 GB free
-  (`AVRANA_BACKUP_MIN_FREE_GB`) and records the alarm in `LAST_RUN.json`.
+`/mnt/avrana_media/.backups/avrana/<UTC timestamp>/`, mode 700, files 600, about 1.1 GB:
 
-Each run writes `MANIFEST.txt` (sha256 + size of every file) and updates
-`../LAST_RUN.json` (machine-readable status the health check reads).
+`arr` `audiobookshelf` `authentik` `avrana-audible-connector` `beszel` `bookstack` `calibre-web-automated`
+`cloudflared` `home-assistant` `host-docker` `jellyfin` `kavita` `kern-data` `komga` `libation` `mylar`
+`omnibus` `sabnzbd` `seerr` `shelfarr` `shelfmark` `stack-config` `systemd` `tracearr`, plus `MANIFEST.txt`.
 
-### Components captured
+SQLite databases are copied with the online backup API, Postgres and MariaDB with their dump tools, and
+config and secrets as files or `tar.zst` archives. The media library is not backed up.
 
-| Component | Artifact | Method |
-|---|---|---|
-| Audiobookshelf | `absdatabase.sqlite` + `metadata.tar.zst` | SQLite online `.backup` + tar of items/authors |
-| Authentik | `authentik.pgdump.zst` | `pg_dump` inside the container |
-| BookStack | `bookstack.sql.zst` + `bookstack.env` + `bookstack-uploads.tar.zst` | `mariadb-dump` + `.env` (`APP_KEY`) + uploaded images/files |
-| Audible connector | `connector.db` | SQLite online `.backup` (**never** `profiles/` — live Audible tokens) |
-| Komga | `database.sqlite` | SQLite online `.backup` |
-| Beszel | `beszel-state.tar.zst` | Hub database/history, agent identity, and agent credentials |
-| Calibre-Web | `app.db`, `cwa.db`, `calibre-metadata.db` | SQLite online `.backup` |
-| Seerr | `db.sqlite3` + `settings.json` | SQLite online `.backup` + copy |
-| Jellyfin | `jellyfin-config.tar.zst` | tar of config, excluding regenerable caches |
-| Stack config | `stack-config.tar.zst` | allowlisted compose + `.env` + `secrets/` + Authentik blueprints + `deploy/` |
+## Behaviour that matters
 
-## Checking status
+- **Status.** `LAST_RUN.json` records `ok` or `partial` with the failed components. Any non-zero exit
+  sends an alert e-mail.
+- **Completeness.** Before a run is finalised it is checked against `required-artifacts.txt`. Anything
+  missing fails the owning component, so a run cannot be `ok` and incomplete.
+- **Incomplete runs** are kept as `<timestamp>.partial-failed` and never count towards rotation. Only the
+  newest three are kept.
+- **Rotation.** The newest 7 complete runs are kept. A run containing a `.keep` file is never pruned
+  (the 2026-09-20 golden backup).
+- **Guards.** The script refuses to run when the array is not mounted or is nearly full.
 
-```bash
-cat /mnt/avrana_media/.backups/avrana/LAST_RUN.json        # last run: ok / partial / aborted
-systemctl --user list-timers avrana-backup.timer           # next scheduled run
-journalctl --user -u avrana-backup.service -n 50           # last run log
-```
+When a service is added, retired or gains a secret, change `avrana-backup.sh`, `required-artifacts.txt`,
+`restore-map.txt` and the component list in `restore-test.py` in the same commit. The restore test fails
+if they disagree.
 
-The 15-minute `services-health.sh` check fails if `LAST_RUN.json` is missing, older than 26h
-(a daily run was skipped), or not `ok` — so a silently-dead backup timer raises an alert.
-
-## Is it actually restorable? (tested)
-
-A backup you have never restored is a hypothesis. `restore-test.sh` verifies the manifest
-checksums, reconstructs a config + metadata dir from the newest backup, boots a **throwaway**
-Audiobookshelf on it (own port, own container, library mounted read-only — the live ABS is
-never touched), and asserts it comes up `isInit=true` with the library items and users intact.
+## Restore test
 
 ```bash
-./services/backups/restore-test.sh            # newest backup
-./services/backups/restore-test.sh /mnt/avrana_media/.backups/avrana/<ts>/   # a specific one
+services/backups/restore-test.py                 # newest complete run
+services/backups/restore-test.py /path/to/run    # a specific run, e.g. one downloaded from B2
+services/backups/restore-test.py --boot-abs      # also boot a throwaway Audiobookshelf on 127.0.0.1:18378
 ```
 
-Run it after any change to the backup script. Last verified: 2026-08-14 (261 items, 4 users).
+It fingerprints the run before and after and fails if anything in it changed. Databases are checked on
+copies in a scratch directory that is removed afterwards. It verifies the manifest, the 24 components,
+the required artifacts, the restore map (including files that are renamed on restore, such as the
+Calibre-Web key), every SQLite database, every archive, the three SQL dumps, and the rebuild
+prerequisites (compose files, secrets, tunnel credential, units, fstab, Docker data-root, Dockerfiles,
+external networks named in `BOOTSTRAP.md`). The result of the scheduled run is in
+`/mnt/avrana_media/.backups/avrana/RESTORE_TEST_LAST.json`; a failure sends an alert e-mail.
 
-## Restore procedures
+It does not restore anything onto production and does not prove that each application starts on the
+restored data. Only Audiobookshelf has a boot test.
 
-First: `cd <backup-dir> && sha256sum -c MANIFEST.txt` to confirm integrity.
+## Restoring
 
-**Audiobookshelf** — stop ABS, replace the DB, restore metadata, start:
-```bash
-docker compose -f services/audiobookshelf/docker-compose.yml down
-cp <backup>/audiobookshelf/absdatabase.sqlite services/audiobookshelf/config/absdatabase.sqlite
-zstd -dc <backup>/audiobookshelf/metadata.tar.zst | tar -C services/audiobookshelf/metadata -xf -
-docker compose -f services/audiobookshelf/docker-compose.yml up -d
-```
-
-**Authentik** (Postgres) — into the running DB container:
-```bash
-zstd -dc <backup>/authentik/authentik.pgdump.zst \
-  | docker exec -i authentik-postgresql sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
-docker restart authentik-server authentik-worker
-```
-For a from-scratch rebuild, recreate an empty DB first, then pipe the dump in.
-
-**BookStack** (MariaDB) — the `APP_KEY` in `bookstack.env` must match the DB or encrypted
-fields are unreadable:
-```bash
-zstd -dc <backup>/bookstack/bookstack.sql.zst \
-  | docker exec -i bookstack-mariadb sh -c 'mariadb -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE"'
-# ensure services/bookstack/.env carries the APP_KEY from <backup>/bookstack/bookstack.env
-# restore uploaded page images/attachments:
-zstd -dc <backup>/bookstack/bookstack-uploads.tar.zst | tar -C services/bookstack/config/www -xf -
-```
-
-**SQLite services** (connector, Komga, Calibre-Web, Seerr) — stop the container, drop the file
-in, start. Example (connector):
-```bash
-docker compose -f services/avrana-audible-connector/docker-compose.yml stop connector
-cp <backup>/avrana-audible-connector/connector.db services/avrana-audible-connector/data/connector.db
-docker compose -f services/avrana-audible-connector/docker-compose.yml start connector
-```
-
-**Jellyfin** — stop, extract config over the config dir, start:
-```bash
-docker stop jellyfin
-zstd -dc <backup>/jellyfin/jellyfin-config.tar.zst | tar -C /home/cody/docker/jellyfin/config -xf -
-docker start jellyfin
-```
-
-**Stack config** — recover a lost compose file / secret / blueprint:
-```bash
-zstd -dc <backup>/stack-config/stack-config.tar.zst | tar -C /tmp/restore -xf -   # inspect first
-```
-
-## Limitations (known, documented)
-
-- **Not off-host.** Backups live on the media array. That covers root-disk loss, but if the
-  array itself dies, media *and* these backups are gone. True disaster recovery needs an
-  off-host copy — the natural next step is an `rclone` sync of `/mnt/avrana_media/.backups/` to
-  B2/R2 on its own timer (needs credentials). The tree is self-contained and ready for it.
-- **Media is not backed up** — by design; it is re-obtainable via Libation / \*arr.
-- **Audible `profiles/` are deliberately excluded** — they hold live Audible authorization;
-  a user re-connects rather than restoring a credential.
+Follow `BOOTSTRAP.md`. For a single service: stop it, copy the artifacts to the destinations in
+`restore-map.txt`, start it. Never restore over a newer live database without saving it first.

@@ -1,0 +1,73 @@
+# Where every artifact in a backup run goes on a rebuilt host.
+#
+#   component | artifact (relative to the run directory) | restore destination | method
+#
+# Read by restore-test.py (every artifact listed here must exist in the run being tested) and by
+# people following BOOTSTRAP.md. Keep it in step with avrana-backup.sh and required-artifacts.txt:
+# a component added to the backup without a line here fails the restore test.
+#
+# Methods
+#   copy        copy the file to the destination while the service is stopped
+#   copy-as     same, but the file is RENAMED on the way back (the destination name differs)
+#   untar       zstd -dc ARTIFACT | tar -C DESTINATION -xpf -
+#   psql        zstd -dc ARTIFACT | docker exec -i <container> psql ...   (see BOOTSTRAP.md)
+#   mariadb     zstd -dc ARTIFACT | docker exec -i <container> mariadb ... (see BOOTSTRAP.md)
+#   reference   not restored blindly; read it and apply by hand
+#
+# REPO = /home/cody/avrana    DOCKER = /home/cody/docker
+
+arr|arr/radarr/radarr.db|DOCKER/radarr/radarr.db|copy
+arr|arr/radarr/config.xml|DOCKER/radarr/config.xml|copy
+arr|arr/sonarr/sonarr.db|DOCKER/sonarr/sonarr.db|copy
+arr|arr/sonarr/config.xml|DOCKER/sonarr/config.xml|copy
+arr|arr/prowlarr/prowlarr.db|DOCKER/prowlarr/prowlarr.db|copy
+arr|arr/prowlarr/config.xml|DOCKER/prowlarr/config.xml|copy
+audiobookshelf|audiobookshelf/absdatabase.sqlite|REPO/services/audiobookshelf/config/absdatabase.sqlite|copy
+audiobookshelf|audiobookshelf/metadata.tar.zst|REPO/services/audiobookshelf/metadata|untar
+authentik|authentik/authentik.pgdump.zst|container authentik-postgresql, database from PG_DB|psql
+connector|avrana-audible-connector/connector.db|REPO/services/avrana-audible-connector/data/connector.db|copy
+beszel|beszel/beszel-state.tar.zst|REPO/services/beszel|untar
+bookstack|bookstack/bookstack.sql.zst|container bookstack-mariadb, database from BOOKSTACK_DB_NAME|mariadb
+bookstack|bookstack/bookstack.env|REPO/services/bookstack/.env|copy-as
+bookstack|bookstack/bookstack-uploads.tar.zst|REPO/services/bookstack/config/www|untar
+calibre-web|calibre-web-automated/app.db|REPO/services/calibre-web-automated/config/app.db|copy
+calibre-web|calibre-web-automated/cwa.db|REPO/services/calibre-web-automated/config/cwa.db|copy
+calibre-web|calibre-web-automated/cwa.key|REPO/services/calibre-web-automated/config/.key|copy-as
+calibre-web|calibre-web-automated/calibre-metadata.db|/mnt/avrana_media/calibre-library/metadata.db|reference
+cloudflared|cloudflared/cloudflared-config.tar.zst|/home/cody/.cloudflared|untar
+home-assistant|home-assistant/ha-config.tar.zst|REPO/services/home-assistant|untar
+home-assistant|home-assistant/home-assistant_v2.db|REPO/services/home-assistant/config/home-assistant_v2.db|copy
+host-docker|host-docker/NOTHING-TO-CAPTURE.txt|none|reference
+jellyfin|jellyfin/jellyfin-config.tar.zst|DOCKER/jellyfin/config|untar
+kavita|kavita/kavita.db|REPO/services/kavita/config/kavita.db|reference
+kavita|kavita/appsettings.json|REPO/services/kavita/config/appsettings.json|reference
+kern-data|kern-data/kern-data.tar.zst|REPO|reference
+komga|komga/database.sqlite|REPO/services/komga/config/database.sqlite|copy
+komga|komga/application.yml|REPO/services/komga/config/application.yml|copy
+libation|libation/LibationContext.db|REPO/services/libation/config/LibationContext.db|copy
+libation|libation/libation-master.key|REPO/services/libation/config/libation-master.key|copy
+libation|libation/AccountsSettings.json|REPO/services/libation/config/AccountsSettings.json|copy
+libation|libation/Settings.json|REPO/services/libation/config/Settings.json|copy
+mylar|mylar/mylar.db|REPO/services/mylar3/mylar.db|copy
+mylar|mylar/config.ini|REPO/services/mylar3/config.ini|copy
+omnibus|omnibus/omnibus.db|REPO/services/omnibus/config/omnibus.db|copy
+omnibus|omnibus/omnibus.env|REPO/services/omnibus/.env|copy-as
+sabnzbd|sabnzbd/sabnzbd.ini|/home/cody/.sabnzbd/sabnzbd.ini|copy
+sabnzbd|sabnzbd/history1.db|/home/cody/.sabnzbd/admin/history1.db|copy
+seerr|seerr/db.sqlite3|DOCKER/seerr/config/db/db.sqlite3|copy
+seerr|seerr/settings.json|DOCKER/seerr/config/settings.json|copy
+shelfarr|shelfarr/production.sqlite3|REPO/services/shelfarr/data/production.sqlite3|copy
+shelfarr|shelfarr/.encryption_keys|REPO/services/shelfarr/data/.encryption_keys|copy
+shelfarr|shelfarr/.secret_key_base|REPO/services/shelfarr/data/.secret_key_base|copy
+shelfmark|shelfmark/users.db|REPO/services/shelfmark/config/users.db|copy
+shelfmark|shelfmark/settings.json|REPO/services/shelfmark/config/settings.json|copy
+shelfmark|shelfmark/.flask_secret|REPO/services/shelfmark/config/.flask_secret|copy
+stack-config|stack-config/stack-config.tar.zst|REPO (secrets only: .env files, secrets/, the seven secret-bearing blueprints; everything else comes from Git)|reference
+systemd|systemd/fstab|/etc/fstab (array and mergerfs lines only; never the root, boot or swap lines)|reference
+systemd|systemd/docker-data-root.txt|/etc/docker/daemon.json|reference
+systemd|systemd/enabled-system.txt|systemctl enable ...|reference
+systemd|systemd/enabled-user.txt|systemctl --user enable ...|reference
+systemd|systemd/system/sabnzbd.service|/etc/systemd/system/sabnzbd.service|copy
+systemd|systemd/system/mylar3.service|/etc/systemd/system/mylar3.service|copy
+systemd|systemd/system/cloudflared-avrana.service|/etc/systemd/system/cloudflared-avrana.service|copy
+tracearr|tracearr/tracearr.pgdump.zst|container tracearr, database tracearr|psql

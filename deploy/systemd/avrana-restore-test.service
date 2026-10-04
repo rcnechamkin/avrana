@@ -1,0 +1,11 @@
+[Unit]
+Description=Weekly restore test of the newest Avrana backup run (reads the run, changes nothing)
+Documentation=file:///home/cody/avrana/services/backups/README.md
+After=docker.service
+
+[Service]
+Type=oneshot
+Nice=15
+IOSchedulingClass=idle
+ExecStart=/home/cody/avrana/services/backups/restore-test.py --alert
+TimeoutStartSec=1h

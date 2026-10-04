@@ -1,11 +1,14 @@
 [Unit]
-Description=Ship the Avrana backup tree off-host daily
+Description=Ship the night's Avrana backup off-host
 
 [Timer]
-# 03:30 local — an hour after avrana-backup.timer (02:30), so it ships a completed run
-# rather than racing a partial one.
+# 03:30 local, an hour after avrana-backup.timer (02:30), so it ships a finished run.
 OnCalendar=*-*-* 03:30:00
-Persistent=true
+# Deliberately not Persistent: a missed run must not start right after boot, where its
+# short-lived rclone container would be counted by the boot verification's container baseline.
+# The next night catches up on every run that is not yet off-host, and services-health.sh
+# alarms when the last success is more than 50 hours old.
+Persistent=false
 RandomizedDelaySec=10min
 
 [Install]

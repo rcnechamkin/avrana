@@ -256,6 +256,7 @@ src=sqlite3.connect('file:/config/home-assistant_v2.db?mode=ro',uri=True)
 dst=sqlite3.connect('/tmp/ha-recorder.db')
 src.backup(dst); dst.close(); src.close()" 2>/dev/null      && docker cp home-assistant:/tmp/ha-recorder.db "$d/home-assistant_v2.db" 2>/dev/null      && [[ -s "$d/home-assistant_v2.db" ]]; then
     docker exec home-assistant rm -f /tmp/ha-recorder.db 2>/dev/null || true
+    chmod 600 "$d/home-assistant_v2.db"      # docker cp keeps the container's 0644; umask does not apply
     good home-assistant "$(du -sh "$d" | cut -f1)"
   else
     # The config archive is the part that matters; a missing recorder is degraded, not fatal.

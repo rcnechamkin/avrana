@@ -24,6 +24,7 @@
 /services/authentik/blueprints/shelfarr.yaml
 # rclone configuration holds the B2 key and the crypt passwords.
 rclone.conf
+rclone.conf.*
 
 # --- application state ---------------------------------------------------------------------
 *.db
