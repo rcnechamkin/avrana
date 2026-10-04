@@ -1,0 +1,57 @@
+<h1 id="bkmrk-beszel">Beszel</h1>
+<p id="bkmrk-beszel-provides-ligh">Beszel provides lightweight monitoring for the Avrana host and its Docker containers. It is available only on the local network.</p>
+<h2 id="bkmrk-access">Access</h2>
+<table id="bkmrk-interfaceaddress-hub"><tbody>
+<tr><th>Interface</th><th>Address</th></tr>
+<tr><td>Hub</td><td><code>http://10.0.0.218:8093</code></td></tr>
+<tr><td>Hub container port</td><td><code>8090/tcp</code></td></tr>
+<tr><td>Docker proxy</td><td><code>127.0.0.1:2376</code>, host loopback only</td></tr>
+<tr><td>Agent transport</td><td><code>/beszel_socket/beszel.sock</code>, Unix socket</td></tr>
+</tbody></table>
+<h2 id="bkmrk-architecture">Architecture</h2>
+<ul id="bkmrk-beszel-stores-config">
+<li><code>beszel</code> stores configuration, alerts, users, and historical metrics.</li>
+<li><code>beszel-agent</code> collects host, filesystem, network, sensor, uptime, and Docker metrics.</li>
+<li><code>beszel-socket-proxy</code> provides filtered read-only access to the Docker API.</li>
+<li>QuarterMaster links to the hub and reports its container and HTTP status.</li>
+</ul>
+<h2 id="bkmrk-security-model">Security model</h2>
+<p id="bkmrk-the-hub-binds-to-10.">The hub binds to <code>10.0.0.218:8093</code> and is not routed through Cloudflare. The agent runs as UID and GID 1000 with all Linux capabilities removed. It has no direct Docker socket mount. The socket proxy permits only container, daemon information, ping, and version GET requests. POST requests are disabled. Its TCP listener is bound to host loopback.</p>
+<p id="bkmrk-filesystem-monitorin">Filesystem monitoring uses empty marker directories on the root and media filesystems. The agent cannot read the rest of either filesystem. Hub and agent credentials are stored below <code>services/beszel/</code> with mode 0600 and are excluded from version control.</p>
+<h2 id="bkmrk-metrics">Metrics</h2>
+<ul id="bkmrk-host-cpu%2C-per-core-u">
+<li>Host CPU, per-core use, load averages, RAM, swap, and uptime</li>
+<li>Root and media filesystem capacity, read and write throughput, and byte counters</li>
+<li>Physical network-interface send and receive rates</li>
+<li>Container CPU, RAM, network traffic, status, and uptime</li>
+<li>CPU package and core temperatures</li>
+</ul>
+<p id="bkmrk-the-docker-proxy-ena">The Docker proxy enables automatic discovery of existing and future containers.</p>
+<h3 id="bkmrk-unavailable-metrics">Unavailable metrics</h3>
+<p id="bkmrk-the-host-intel-hd-gr">The host Intel HD Graphics 530 was detected and tested. Intel collection requires performance-counter access, but the host uses <code>kernel.perf_event_paranoid=4</code>. The safe non-root agent cannot collect these counters. GPU collection is disabled to prevent recurring log errors. Do not lower the kernel setting solely for monitoring.</p>
+<p id="bkmrk-smart-is-disabled.-b">SMART is disabled. Beszel's container method requires raw block-device mappings plus <code>SYS_RAWIO</code> and <code>SYS_ADMIN</code>. These privileges are not justified for a monitoring container. Filesystem capacity and disk I/O remain available.</p>
+<h2 id="bkmrk-health-and-resilienc">Health and resilience</h2>
+<ul id="bkmrk-the-hub-and-agent-us">
+<li>The hub and agent use Beszel's built-in health commands every 120 seconds.</li>
+<li>The socket proxy checks Docker's ping endpoint every 60 seconds.</li>
+<li>All components use <code>restart: unless-stopped</code>.</li>
+<li>The main Avrana health script checks <code>/api/health</code>.</li>
+</ul>
+<h2 id="bkmrk-persistence-and-back">Persistence and backups</h2>
+<p id="bkmrk-hub-state-is-in-serv">Hub state is in <code>services/beszel/data</code>. Agent identity is in <code>services/beszel/agent-data</code>. Credentials are in <code>services/beszel/secrets</code>. The nightly Avrana backup archives these paths as <code>beszel/beszel-state.tar.zst</code>. Restoring the archive preserves systems, users, alerts, history, and the agent identity.</p>
+<h2 id="bkmrk-alerts">Alerts</h2>
+<table id="bkmrk-conditionthresholddu"><tbody>
+<tr><th>Condition</th><th>Threshold</th><th>Duration</th></tr>
+<tr><td>Host unavailable</td><td>Down</td><td>5 minutes</td></tr>
+<tr><td>Filesystem usage</td><td>90 percent</td><td>10 minutes</td></tr>
+<tr><td>Host CPU usage</td><td>90 percent</td><td>15 minutes</td></tr>
+<tr><td>Host memory usage</td><td>90 percent</td><td>15 minutes</td></tr>
+</tbody></table>
+<p id="bkmrk-these-thresholds-det">These thresholds detect sustained faults while ignoring normal short workload bursts.</p>
+<h2 id="bkmrk-troubleshooting">Troubleshooting</h2>
+<pre id="bkmrk-cd-%2Fhome%2Fcody%2Favrana"><code>cd /home/cody/avrana/services/beszel
+docker compose config -q
+docker compose ps
+docker compose logs --since 30m
+curl -fsS http://10.0.0.218:8093/api/health</code></pre>
+<p id="bkmrk-if-the-host-is-offli">If the host is offline in Beszel, verify that both hub and agent mount <code>./socket</code> and that the system host is <code>/beszel_socket/beszel.sock</code>. If containers are absent, verify <code>curl http://127.0.0.1:2376/_ping</code> on the host and inspect the socket-proxy health state.</p>

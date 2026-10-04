@@ -1,0 +1,899 @@
+{
+ "source": {
+  "backup_run": "2026-10-04T09-33-09Z",
+  "artifact": "bookstack/bookstack.sql.zst",
+  "method": "disposable network-less MariaDB restore, exported 2026-10-04"
+ },
+ "shelves": [
+  {
+   "id": 41,
+   "name": "Avrana Homelab",
+   "description": "Operations and project documentation for the Avrana media server.",
+   "books": [
+    1,
+    10,
+    30,
+    34,
+    38,
+    44
+   ]
+  },
+  {
+   "id": 54,
+   "name": "Kern",
+   "description": "Architecture, status, and open decisions for the planned Kern orchestration system.",
+   "books": [
+    49,
+    50,
+    51,
+    52,
+    53
+   ]
+  },
+  {
+   "id": 85,
+   "name": "Avrana Party",
+   "description": "",
+   "books": [
+    86
+   ]
+  }
+ ],
+ "books": [
+  {
+   "id": 1,
+   "name": "Infrastructure",
+   "slug": "infrastructure",
+   "description": "Host access, storage, networking, backups, and maintenance procedures.",
+   "chapters": [],
+   "pages": [
+    {
+     "id": 2,
+     "name": "Host & Access",
+     "slug": "host-access",
+     "chapter_id": null,
+     "priority": 2,
+     "created": "2026-08-13 21:28:42",
+     "updated": "2026-08-29 04:24:51",
+     "file": "raw/infrastructure/02-host-access.md"
+    },
+    {
+     "id": 3,
+     "name": "Storage Layout",
+     "slug": "storage-layout",
+     "chapter_id": null,
+     "priority": 3,
+     "created": "2026-08-13 21:28:42",
+     "updated": "2026-08-28 23:35:00",
+     "file": "raw/infrastructure/03-storage-layout.md"
+    },
+    {
+     "id": 4,
+     "name": "Compose Layout and Conventions",
+     "slug": "compose-layout-and-conventions",
+     "chapter_id": null,
+     "priority": 4,
+     "created": "2026-08-13 21:28:42",
+     "updated": "2026-08-21 00:15:45",
+     "file": "raw/infrastructure/04-compose-layout-and-conventions.md"
+    },
+    {
+     "id": 5,
+     "name": "Service and Port Map",
+     "slug": "service-and-port-map",
+     "chapter_id": null,
+     "priority": 5,
+     "created": "2026-08-13 21:28:43",
+     "updated": "2026-08-29 04:24:52",
+     "file": "raw/infrastructure/05-service-and-port-map.md"
+    },
+    {
+     "id": 6,
+     "name": "Docker Hardening and Networking",
+     "slug": "docker-hardening-and-networking",
+     "chapter_id": null,
+     "priority": 6,
+     "created": "2026-08-13 21:28:43",
+     "updated": "2026-08-29 03:35:42",
+     "file": "raw/infrastructure/06-docker-hardening-and-networking.md"
+    },
+    {
+     "id": 7,
+     "name": "Cloudflare and External Access",
+     "slug": "cloudflare-and-external-access",
+     "chapter_id": null,
+     "priority": 7,
+     "created": "2026-08-13 21:28:43",
+     "updated": "2026-08-29 04:04:02",
+     "file": "raw/infrastructure/07-cloudflare-and-external-access.md"
+    },
+    {
+     "id": 8,
+     "name": "Backups and Recovery",
+     "slug": "backups-and-recovery",
+     "chapter_id": null,
+     "priority": 8,
+     "created": "2026-08-13 21:28:44",
+     "updated": "2026-08-29 03:35:23",
+     "file": "raw/infrastructure/08-backups-and-recovery.md"
+    },
+    {
+     "id": 9,
+     "name": "Upgrade Procedure",
+     "slug": "upgrade-procedure",
+     "chapter_id": null,
+     "priority": 9,
+     "created": "2026-08-13 21:28:44",
+     "updated": "2026-08-21 00:15:00",
+     "file": "raw/infrastructure/09-upgrade-procedure.md"
+    },
+    {
+     "id": 79,
+     "name": "Host firewall (ufw) — design and rollback",
+     "slug": "host-firewall-ufw-design-and-rollback",
+     "chapter_id": null,
+     "priority": 10,
+     "created": "2026-08-29 04:24:52",
+     "updated": "2026-08-29 04:42:14",
+     "file": "raw/infrastructure/79-host-firewall-ufw-design-and-rollback.md"
+    },
+    {
+     "id": 81,
+     "name": "Docker address pools — v2 design",
+     "slug": "docker-address-pools-v2-design",
+     "chapter_id": null,
+     "priority": 11,
+     "created": "2026-08-29 17:06:23",
+     "updated": "2026-08-29 17:06:23",
+     "file": "raw/infrastructure/81-docker-address-pools-v2-design.md"
+    }
+   ]
+  },
+  {
+   "id": 10,
+   "name": "Services",
+   "slug": "services",
+   "description": "Configuration, access, dependencies, and operating notes for deployed services.",
+   "chapters": [
+    {
+     "id": 11,
+     "name": "Books and Audio",
+     "priority": 2
+    },
+    {
+     "id": 12,
+     "name": "Video and Requests",
+     "priority": 3
+    },
+    {
+     "id": 13,
+     "name": "Platform",
+     "priority": 4
+    }
+   ],
+   "pages": [
+    {
+     "id": 14,
+     "name": "Audiobookshelf (ABS)",
+     "slug": "audiobookshelf-abs",
+     "chapter_id": 11,
+     "priority": 1,
+     "created": "2026-08-13 21:28:46",
+     "updated": "2026-08-21 00:15:01",
+     "file": "raw/services/14-audiobookshelf-abs.md"
+    },
+    {
+     "id": 22,
+     "name": "Jellyfin",
+     "slug": "jellyfin",
+     "chapter_id": 12,
+     "priority": 1,
+     "created": "2026-08-13 21:28:48",
+     "updated": "2026-08-24 20:10:59",
+     "file": "raw/services/22-jellyfin.md"
+    },
+    {
+     "id": 28,
+     "name": "Homepage",
+     "slug": "homepage",
+     "chapter_id": 13,
+     "priority": 1,
+     "created": "2026-08-13 21:28:51",
+     "updated": "2026-08-21 00:15:06",
+     "file": "raw/services/28-homepage.md"
+    },
+    {
+     "id": 15,
+     "name": "Calibre-Web-Automated (CWA)",
+     "slug": "calibre-web-automated-cwa",
+     "chapter_id": 11,
+     "priority": 2,
+     "created": "2026-08-13 21:28:46",
+     "updated": "2026-08-21 00:15:01",
+     "file": "raw/services/15-calibre-web-automated-cwa.md"
+    },
+    {
+     "id": 23,
+     "name": "Radarr / Sonarr",
+     "slug": "radarr-sonarr",
+     "chapter_id": 12,
+     "priority": 2,
+     "created": "2026-08-13 21:28:49",
+     "updated": "2026-08-21 00:15:04",
+     "file": "raw/services/23-radarr-sonarr.md"
+    },
+    {
+     "id": 29,
+     "name": "Health API: 8240 — RETIRED",
+     "slug": "health-api-8240-retired",
+     "chapter_id": 13,
+     "priority": 2,
+     "created": "2026-08-13 21:28:51",
+     "updated": "2026-08-29 04:04:01",
+     "file": "raw/services/29-health-api-8240-retired.md"
+    },
+    {
+     "id": 16,
+     "name": "Shelfmark",
+     "slug": "shelfmark",
+     "chapter_id": 11,
+     "priority": 3,
+     "created": "2026-08-13 21:28:46",
+     "updated": "2026-08-21 00:15:01",
+     "file": "raw/services/16-shelfmark.md"
+    },
+    {
+     "id": 24,
+     "name": "Prowlarr",
+     "slug": "prowlarr",
+     "chapter_id": 12,
+     "priority": 3,
+     "created": "2026-08-13 21:28:49",
+     "updated": "2026-08-21 00:15:04",
+     "file": "raw/services/24-prowlarr.md"
+    },
+    {
+     "id": 42,
+     "name": "Authentik & SSO",
+     "slug": "authentik-sso",
+     "chapter_id": 13,
+     "priority": 3,
+     "created": "2026-08-14 03:26:01",
+     "updated": "2026-08-28 17:05:14",
+     "file": "raw/services/42-authentik-sso.md"
+    },
+    {
+     "id": 17,
+     "name": "Libation",
+     "slug": "libation",
+     "chapter_id": 11,
+     "priority": 4,
+     "created": "2026-08-13 21:28:47",
+     "updated": "2026-08-21 00:15:02",
+     "file": "raw/services/17-libation.md"
+    },
+    {
+     "id": 25,
+     "name": "Seerr",
+     "slug": "seerr",
+     "chapter_id": 12,
+     "priority": 4,
+     "created": "2026-08-13 21:28:49",
+     "updated": "2026-08-21 00:15:05",
+     "file": "raw/services/25-seerr.md"
+    },
+    {
+     "id": 47,
+     "name": "Avrana Portal: avrana.net",
+     "slug": "avrana-portal-avrananet",
+     "chapter_id": 13,
+     "priority": 4,
+     "created": "2026-08-16 16:38:10",
+     "updated": "2026-08-28 17:05:15",
+     "file": "raw/services/47-avrana-portal-avrananet.md"
+    },
+    {
+     "id": 18,
+     "name": "Komga, Komf, and Kavita",
+     "slug": "komga-komf-and-kavita",
+     "chapter_id": 11,
+     "priority": 5,
+     "created": "2026-08-13 21:28:47",
+     "updated": "2026-08-21 00:15:02",
+     "file": "raw/services/18-komga-komf-and-kavita.md"
+    },
+    {
+     "id": 26,
+     "name": "SABnzbd",
+     "slug": "sabnzbd",
+     "chapter_id": 12,
+     "priority": 5,
+     "created": "2026-08-13 21:28:50",
+     "updated": "2026-08-28 23:35:00",
+     "file": "raw/services/26-sabnzbd.md"
+    },
+    {
+     "id": 48,
+     "name": "OliveTin Operations Console",
+     "slug": "olivetin-operations-console",
+     "chapter_id": 13,
+     "priority": 5,
+     "created": "2026-08-17 06:56:44",
+     "updated": "2026-08-21 00:15:53",
+     "file": "raw/services/48-olivetin-operations-console.md"
+    },
+    {
+     "id": 67,
+     "name": "IMAX framing verification",
+     "slug": "imax-framing-verification",
+     "chapter_id": null,
+     "priority": 5,
+     "created": "2026-08-18 20:23:04",
+     "updated": "2026-08-21 00:15:15",
+     "file": "raw/services/67-imax-framing-verification.md"
+    },
+    {
+     "id": 19,
+     "name": "mylar3",
+     "slug": "mylar3",
+     "chapter_id": 11,
+     "priority": 6,
+     "created": "2026-08-13 21:28:47",
+     "updated": "2026-08-21 00:15:02",
+     "file": "raw/services/19-mylar3.md"
+    },
+    {
+     "id": 27,
+     "name": "Plex (retiring)",
+     "slug": "plex-retiring",
+     "chapter_id": 12,
+     "priority": 6,
+     "created": "2026-08-13 21:28:50",
+     "updated": "2026-08-21 00:15:05",
+     "file": "raw/services/27-plex-retiring.md"
+    },
+    {
+     "id": 70,
+     "name": "Shelfarr",
+     "slug": "shelfarr",
+     "chapter_id": null,
+     "priority": 6,
+     "created": "2026-08-21 00:16:28",
+     "updated": "2026-08-29 03:34:53",
+     "file": "raw/services/70-shelfarr.md"
+    },
+    {
+     "id": 74,
+     "name": "Beszel",
+     "slug": "beszel",
+     "chapter_id": 13,
+     "priority": 6,
+     "created": "2026-08-22 18:28:33",
+     "updated": "2026-08-22 18:28:33",
+     "file": "raw/services/74-beszel.md"
+    },
+    {
+     "id": 20,
+     "name": "Complete Series",
+     "slug": "complete-series",
+     "chapter_id": 11,
+     "priority": 7,
+     "created": "2026-08-13 21:28:48",
+     "updated": "2026-08-21 00:15:03",
+     "file": "raw/services/20-complete-series.md"
+    },
+    {
+     "id": 72,
+     "name": "Tracearr",
+     "slug": "tracearr",
+     "chapter_id": 12,
+     "priority": 7,
+     "created": "2026-08-21 17:15:00",
+     "updated": "2026-08-24 20:22:00",
+     "file": "raw/services/72-tracearr.md"
+    },
+    {
+     "id": 76,
+     "name": "Authentik sessions & passkeys",
+     "slug": "authentik-sessions-passkeys",
+     "chapter_id": null,
+     "priority": 7,
+     "created": "2026-08-28 16:43:56",
+     "updated": "2026-08-28 16:43:56",
+     "file": "raw/services/76-authentik-sessions-passkeys.md"
+    },
+    {
+     "id": 21,
+     "name": "BookStack",
+     "slug": "bookstack",
+     "chapter_id": 11,
+     "priority": 8,
+     "created": "2026-08-13 21:28:48",
+     "updated": "2026-08-21 00:15:03",
+     "file": "raw/services/21-bookstack.md"
+    },
+    {
+     "id": 77,
+     "name": "Avrana SSO Architecture",
+     "slug": "avrana-sso-architecture",
+     "chapter_id": null,
+     "priority": 8,
+     "created": "2026-08-28 17:05:01",
+     "updated": "2026-08-28 17:05:01",
+     "file": "raw/services/77-avrana-sso-architecture.md"
+    },
+    {
+     "id": 43,
+     "name": "Audible Sync Connector",
+     "slug": "audible-sync-connector",
+     "chapter_id": 11,
+     "priority": 9,
+     "created": "2026-08-14 17:50:44",
+     "updated": "2026-08-21 00:15:08",
+     "file": "raw/services/43-audible-sync-connector.md"
+    },
+    {
+     "id": 78,
+     "name": "UniFi OS Server",
+     "slug": "unifi-os-server",
+     "chapter_id": null,
+     "priority": 9,
+     "created": "2026-08-28 23:36:34",
+     "updated": "2026-08-28 23:36:34",
+     "file": "raw/services/78-unifi-os-server.md"
+    },
+    {
+     "id": 71,
+     "name": "Omnibus",
+     "slug": "omnibus",
+     "chapter_id": 11,
+     "priority": 10,
+     "created": "2026-08-21 17:14:59",
+     "updated": "2026-08-21 22:56:45",
+     "file": "raw/services/71-omnibus.md"
+    }
+   ]
+  },
+  {
+   "id": 30,
+   "name": "Pipelines",
+   "slug": "pipelines",
+   "description": "Current and planned media processing workflows.",
+   "chapters": [],
+   "pages": [
+    {
+     "id": 31,
+     "name": "Audiobook Pipeline",
+     "slug": "audiobook-pipeline",
+     "chapter_id": null,
+     "priority": 2,
+     "created": "2026-08-13 21:28:52",
+     "updated": "2026-08-13 21:28:52",
+     "file": "raw/pipelines/31-audiobook-pipeline.md"
+    },
+    {
+     "id": 32,
+     "name": "Ebook Pipeline",
+     "slug": "ebook-pipeline",
+     "chapter_id": null,
+     "priority": 3,
+     "created": "2026-08-13 21:28:52",
+     "updated": "2026-08-18 01:09:58",
+     "file": "raw/pipelines/32-ebook-pipeline.md"
+    },
+    {
+     "id": 33,
+     "name": "Ebook and Audiobook Matcher",
+     "slug": "ebook-and-audiobook-matcher",
+     "chapter_id": null,
+     "priority": 4,
+     "created": "2026-08-13 21:28:52",
+     "updated": "2026-08-21 00:15:48",
+     "file": "raw/pipelines/33-ebook-and-audiobook-matcher.md"
+    }
+   ]
+  },
+  {
+   "id": 34,
+   "name": "Runbook",
+   "slug": "runbook",
+   "description": "Operational procedures, known issues, security reviews, and open work.",
+   "chapters": [],
+   "pages": [
+    {
+     "id": 35,
+     "name": "Known Issues",
+     "slug": "known-issues",
+     "chapter_id": null,
+     "priority": 2,
+     "created": "2026-08-13 21:28:53",
+     "updated": "2026-09-09 02:25:36",
+     "file": "raw/runbook/35-known-issues.md"
+    },
+    {
+     "id": 36,
+     "name": "Roadmap and Open Work",
+     "slug": "roadmap-and-open-work",
+     "chapter_id": null,
+     "priority": 3,
+     "created": "2026-08-13 21:28:53",
+     "updated": "2026-08-29 04:42:36",
+     "file": "raw/runbook/36-roadmap-and-open-work.md"
+    },
+    {
+     "id": 37,
+     "name": "First-Run and Default-Credential Checklist",
+     "slug": "first-run-and-default-credential-checklist",
+     "chapter_id": null,
+     "priority": 4,
+     "created": "2026-08-13 21:28:54",
+     "updated": "2026-08-21 00:15:50",
+     "file": "raw/runbook/37-first-run-and-default-credential-checklist.md"
+    },
+    {
+     "id": 69,
+     "name": "Security audit, 2026-08-20",
+     "slug": "security-audit-2026-08-20",
+     "chapter_id": null,
+     "priority": 5,
+     "created": "2026-08-20 16:43:38",
+     "updated": "2026-08-29 04:24:50",
+     "file": "raw/runbook/69-security-audit-2026-08-20.md"
+    },
+    {
+     "id": 80,
+     "name": "Incident 2026-08-29 — address-pool outage, reboot relapse, recovery",
+     "slug": "incident-2026-08-29-address-pool-outage-reboot-relapse-recovery",
+     "chapter_id": null,
+     "priority": 6,
+     "created": "2026-08-29 16:56:11",
+     "updated": "2026-08-30 02:24:24",
+     "file": "raw/runbook/80-incident-2026-08-29-address-pool-outage-reboot-relapse-recovery.md"
+    },
+    {
+     "id": 82,
+     "name": "Audit and DR tabletop, 2026-08-30",
+     "slug": "audit-and-dr-tabletop-2026-08-30",
+     "chapter_id": null,
+     "priority": 7,
+     "created": "2026-08-31 00:49:01",
+     "updated": "2026-08-31 00:49:02",
+     "file": "raw/runbook/82-audit-and-dr-tabletop-2026-08-30.md"
+    },
+    {
+     "id": 83,
+     "name": "Verification pass, 2026-09-08",
+     "slug": "verification-pass-2026-09-08",
+     "chapter_id": null,
+     "priority": 8,
+     "created": "2026-09-09 02:25:21",
+     "updated": "2026-09-09 02:25:21",
+     "file": "raw/runbook/83-verification-pass-2026-09-08.md"
+    }
+   ]
+  },
+  {
+   "id": 38,
+   "name": "Change Log (Archive)",
+   "slug": "change-log-archive",
+   "description": "Dated summaries of completed changes and their remaining work.",
+   "chapters": [],
+   "pages": [
+    {
+     "id": 39,
+     "name": "2026-08-13: Initial Deployment",
+     "slug": "2026-08-13-initial-deployment",
+     "chapter_id": null,
+     "priority": 2,
+     "created": "2026-08-13 21:28:54",
+     "updated": "2026-08-21 00:15:51",
+     "file": "raw/change-log-archive/39-2026-08-13-initial-deployment.md"
+    },
+    {
+     "id": 40,
+     "name": "2026-08-13: Documentation Deployment",
+     "slug": "2026-08-13-documentation-deployment",
+     "chapter_id": null,
+     "priority": 3,
+     "created": "2026-08-13 21:28:55",
+     "updated": "2026-08-21 00:15:51",
+     "file": "raw/change-log-archive/40-2026-08-13-documentation-deployment.md"
+    },
+    {
+     "id": 68,
+     "name": "2026-08-18: Profiles and IMAX Verification",
+     "slug": "2026-08-18-profiles-and-imax-verification",
+     "chapter_id": null,
+     "priority": 4,
+     "created": "2026-08-18 20:53:25",
+     "updated": "2026-08-21 00:16:00",
+     "file": "raw/change-log-archive/68-2026-08-18-profiles-and-imax-verification.md"
+    },
+    {
+     "id": 73,
+     "name": "Session 2026-08-18 to 2026-08-21",
+     "slug": "session-2026-08-18-to-2026-08-21",
+     "chapter_id": null,
+     "priority": 5,
+     "created": "2026-08-21 17:15:00",
+     "updated": "2026-08-21 22:56:46",
+     "file": "raw/change-log-archive/73-session-2026-08-18-to-2026-08-21.md"
+    }
+   ]
+  },
+  {
+   "id": 44,
+   "name": "Member Onboarding",
+   "slug": "member-onboarding",
+   "description": "Member setup instructions and the administrator onboarding procedure.",
+   "chapters": [],
+   "pages": [
+    {
+     "id": 45,
+     "name": "Welcome to Avrana",
+     "slug": "welcome-to-avrana",
+     "chapter_id": null,
+     "priority": 2,
+     "created": "2026-08-14 23:59:50",
+     "updated": "2026-09-10 02:38:14",
+     "file": "raw/member-onboarding/45-welcome-to-avrana.md"
+    },
+    {
+     "id": 46,
+     "name": "Running the onboarding beta (admin)",
+     "slug": "running-the-onboarding-beta-admin",
+     "chapter_id": null,
+     "priority": 3,
+     "created": "2026-08-14 23:59:51",
+     "updated": "2026-08-21 00:15:09",
+     "file": "raw/member-onboarding/46-running-the-onboarding-beta-admin.md"
+    }
+   ]
+  },
+  {
+   "id": 49,
+   "name": "Kern: Overview",
+   "slug": "kern-overview",
+   "description": "Scope, terminology, and system boundaries for Kern.",
+   "chapters": [],
+   "pages": [
+    {
+     "id": 55,
+     "name": "Project Overview and Naming",
+     "slug": "project-overview-and-naming",
+     "chapter_id": null,
+     "priority": 2,
+     "created": "2026-08-18 01:46:08",
+     "updated": "2026-09-09 03:17:13",
+     "file": "raw/kern-overview/55-project-overview-and-naming.md"
+    },
+    {
+     "id": 56,
+     "name": "Architecture and Boundaries",
+     "slug": "architecture-and-boundaries",
+     "chapter_id": null,
+     "priority": 3,
+     "created": "2026-08-18 01:46:08",
+     "updated": "2026-08-21 00:15:53",
+     "file": "raw/kern-overview/56-architecture-and-boundaries.md"
+    },
+    {
+     "id": 57,
+     "name": "Kern and Avrana Relationship",
+     "slug": "kern-and-avrana-relationship",
+     "chapter_id": null,
+     "priority": 4,
+     "created": "2026-08-18 01:46:09",
+     "updated": "2026-08-21 00:15:54",
+     "file": "raw/kern-overview/57-kern-and-avrana-relationship.md"
+    },
+    {
+     "id": 84,
+     "name": "Kern Quests: Station Interface and Project Metaphor",
+     "slug": "kern-quests-station-interface-and-project-metaphor",
+     "chapter_id": null,
+     "priority": 5,
+     "created": "2026-09-09 03:16:58",
+     "updated": "2026-09-09 03:37:28",
+     "file": "raw/kern-overview/84-kern-quests-station-interface-and-project-metaphor.md"
+    }
+   ]
+  },
+  {
+   "id": 50,
+   "name": "Kern: Design Principles",
+   "slug": "kern-design-principles",
+   "description": "Required behavior for Kern orchestration, identity, state, and model integration.",
+   "chapters": [],
+   "pages": [
+    {
+     "id": 58,
+     "name": "Orchestration and API Principles",
+     "slug": "orchestration-and-api-principles",
+     "chapter_id": null,
+     "priority": 2,
+     "created": "2026-08-18 01:47:31",
+     "updated": "2026-08-21 00:15:55",
+     "file": "raw/kern-design-principles/58-orchestration-and-api-principles.md"
+    },
+    {
+     "id": 59,
+     "name": "Identity, Permissions, and Security",
+     "slug": "identity-permissions-and-security",
+     "chapter_id": null,
+     "priority": 3,
+     "created": "2026-08-18 01:47:32",
+     "updated": "2026-08-21 00:15:55",
+     "file": "raw/kern-design-principles/59-identity-permissions-and-security.md"
+    },
+    {
+     "id": 60,
+     "name": "State, Events, and Reliability",
+     "slug": "state-events-and-reliability",
+     "chapter_id": null,
+     "priority": 4,
+     "created": "2026-08-18 01:47:32",
+     "updated": "2026-08-21 00:15:56",
+     "file": "raw/kern-design-principles/60-state-events-and-reliability.md"
+    },
+    {
+     "id": 61,
+     "name": "Model Gateway Strategy",
+     "slug": "model-gateway-strategy",
+     "chapter_id": null,
+     "priority": 5,
+     "created": "2026-08-18 01:47:32",
+     "updated": "2026-08-21 00:15:56",
+     "file": "raw/kern-design-principles/61-model-gateway-strategy.md"
+    }
+   ]
+  },
+  {
+   "id": 51,
+   "name": "Kern HQ: Home Assistant",
+   "slug": "kern-hq-home-assistant",
+   "description": "Home Assistant deployment, local voice services, devices, and automations.",
+   "chapters": [],
+   "pages": [
+    {
+     "id": 62,
+     "name": "Kern HQ: Home Assistant",
+     "slug": "kern-hq-home-assistant",
+     "chapter_id": null,
+     "priority": 2,
+     "created": "2026-08-18 01:48:58",
+     "updated": "2026-08-21 00:15:13",
+     "file": "raw/kern-hq-home-assistant/62-kern-hq-home-assistant.md"
+    }
+   ]
+  },
+  {
+   "id": 52,
+   "name": "Kern: Roadmap and Infrastructure",
+   "slug": "kern-roadmap-and-infrastructure",
+   "description": "Implementation sequence and infrastructure requirements for Kern.",
+   "chapters": [],
+   "pages": [
+    {
+     "id": 63,
+     "name": "Roadmap and Order of Operations",
+     "slug": "roadmap-and-order-of-operations",
+     "chapter_id": null,
+     "priority": 2,
+     "created": "2026-08-18 01:48:59",
+     "updated": "2026-08-24 20:10:58",
+     "file": "raw/kern-roadmap-and-infrastructure/63-roadmap-and-order-of-operations.md"
+    },
+    {
+     "id": 64,
+     "name": "Hardware and Infrastructure Strategy",
+     "slug": "hardware-and-infrastructure-strategy",
+     "chapter_id": null,
+     "priority": 3,
+     "created": "2026-08-18 01:48:59",
+     "updated": "2026-08-21 00:15:58",
+     "file": "raw/kern-roadmap-and-infrastructure/64-hardware-and-infrastructure-strategy.md"
+    },
+    {
+     "id": 75,
+     "name": "Kern Tablet: SM-T510 desk companion",
+     "slug": "kern-tablet-sm-t510-desk-companion",
+     "chapter_id": null,
+     "priority": 4,
+     "created": "2026-08-24 20:10:21",
+     "updated": "2026-08-24 20:10:21",
+     "file": "raw/kern-roadmap-and-infrastructure/75-kern-tablet-sm-t510-desk-companion.md"
+    }
+   ]
+  },
+  {
+   "id": 53,
+   "name": "Kern: Risks and Open Questions",
+   "slug": "kern-risks-and-open-questions",
+   "description": "Known risks, unresolved design decisions, and research items.",
+   "chapters": [],
+   "pages": [
+    {
+     "id": 65,
+     "name": "Risks and Known Issues",
+     "slug": "risks-and-known-issues",
+     "chapter_id": null,
+     "priority": 2,
+     "created": "2026-08-18 01:49:00",
+     "updated": "2026-08-21 00:15:59",
+     "file": "raw/kern-risks-and-open-questions/65-risks-and-known-issues.md"
+    },
+    {
+     "id": 66,
+     "name": "Open Decisions and Future Research",
+     "slug": "open-decisions-and-future-research",
+     "chapter_id": null,
+     "priority": 3,
+     "created": "2026-08-18 01:49:00",
+     "updated": "2026-08-21 00:15:59",
+     "file": "raw/kern-risks-and-open-questions/66-open-decisions-and-future-research.md"
+    }
+   ]
+  },
+  {
+   "id": 86,
+   "name": "Avrana Party",
+   "slug": "avrana-party",
+   "description": "Architecture, runbook and current state of the Avrana Party Raspberry Pi appliance (captive portal, LAN Games, Gauntlet II arcade prototype). Separate from the Avrana Homelab media server.",
+   "chapters": [],
+   "pages": [
+    {
+     "id": 87,
+     "name": "Overview",
+     "slug": "overview",
+     "chapter_id": null,
+     "priority": 2,
+     "created": "2026-09-20 00:39:16",
+     "updated": "2026-09-20 00:39:17",
+     "file": "raw/avrana-party/87-overview.md"
+    },
+    {
+     "id": 88,
+     "name": "Architecture",
+     "slug": "architecture",
+     "chapter_id": null,
+     "priority": 3,
+     "created": "2026-09-20 00:39:17",
+     "updated": "2026-09-20 00:39:17",
+     "file": "raw/avrana-party/88-architecture.md"
+    },
+    {
+     "id": 89,
+     "name": "Runbook",
+     "slug": "runbook",
+     "chapter_id": null,
+     "priority": 4,
+     "created": "2026-09-20 00:39:17",
+     "updated": "2026-09-20 00:39:17",
+     "file": "raw/avrana-party/89-runbook.md"
+    },
+    {
+     "id": 90,
+     "name": "Decisions & Current State",
+     "slug": "decisions-current-state",
+     "chapter_id": null,
+     "priority": 5,
+     "created": "2026-09-20 00:39:18",
+     "updated": "2026-09-20 00:39:18",
+     "file": "raw/avrana-party/90-decisions-current-state.md"
+    }
+   ]
+  }
+ ],
+ "counts": {
+  "shelves": 3,
+  "books": 12,
+  "chapters": 3,
+  "pages": 72,
+  "page_revisions": 350,
+  "attachments": 0,
+  "content_images": 0,
+  "user_avatar_images": 1,
+  "comments": 0
+ }
+}
