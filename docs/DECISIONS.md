@@ -24,3 +24,23 @@
 | Off-host setup built/tested versus off-host backup absent | Implementation and actual provisioning are different; no operational off-host copy established |
 
 Do not resolve uncertainty by copying newer-looking text without evidence. Record observation date, source and whether the statement is live-verified, historical or proposed.
+
+## Owner decisions, 2026-10-03 and 2026-10-04
+
+| Decision | Consequence |
+|---|---|
+| `rcnechamkin/avrana` is canonical | Rebuilt from the live tree on 2026-10-04; `Kern-Ecosystem` is archived with an inventory of what was not migrated |
+| BookStack is retired, not repaired | Content extracted from a disposable restore into `docs/archive/bookstack/`; 31 pages promoted into `docs/`; containers stay until the owner approves removal |
+| 1Password is the credential store | No secret in Git, chat, logs or shell history; owner-run scripts with hidden prompts |
+| Backblaze B2 with rclone crypt is the off-host destination | Add-only uploader, retention by bucket lifecycle (`services/backups/OFFHOST.md`) |
+| Sanitised strings in the development copy revert to production wording | The four files match production again |
+| The September 27 and 28 power losses were a tripped breaker | Recorded in `docs/incidents/2026-09-27-power-loss.md`; a UPS is on the roadmap |
+| Mylar3 authentication is approved but deferred | Roadmap item |
+| Plex, the comics tunnel and the legacy Kern timers are to be retired later | Not tracked in this repository; documented in `Kern-Ecosystem` |
+| The `avrana-agent` containment design is approved in principle | Not implemented yet |
+| Kavita, Komf and Bazarr stay retired | Their compose definitions were not imported |
+
+Conflicts in the table above that are now settled: the off-host backup exists; the backup has 24
+components and a completeness gate; Compose v2 is the only supported version (v1 is still installed and
+half the containers still carry its label).
+

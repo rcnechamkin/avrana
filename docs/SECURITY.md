@@ -1,5 +1,11 @@
 # Security and sensitive material
 
+> **Update 2026-10-04.** SSH is key-only. Backup runs are private (700/600). Known open items, in
+> `docs/ROADMAP.md`: no host firewall; Mylar3 has no login; the Docker socket proxies expose every
+> container's environment to local processes; agents still run as `cody`; the SMTP2GO password awaits
+> rotation; the enrollment blueprint embeds a Jellyfin API key and the Komga admin password in expression
+> code. Where each secret lives: [`SECRETS.md`](SECRETS.md).
+
 This is operational guidance, not a new security audit. It incorporates BookStack pages 37, 42, 59, 69, 76 and 77 with the production boundaries verified in this session.
 
 Secrets remain in live `.env` files, service secret directories, application databases, host credential stores and recovery archives. Document locations and variable names only. Never migrate secret values, user/session/token tables, personal journals, health records, viewing history, profiles or authentication exports into this repo. A private GitHub repository is not a secrets vault.

@@ -1,11 +1,47 @@
-# Development and deployment workflow
+# Changing and deploying
 
-The private remote is `https://github.com/rcnechamkin/avrana`. At migration start it had zero size and no branches/commits. The authorized clone was created at `/home/cody/dev/avrana`, on `recovery/docs-source-of-truth`. Default SSH cloning failed host-key verification; HTTPS with the existing `gh` credential helper succeeded without changing SSH configuration.
+`rcnechamkin/avrana` is canonical. Production (`/home/cody/avrana`) is a plain directory, not a Git
+checkout, and nothing synchronises the two automatically. A change reaches production by a deliberate,
+recorded copy of specific files.
 
-The recovered `Kern-Ecosystem` checkout is source evidence, not this repository's history: HEAD `adbc4b5`, dated 2026-09-18. The comparison found 252 identical tracked regular files, two changed files (`requirements.txt`, `services/backups/avrana-backup.sh`), 26 recovered-only files and one excluded symlink. BookStack paths were excluded from this comparison. These counts describe that selected comparison, not every live file.
+## Before committing
 
-Import only individually reviewed source files. The file-level [initial manifest](findings/source-migration.md) covers 13 files; the [Audible addendum](findings/audible-source-migration.md) covers 28 more. Preserve the two changed sources and do not infer that the older copy is preferable. Root personal/Kern code, production Compose files, secrets-bearing templates and dangerous repair scripts remain deferred unless individually selected later.
+1. `git status` and the exact diff.
+2. `python3 tests/run_offline.py`.
+3. Stage exact paths; review the staged content.
+4. `python3 scripts/review_git_content.py --staged` must report 0 blocked files.
 
-Before committing: inspect status and exact diff; run offline tests; stage exact paths; inspect staged names and content; run the staged-content gate; confirm no production changes. A local commit does not deploy or push. Push requires operator approval.
+## Deploying one change
 
-Before a later deployment, select one service, compare its development file with the exact live target, preserve current live files, review restart/migration consequences, define rollback and obtain approval for production actions. Do not run compose from this checkout as a bulk deployment. No deployment automation or hooks are installed.
+1. On the host, run `scripts/drift-check.py --quiet` from a checkout or exported copy of the commit.
+   Know what differs before you start.
+2. Save the current production file under a batch directory on the array
+   (`/mnt/avrana_media/.backups/batch<N>-<date>/rollback/`), with its SHA-256.
+3. Copy only the files in the change. Keep modes (scripts 755, units 644, secrets 600).
+4. For a compose change: `docker compose config -q` first. Recreating a container needs the owner's
+   approval; see the Compose v1/v2 warning in `AGENTS.md`.
+5. Verify with the service's own check and `scripts/services-health.sh`.
+6. Run `drift-check.py` again and record the result in the batch ledger.
+
+Rollback is the saved copy.
+
+## Layout facts that are easy to get wrong
+
+- Compose project names equal the directory name under `services/`, except `services/media`, which is
+  project `docker`; Jellyfin needs `--profile media`.
+- `services/komga/docker-compose.yml` is a regular file here. On the host it is still a symlink to
+  `deploy/compose/komga.yml` (identical content). Replace the symlink with the file at the next Komga
+  deployment and remove `deploy/compose/`.
+- User units are tracked in `deploy/systemd/` and `deploy/storage/systemd/` and installed in
+  `~/.config/systemd/user/`. Host units and drop-ins are in `deploy/host/`, `deploy/storage/dropins/`
+  and `deploy/docker/`.
+- Seven Authentik blueprints exist in Git only as `.template` files. Editing a template does not change
+  production; the deployed `.yaml` must be edited on the host.
+
+## History
+
+The repository began on 2026-09-23 as a selective 41-file development snapshot
+(`docs/findings/source-migration.md`, `audible-source-migration.md`). On 2026-10-04 it was rebuilt from
+the live tree as the canonical source: `docs/provenance/import-2026-10-04.tsv` records the origin and
+SHA-256 of every imported file, and `not-imported-2026-10-04.tsv` records what was left in
+`Kern-Ecosystem` and why.

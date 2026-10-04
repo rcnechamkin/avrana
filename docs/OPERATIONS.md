@@ -1,5 +1,11 @@
 # Operations and recovery boundaries
 
+> **Update 2026-10-04.** Day-to-day checks: `scripts/services-health.sh` (every 15 minutes, exit 0 when
+> healthy), `deploy/storage/boot-verify.sh` (after boot), `services/backups/restore-test.py` (weekly),
+> `scripts/drift-check.py` (production against Git). Their state files are `LAST_RUN.json`,
+> `RESTORE_TEST_LAST.json` and `OFFHOST_LAST_RUN.json` under `/mnt/avrana_media/.backups/`. Failures are
+> e-mailed once alert delivery is configured. The recovery-era cautions below still apply.
+
 Historical evidence date: 2026-09-23. Start with read-only observations, not repair commands.
 
 Current recovery verification (2026-09-28 04:24Z): all 40 containers and 88 bind mounts were checked with administrator-level process-root inspection; no stale mounts, unverified mounts or deleted-open persistent state were found. The invalid recovery snapshot was archived, hash-verified and retired by the owner. Storage preflight, Docker baseline and service health pass, and all seven requested application logins were owner-confirmed. See [the recovery follow-up](findings/2026-09-27-recovery-followup.md) for the retained backups, restore tests and limits. The older stale-mount counts below are historical and superseded by this audit.

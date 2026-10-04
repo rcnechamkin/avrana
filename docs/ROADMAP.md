@@ -1,10 +1,38 @@
 # Remaining work
 
-1. Obtain operator approval for a one-item Jellyfin missing-artwork regeneration pilot after preserving current state and defining rollback. No bulk refresh or database replacement. Independent forensic/repair reviews completed; the live-action gate remains unmet because a narrow rollback has not been demonstrated and the selected item/checkpoint/containment plan need approval.
-2. Complete service-by-service recovery maintenance and audit the 13 Authentik blueprint applications. Preserve deleted-open state first; then perform the final backup and recovery re-freeze under an approved plan.
-3. Improve Jellyfin backup coverage to include metadata assets and a consistent database snapshot; test recovery on disposable copies before deployment. Provision off-host protection and validate remaining backup gaps.
-4. Review this local source/documentation import and authorize the initial GitHub push. Expand the explicit source allowlist only after file review; do not import personal history or live config wholesale.
-5. Reconcile library paths and verify client-visible artwork after the approved pilot. Preview/trickplay generation is a separate decision from restoring posters.
-6. Consider implementing the optional [BookStack publisher](BOOKSTACK-PUBLISHING.md) after local review; activation requires explicit approval. Publishing is unactivated and never required for Git or agent work.
+State on 2026-10-04, after remediation Batches 1 and 2. Each item needs the owner's approval before any
+production change. Finding numbers (A5, A9 ...) refer to the October 2026 bug hunt.
 
-These are tracked proposals, not scheduled jobs or authorization to perform production changes. The most useful immediate operator action is the narrowly scoped Jellyfin pilot decision documented in the artwork finding.
+## Waiting on the owner
+
+- Rotate the SMTP2GO password and run the staged script that updates the two Authentik blueprints and
+  writes `services/backups/.env.alert`. Until then no alert e-mail is delivered.
+- Add a second SSH key. Only one device can log in.
+- Set the B2 lifecycle rule and, ideally, a key without delete rights (`services/backups/OFFHOST.md`).
+- Decide where the Avrana Party wiki pages belong (`docs/archive/bookstack/INDEX.md`, OWNER REVIEW).
+- Approve retirement of the BookStack containers now that their content is archived.
+
+## Deferred, in rough order
+
+1. **Socket-proxy isolation (A9).** The three Docker socket proxies answer on their bridge addresses, so
+   any local process can read every container's environment. Needs a firewall rule or a Unix-socket design.
+2. **Mylar3 login (A5).** Approved. Restore authentication and make the baseline expect it.
+3. **`avrana-agent` account.** Approved in principle: a separate account with no sudo, no Docker and no
+   access to `/home/cody`, a read-only wrapper, and a deploy wrapper run by the owner.
+4. **Firewall.** `deploy/ufw/` is staged and has never been applied.
+5. **Compose v1 to v2.** Recreate the 23 v1-created containers one project at a time; remove the v1 package.
+6. **Retire** Plex, the `comics.avrana.media` tunnel, nginx, libvirt, the legacy Kern timers, Kavita state,
+   then update `verify-baseline.sh` (hardcoded 40 containers, 2 tunnels), `required-artifacts.txt`,
+   `restore-map.txt` and the `kern-data` and `kavita` backup components.
+7. **Storage.** Replace the USB enclosure; move Docker's data-root off it (`deploy/storage/ENCLOSURE-MIGRATION.md`).
+   Add a UPS.
+8. **Health coverage.** Expected-container list in the recurring check (A7), `comics_merged` mount check
+   and `nofail` (A6), hold Docker packages in unattended upgrades (A14).
+9. **Jellyfin artwork.** One-item regeneration pilot (`docs/findings/2026-09-23-jellyfin-artwork.md`).
+10. **Authentik.** Audit the 13 blueprints applied for the first time during the September recovery.
+    Move the Jellyfin API key and Komga admin password out of the enrollment blueprint's expression code.
+11. **Rebuild rehearsal** on a spare disk or VM, following `BOOTSTRAP.md` end to end.
+12. **Recovery artifacts.** Clean up `~/recovery-*`, `~/jellyfin-recovery`, `/home/cody/jellyfin`,
+    `*:premaint-20260922` images once the owner releases them.
+13. Radarr download loop (A13), Seerr proxy settings (A20), smartd notifications (A21), `cloudflared`
+    packaging and update.

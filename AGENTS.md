@@ -1,18 +1,47 @@
 # Agent entrypoint
 
-Read this file, `docs/OPERATIONS.md`, and the two September findings before touching production.
+Read this file, `docs/OPERATIONS.md` and `docs/incidents/2026-09-20-home-directory-deletion.md` before
+touching production. That incident was caused by an agent.
 
-- Verify hostname and working directory. This server is `avrana`; development is `/home/cody/dev/avrana`; `/home/cody/avrana` and `/home/cody/docker` are production.
-- Edit development only by default. Inspect Git status, branch, remotes and local work first. Preserve existing changes. No force reset, force push, blanket copying, or push without explicit approval.
-- BookStack is production and fragile. Never rebuild, restart, reconfigure, upgrade, reset credentials, alter its database, or recreate containers to obtain documentation. Existing offline exports are sufficient for this migration.
-- Never use a Docker socket or privileged container to bypass a filesystem permission boundary.
-- Do not restart Docker, reboot, change mounts/network/firewall, prune, delete volumes, restore databases, or run historical recovery scripts without specific approval. Stale mounts and deleted-open files can outlive their host paths.
-- Jellyfin's recovered database is more valuable than artwork. No SQL mutation, database replacement, mass refresh, media write, or metadata deletion. See the artwork finding for evidence and repair gates.
-- Treat `/mnt/avrana_media/recovery-20260920`, the golden backups, and `/mnt/root-recovery-snap` as immutable evidence. The snapshot postdates deletion. Never clean verification contamination. SQLite inspection belongs on disposable private working copies, not evidence originals.
-- Secrets stay outside Git: `.env`, service secrets, credential stores, application databases and personal records are not source. Never print secret values. Review working files, stage exact development paths, then review the indexed content before committing; never stage the live tree.
+## Where things are
 
-Reading order: `docs/ARCHITECTURE.md` → `docs/SERVICES.md` → `docs/STORAGE.md` and `docs/BACKUPS.md` → `docs/DECISIONS.md` and `docs/ROADMAP.md`. Use dated findings for history, not current deployment instructions.
+- Host `avrana`. Production is `/home/cody/avrana` and `/home/cody/docker`. This repository
+  (`rcnechamkin/avrana`) is the canonical source; its layout mirrors `/home/cody/avrana`.
+- `/home/cody/dev/avrana` is an older development checkout on the host. `rcnechamkin/Kern-Ecosystem` is an
+  archive. Neither is authoritative.
+- Evidence order when sources disagree: the running system, then this repository, then archives. Report
+  the disagreement; do not silently pick one.
 
-BookStack is an archive/reference/presentation layer. Git operations must never call it. Proposed publishing is explicit, one-way, and inactive; see `docs/BOOKSTACK-PUBLISHING.md`.
+## Rules
 
-Local tests must use fixtures and temporary directories, with no production network calls or service imports that initialize runtime state. Copying operational source does not authorize executing it. Record limitations rather than weakening these boundaries.
+- **Credentials.** Never search the disk for a credential. Never `source`, `eval` or execute a file found
+  by searching. Never print a secret value or a line that may contain one. If a credential is needed, stop
+  and have the owner enter it at a hidden prompt on the host. `docs/SECRETS.md` lists locations, not values.
+- **Observe first.** Inspect state, record it, keep rollback material, change one thing, verify, record
+  the result. Stop on anything unexpected instead of improvising.
+- **No production change without the owner's approval for that change**: restarting or recreating
+  containers, restarting Docker, rebooting, mounts, network, firewall, pruning, deleting volumes,
+  restoring databases, upgrades. Approval for one batch does not carry to the next.
+- **Compose.** Use `docker compose` v2 only. The arr stack is project `docker` with `--profile media`
+  (`BOOTSTRAP.md`, section 7). About half the containers were created by Compose v1 and will be recreated
+  by the next v2 `up`; do not run `up -d` casually.
+- **Never use a Docker socket or a privileged container to get around a filesystem permission.**
+- **Evidence is immutable**: `/mnt/avrana_media/recovery-20260920`, the golden backup
+  `2026-09-20T09-34-23Z`, backup runs. Analyse copies. Do not open SQLite files in place, even read-only.
+- **Jellyfin**: no SQL changes, no database replacement, no library-wide refresh. See
+  `docs/findings/2026-09-23-jellyfin-artwork.md`.
+- **BookStack** is retired in place. Do not repair its API, create credentials for it, or write to it.
+  Its content is in `docs/archive/bookstack/`.
+- **Git.** Stage exact paths, review the staged content, run
+  `python3 scripts/review_git_content.py --staged`. Never initialise Git inside the production tree.
+  No force push. Push only when the owner has asked for it.
+- **Root.** There is no passwordless sudo. Stage root steps as a script for the owner to run.
+
+## Reading order
+
+`README.md` → `BOOTSTRAP.md` → `docs/ARCHITECTURE.md` → `docs/SERVICES.md` → `docs/STORAGE.md` →
+`services/backups/README.md` → `docs/DECISIONS.md` → `docs/ROADMAP.md`. Dated files under
+`docs/findings/`, `docs/audits/` and `docs/archive/` are history, not instructions.
+
+Tests use fixtures and temporary directories only (`python3 tests/run_offline.py`). Importing source does
+not authorise running it against production.

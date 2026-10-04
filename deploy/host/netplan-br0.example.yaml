@@ -1,0 +1,14 @@
+# RECONSTRUCTION, not a copy. /etc/netplan/50-cloud-init.yaml on the old host is root-only (127 bytes)
+# and is in no backup. This reproduces what `networkctl` and `ip` showed on 2026-10-04:
+# eno1 enslaved to bridge br0, DHCPv4 on br0, address 10.0.0.218 from a reservation on the router.
+# The bridge exists for libvirt guests, which are no longer used; plain DHCP on eno1 would also work
+# as long as the host still receives 10.0.0.218.
+network:
+  version: 2
+  ethernets:
+    eno1:
+      dhcp4: false
+  bridges:
+    br0:
+      interfaces: [eno1]
+      dhcp4: true

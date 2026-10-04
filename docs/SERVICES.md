@@ -1,5 +1,13 @@
 # Services
 
+> **Update 2026-10-04.** The container table below was re-checked against the running host: 40 containers,
+> none unhealthy, same endpoints. Per-service reference pages promoted from the retired wiki are in
+> [`services/`](services/) and the pipelines in [`pipelines/`](pipelines/). Host services: SABnzbd
+> (`sabnzbdplus`, port 8082) and Mylar3 (upstream checkout, port 8090, currently **without a login**) run
+> from systemd as `cody`; the Cloudflare tunnel is `cloudflared-avrana.service` with the ingress map in
+> `deploy/host/cloudflared/config.yml`; UniFi OS Server runs under rootless Podman as `uosserver` and is in
+> no backup. Compose project names and start order are in `BOOTSTRAP.md`.
+
 Docker metadata observed 2026-09-23; this is an inventory, not a deployment manifest. Health checks indicate liveness/readiness as defined by each image, not data completeness. No service was restarted.
 
 | Container | Published host endpoints | Health |

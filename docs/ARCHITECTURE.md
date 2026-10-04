@@ -1,5 +1,10 @@
 # Architecture
 
+> **Update 2026-10-04.** This repository is now the canonical source, mirroring `/home/cody/avrana`; the
+> BookStack wiki is retired and archived under `docs/archive/bookstack/`. Host facts and the rebuild
+> procedure are in `BOOTSTRAP.md`. The description below was written on 2026-09-23 and remains accurate for
+> the service relationships.
+
 Verified host/container metadata: 2026-09-23. BookStack descriptions below are historical source material cross-checked where noted; see the [inventory](findings/bookstack-inventory.md).
 
 `avrana` is the primary Linux host (Intel Core i3-6100T, four logical CPUs; observed kernel 6.8.0-138-generic). The main operator is `cody` (UID/GID 1000). The LAN service address is `10.0.0.218`. Forty Docker containers were running during inspection, with no unhealthy containers; five had no healthcheck. A healthy status does not establish data completeness or restart safety.

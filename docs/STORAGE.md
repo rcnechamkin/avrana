@@ -1,5 +1,12 @@
 # Storage
 
+> **Update 2026-10-04.** Verified: Docker's data-root is `/mnt/avrana_media/docker` (on the USB array, not
+> the SSD). The LVM recovery snapshot no longer exists. The array is 34% used, the root volume 49%.
+> `comics_merged` is a read-only mergerfs union of `comics` and `comics_omnibus/library`. Backups are under
+> `/mnt/avrana_media/.backups/` (mode 700); `/mnt/avrana_media/recovery-20260920` is mode 750. The 15-minute
+> health check now verifies that the array is mounted, has the expected UUID, is writable and has no
+> kernel storage errors.
+
 Historical inventory observed 2026-09-23 using block-device and container mount metadata.
 
 Update, 2026-09-28: the 20 GiB root recovery snapshot filled and became invalid. The owner archived and hash-verified its complete COW allocation and saved VG metadata, then removed only that snapshot. The active 58.09 GiB root volume remains read-write. The snapshot mount in the historical table below is no longer an available recovery source. Storage checks pass; private archived evidence is documented in [the recovery follow-up](findings/2026-09-27-recovery-followup.md).

@@ -1,21 +1,46 @@
 # Avrana
 
-Avrana is the media and related infrastructure stack on host `avrana`. This repository is the development source and technical documentation home; it is not the live deployment directory.
+Avrana is a single-host media and home server (`avrana`, 10.0.0.218): Jellyfin, the arr stack,
+Audiobookshelf, Calibre-Web, Komga, Authentik single sign-on, Home Assistant and supporting tools, in 22
+Docker Compose projects plus three host services, published through a Cloudflare tunnel.
 
-| Location | Role |
+**This repository is the canonical source of truth** for how the host is built and operated (owner
+decision, 2026-10-03). It replaces the older `rcnechamkin/Kern-Ecosystem` repository, which is archived,
+and the BookStack wiki, which is retired and preserved under `docs/archive/bookstack/`.
+
+If the host disappeared, this repository plus one backup run plus the secrets in 1Password are enough to
+rebuild it: **[BOOTSTRAP.md](BOOTSTRAP.md)**.
+
+## Layout
+
+The tree mirrors the deployed layout at `/home/cody/avrana`.
+
+| Path | Contents |
 |---|---|
-| `/home/cody/dev/avrana` | Development checkout; edit and review here |
-| `/home/cody/avrana` | Live production tree; inspect cautiously, never initialize Git here |
-| `/home/cody/docker` | Additional live service configuration, including Jellyfin |
-| `/mnt/avrana_media` | Media, backups, and preserved recovery evidence |
-| `rcnechamkin/avrana` | Private GitHub repository; this migration is local and not pushed |
+| `BOOTSTRAP.md` | Bare-metal rebuild guide |
+| `services/<name>/` | One Compose project each: `docker-compose.yml`, `.env.example` (names only), source and Dockerfile for locally built images |
+| `services/authentik/blueprints/` | Authentik configuration as code; secret-bearing blueprints are `.template` files |
+| `services/backups/` | Backup, completeness gate, restore test, off-host copy |
+| `scripts/` | Health check, alerting, storage checks, content gate, drift check |
+| `deploy/` | systemd units, storage and Docker guards, host configuration representations, staged firewall |
+| `docs/` | Architecture, operations, services, incidents, audits, the BookStack archive |
+| `tests/` | Offline tests (`python3 tests/run_offline.py`) |
 
-Start with [agent safety](AGENTS.md), [architecture](docs/ARCHITECTURE.md), [services](docs/SERVICES.md), and [operations](docs/OPERATIONS.md). See [the September recovery](docs/findings/2026-09-20-recovery.md) and [Jellyfin artwork investigation](docs/findings/2026-09-23-jellyfin-artwork.md) before any service maintenance.
+Not in Git, by design: secrets, `.env` files, application databases and state, media, backups, recovery
+evidence. `docs/SECRETS.md` lists where each secret lives.
 
-Git Markdown is the current technical reference; running code/configuration is implementation evidence. Disagreements are recorded in [decisions](docs/DECISIONS.md), not silently resolved. BookStack remains a preserved archive and human-facing wiki. Agents do not need BookStack to understand this checkout.
+## Working on it
 
-The source import is deliberately selective: [the initial manifest](docs/findings/source-migration.md) covers 13 files and [the Audible addendum](docs/findings/audible-source-migration.md) covers 28 more. Together they record 41 imported files and their provenance. This is not a complete, independently deployable copy of production. No synchronization, deployment, Git hook, or BookStack publisher is enabled.
+Read [AGENTS.md](AGENTS.md) first. In short:
 
-Evidence was collected on 2026-09-23 America/Los_Angeles. Historical notes are explicitly labeled. [Remaining work](docs/ROADMAP.md) includes recovery closeout and an approval-gated Jellyfin repair.
+- Change files here, review, commit, then deploy one service at a time ([docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)).
+- `python3 scripts/review_git_content.py --staged` must pass before every commit.
+- `scripts/drift-check.py`, run on the host, shows where production differs from Git.
+- `docs/provenance/` records where every file in the initial import came from and what was left behind.
 
-See [validation and offline testing](docs/VALIDATION.md) for the final September 24 review, checks performed, and test boundaries.
+## Start here
+
+[Architecture](docs/ARCHITECTURE.md) · [Services](docs/SERVICES.md) · [Operations](docs/OPERATIONS.md) ·
+[Storage](docs/STORAGE.md) · [Backups](services/backups/README.md) · [Off-host](services/backups/OFFHOST.md) ·
+[Security](docs/SECURITY.md) · [Incidents](docs/incidents/README.md) · [Decisions](docs/DECISIONS.md) ·
+[Roadmap](docs/ROADMAP.md)

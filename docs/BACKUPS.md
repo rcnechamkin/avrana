@@ -1,5 +1,10 @@
 # Backups and evidence
 
+> **Update 2026-10-04.** Current behaviour is documented in `services/backups/README.md` (local backup,
+> completeness gate, restore test) and `services/backups/OFFHOST.md` (encrypted off-host copy). The text
+> below is the September 2026 evidence record and is kept for history: the "other gaps" it lists (off-host
+> copy, restore coverage, rotation, permissions) were closed in October.
+
 Sources: live `services/backups/avrana-backup.sh` inspected 2026-09-23; recovery ledger F1–F8/M5; BookStack page 8 (older and partly superseded).
 
 Stack backups live under `/mnt/avrana_media/.backups/avrana/<UTC timestamp>`. These contain credentials and application state and must never enter Git. The recovery ledger records the 2026-09-23T01-23-10Z run as 24 components, 106 original manifest entries verified and 18 SQLite artifacts validated on disposable copies. That is a historical verification, not a newly run backup/restore test. Later directory counts include documented verification contamination.
