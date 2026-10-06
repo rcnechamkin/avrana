@@ -1,0 +1,10 @@
+[Unit]
+Description=Seal Avrana backup runs as soon as a backup finishes
+
+[Path]
+# avrana-backup.sh rewrites LAST_RUN.json when a run completes (and once when it starts).
+PathChanged=/mnt/avrana_media/.backups/avrana/LAST_RUN.json
+Unit=avrana-backup-seal.service
+
+[Install]
+WantedBy=multi-user.target

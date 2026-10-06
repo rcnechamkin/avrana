@@ -1,0 +1,11 @@
+[Unit]
+Description=Seal Avrana backup runs daily (fallback for the path unit)
+
+[Timer]
+# After the 02:30 backup, before the 03:30 off-host copy.
+OnCalendar=*-*-* 03:10:00
+Persistent=true
+RandomizedDelaySec=2min
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,16 @@
+[Unit]
+Description=Seal completed Avrana backup runs (root-owned, read-only for cody; retention)
+Documentation=file:///home/cody/avrana/services/backups/README.md
+# Only once the array is where it should be; the script also checks the filesystem type.
+ConditionPathIsMountPoint=/mnt/avrana_media
+After=avrana-backup.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/avrana-backup-seal
+Nice=15
+IOSchedulingClass=idle
+ProtectSystem=strict
+ReadWritePaths=/mnt/avrana_media/.backups/avrana
+PrivateTmp=true
+NoNewPrivileges=true

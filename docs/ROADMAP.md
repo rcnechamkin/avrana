@@ -9,7 +9,7 @@ with its own README; everything below that is not a script needs the owner's han
 Scripts, in order (`deploy/host/owner-scripts/README.md`): Mylar3 login (A5), fstab `nofail` and
 the unattended-upgrade blacklist (A6, A14), Compose v1 package removal (A12), retirement of the comics
 tunnel, nginx, libvirt and Plex, the Kavita config directory, the `avrana-agent` account, the
-cloudflared update from Cloudflare's apt repository (C3).
+cloudflared update from Cloudflare's apt repository (C3), the backup seal (E5).
 
 Not scripts:
 
@@ -61,8 +61,9 @@ Not scripts:
    `akadmin` has no MFA (owner, today); proposals P1-P6 on branch `batch5-authentik-proposals`
    (reputation policy, password policy, declare live bindings, drop LAN redirects, recovery
    `never_create`) wait for the owner's decision.
-2. **Backups as a root system unit** with a root-owned tree (bug hunt E5), so neither `cody` nor the
-   agent account can write the backup tree.
+2. **Backups that `cody` cannot delete** (bug hunt E5): staged as owner script 08 on 2026-10-06
+   (completed runs become root-owned right after each backup; retention moves to root; the backup
+   itself keeps running as `cody`, which it needs for Docker and the home-directory sources).
 3. **Storage.** Replace the USB enclosure; move Docker's data-root off it
    (`deploy/storage/ENCLOSURE-MIGRATION.md`). A wrong filesystem at the mount point still satisfies
    every guard except the boot check (bug hunt C5).
@@ -71,7 +72,6 @@ Not scripts:
 6. **`cloudflared` packaging and update** (2025.6.1, outside package management).
 7. **Jellyfin artwork.** One-item regeneration pilot (`docs/findings/2026-09-23-jellyfin-artwork.md`).
 8. **Rebuild rehearsal** on a spare disk or VM, following `BOOTSTRAP.md` end to end.
-9. **Recovery artifacts.** Clean up `~/recovery-*`, `~/jellyfin-recovery`, `/home/cody/jellyfin`,
-   `*:premaint-20260922` images once the owner releases them.
-10. Completed-download clean-up in `incoming/` (A18); UniFi self-updates (C1); on-host agent
-    transcripts under `~/.codex` and `~/.claude` (C4).
+9. **Recovery artifacts** and **10. completed downloads (A18)**: inventoried with sizes on 2026-10-06
+   (`docs/findings/2026-10-06-cleanup-inventory.md`); every deletion is the owner's call. Still open
+   in 10: UniFi self-updates (C1); on-host agent transcripts under `~/.codex` and `~/.claude` (C4).

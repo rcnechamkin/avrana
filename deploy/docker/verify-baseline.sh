@@ -101,6 +101,14 @@ echo "== profile-gated legacy containers absent =="
 LG=$(docker ps -a --format '{{.Names}}'|grep -cE '^(komf|kavita|bazarr)$')
 [ "$LG" -eq 0 ] && ok "komf/kavita/bazarr absent" || bad "$LG legacy container(s) present"
 
+echo "== backup tree sealing (E5) =="
+if systemctl is-enabled -q avrana-backup-seal.path 2>/dev/null; then
+  unsealed=$(find /mnt/avrana_media/.backups/avrana -maxdepth 1 -name '*Z' -type d -user cody -mmin +120 2>/dev/null | wc -l)
+  [ "$unsealed" -eq 0 ] && ok "every completed run older than 2 h is root-owned" || bad "$unsealed completed run(s) still owned by cody: avrana-backup-seal is not sealing"
+else
+  warn "avrana-backup-seal is not installed: runs are deletable by cody (owner script 08)"
+fi
+
 echo "== public hostnames (12) =="
 hf=0
 for h in auth avrana books contribute kindle listen ops read requestabook requestacomic request watch; do

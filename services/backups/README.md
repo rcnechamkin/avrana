@@ -30,6 +30,12 @@ config and secrets as files or `tar.zst` archives. The media library is not back
   newest three are kept.
 - **Rotation.** The newest 7 complete runs are kept. A run containing a `.keep` file is never pruned
   (the 2026-09-20 golden backup).
+- **Sealing (bug hunt E5, owner script 08).** Once `avrana-backup-seal` is installed, a system unit
+  makes every completed run root-owned (directories 750, files 640, group `cody`) right after the
+  backup and the tree root `root:cody 1775`: `cody` and the agent account can still read runs and
+  create new ones, but cannot change, rename or delete a completed one. Rotation then belongs to the
+  seal (same 7 runs, same `.keep` rule; `sudo touch RUN/.keep`); the backup script sees root-owned
+  runs and leaves them alone. `deploy/host/backup-seal.sh`, `deploy/host/systemd/avrana-backup-seal.*`.
 - **Guards.** The script refuses to run when the array is not mounted or is nearly full.
 
 When a service is added, retired or gains a secret, change `avrana-backup.sh`, `required-artifacts.txt`,

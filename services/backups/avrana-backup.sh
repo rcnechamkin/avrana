@@ -673,6 +673,9 @@ if [[ "$status" == ok ]]; then
     # A run marked .keep is never pruned. Rolling retention would otherwise delete the
     # last known-good pre-incident set while a recovery is still in progress.
     if [[ -e "$o/.keep" ]]; then log "keep  $(basename "$o") (.keep marker)"; continue; fi
+    # Once avrana-backup-seal (root, owner script 08) owns the completed runs, this account can
+    # no longer delete them and retention is the seal's job (same KEEP, same .keep rule).
+    if [[ ! -O "$o" ]]; then log "left  $(basename "$o") to avrana-backup-seal (root-owned)"; continue; fi
     log "prune $(basename "$o")"; rm -rf "$o"
   done
 else
