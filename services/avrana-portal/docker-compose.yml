@@ -15,7 +15,7 @@ services:
     environment:
       - PORT=8095
       - TZ=America/Los_Angeles
-    networks: [authentik_frontend]
+    networks: [authentik_portal]
     read_only: true
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]
@@ -32,6 +32,7 @@ services:
     restart: unless-stopped
 
 networks:
-  # Authentik's compose network (project "authentik" -> docker network "authentik_frontend").
-  authentik_frontend:
+  # Private network shared only with the Authentik server (its embedded outpost); defined in
+  # services/authentik/docker-compose.yml as "portal" (forensic audit D4).
+  authentik_portal:
     external: true

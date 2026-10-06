@@ -34,7 +34,7 @@ services:
       # Fernet key that decrypts CWA's stored SMTP password), nor cwa.db, gdrive.db, or anything
       # else under /config.
       - /home/cody/avrana/services/calibre-web-automated/config/appdb:/cwa:rw
-    networks: [authentik_frontend]
+    networks: [authentik_kindle]
     read_only: true
     tmpfs:
       - /tmp:rw,noexec,nosuid,nodev,size=16m
@@ -54,5 +54,7 @@ services:
     restart: unless-stopped
 
 networks:
-  authentik_frontend:
+  # Private network shared only with the Authentik server (its embedded outpost); defined in
+  # services/authentik/docker-compose.yml as "kindle" (forensic audit D4).
+  authentik_kindle:
     external: true

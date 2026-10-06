@@ -54,7 +54,10 @@ services:
     ports:
       - 127.0.0.1:9000:9000
       - 10.0.0.218:9000:9000
-    networks: [frontend, backend]
+    # frontend/backend as before, plus one private network per proxied backend (forensic audit
+    # D4): the embedded outpost in this container is the only thing that can reach the portal,
+    # the Kindle connector and OliveTin, so no sibling can forge X-authentik-* headers at them.
+    networks: [frontend, backend, portal, kindle, olivetin]
     healthcheck:
       test: ["CMD", "ak", "healthcheck"]
       interval: 30s
@@ -131,3 +134,9 @@ networks:
   frontend:
   backend: {internal: true}
   avrana-ldap: {external: true}
+  # One network per proxied backend; each app's compose file joins its own as an external
+  # network (authentik_portal, authentik_kindle, authentik_olivetin). Not internal: the apps keep
+  # their outbound access (the Kindle connector talks to Audiobookshelf over the LAN).
+  portal:
+  kindle:
+  olivetin:
