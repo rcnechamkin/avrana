@@ -48,6 +48,31 @@ check_url bookstack http://10.0.0.218:6875/status
 check_url beszel http://10.0.0.218:8093/api/health
 check_url authentik http://10.0.0.218:9000/-/health/live/
 
+# Authentik's OIDC signing certificate ("authentik Self-signed Certificate") is not managed by
+# Authentik, so it is not regenerated when it expires (2027-08-13 as of the 2026-10-06 audit); an
+# expired one breaks every OIDC login. Read its expiry from the public JWKS, warn 60 days ahead.
+# (Batch 5, Authentik audit finding 8.)
+signing_end=$(curl --silent --max-time 10 https://auth.avrana.net/application/o/komga/jwks/ \
+  | python3 -c '
+import base64, json, subprocess, sys
+try:
+    key = json.load(sys.stdin)["keys"][0]
+    der = base64.b64decode(key["x5c"][0])
+    out = subprocess.run(["openssl", "x509", "-inform", "DER", "-noout", "-enddate"], input=der, capture_output=True, check=True).stdout
+    print(out.decode().strip().split("=", 1)[1])
+except Exception:
+    pass' 2>/dev/null)
+if [ -z "$signing_end" ]; then
+  printf 'WARN authentik signing certificate: could not read the JWKS\n' >&2
+else
+  signing_days=$(( ($(date -d "$signing_end" +%s) - $(date +%s)) / 86400 ))
+  if [ "$signing_days" -lt 60 ]; then
+    printf 'WARN authentik signing certificate expires in %s days (%s): rotate it, see docs/findings/2026-10-06-authentik-blueprint-audit.md\n' "$signing_days" "$signing_end" >&2
+  else
+    printf 'OK   authentik signing certificate valid %s more days\n' "$signing_days"
+  fi
+fi
+
 # ---- media array: mounted, the right filesystem, writable, no kernel storage errors ------------
 # Until Batch 1 (finding A2) these were checked once, by verify-array.sh at boot+5min. A USB drop
 # or an ext4 remount-read-only later in the boot went unseen until the 02:30 backup failed, and

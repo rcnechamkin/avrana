@@ -57,8 +57,10 @@ Not scripts:
 
 ## Deferred, in rough order
 
-1. **Authentik.** Audit the 13 blueprints applied for the first time during the September recovery
-   (the secrets they embedded are out since Batch 4, so the files can now be reviewed in Git).
+1. **Authentik.** Audited 2026-10-06 (`docs/findings/2026-10-06-authentik-blueprint-audit.md`):
+   `akadmin` has no MFA (owner, today); proposals P1-P6 on branch `batch5-authentik-proposals`
+   (reputation policy, password policy, declare live bindings, drop LAN redirects, recovery
+   `never_create`) wait for the owner's decision.
 2. **Backups as a root system unit** with a root-owned tree (bug hunt E5), so neither `cody` nor the
    agent account can write the backup tree.
 3. **Storage.** Replace the USB enclosure; move Docker's data-root off it
