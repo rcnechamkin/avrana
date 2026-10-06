@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# Read-only view of Avrana production for the unprivileged agent account. Installed as
+# /usr/local/bin/avrana-ro and allowed in sudoers as `avrana-agent ALL=(cody) NOPASSWD:` only.
+# Fixed subcommands, no shell, no arguments reach a shell. Invoked as
+#     sudo -n -u cody avrana-ro <status|health|logs <container> [--since X]|show <path>|units|backups>
+set -euo pipefail
+REPO=/home/cody/avrana
+cmd=${1:-}; shift || true
+case "$cmd" in
+  status)   exec docker ps -a --format 'table {{.Names}}\t{{.Status}}\t{{.Image}}' ;;
+  health)   exec "$REPO/scripts/services-health.sh" ;;
+  units)    systemctl --user list-timers --all --no-pager; exec systemctl --user --failed --no-pager ;;
+  backups)  cat /mnt/avrana_media/.backups/avrana/LAST_RUN.json; echo; cat /mnt/avrana_media/.backups/OFFHOST_LAST_RUN.json; echo
+            exec ls -1 /mnt/avrana_media/.backups/avrana ;;
+  logs)
+    name=${1:-}; since=${3:-1h}
+    [[ "$name" =~ ^[A-Za-z0-9_.-]+$ ]] || { echo "logs <container> [--since X]"; exit 2; }
+    [[ "${2:-}" == "" || "${2:-}" == --since ]] || { echo "logs <container> [--since X]"; exit 2; }
+    [[ "$since" =~ ^[0-9]+[smh]$ ]] || { echo "--since takes e.g. 30m, 2h"; exit 2; }
+    exec docker logs --since "$since" --tail 500 "$name" ;;
+  show)
+    # Only files under the production tree that are not secrets: compose files, scripts, docs,
+    # unit files and config that is tracked in Git. Never .env, secrets/, blueprints or state.
+    rel=${1:-}
+    [[ "$rel" =~ ^[A-Za-z0-9_./-]+$ && "$rel" != *..* ]] || { echo "show <relative path>"; exit 2; }
+    case "$rel" in
+      */.env|*.env|*/secrets/*|*/blueprints/*|*/data/*|*/config/*|*/state/*|*rclone.conf*|*.key|*.pem|*.sock) echo "not readable through this wrapper"; exit 3 ;;
+    esac
+    case "$rel" in
+      *.yml|*.yaml|*.sh|*.py|*.md|*.txt|*.service|*.timer|*.path|*.conf|Dockerfile|*/Dockerfile) ;;
+      *) echo "only compose, scripts, docs and unit files"; exit 3 ;;
+    esac
+    f="$REPO/$rel"; [[ -f "$f" ]] || { echo "no such file"; exit 1; }
+    exec cat -- "$f" ;;
+  *)
+    echo "avrana-ro: status | health | units | backups | logs <container> [--since 30m] | show <relative path>"; exit 2 ;;
+esac

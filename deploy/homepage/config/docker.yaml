@@ -1,3 +1,2 @@
 local:
-  host: homepage-dockerproxy
-  port: 2375
+  socket: /proxy/docker.sock

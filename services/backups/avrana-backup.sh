@@ -492,18 +492,9 @@ backup_sabnzbd() {
   good sabnzbd "$(du -sh "$d" | cut -f1)"
 }
 
-# Added 2026-09-22. kavita.db has never appeared in any manifest. The service is not currently
-# running and the DB is dormant (last write 2025-07-03), but it is 67 tables of real library
-# state and costs ~200 KB compressed to keep. If Kavita is ever formally retired, delete this
-# function rather than letting it fail silently.
-backup_kavita() {
-  local d="$PARTIAL/kavita"; mkdir -p "$d"
-  local src="$REPO/services/kavita/config" bad=()
-  sqlite_backup "$src/kavita.db" "$d/kavita.db" || bad+=(kavita.db)
-  cp "$src/appsettings.json" "$d/appsettings.json" 2>/dev/null || bad+=(appsettings.json)
-  if [ ${#bad[@]} -gt 0 ]; then fail kavita "missing ${bad[*]}"; return; fi
-  good kavita "$(du -sh "$d" | cut -f1)"
-}
+# Kavita was retired on 2026-10-06 (Batch 3): the service had not run since 2025 and its config
+# directory is removed by the owner's staged script. Its last state is in every run up to
+# 2026-10-05 and in the pinned golden backup.
 
 # Added 2026-09-22. /home/cody/docker/ is OUTSIDE $REPO, so stack-config's tar -C "$REPO" can
 # never reach it. Its per-service DATA is already covered (radarr/sonarr/prowlarr by backup_arr,
@@ -610,7 +601,6 @@ backup_mylar
 backup_kern_data
 backup_cloudflared
 backup_sabnzbd
-backup_kavita
 backup_host_docker
 backup_systemd
 backup_stack_config

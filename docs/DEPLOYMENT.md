@@ -29,9 +29,8 @@ Rollback is the saved copy.
 
 - Compose project names equal the directory name under `services/`, except `services/media`, which is
   project `docker`; Jellyfin needs `--profile media`.
-- `services/komga/docker-compose.yml` is a regular file here. On the host it is still a symlink to
-  `deploy/compose/komga.yml` (identical content). Replace the symlink with the file at the next Komga
-  deployment and remove `deploy/compose/`.
+- `services/komga/docker-compose.yml` is a regular file on the host too since 2026-10-06; the old
+  `deploy/compose/` mirror directory is gone.
 - User units are tracked in `deploy/systemd/` and `deploy/storage/systemd/` and installed in
   `~/.config/systemd/user/`. Host units and drop-ins are in `deploy/host/`, `deploy/storage/dropins/`
   and `deploy/docker/`.

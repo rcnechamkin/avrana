@@ -67,6 +67,9 @@ rclone.conf.*
 /services/*/mariadb/
 /services/*/agent-data/
 /services/*/socket/
+/services/*/docker-proxy/
+/services/*/docker-proxy-ro/
+/services/*/docker-proxy-restart/
 /services/*/piper-data/
 /services/*/speech-to-phrase/
 /services/authentik/data/

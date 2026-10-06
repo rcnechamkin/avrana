@@ -51,7 +51,7 @@ class RestoreMapTests(unittest.TestCase):
     def test_components_match_the_required_artifact_list(self):
         listed = required_components() - {"completeness"}
         self.assertEqual(set(), listed - set(restore.COMPONENT_DIRS.values()))
-        self.assertEqual(24, len(restore.COMPONENT_DIRS))
+        self.assertEqual(23, len(restore.COMPONENT_DIRS))
 
 
 class RunSelectionTests(unittest.TestCase):
@@ -244,6 +244,18 @@ class OffhostMarkerTests(unittest.TestCase):
             report = restore.Report()
             restore.check_offhost_marker(run, report)
             self.assertEqual(1, len(report.failed))
+
+    def test_retired_component_in_an_older_run_is_tolerated(self):
+        with tempfile.TemporaryDirectory() as root:
+            run = self.make_run(root, None)
+            (run / "kavita").mkdir()
+            (run / "kavita/kavita.db").write_bytes(b"x")
+            report = restore.Report()
+            restore.check_restore_map(run, BACKUPS.parents[1], report)
+            self.assertFalse([line for line in report.failed if "kavita" in line])
+            report = restore.Report()
+            restore.check_components(run, report)
+            self.assertFalse([line for line in report.failed if "kavita" in line])
 
     def test_marker_is_not_an_undocumented_restore_payload(self):
         with tempfile.TemporaryDirectory() as root:

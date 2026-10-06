@@ -2,20 +2,29 @@ services:
   beszel-socket-proxy:
     image: ghcr.io/tecnativa/docker-socket-proxy@sha256:1f5038b54f06c3e18422902cf00ba21803d1c97805aae032e5e6673d532d3459
     container_name: beszel-socket-proxy
-    environment: {CONTAINERS: 1, INFO: 1, PING: 1, VERSION: 1, POST: 0}
-    volumes: [/var/run/docker.sock:/var/run/docker.sock:ro]
-    ports: [127.0.0.1:2376:2375]
+    # The proxy serves a Unix socket in ./docker-proxy (mode 0700, owned by cody) and has no
+    # network at all, so nothing on a bridge or the host loopback can reach it (bug hunt A9).
+    # haproxy runs as uid 1000 with the docker group so it can create the socket there and
+    # read /var/run/docker.sock.
+    user: "1000:1000"
+    group_add: ["110"]
+    network_mode: none
+    environment:
+      {CONTAINERS: 1, INFO: 1, PING: 1, VERSION: 1, POST: 0, BIND_CONFIG: "/proxy/docker.sock mode 660"}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./docker-proxy:/proxy
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     read_only: true
     tmpfs:
-      - /run:rw,noexec,nosuid,nodev,size=16m
-      - /tmp:rw,noexec,nosuid,nodev,size=16m
+      - /run:rw,noexec,nosuid,nodev,size=16m,uid=1000,gid=1000
+      - /tmp:rw,noexec,nosuid,nodev,size=16m,uid=1000,gid=1000
     pids_limit: 64
     mem_limit: 128m
     cpus: 0.25
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:2375/_ping"]
+      test: ["CMD", "sh", "-c", "test -S /proxy/docker.sock"]
       interval: 60s
       timeout: 5s
       retries: 3
@@ -65,7 +74,7 @@ services:
       HUB_URL: http://127.0.0.1:8093
       KEY_FILE: /run/secrets/beszel_agent_key
       TOKEN_FILE: /run/secrets/beszel_agent_token
-      DOCKER_HOST: tcp://127.0.0.1:2376
+      DOCKER_HOST: unix:///proxy/docker.sock
       DATA_DIR: /var/lib/beszel-agent
       DISK_USAGE_CACHE: 5m
       SKIP_GPU: "true"
@@ -73,6 +82,7 @@ services:
     volumes:
       - ./agent-data:/var/lib/beszel-agent
       - ./socket:/beszel_socket
+      - ./docker-proxy:/proxy
       - ./rootfs-marker:/extra-filesystems/dm-0__Root:ro
       - /mnt/avrana_media/.beszel:/extra-filesystems/sdb1__Media:ro
     secrets: [beszel_agent_key, beszel_agent_token]

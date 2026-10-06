@@ -5,6 +5,8 @@ automatically; `BOOTSTRAP.md` says what to do with each file.
 
 | File | Live location | Kind |
 |---|---|---|
+| `owner-scripts/` | run with `sudo` | The root-only changes staged by Batch 3, each with rollback; see its README. |
+| `avrana-ro` | `/usr/local/bin/avrana-ro` | Read-only wrapper for the `avrana-agent` account (installed by owner script 06). |
 | `fstab` | `/etc/fstab` | Copy. Only the `/mnt/avrana_media` and `comics_merged` lines are reusable. |
 | `daemon.json` | `/etc/docker/daemon.json` | Reconstruction. The live file is root-only; its single setting was read from `docker info`. |
 | `netplan-br0.example.yaml` | `/etc/netplan/50-cloud-init.yaml` | Reconstruction from `networkctl`. |

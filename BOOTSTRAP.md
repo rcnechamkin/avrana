@@ -254,11 +254,11 @@ python3 /home/cody/avrana/services/backups/restore-test.py    # and prove that b
 python3 /home/cody/avrana/services/backups/offhost-backup.py  # and ship it
 ```
 
-`deploy/docker/verify-baseline.sh` hardcodes 40 containers and 2 tunnels; it reports a difference until
-BookStack and the old comics tunnel are formally retired from it. Then sign in through
-`https://auth.avrana.net` and open one title in Jellyfin, Audiobookshelf, Komga and Calibre-Web.
+`deploy/docker/verify-baseline.sh` expects the containers in `deploy/docker/expected-containers.txt`
+and one tunnel per enabled `cloudflared*.service`. Then sign in through `https://auth.avrana.net` and
+open one title in Jellyfin, Audiobookshelf, Komga and Calibre-Web.
 
-The rebuild is done when the health check exits 0, a new backup reports `ok` with 24 components, the
+The rebuild is done when the health check exits 0, a new backup reports `ok` with 23 components, the
 restore test passes on it, and it is off-host.
 
 ## 9. What must NOT be restored blindly
@@ -272,7 +272,6 @@ restore test passes on it, and it is off-host.
   `cloudflared.service` / `mylar.service`. Use `deploy/systemd/` from Git.
 - **`kern-data/`**: personal data from the retired Kern project. Keep the archive; do not unpack it into
   the production tree.
-- **`kavita/`**: a service that is not deployed.
 - **The whole `stack-config` archive over a fresh clone**: it would replace current Git files with last
   night's copies and re-create the Kern-era `.gitignore`.
 - **Old recovery or migration scripts** from `rcnechamkin/Kern-Ecosystem` (`restore-stack*.sh`,

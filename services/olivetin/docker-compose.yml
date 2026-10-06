@@ -14,6 +14,7 @@
 #
 #   olivetin-docker-ro       GET-only inspection (CONTAINERS/INFO/PING/VERSION). POST=0.
 #   olivetin-docker-restart  POST=1 with ALLOW_RESTARTS=1 and CONTAINERS=0.
+#   Both serve a Unix socket in a 0700 directory and have no network (bug hunt A9, 2026-10-06).
 #
 #   That split matters. In the tecnativa proxy, ALLOW_RESTARTS matches
 #   POST /containers/<name>/(stop|restart|kill) by path, INDEPENDENTLY of the CONTAINERS flag.
@@ -37,8 +38,8 @@ services:
       - JELLYFIN_API_KEY=${JELLYFIN_API_KEY:?set in services/olivetin/.env}
       - ABS_URL=${ABS_URL:?set in services/olivetin/.env}
       - ABS_API_KEY=${ABS_API_KEY:?set in services/olivetin/.env}
-      - DOCKER_HOST_RO=tcp://olivetin-docker-ro:2375
-      - DOCKER_HOST_RESTART=tcp://olivetin-docker-restart:2375
+      - DOCKER_HOST_RO=unix:///proxy-ro/docker.sock
+      - DOCKER_HOST_RESTART=unix:///proxy-restart/docker.sock
     volumes:
       # Configuration and scripts are READ-ONLY to the container: OliveTin can execute the
       # actions it is given and cannot rewrite its own ACLs or add new ones.
@@ -50,7 +51,11 @@ services:
       # The only writable host path. Holds one marker file that asks the host's systemd path unit
       # to start the real backup. Nothing else is writable outside tmpfs.
       - ./state:/state:rw
-    networks: [authentik_frontend, olivetin-docker]
+      # The two proxies' Unix sockets. Connecting needs a writable mount; the directories are
+      # 0700 and owned by cody, which is this container's uid.
+      - ./docker-proxy-ro:/proxy-ro
+      - ./docker-proxy-restart:/proxy-restart
+    networks: [authentik_frontend]
     read_only: true
     tmpfs:
       - /tmp:rw,noexec,nosuid,nodev,size=32m
@@ -84,19 +89,24 @@ services:
       PING: 1
       VERSION: 1
       POST: 0          # nothing mutating can pass this proxy at all
+      BIND_CONFIG: "/proxy/docker.sock mode 660"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-    networks: [olivetin-docker]
+      - ./docker-proxy-ro:/proxy
+    # No network: the proxy serves a Unix socket in ./docker-proxy-ro (0700, cody), see A9. haproxy runs as
+    # uid 1000 with the docker group so it can create the socket and read docker.sock.
+    user: "1000:1000"
+    group_add: ["110"]
+    network_mode: none
     read_only: true
-    # haproxy writes its pidfile to /run; without this tmpfs it exits fatally under
-    # read_only. Matches the long-running homepage-dockerproxy config exactly.
-    tmpfs: ["/run:rw,noexec,nosuid,nodev,size=16m", "/tmp:rw,noexec,nosuid,nodev,size=16m"]
+    # haproxy writes its pidfile to /run; without this tmpfs it exits fatally under read_only.
+    tmpfs: ["/run:rw,noexec,nosuid,nodev,size=16m,uid=1000,gid=1000", "/tmp:rw,noexec,nosuid,nodev,size=16m,uid=1000,gid=1000"]
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]
     pids_limit: 64
     mem_limit: 64m
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:2375/_ping"]
+      test: ["CMD", "sh", "-c", "test -S /proxy/docker.sock"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -122,19 +132,24 @@ services:
       SECRETS: 0
       CONFIGS: 0
       PING: 1
+      BIND_CONFIG: "/proxy/docker.sock mode 660"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-    networks: [olivetin-docker]
+      - ./docker-proxy-restart:/proxy
+    # No network: the proxy serves a Unix socket in ./docker-proxy-restart (0700, cody), see A9. haproxy runs as
+    # uid 1000 with the docker group so it can create the socket and read docker.sock.
+    user: "1000:1000"
+    group_add: ["110"]
+    network_mode: none
     read_only: true
-    # haproxy writes its pidfile to /run; without this tmpfs it exits fatally under
-    # read_only. Matches the long-running homepage-dockerproxy config exactly.
-    tmpfs: ["/run:rw,noexec,nosuid,nodev,size=16m", "/tmp:rw,noexec,nosuid,nodev,size=16m"]
+    # haproxy writes its pidfile to /run; without this tmpfs it exits fatally under read_only.
+    tmpfs: ["/run:rw,noexec,nosuid,nodev,size=16m,uid=1000,gid=1000", "/tmp:rw,noexec,nosuid,nodev,size=16m,uid=1000,gid=1000"]
     security_opt: [no-new-privileges:true]
     cap_drop: [ALL]
     pids_limit: 64
     mem_limit: 64m
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:2375/_ping"]
+      test: ["CMD", "sh", "-c", "test -S /proxy/docker.sock"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -146,7 +161,3 @@ networks:
   # Authentik's compose network, so the embedded outpost can reach olivetin by name.
   authentik_frontend:
     external: true
-  # Private: only OliveTin and its two proxies. No published ports, no other members.
-  olivetin-docker:
-    driver: bridge
-    internal: true

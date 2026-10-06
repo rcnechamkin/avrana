@@ -1,10 +1,12 @@
 # Security and sensitive material
 
-> **Update 2026-10-04.** SSH is key-only. Backup runs are private (700/600). Known open items, in
-> `docs/ROADMAP.md`: no host firewall; Mylar3 has no login; the Docker socket proxies expose every
-> container's environment to local processes; agents still run as `cody`; the SMTP2GO password awaits
-> rotation; the enrollment blueprint embeds a Jellyfin API key and the Komga admin password in expression
-> code. Where each secret lives: [`SECRETS.md`](SECRETS.md).
+> **Update 2026-10-06.** SSH is key-only. Backup runs are private (700/600). The three Docker socket
+> proxies serve Unix sockets in 0700 directories and have no network, so no local process other than
+> `cody` and root can reach the Docker API through them. Blueprints and the connector secrets are
+> 600/700. Still open, in `docs/ROADMAP.md` and `deploy/host/owner-scripts/`: no host firewall (staged);
+> Mylar3 has no login (script 01); agents still run as `cody` (script 06); the SMTP2GO password awaits
+> rotation; the enrollment blueprint embeds a Jellyfin API key and the Komga admin password in
+> expression code. Where each secret lives: [`SECRETS.md`](SECRETS.md).
 
 This is operational guidance, not a new security audit. It incorporates BookStack pages 37, 42, 59, 69, 76 and 77 with the production boundaries verified in this session.
 

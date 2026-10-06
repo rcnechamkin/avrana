@@ -2,20 +2,27 @@ services:
   dockerproxy:
     image: ghcr.io/tecnativa/docker-socket-proxy@sha256:1f5038b54f06c3e18422902cf00ba21803d1c97805aae032e5e6673d532d3459
     container_name: homepage-dockerproxy
+    # The proxy serves a Unix socket in ./docker-proxy (mode 0700, owned by cody) and has no
+    # network at all, so nothing on a bridge or the host loopback can reach it (bug hunt A9).
+    # haproxy runs as uid 1000 with the docker group so it can create the socket there and
+    # read /var/run/docker.sock.
+    user: "1000:1000"
+    group_add: ["110"]
+    network_mode: none
     environment:
       CONTAINERS: 1
       INFO: 1
       PING: 1
       VERSION: 1
       POST: 0
+      BIND_CONFIG: "/proxy/docker.sock mode 660"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-    networks:
-      - docker-api
+      - ./docker-proxy:/proxy
     cap_drop:
       - ALL
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:2375/_ping"]
+      test: ["CMD", "sh", "-c", "test -S /proxy/docker.sock"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -24,8 +31,8 @@ services:
       - no-new-privileges:true
     read_only: true
     tmpfs:
-      - /run:rw,noexec,nosuid,nodev,size=16m
-      - /tmp:rw,noexec,nosuid,nodev,size=16m
+      - /run:rw,noexec,nosuid,nodev,size=16m,uid=1000,gid=1000
+      - /tmp:rw,noexec,nosuid,nodev,size=16m,uid=1000,gid=1000
     pids_limit: 64
     mem_limit: 128m
     cpus: 0.25
@@ -50,11 +57,9 @@ services:
       - ./widget-secrets.env
     volumes:
       - /home/cody/avrana/deploy/homepage/config:/app/config
+      - ./docker-proxy:/proxy
     ports:
       - 10.0.0.218:3000:3000
-    networks:
-      - default
-      - docker-api
     security_opt:
       - no-new-privileges:true
     cap_drop:
@@ -73,7 +78,3 @@ services:
         max-size: "50m"
         max-file: "5"
     restart: unless-stopped
-
-networks:
-  docker-api:
-    internal: true

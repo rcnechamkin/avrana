@@ -46,6 +46,7 @@ check_url completeseries http://10.0.0.218:8085/
 check_url homepage http://10.0.0.218:3000/api/healthcheck
 check_url bookstack http://10.0.0.218:6875/status
 check_url beszel http://10.0.0.218:8093/api/health
+check_url authentik http://10.0.0.218:9000/-/health/live/
 
 # ---- media array: mounted, the right filesystem, writable, no kernel storage errors ------------
 # Until Batch 1 (finding A2) these were checked once, by verify-array.sh at boot+5min. A USB drop
@@ -75,6 +76,21 @@ else
       failures=$((failures + 1)) ;;
     *) printf 'OK   array mounted read-write\n' ;;
   esac
+fi
+
+# comics_merged is a mergerfs union over two array directories. When it is not mounted Docker
+# binds the empty underlying directory and Komga serves an empty library, which went unnoticed
+# for five days in August (finding A6). Only meaningful while the array itself is mounted.
+comics_merged="${AVRANA_COMICS_MERGED:-/mnt/avrana_media/comics_merged}"
+if [ "$array_mounted" -eq 1 ]; then
+  if mountpoint -q "$comics_merged" && [ "$(findmnt -n -o FSTYPE "$comics_merged" 2>/dev/null)" = fuse.mergerfs ]; then
+    printf 'OK   comics_merged mounted (mergerfs)
+'
+  else
+    printf 'FAIL comics_merged is not a mergerfs mount; Komga would serve an empty library
+' >&2
+    failures=$((failures + 1))
+  fi
 fi
 
 for mountpoint in / "$array_root"; do
@@ -157,15 +173,54 @@ PY
   fi
 fi
 
-libation_started=$(docker inspect -f '{{.State.StartedAt}}' libation 2>/dev/null || true)
-if [ -z "$libation_started" ]; then
-  printf 'FAIL libation is not running\n' >&2
-  failures=$((failures + 1))
+# Every expected container must be running. Until Batch 3 (finding A7) only `unhealthy` and
+# `restarting` were looked at, so an exited or never-started container was invisible, and the
+# one named check (`docker inspect ... StartedAt libation`) passed for a stopped container too.
+# The list lives in deploy/docker/expected-containers.txt; an unlisted running container is a
+# warning (the restore test's throwaway Audiobookshelf is expected now and then).
+expected_file="$(dirname "$0")/../deploy/docker/expected-containers.txt"
+if [ -f "$expected_file" ]; then
+  running=$(docker ps --format '{{.Names}}')
+  expected=$(sed -e 's/#.*//' -e 's/[[:space:]]//g' "$expected_file" | grep -v '^$')
+  missing=""
+  for name in $expected; do
+    printf '%s\n' "$running" | grep -qx "$name" || missing="$missing $name"
+  done
+  if [ -n "$missing" ]; then
+    printf 'FAIL expected containers not running:%s\n' "$missing" >&2
+    failures=$((failures + 1))
+  else
+    printf 'OK   all %s expected containers running\n' "$(printf '%s\n' "$expected" | wc -l)"
+  fi
+  extra=""
+  for name in $running; do
+    case "$name" in abs-restore-test) continue ;; esac
+    printf '%s\n' "$expected" | grep -qx "$name" || extra="$extra $name"
+  done
+  [ -n "$extra" ] && printf 'WARN containers running but not in expected-containers.txt:%s\n' "$extra" >&2
 else
-  printf 'OK   libation running since %s\n' "$libation_started"
+  printf 'FAIL expected-containers.txt not found beside this script\n' >&2
+  failures=$((failures + 1))
 fi
 
-for unit in cloudflared-avrana.service cloudflared.service; do
+# The recycle bin held 650 GB after the September Radarr grab loop (finding A13). Say so before
+# it fills the array. Two entries, so the walk is cheap.
+recycle_dir=/mnt/avrana_media/.recycle
+if [ -d "$recycle_dir" ]; then
+  recycle_gb=$(du -sb "$recycle_dir" 2>/dev/null | awk '{printf "%d", $1 / 1073741824}')
+  if [ "${recycle_gb:-0}" -ge 300 ]; then
+    printf 'WARN recycle bin holds %s GB (a download loop? see bug hunt A13)\n' "$recycle_gb" >&2
+  fi
+fi
+
+# Every ENABLED cloudflared unit must be active. Derived rather than listed so that retiring the
+# old comics tunnel (owner's staged script) needs no edit here; none enabled at all is a failure.
+tunnel_units=$(systemctl list-unit-files --state=enabled --no-legend 'cloudflared*.service' 2>/dev/null | awk '{print $1}')
+if [ -z "$tunnel_units" ]; then
+  printf 'FAIL no cloudflared unit is enabled\n' >&2
+  failures=$((failures + 1))
+fi
+for unit in $tunnel_units; do
   if systemctl is-active --quiet "$unit"; then
     printf 'OK   %s\n' "$unit"
   else

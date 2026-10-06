@@ -72,8 +72,6 @@ kern-data|file|kern-data/kern-data.tar.zst
 kern-data|mincount|kern-data/kern-data.tar.zst|filing_cabinet/|100
 sabnzbd|file|sabnzbd/sabnzbd.ini
 sabnzbd|file|sabnzbd/history1.db
-kavita|file|kavita/kavita.db
-kavita|file|kavita/appsettings.json
 
 # ---- tunnel identity and ingress map ------------------------------------------------------
 cloudflared|file|cloudflared/cloudflared-config.tar.zst
@@ -105,8 +103,6 @@ systemd|file|systemd/user/avrana-boot-verify.timer
 # Generated from the members of stack-config.tar.zst in the 2026-10-03 run, minus examples,
 # one-off migration scripts and Recyclarr's volatile state.
 stack-config|file|stack-config/stack-config.tar.zst
-stack-config|member|stack-config/stack-config.tar.zst|deploy/compose/komf.yml
-stack-config|member|stack-config/stack-config.tar.zst|deploy/compose/komga.yml
 stack-config|member|stack-config/stack-config.tar.zst|deploy/homepage/config/bookmarks.yaml
 stack-config|member|stack-config/stack-config.tar.zst|deploy/homepage/config/custom.css
 stack-config|member|stack-config/stack-config.tar.zst|deploy/homepage/config/custom.js
@@ -174,7 +170,6 @@ stack-config|member|stack-config/stack-config.tar.zst|services/home-assistant/do
 stack-config|member|stack-config/stack-config.tar.zst|services/home-assistant/.env
 stack-config|member|stack-config/stack-config.tar.zst|services/homepage/docker-compose.yml
 stack-config|member|stack-config/stack-config.tar.zst|services/homepage/widget-secrets.env
-stack-config|member|stack-config/stack-config.tar.zst|services/kavita/docker-compose.yml
 stack-config|member|stack-config/stack-config.tar.zst|services/komga/docker-compose.yml
 stack-config|member|stack-config/stack-config.tar.zst|services/libation/docker-compose.yml
 stack-config|member|stack-config/stack-config.tar.zst|services/libation-status/docker-compose.yml

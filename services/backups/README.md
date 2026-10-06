@@ -2,8 +2,8 @@
 
 | File | Purpose |
 |---|---|
-| `avrana-backup.sh` | Nightly local backup, 24 components. Timer `avrana-backup.timer`, 02:30. |
-| `required-artifacts.txt`, `verify-required.py` | The completeness gate: 184 files and archive members every run must contain. |
+| `avrana-backup.sh` | Nightly local backup, 23 components. Timer `avrana-backup.timer`, 02:30. |
+| `required-artifacts.txt`, `verify-required.py` | The completeness gate: 179 files and archive members every run must contain. |
 | `restore-map.txt` | Where each artifact goes on a rebuilt host. |
 | `restore-test.py` (`restore-test.sh` is a wrapper) | Proves a run can rebuild the server without touching the run or production. Timer `avrana-restore-test.timer`, Sundays 04:30. |
 | `offhost-backup.py`, `offhost-setup.sh`, `offhost-verify-secrets.sh`, `OFFHOST.md` | Encrypted, add-only copy to Backblaze B2. Timer `avrana-offhost.timer`, 03:30. |
@@ -14,7 +14,7 @@
 `/mnt/avrana_media/.backups/avrana/<UTC timestamp>/`, mode 700, files 600, about 1.1 GB:
 
 `arr` `audiobookshelf` `authentik` `avrana-audible-connector` `beszel` `bookstack` `calibre-web-automated`
-`cloudflared` `home-assistant` `host-docker` `jellyfin` `kavita` `kern-data` `komga` `libation` `mylar`
+`cloudflared` `home-assistant` `host-docker` `jellyfin` `kern-data` `komga` `libation` `mylar`
 `omnibus` `sabnzbd` `seerr` `shelfarr` `shelfmark` `stack-config` `systemd` `tracearr`, plus `MANIFEST.txt`.
 
 SQLite databases are copied with the online backup API, Postgres and MariaDB with their dump tools, and
@@ -45,7 +45,7 @@ services/backups/restore-test.py --boot-abs      # also boot a throwaway Audiobo
 ```
 
 It fingerprints the run before and after and fails if anything in it changed. Databases are checked on
-copies in a scratch directory that is removed afterwards. It verifies the manifest, the 24 components,
+copies in a scratch directory that is removed afterwards. It verifies the manifest, the 23 components,
 the required artifacts, the restore map (including files that are renamed on restore, such as the
 Calibre-Web key), every SQLite database, every archive, the three SQL dumps, and the rebuild
 prerequisites (compose files, secrets, tunnel credential, units, fstab, Docker data-root, Dockerfiles,

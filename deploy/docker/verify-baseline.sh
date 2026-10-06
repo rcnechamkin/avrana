@@ -2,6 +2,7 @@
 # Full Avrana baseline battery. Identical checks before cleanup, after cleanup, after reboot.
 L=10.0.0.218; fail=0; n=0
 ok(){ printf '  \033[32mOK\033[0m   %s\n' "$*"; }
+warn(){ printf '  \033[33mWARN\033[0m %s\n' "$*"; }
 bad(){ printf '  \033[31mFAIL\033[0m %s\n' "$*"; fail=$((fail+1)); }
 p(){ nm=$1;u=$2;shift 2; n=$((n+1)); c=$(curl -s -o /dev/null -w '%{http_code}' --max-time 8 "$u" 2>/dev/null); for w in "$@"; do [ "$c" = "$w" ] && { ok "$nm ($c)"; return; }; done; bad "$nm -> $c, wanted $*"; }
 t(){ nm=$1;h=$2;o=$3; n=$((n+1)); if timeout 5 bash -c "exec 3<>/dev/tcp/$h/$o" 2>/dev/null; then ok "$nm (tcp $o)"; else bad "$nm -> tcp $o refused"; fi; }
@@ -9,11 +10,12 @@ t(){ nm=$1;h=$2;o=$3; n=$((n+1)); if timeout 5 bash -c "exec 3<>/dev/tcp/$h/$o" 
 echo "== reachability (26) =="
 t ssh $L 22
 p sabnzbd http://$L:8082/config/switches/ 303
-# Mylar's preserved authentication=0 intentionally exposes its LAN UI. Report that
-# policy separately; a stale required-303 probe must not pretend this is newly lost state.
+# Mylar's authentication mode decides what a healthy probe looks like. Mode 0 is reachable but
+# reported as a warning every time (bug hunt A5): the login is to be restored by the owner's
+# staged script, and until then this must not read as a clean baseline.
 MYLAR_AUTH=$(python3 -c 'import re,pathlib; t=pathlib.Path("/home/cody/avrana/services/mylar3/config.ini").read_text(); m=re.search(r"(?m)^authentication\s*=\s*(\d+)",t); print(m.group(1) if m else "unknown")')
 case "$MYLAR_AUTH" in
-  0) p mylar3 http://$L:8090/home 200 ;;
+  0) p mylar3 http://$L:8090/home 200; warn "Mylar3 authentication is DISABLED (A5); run the staged owner script" ;;
   1) p mylar3 http://$L:8090/home 401 ;;
   2) p mylar3 http://$L:8090/home 303 ;;
   *) bad "Mylar authentication mode is unknown" ;;
@@ -48,15 +50,22 @@ for mp in $(ss -ltnH 'sport = :20240 or sport = :20241 or sport = :20242' 2>/dev
   v=$(curl -s --max-time 5 "http://127.0.0.1:$mp/metrics" 2>/dev/null | awk '/^cloudflared_tunnel_ha_connections/{print $2}')
   CFH=$((CFH + ${v:-0}))
 done
-if [ "$CFP" -eq 2 ] && [ "$CFH" -ge 4 ]; then ok "cloudflared ($CFP tunnels, $CFH HA connections)"
-else bad "cloudflared -> $CFP tunnels, $CFH HA connections (want 2 tunnels, >=4)"; fi
+# One process and at least two HA connections per ENABLED cloudflared unit, so retiring the
+# comics tunnel does not turn this red (finding A15).
+CFW=$(systemctl list-unit-files --state=enabled --no-legend 'cloudflared*.service' 2>/dev/null | wc -l)
+if [ "$CFP" -eq "$CFW" ] && [ "$CFH" -ge $((CFW * 2)) ]; then ok "cloudflared ($CFP tunnels, $CFH HA connections)"
+else bad "cloudflared -> $CFP tunnels, $CFH HA connections (want $CFW tunnels, >=$((CFW * 2)))"; fi
 n=$((n+1)); if curl -s -o /dev/null --max-time 10 https://1.1.1.1/; then ok "outbound https"; else bad "outbound https"; fi
 n=$((n+1)); d=$(docker ps -a --format '{{.Status}}'|grep -vcE '^Up'); if [ "$d" -eq 0 ]; then ok "all containers up"; else bad "$d not Up"; fi
 echo "  -> $((n-fail))/$n"
 
 echo "== fleet =="
+# The expected set is deploy/docker/expected-containers.txt, not a number typed here (A15).
+EXP=$(sed -e 's/#.*//' -e 's/[[:space:]]//g' "$(dirname "$0")/expected-containers.txt" | grep -v '^$')
+W=$(printf '%s\n' "$EXP" | wc -l)
 T=$(docker ps -aq|wc -l); U=$(docker ps -q|wc -l); H=$(docker ps -a --format '{{.Status}}'|grep -c unhealthy)
-[ "$U" = 40 ] && [ "$T" = 40 ] && ok "40/40 containers Up" || bad "$U of $T Up (want 40/40)"
+MISSING=$(for c in $EXP; do docker ps --format '{{.Names}}' | grep -qx "$c" || printf '%s ' "$c"; done)
+[ -z "$MISSING" ] && [ "$U" = "$W" ] && [ "$T" = "$W" ] && ok "$W/$W expected containers Up" || bad "$U of $T Up (want $W/$W)${MISSING:+; not running: $MISSING}"
 [ "$H" -eq 0 ] && ok "0 unhealthy" || bad "$H unhealthy"
 
 echo "== docker network state =="

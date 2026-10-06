@@ -1,0 +1,52 @@
+# Every container that must be running on avrana. One name per line; # starts a comment.
+# Read by scripts/services-health.sh (every 15 minutes: a listed container that is not running
+# is a FAIL, an unlisted running one is a WARN) and by deploy/docker/verify-baseline.sh (the
+# fleet count). Change this file in the same commit as the compose change that adds or retires
+# a container. Batch 3, bug hunt A7 and A15.
+#
+# audiobooks and books
+audiobookshelf
+avrana-audible-connector
+avrana-libation-companion
+libation
+libation-status
+calibre-web-automated
+shelfarr
+shelfmark
+completeseries
+avrana-kindle-connector
+# comics
+komga
+omnibus
+omnibus-engine
+omnibus-redis
+# video
+jellyfin
+seerr
+radarr
+sonarr
+prowlarr
+recyclarr
+tracearr
+avrana-imax-verify
+# identity and front door
+authentik-server
+authentik-worker
+authentik-postgresql
+authentik-ldap
+avrana-portal
+homepage
+homepage-dockerproxy
+olivetin
+olivetin-docker-ro
+olivetin-docker-restart
+# home
+home-assistant
+speech-to-phrase
+wyoming-piper
+# monitoring and wiki
+beszel
+beszel-agent
+beszel-socket-proxy
+bookstack
+bookstack-mariadb

@@ -1,42 +1,58 @@
 # Remaining work
 
-State on 2026-10-04, after remediation Batches 1 and 2. Each item needs the owner's approval before any
-production change. Finding numbers (A5, A9 ...) refer to the October 2026 bug hunt.
+State on 2026-10-06, after remediation Batches 1 to 3. Finding numbers (A5, A9 ...) refer to the
+October 2026 bug hunt. Everything that needs root is staged as a script in `deploy/host/owner-scripts/`
+with its own README; everything below that is not a script needs the owner's hands or a decision.
 
 ## Waiting on the owner
 
-- Rotate the SMTP2GO password and run the staged script that updates the two Authentik blueprints and
-  writes `services/backups/.env.alert`. Until then no alert e-mail is delivered.
-- Add a second SSH key. Only one device can log in.
-- Raise the Backblaze download cap so one run (about 1.1 GB) can be restored more than once a day; the
-  2026-10-04 repeat restore was refused with `download_cap_exceeded`. Ideally also a key without
-  delete rights (`services/backups/OFFHOST.md`).
-- Run `services/backups/offhost-verify-secrets.sh` once to prove the 1Password values unlock the data.
+Scripts, in order (`deploy/host/owner-scripts/README.md`): Mylar3 login (A5), fstab `nofail` and
+the unattended-upgrade blacklist (A6, A14), Compose v1 package removal (A12), retirement of the comics
+tunnel, nginx, libvirt and Plex, the Kavita config directory, the `avrana-agent` account.
+
+Not scripts:
+
+- Raise the Backblaze download cap; run `services/backups/offhost-verify-secrets.sh` once.
+- Rotate the Komga admin password, the `audible-connector` and `omnibus` OIDC secrets, and the SMTP2GO
+  password; then run the Batch 1 alert-configuration script. Until then no alert e-mail is delivered.
+- Add a second SSH key.
 - Set `rcnechamkin/Kern-Ecosystem` to archived on GitHub (tag `archive-2026-10-04` is pushed).
 - Decide where the Avrana Party wiki pages belong (`docs/archive/bookstack/INDEX.md`, OWNER REVIEW).
 - Approve retirement of the BookStack containers now that their content is archived.
+- Apply the staged firewall (`deploy/ufw/`) from a console session.
+- A UPS.
+
+## Done in Batch 3 (2026-10-06), for the record
+
+- A9: the three Docker socket proxies serve Unix sockets in 0700 directories and have no network;
+  port 2376 is gone and no bridge address answers the Docker API.
+- A12: all 40 containers recreated with Compose v2 (Jellyfin was already v2 and was not touched).
+- A7, A15: `deploy/docker/expected-containers.txt` drives the health check and the baseline; a
+  stopped expected container fails, an unlisted one warns; Authentik has a URL check; the tunnel
+  count follows the enabled units.
+- A6 (half): `comics_merged` is checked every 15 minutes. The fstab half is script 02.
+- A13 (half): the recycle bin warns at 300 GB. The custom-format scores were not analysed.
+- Legacy Kern user units removed (archived in Kern-Ecosystem); `known-failed-units.txt` is empty.
+- Kavita backup component retired (23 components, 179 required artifacts); Komga's compose file is a
+  regular file on the host; `deploy/compose/` removed.
+- Blueprints and the audible connector's `.env` and `secrets/` are no longer world-readable.
 
 ## Deferred, in rough order
 
-1. **Socket-proxy isolation (A9).** The three Docker socket proxies answer on their bridge addresses, so
-   any local process can read every container's environment. Needs a firewall rule or a Unix-socket design.
-2. **Mylar3 login (A5).** Approved. Restore authentication and make the baseline expect it.
-3. **`avrana-agent` account.** Approved in principle: a separate account with no sudo, no Docker and no
-   access to `/home/cody`, a read-only wrapper, and a deploy wrapper run by the owner.
-4. **Firewall.** `deploy/ufw/` is staged and has never been applied.
-5. **Compose v1 to v2.** Recreate the 23 v1-created containers one project at a time; remove the v1 package.
-6. **Retire** Plex, the `comics.avrana.media` tunnel, nginx, libvirt, the legacy Kern timers, Kavita state,
-   then update `verify-baseline.sh` (hardcoded 40 containers, 2 tunnels), `required-artifacts.txt`,
-   `restore-map.txt` and the `kern-data` and `kavita` backup components.
-7. **Storage.** Replace the USB enclosure; move Docker's data-root off it (`deploy/storage/ENCLOSURE-MIGRATION.md`).
-   Add a UPS.
-8. **Health coverage.** Expected-container list in the recurring check (A7), `comics_merged` mount check
-   and `nofail` (A6), hold Docker packages in unattended upgrades (A14).
-9. **Jellyfin artwork.** One-item regeneration pilot (`docs/findings/2026-09-23-jellyfin-artwork.md`).
-10. **Authentik.** Audit the 13 blueprints applied for the first time during the September recovery.
-    Move the Jellyfin API key and Komga admin password out of the enrollment blueprint's expression code.
-11. **Rebuild rehearsal** on a spare disk or VM, following `BOOTSTRAP.md` end to end.
-12. **Recovery artifacts.** Clean up `~/recovery-*`, `~/jellyfin-recovery`, `/home/cody/jellyfin`,
-    `*:premaint-20260922` images once the owner releases them.
-13. Radarr download loop (A13), Seerr proxy settings (A20), smartd notifications (A21), `cloudflared`
-    packaging and update.
+1. **Authentik.** Audit the 13 blueprints applied for the first time during the September recovery.
+   Move the Jellyfin API key and Komga admin password out of the enrollment blueprint's expression
+   code (`!Env` or a file mount), which needs a blueprint re-apply.
+2. **Backups as a root system unit** with a root-owned tree (bug hunt E5), so neither `cody` nor the
+   agent account can write the backup tree.
+3. **Storage.** Replace the USB enclosure; move Docker's data-root off it
+   (`deploy/storage/ENCLOSURE-MIGRATION.md`). A wrong filesystem at the mount point still satisfies
+   every guard except the boot check (bug hunt C5).
+4. **Radarr loop (A13).** Inspect the custom-format scores for the two September releases.
+5. **Seerr proxy settings (A20), smartd notifications (A21)** once an alert channel exists.
+6. **`cloudflared` packaging and update** (2025.6.1, outside package management).
+7. **Jellyfin artwork.** One-item regeneration pilot (`docs/findings/2026-09-23-jellyfin-artwork.md`).
+8. **Rebuild rehearsal** on a spare disk or VM, following `BOOTSTRAP.md` end to end.
+9. **Recovery artifacts.** Clean up `~/recovery-*`, `~/jellyfin-recovery`, `/home/cody/jellyfin`,
+   `*:premaint-20260922` images once the owner releases them.
+10. Completed-download clean-up in `incoming/` (A18); UniFi self-updates (C1); on-host agent
+    transcripts under `~/.codex` and `~/.claude` (C4).

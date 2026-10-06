@@ -23,8 +23,8 @@ touching production. That incident was caused by an agent.
   containers, restarting Docker, rebooting, mounts, network, firewall, pruning, deleting volumes,
   restoring databases, upgrades. Approval for one batch does not carry to the next.
 - **Compose.** Use `docker compose` v2 only. The arr stack is project `docker` with `--profile media`
-  (`BOOTSTRAP.md`, section 7). About half the containers were created by Compose v1 and will be recreated
-  by the next v2 `up`; do not run `up -d` casually.
+  (`BOOTSTRAP.md`, section 7). Every container has carried Compose v2 labels since 2026-10-06; `up -d`
+  still recreates whatever differs from the file, so dry-run first (`up -d --dry-run`).
 - **Never use a Docker socket or a privileged container to get around a filesystem permission.**
 - **Evidence is immutable**: `/mnt/avrana_media/recovery-20260920`, the golden backup
   `2026-09-20T09-34-23Z`, backup runs. Analyse copies. Do not open SQLite files in place, even read-only.

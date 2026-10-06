@@ -12,7 +12,7 @@ What it does, in order:
      test changed nothing
   2. verifies MANIFEST.txt checksums and, for a run downloaded from off-host storage, checks
      its OFFHOST-COMPLETE.json marker against the manifest and the files actually present
-  3. checks the 24 expected components, required-artifacts.txt and restore-map.txt
+  3. checks the 23 expected components, required-artifacts.txt and restore-map.txt
   4. copies every SQLite database to a scratch directory and runs integrity_check on the COPY
   5. tests every .zst archive, lists every tar, and checks the three SQL dumps are complete
   6. checks rebuild prerequisites: compose files, secrets, tunnel credentials, units, fstab,
@@ -47,11 +47,13 @@ COMPONENT_DIRS = {
     "avrana-audible-connector": "connector", "beszel": "beszel", "bookstack": "bookstack",
     "calibre-web-automated": "calibre-web", "cloudflared": "cloudflared",
     "home-assistant": "home-assistant", "host-docker": "host-docker", "jellyfin": "jellyfin",
-    "kavita": "kavita", "kern-data": "kern-data", "komga": "komga", "libation": "libation",
+    "kern-data": "kern-data", "komga": "komga", "libation": "libation",
     "mylar": "mylar", "omnibus": "omnibus", "sabnzbd": "sabnzbd", "seerr": "seerr",
     "shelfarr": "shelfarr", "shelfmark": "shelfmark", "stack-config": "stack-config",
     "systemd": "systemd", "tracearr": "tracearr",
 }
+# Components that older runs may still carry. Tolerated, never required.
+RETIRED_DIRS = {"kavita"}                     # retired 2026-10-06, Batch 3
 # Tables that must exist and hold at least one row; an empty one means the restore is useless.
 SQLITE_TABLES = {
     "arr/radarr/radarr.db": ["QualityProfiles", "Movies"],
@@ -205,7 +207,7 @@ def check_offhost_marker(run, report):
 def check_components(run, report):
     present = {p.name for p in run.iterdir() if p.is_dir()}
     missing = sorted(set(COMPONENT_DIRS) - present)
-    extra = sorted(present - set(COMPONENT_DIRS))
+    extra = sorted(present - set(COMPONENT_DIRS) - RETIRED_DIRS)
     report.check(not missing, f"components: all {len(COMPONENT_DIRS)} expected directories present",
                  f"components: missing {', '.join(missing)}")
     if extra:
@@ -255,7 +257,7 @@ def check_restore_map(run, repo, report):
     for path in sorted(run.rglob("*")):
         rel = path.relative_to(run).as_posix()
         if (path.is_file() and rel not in ("MANIFEST.txt", OFFHOST_MARKER) and rel not in mapped
-                and not rel.startswith("systemd/")):
+                and not rel.startswith("systemd/") and rel.split("/")[0] not in RETIRED_DIRS):
             unmapped.append(rel)
     for rel in unmapped:
         report.fail(f"restore map: {rel} is in the backup but has no documented restore path")

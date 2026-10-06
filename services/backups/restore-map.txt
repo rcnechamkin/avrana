@@ -39,8 +39,6 @@ home-assistant|home-assistant/ha-config.tar.zst|REPO/services/home-assistant|unt
 home-assistant|home-assistant/home-assistant_v2.db|REPO/services/home-assistant/config/home-assistant_v2.db|copy
 host-docker|host-docker/NOTHING-TO-CAPTURE.txt|none|reference
 jellyfin|jellyfin/jellyfin-config.tar.zst|DOCKER/jellyfin/config|untar
-kavita|kavita/kavita.db|REPO/services/kavita/config/kavita.db|reference
-kavita|kavita/appsettings.json|REPO/services/kavita/config/appsettings.json|reference
 kern-data|kern-data/kern-data.tar.zst|REPO|reference
 komga|komga/database.sqlite|REPO/services/komga/config/database.sqlite|copy
 komga|komga/application.yml|REPO/services/komga/config/application.yml|copy
