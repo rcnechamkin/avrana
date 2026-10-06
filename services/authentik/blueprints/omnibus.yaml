@@ -21,9 +21,6 @@ entries:
         - matching_mode: strict
           url: https://requestacomic.avrana.net/api/auth/callback/oidc
           redirect_uri_type: authorization
-        - matching_mode: strict
-          url: http://10.0.0.218:5058/api/auth/callback/oidc
-          redirect_uri_type: authorization
       grant_types:
         - authorization_code
         - refresh_token

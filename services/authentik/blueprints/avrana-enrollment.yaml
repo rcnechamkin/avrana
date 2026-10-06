@@ -81,6 +81,28 @@ entries:
       required: true
       order: 40
 
+  # --- password quality (audit 2026-10-06, finding 3) -------------------------------------------
+  # The password chosen here is replicated into Jellyfin and Komga, so it is checked once, at the
+  # prompt: at least 12 characters, not in HaveIBeenPwned, zxcvbn score 3 of 4. Bound to the
+  # enrollment prompt here and to the recovery and password-change prompts in avrana-recovery.yaml.
+  - model: authentik_policies_password.passwordpolicy
+    id: policy-password-quality
+    identifiers:
+      name: avrana-password-policy
+    attrs:
+      password_field: password
+      length_min: 12
+      amount_digits: 0
+      amount_uppercase: 0
+      amount_lowercase: 0
+      amount_symbols: 0
+      check_static_rules: true
+      check_have_i_been_pwned: true
+      hibp_allowed_count: 0
+      check_zxcvbn: true
+      zxcvbn_score_threshold: 3
+      error_message: Use at least 12 characters that are not a known leaked password.
+
   # --- stages -------------------------------------------------------------------
   - model: authentik_stages_invitation.invitationstage
     id: stage-invitation
@@ -495,6 +517,15 @@ entries:
       stage: !KeyOf stage-prompt
       evaluate_on_plan: true
       re_evaluate_policies: false
+  # The password policy is bound to the prompt STAGE (not the binding): prompt stages run the
+  # policies bound to the stage against the submitted fields and show the error on the form.
+  - model: authentik_policies.policybinding
+    identifiers:
+      target: !KeyOf stage-prompt
+      policy: !KeyOf policy-password-quality
+      order: 0
+    attrs:
+      enabled: true
   - model: authentik_flows.flowstagebinding
     id: binding-user-write
     identifiers:

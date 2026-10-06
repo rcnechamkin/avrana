@@ -150,3 +150,12 @@ entries:
       order: 0
     attrs:
       enabled: true
+  # Existed live but undeclared until the 2026-10-06 audit (finding 4). Bindings are AND-ed: a Seerr
+  # user needs avrana-videos too, which matches the note above (Seerr rides on a Jellyfin account).
+  - model: authentik_policies.policybinding
+    identifiers:
+      target: !KeyOf seerr-app
+      group: !Find [authentik_core.group, [name, avrana-videos]]
+      order: 0
+    attrs:
+      enabled: true

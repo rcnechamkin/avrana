@@ -61,10 +61,29 @@ entries:
         - !Find [authentik_stages_prompt.prompt, [name, default-password-change-field-password]]
         - !Find [authentik_stages_prompt.prompt, [name, default-password-change-field-password-repeat]]
 
+  # Same policy as the enrollment prompt (declared in avrana-enrollment.yaml); audit finding 3.
+  - model: authentik_policies.policybinding
+    identifiers:
+      target: !KeyOf recovery-prompt
+      policy: !Find [authentik_policies_password.passwordpolicy, [name, avrana-password-policy]]
+      order: 0
+    attrs:
+      enabled: true
+  - model: authentik_policies.policybinding
+    identifiers:
+      target: !Find [authentik_stages_prompt.promptstage, [name, default-password-change-prompt]]
+      policy: !Find [authentik_policies_password.passwordpolicy, [name, avrana-password-policy]]
+      order: 0
+    attrs:
+      enabled: true
+
+  # P6 (audit finding 6): a recovery flow resets an existing user and must never create one.
   - model: authentik_stages_user_write.userwritestage
     id: recovery-write
     identifiers:
       name: avrana-recovery-write
+    attrs:
+      user_creation_mode: never_create
 
   # --- the flow -------------------------------------------------------------------------------
   - model: authentik_flows.flow

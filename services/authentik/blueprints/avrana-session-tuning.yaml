@@ -109,3 +109,29 @@ entries:
         - username
       enable_remember_me: true
       webauthn_stage: !Find [authentik_stages_authenticator_validate.authenticatorvalidatestage, [name, avrana-passkey-first-factor]]
+
+  # ---------------------------------------------------------------------------
+  # Brute-force control (audit 2026-10-06, finding 2). Authentik scores every
+  # failed login per client address and per username; this policy denies the
+  # identification stage once a score drops below the threshold. Scores expire
+  # (default 24 h) and an administrator can delete one at once under
+  # Flows and Stages > Reputation. The password stage's own 5-attempt limit is
+  # per flow execution and does not survive a page reload.
+  # ---------------------------------------------------------------------------
+  - model: authentik_policies_reputation.reputationpolicy
+    id: avrana-login-reputation
+    identifiers:
+      name: avrana-login-reputation
+    attrs:
+      check_ip: true
+      check_username: true
+      threshold: -5
+
+  - model: authentik_policies.policybinding
+    identifiers:
+      target: !Find [authentik_flows.flowstagebinding, [target, !Find [authentik_flows.flow, [slug, default-authentication-flow]]], [order, 10]]
+      policy: !KeyOf avrana-login-reputation
+      order: 0
+    attrs:
+      enabled: true
+      timeout: 30

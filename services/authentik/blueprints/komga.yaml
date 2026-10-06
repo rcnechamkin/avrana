@@ -17,9 +17,6 @@ entries:
         - matching_mode: strict
           url: https://read.avrana.net/login/oauth2/code/authentik
           redirect_uri_type: authorization
-        - matching_mode: strict
-          url: http://10.0.0.218:25600/login/oauth2/code/authentik
-          redirect_uri_type: authorization
       grant_types:
         - authorization_code
         - refresh_token

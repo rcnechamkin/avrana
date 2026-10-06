@@ -16,9 +16,6 @@ entries:
       client_secret: !Env AVRANA_OIDC_SHELFARR_CLIENT_SECRET
       redirect_uris:
         - matching_mode: strict
-          url: http://10.0.0.218:5056/auth/oidc/callback
-          redirect_uri_type: authorization
-        - matching_mode: strict
           url: https://requestabook.avrana.net/auth/oidc/callback
           redirect_uri_type: authorization
       grant_types:
@@ -46,5 +43,21 @@ entries:
       target: !KeyOf shelfarr-app
       group: !Find [authentik_core.group, [name, avrana-users]]
       order: 0
+    attrs:
+      enabled: true
+  # Existed live but undeclared until the 2026-10-06 audit (finding 4): Shelfarr requests ebooks and
+  # audiobooks, so it also requires avrana-books (order 0) and avrana-audiobooks (order 1).
+  - model: authentik_policies.policybinding
+    identifiers:
+      target: !KeyOf shelfarr-app
+      group: !Find [authentik_core.group, [name, avrana-books]]
+      order: 0
+    attrs:
+      enabled: true
+  - model: authentik_policies.policybinding
+    identifiers:
+      target: !KeyOf shelfarr-app
+      group: !Find [authentik_core.group, [name, avrana-audiobooks]]
+      order: 1
     attrs:
       enabled: true
