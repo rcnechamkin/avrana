@@ -73,6 +73,10 @@ docker run --rm --pull never --user 1000:1000 -e RCLONE_CONFIG=/c/rclone.conf \
 On a new machine with no configuration, run `offhost-setup.sh` first with the values from 1Password.
 The full rebuild procedure is `BOOTSTRAP.md`.
 
+`offhost-verify-secrets.sh` proves, without touching the host configuration, that the values in
+1Password unlock the data: it builds a throwaway configuration from hidden prompts, lists the newest
+remote run through it and shreds the configuration. Run it after any change to the 1Password entry.
+
 ## What is and is not uploaded
 
 Regular files only. The 13 symlinks under `systemd/user/*.wants/` are skipped by rclone and are not

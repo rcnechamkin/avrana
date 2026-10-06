@@ -6,7 +6,7 @@
 | `required-artifacts.txt`, `verify-required.py` | The completeness gate: 184 files and archive members every run must contain. |
 | `restore-map.txt` | Where each artifact goes on a rebuilt host. |
 | `restore-test.py` (`restore-test.sh` is a wrapper) | Proves a run can rebuild the server without touching the run or production. Timer `avrana-restore-test.timer`, Sundays 04:30. |
-| `offhost-backup.py`, `offhost-setup.sh`, `OFFHOST.md` | Encrypted, add-only copy to Backblaze B2. Timer `avrana-offhost.timer`, 03:30. |
+| `offhost-backup.py`, `offhost-setup.sh`, `offhost-verify-secrets.sh`, `OFFHOST.md` | Encrypted, add-only copy to Backblaze B2. Timer `avrana-offhost.timer`, 03:30. |
 | `tests/` | Offline tests for the tooling above. |
 
 ## What a run contains

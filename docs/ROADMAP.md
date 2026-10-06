@@ -8,7 +8,11 @@ production change. Finding numbers (A5, A9 ...) refer to the October 2026 bug hu
 - Rotate the SMTP2GO password and run the staged script that updates the two Authentik blueprints and
   writes `services/backups/.env.alert`. Until then no alert e-mail is delivered.
 - Add a second SSH key. Only one device can log in.
-- Set the B2 lifecycle rule and, ideally, a key without delete rights (`services/backups/OFFHOST.md`).
+- Raise the Backblaze download cap so one run (about 1.1 GB) can be restored more than once a day; the
+  2026-10-04 repeat restore was refused with `download_cap_exceeded`. Ideally also a key without
+  delete rights (`services/backups/OFFHOST.md`).
+- Run `services/backups/offhost-verify-secrets.sh` once to prove the 1Password values unlock the data.
+- Set `rcnechamkin/Kern-Ecosystem` to archived on GitHub (tag `archive-2026-10-04` is pushed).
 - Decide where the Avrana Party wiki pages belong (`docs/archive/bookstack/INDEX.md`, OWNER REVIEW).
 - Approve retirement of the BookStack containers now that their content is archived.
 
