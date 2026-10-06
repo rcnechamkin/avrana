@@ -1,6 +1,3 @@
-# TEMPLATE. Secret values were removed when this was imported from production on 2026-10-04.
-# The deployed file is services/authentik/blueprints/audiobookshelf.yaml (mode 0600, not in Git, restored from backup).
-# docs/SECRETS.md lists each removed value and where it comes from.
 version: 1
 metadata:
   name: Avrana - Audiobookshelf OIDC
@@ -54,7 +51,7 @@ entries:
       authorization_flow: !Find [authentik_flows.flow, [slug, default-provider-authorization-implicit-consent]]
       invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]
       client_id: f9aea1396b6671acbdf9fb3d1723524e6acb7328
-      client_secret: "<SECRET - not in Git; see docs/SECRETS.md>"
+      client_secret: !Env AVRANA_OIDC_AUDIOBOOKSHELF_CLIENT_SECRET
       redirect_uris:
         - matching_mode: strict
           url: https://listen.avrana.net/auth/openid/callback

@@ -14,14 +14,8 @@
 *.key
 *.p12
 *.pfx
-# Authentik blueprints that embed secrets are deployed from backup; only *.template is tracked.
-/services/authentik/blueprints/audible-connector.yaml
-/services/authentik/blueprints/audiobookshelf.yaml
-/services/authentik/blueprints/avrana-enrollment.yaml
-/services/authentik/blueprints/avrana-recovery.yaml
-/services/authentik/blueprints/komga.yaml
-/services/authentik/blueprints/omnibus.yaml
-/services/authentik/blueprints/shelfarr.yaml
+# Authentik blueprints carry no secrets since 2026-10-06 (they reference services/authentik/blueprints.env
+# through !Env, and that file is covered by *.env above), so all of them are tracked.
 # rclone configuration holds the B2 key and the crypt passwords.
 rclone.conf
 rclone.conf.*

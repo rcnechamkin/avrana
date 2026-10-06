@@ -1,53 +1,51 @@
-# TEMPLATE. Secret values were removed when this was imported from production on 2026-10-04.
-# The deployed file is services/authentik/blueprints/shelfarr.yaml (mode 0600, not in Git, restored from backup).
-# docs/SECRETS.md lists each removed value and where it comes from.
 version: 1
 metadata:
-  name: Avrana - Shelfarr OIDC
+  name: Avrana - Komga OIDC
   labels:
     blueprints.goauthentik.io/instantiate: "true"
-
 entries:
   - model: authentik_providers_oauth2.oauth2provider
-    id: shelfarr-provider
+    id: komga-provider
     identifiers:
-      name: shelfarr
+      name: komga
     attrs:
       authorization_flow: !Find [authentik_flows.flow, [slug, default-provider-authorization-implicit-consent]]
       invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]
-      client_id: 8da9285f96a91eae071418ef2889282db3754853
-      client_secret: "<SECRET - not in Git; see docs/SECRETS.md>"
+      client_id: 6f917b99007d9604271fc75cd345b69c0885d93e
+      client_secret: !Env AVRANA_OIDC_KOMGA_CLIENT_SECRET
       redirect_uris:
         - matching_mode: strict
-          url: http://10.0.0.218:5056/auth/oidc/callback
+          url: https://read.avrana.net/login/oauth2/code/authentik
           redirect_uri_type: authorization
         - matching_mode: strict
-          url: https://requestabook.avrana.net/auth/oidc/callback
+          url: http://10.0.0.218:25600/login/oauth2/code/authentik
           redirect_uri_type: authorization
       grant_types:
         - authorization_code
         - refresh_token
       property_mappings:
         - !Find [authentik_providers_oauth2.scopemapping, [managed, goauthentik.io/providers/oauth2/scope-openid]]
-        - !Find [authentik_providers_oauth2.scopemapping, [managed, goauthentik.io/providers/oauth2/scope-email]]
+        - !Find [authentik_providers_oauth2.scopemapping, [name, Avrana Audiobookshelf verified email]]
         - !Find [authentik_providers_oauth2.scopemapping, [managed, goauthentik.io/providers/oauth2/scope-profile]]
       signing_key: !Find [authentik_crypto.certificatekeypair, [name, authentik Self-signed Certificate]]
-
+  # See the note in audiobookshelf.yaml: the slug is the OIDC issuer path, and Komga
+  # pins it in application.yml as issuer-uri. Renaming this app in the web UI would
+  # break that, so keep the slug declarative here.
   - model: authentik_core.application
-    id: shelfarr-app
+    id: komga-app
     identifiers:
-      slug: shelfarr
+      slug: komga
     attrs:
-      name: Shelfarr
+      # Display name + landing-page category only. The SLUG (the OIDC issuer path) stays
+      # "komga" — that's the thing renaming would break, not this label.
+      name: Comics
       group: Read
-      provider: !KeyOf shelfarr-provider
-      meta_launch_url: https://requestabook.avrana.net
-      meta_description: Request ebooks and audiobooks
-
+      provider: !KeyOf komga-provider
+      meta_launch_url: https://read.avrana.net
   - model: authentik_policies.policybinding
     identifiers:
-      target: !KeyOf shelfarr-app
-      group: !Find [authentik_core.group, [name, avrana-users]]
+      target: !KeyOf komga-app
+      group: !Find [authentik_core.group, [name, avrana-comics]]
       order: 0
     attrs:
       enabled: true

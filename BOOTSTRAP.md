@@ -92,18 +92,15 @@ RUN=/path/to/backup/run               # e.g. /mnt/avrana_media/.backups/avrana/2
 
 Do not continue unless the restore test passes.
 
-Secrets come back from the backup, not from Git. `stack-config/stack-config.tar.zst` holds every `.env`,
-every `secrets/` directory and the seven secret-bearing Authentik blueprints. Extract **only those**; the
-rest of that archive is an older copy of what Git already has:
+Secrets come back from the backup, not from Git. `stack-config/stack-config.tar.zst` holds every `.env`
+(including `services/authentik/blueprints.env`, which the blueprints reference) and every `secrets/`
+directory. Extract **only those**; the rest of that archive is an older copy of what Git already has:
 
 ```bash
 cd /home/cody/avrana
 zstd -dc "$RUN/stack-config/stack-config.tar.zst" | tar -xpf - --wildcards \
   'services/*/.env' 'services/*/*.env' 'services/*/secrets' \
-  'services/authentik/blueprints/audible-connector.yaml' 'services/authentik/blueprints/audiobookshelf.yaml' \
-  'services/authentik/blueprints/avrana-enrollment.yaml' 'services/authentik/blueprints/avrana-recovery.yaml' \
-  'services/authentik/blueprints/komga.yaml' 'services/authentik/blueprints/omnibus.yaml' \
-  'services/authentik/blueprints/shelfarr.yaml' 'services/backups/.env.alert' 'services/backups/rclone.conf'
+  'services/backups/.env.alert' 'services/backups/rclone.conf'
 mkdir -p ~/.cloudflared && zstd -dc "$RUN/cloudflared/cloudflared-config.tar.zst" | tar -C ~/.cloudflared -xpf -
 chmod 700 ~/.cloudflared
 ```
@@ -306,7 +303,7 @@ It has **not** been executed end to end on a spare machine. That rehearsal is on
 |---|---|
 | Host facts in section 1 (OS, uid, address, Docker, Compose, data-root, UUID) | read from the host |
 | All compose files parse (`docker compose config -q`) | 23 of 23 |
-| Secret extraction command in section 4 | selects 13 env files, 2 `secrets/` directories and the 7 blueprints; nothing else |
+| Secret extraction command in section 4 | selects the env files (14 since `blueprints.env`, 2026-10-06), 2 `secrets/` directories, `.env.alert` and `rclone.conf`; no blueprint, since none carries a secret any more |
 | Authentik database restore (section 7, step 1) | loaded into a disposable Postgres 16 with no network: 0 errors, 215 tables, 18 users, 16 flows |
 | BookStack database restore | loaded into a disposable MariaDB 11.8 with no network: 41 tables, 72 pages |
 | Every SQLite database, archive and dump in the run | `restore-test.py`: all pass |

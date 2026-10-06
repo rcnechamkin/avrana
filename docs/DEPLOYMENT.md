@@ -34,8 +34,10 @@ Rollback is the saved copy.
 - User units are tracked in `deploy/systemd/` and `deploy/storage/systemd/` and installed in
   `~/.config/systemd/user/`. Host units and drop-ins are in `deploy/host/`, `deploy/storage/dropins/`
   and `deploy/docker/`.
-- Seven Authentik blueprints exist in Git only as `.template` files. Editing a template does not change
-  production; the deployed `.yaml` must be edited on the host.
+- All 13 Authentik blueprints are tracked and carry no secrets: they reference
+  `services/authentik/blueprints.env` with `!Env` (loaded by the worker only). Deploy a changed
+  blueprint like any other file; the worker applies it on its own. After changing `blueprints.env`,
+  `docker compose up -d --no-deps worker`.
 
 ## History
 

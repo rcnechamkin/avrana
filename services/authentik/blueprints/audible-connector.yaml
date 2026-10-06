@@ -1,6 +1,3 @@
-# TEMPLATE. Secret values were removed when this was imported from production on 2026-10-04.
-# The deployed file is services/authentik/blueprints/audible-connector.yaml (not in Git, restored from backup).
-# docs/SECRETS.md lists each removed value and where it comes from.
 version: 1
 metadata:
   name: Avrana - Audible Connector OIDC
@@ -24,7 +21,7 @@ entries:
       invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]
       client_type: confidential
       client_id: "1624c68b0c5bf45918e1190314b8f7b011437125"
-      client_secret: "<SECRET - not in Git; see docs/SECRETS.md>"
+      client_secret: !Env AVRANA_OIDC_AUDIBLE_CONNECTOR_CLIENT_SECRET
       redirect_uris:
         - matching_mode: strict
           url: https://contribute.avrana.net/auth/callback

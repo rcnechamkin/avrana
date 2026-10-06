@@ -1,6 +1,3 @@
-# TEMPLATE. Secret values were removed when this was imported from production on 2026-10-04.
-# The deployed file is services/authentik/blueprints/omnibus.yaml (not in Git, restored from backup).
-# docs/SECRETS.md lists each removed value and where it comes from.
 version: 1
 metadata:
   name: Avrana - Omnibus OIDC
@@ -15,7 +12,7 @@ entries:
       authorization_flow: !Find [authentik_flows.flow, [slug, default-provider-authorization-implicit-consent]]
       invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]
       client_id: 3495c6106d0b19f97c1e6499ba6dfe8d8c71c97b
-      client_secret: "<SECRET - not in Git; see docs/SECRETS.md>"
+      client_secret: !Env AVRANA_OIDC_OMNIBUS_CLIENT_SECRET
       # Omnibus is NextAuth (Next.js 15). Its OIDC provider is registered with
       # id "oidc" (verified in the shipped bundle: id:"oidc",name:"OpenID
       # Connect",type:"oauth",wellKnown), so the callback path is fixed at

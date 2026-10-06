@@ -30,7 +30,8 @@ PATTERNS = {
     'credential in URL': re.compile(r'https?://[^\s/]+:[^\s/@]+@'),
     'literal credential assignment': re.compile(
         r'''(?im)^\s*(?:-\s+)?(?:[A-Za-z0-9_]*(?:password|api_key|token_secret|client_secret|session_key|secret_key))[ \t]*[:=][ \t]*["']?([A-Za-z0-9+/=_-]{16,})["']?[ \t]*[,;]?[ \t]*$'''),
-    'basic-auth literal': re.compile(r'''b64encode\(\s*b?["'][^"'<]*:[^"'<]+["']'''),
+    # a %s on either side is a !Format placeholder (Authentik blueprints), not a credential
+    'basic-auth literal': re.compile(r'''b64encode\(\s*b?["'][^"'<%]*:[^"'<%]+["']'''),
 }
 # Values that are obviously placeholders, not credentials (generate-with-openssl-..., CHANGE_ME).
 PLACEHOLDER = re.compile(r'^(?:generate-|change[-_]?me|example|placeholder|test[-_]|dummy|[A-Z0-9_]+_NOT_SET$)', re.I)

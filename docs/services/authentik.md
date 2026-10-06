@@ -5,7 +5,7 @@
 > Note: 13 blueprints were re-applied during the September recovery and have not been audited.
 > Original: [archive](../../docs/archive/bookstack/raw/services/42-authentik-sso.md).
 
-**Authentik** is the homelab OIDC/LDAP identity provider. `services/authentik/`: containers `authentik-server` + `authentik-worker` + `authentik-postgresql` + `authentik-ldap` (LDAP outpost). **:9000 LAN**, public tunnel **`auth.avrana.net`**. Version 2026.5.6. Secrets in gitignored `.env`; declarative config in gitignored `services/authentik/blueprints/` (auto-applied by the worker: `docker restart authentik-worker` to apply changes).
+**Authentik** is the homelab OIDC/LDAP identity provider. `services/authentik/`: containers `authentik-server` + `authentik-worker` + `authentik-postgresql` + `authentik-ldap` (LDAP outpost). **:9000 LAN**, public tunnel **`auth.avrana.net`**. Version 2026.5.6. Secrets in gitignored `.env` and `blueprints.env`; declarative config in `services/authentik/blueprints/` (tracked in Git, no secrets: the files reference `blueprints.env` with `!Env`; auto-applied by the worker when a file changes, `docker compose up -d --no-deps worker` after changing `blueprints.env`).
 
 ## How each app authenticates (they are NOT all the same)
 

@@ -7,5 +7,5 @@ After=docker.service
 Type=oneshot
 Nice=15
 IOSchedulingClass=idle
-ExecStart=/home/cody/avrana/services/backups/restore-test.py --alert
+ExecStart=/home/cody/avrana/services/backups/restore-test.py --alert --boot-all
 TimeoutStartSec=1h

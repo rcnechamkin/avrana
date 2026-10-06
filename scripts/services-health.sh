@@ -194,7 +194,7 @@ if [ -f "$expected_file" ]; then
   fi
   extra=""
   for name in $running; do
-    case "$name" in abs-restore-test) continue ;; esac
+    case "$name" in abs-restore-test|avrana-restore-test-*) continue ;; esac
     printf '%s\n' "$expected" | grep -qx "$name" || extra="$extra $name"
   done
   [ -n "$extra" ] && printf 'WARN containers running but not in expected-containers.txt:%s\n' "$extra" >&2

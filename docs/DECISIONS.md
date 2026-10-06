@@ -35,6 +35,7 @@ Do not resolve uncertainty by copying newer-looking text without evidence. Recor
 | Socket proxies: Unix sockets, no network | Chosen over a firewall rule because it removes the attack surface instead of filtering it; consumers mount the 0700 socket directory |
 | Docker is not made to require `comics_merged` | A failed union mount should cost an empty Komga library (now monitored), not the whole stack |
 | Kavita, the comics tunnel, nginx, libvirt, Plex and the Kern timers are retired | Kern timers removed on 2026-10-06; the rest is script 04/05, run by the owner |
+| Authentik blueprints are tracked in Git; the values they need live in `services/authentik/blueprints.env` (2026-10-06) | Every embedded secret became an `!Env` reference (`!Format` for the two expression policies); only the worker loads the file; the applied policies, providers and e-mail stages were verified unchanged by digest before and after the re-apply |
 | BookStack is retired, not repaired | Content extracted from a disposable restore into `docs/archive/bookstack/`; 31 pages promoted into `docs/`; containers stay until the owner approves removal |
 | 1Password is the credential store | No secret in Git, chat, logs or shell history; owner-run scripts with hidden prompts |
 | Backblaze B2 with rclone crypt is the off-host destination | Add-only uploader, retention by bucket lifecycle (`services/backups/OFFHOST.md`) |

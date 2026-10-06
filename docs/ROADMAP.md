@@ -1,6 +1,6 @@
 # Remaining work
 
-State on 2026-10-06, after remediation Batches 1 to 3. Finding numbers (A5, A9 ...) refer to the
+State on 2026-10-06, after remediation Batches 1 to 4. Finding numbers (A5, A9 ...) refer to the
 October 2026 bug hunt. Everything that needs root is staged as a script in `deploy/host/owner-scripts/`
 with its own README; everything below that is not a script needs the owner's hands or a decision.
 
@@ -8,7 +8,8 @@ with its own README; everything below that is not a script needs the owner's han
 
 Scripts, in order (`deploy/host/owner-scripts/README.md`): Mylar3 login (A5), fstab `nofail` and
 the unattended-upgrade blacklist (A6, A14), Compose v1 package removal (A12), retirement of the comics
-tunnel, nginx, libvirt and Plex, the Kavita config directory, the `avrana-agent` account.
+tunnel, nginx, libvirt and Plex, the Kavita config directory, the `avrana-agent` account, the
+cloudflared update from Cloudflare's apt repository (C3).
 
 Not scripts:
 
@@ -21,6 +22,23 @@ Not scripts:
 - Approve retirement of the BookStack containers now that their content is archived.
 - Apply the staged firewall (`deploy/ufw/`) from a console session.
 - A UPS.
+
+## Done in Batch 4 (2026-10-06), for the record
+
+- Authentik: the nine secrets the blueprints embedded (five OIDC client secrets, the SMTP2GO
+  password, the Jellyfin API key, the Komga admin e-mail and password) live in
+  `services/authentik/blueprints.env` (0600, worker only) and the blueprints reference them with
+  `!Env`; all 13 blueprints are tracked in Git. The applied policies, providers and e-mail stages
+  were verified unchanged by digest before and after the worker re-applied them. The audit of the
+  13 blueprints themselves is still open (deferred 1).
+- The weekly restore test boots throwaway Komga, Jellyfin and Authentik servers from the restored
+  copies, next to the Audiobookshelf one (`--boot-all` in the unit). First full run: all four pass.
+- `restore-test.py`: a decompressor whose consumer exits early no longer blocks for ever (the first
+  boot run hung this way); loads have a timeout; the SQLite count follows Kavita's retirement.
+- Completeness gate: `services/authentik/blueprints.env` is a required stack-config member (180).
+- Off-host, for the record: the 2026-10-06 nightly run uploaded but its `cryptcheck` hit the B2
+  download cap that the Batch 2 restore download had used up earlier the same UTC day; the next
+  nightly run catches up (the script retries unmarked runs newest first). Nothing changed.
 
 ## Done in Batch 3 (2026-10-06), for the record
 
@@ -39,9 +57,8 @@ Not scripts:
 
 ## Deferred, in rough order
 
-1. **Authentik.** Audit the 13 blueprints applied for the first time during the September recovery.
-   Move the Jellyfin API key and Komga admin password out of the enrollment blueprint's expression
-   code (`!Env` or a file mount), which needs a blueprint re-apply.
+1. **Authentik.** Audit the 13 blueprints applied for the first time during the September recovery
+   (the secrets they embedded are out since Batch 4, so the files can now be reviewed in Git).
 2. **Backups as a root system unit** with a root-owned tree (bug hunt E5), so neither `cody` nor the
    agent account can write the backup tree.
 3. **Storage.** Replace the USB enclosure; move Docker's data-root off it

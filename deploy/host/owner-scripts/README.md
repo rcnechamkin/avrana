@@ -12,6 +12,7 @@ says how to roll back. Run them in order; each is independent and can wait.
 | `04-retire-legacy-services.sh` | Stops and removes the comics tunnel, nine dead unit files, nginx, libvirt and Plex (package only; data kept) | Plex; `comics.avrana.media` goes dark | health check exit 0; baseline says 1 tunnel |
 | `05-remove-leftovers.sh` | Deletes the retired Kavita config directory (tarball saved) and an empty root-owned leftover | none | — |
 | `06-avrana-agent-account.sh` | Creates the unprivileged `avrana-agent` account with the `avrana-ro` read-only wrapper and a memory ceiling | none | the script's own checks |
+| `07-update-cloudflared.sh` | Installs cloudflared from Cloudflare's apt repository (you confirm the key fingerprint at a prompt) and points the tunnel unit at it; the 2025.6.1 binary is kept for rollback (C3) | tunnel, about 10 s | the script checks 12 hostnames and rolls back on its own if any fails; then commit `deploy/host/cloudflared/cloudflared-avrana.service` |
 
 After `04`, commit the updated `deploy/host/fstab` and `deploy/host/apt/` files that `02` copies
 into the live tree, and remove `cloudflared/config-comics.yml` from the backup's `cloudflared`

@@ -190,6 +190,69 @@ class RemoteRunsTests(unittest.TestCase):
         self.assertEqual({}, self.run_with({"tier:": (3, "", "directory not found")}))
 
 
+class BootTestHelpers(unittest.TestCase):
+    def test_boot_tests_are_registered_and_ports_private(self):
+        self.assertEqual({"abs", "komga", "jellyfin", "authentik"}, set(restore.BOOT_TESTS))
+        self.assertEqual(2, len(set(restore.BOOT_PORTS.values())))   # Authentik stays on its internal network
+        self.assertTrue(all(name.startswith("avrana-restore-test-") for name in
+                            (restore.BOOT_PREFIX + "x", restore.BOOT_NETWORK)))
+
+    def test_compose_image_parser(self):
+        text = """services:
+  postgresql:
+    image: docker.io/library/postgres@sha256:aaaa  # 16
+  server:
+    container_name: authentik-server
+    image: "ghcr.io/goauthentik/server@sha256:bbbb"
+    command: server
+  worker:
+    image: ghcr.io/goauthentik/server@sha256:bbbb
+"""
+        original = restore.run_from_zstd
+        restore.run_from_zstd = lambda path, command, **k: subprocess.CompletedProcess(command, 0, text, "")
+        try:
+            self.assertEqual("docker.io/library/postgres@sha256:aaaa", restore.compose_image(pathlib.Path("."), "m", "postgresql"))
+            self.assertEqual("ghcr.io/goauthentik/server@sha256:bbbb", restore.compose_image(pathlib.Path("."), "m", "server"))
+            self.assertIsNone(restore.compose_image(pathlib.Path("."), "m", "redis"))
+        finally:
+            restore.run_from_zstd = original
+
+    def fake_producer(self, size):
+        """Stands in for zstd: a process that writes `size` bytes to a pipe."""
+        return subprocess.Popen([sys.executable, "-c", f"import sys; sys.stdout.buffer.write(b'x' * {size})"],
+                                stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+
+    def test_run_from_zstd_survives_a_consumer_that_exits_early(self):
+        # 2026-10-06: psql exited on an error and zstd sat blocked on a full pipe for ever
+        original = restore.zstd_stream
+        restore.zstd_stream = lambda path: self.fake_producer(8 << 20)
+        try:
+            done = restore.run_from_zstd("x", [sys.executable, "-c", "import sys; sys.stdin.buffer.read(1); sys.exit(3)"],
+                                         timeout=60)
+        finally:
+            restore.zstd_stream = original
+        self.assertEqual(3, done.returncode)
+
+    def test_run_from_zstd_timeout_kills_both_sides(self):
+        original = restore.zstd_stream
+        restore.zstd_stream = lambda path: self.fake_producer(16)
+        try:
+            done = restore.run_from_zstd("x", [sys.executable, "-c", "import time; time.sleep(30)"], timeout=2)
+        finally:
+            restore.zstd_stream = original
+        self.assertEqual(-1, done.returncode)
+
+    def test_run_from_zstd_passes_the_stream_through(self):
+        original = restore.zstd_stream
+        restore.zstd_stream = lambda path: self.fake_producer(1000)
+        try:
+            done = restore.run_from_zstd("x", [sys.executable, "-c", "import sys; print(len(sys.stdin.buffer.read()))"],
+                                         text=True, timeout=60)
+        finally:
+            restore.zstd_stream = original
+        self.assertEqual((0, "1000"), (done.returncode, done.stdout.strip()))
+
+
 class OffhostMarkerTests(unittest.TestCase):
     """restore-test.py must verify the marker a downloaded run carries, not skip it."""
 

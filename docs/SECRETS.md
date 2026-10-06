@@ -22,9 +22,7 @@ service's `.env.example`.
 | Path under `/home/cody/avrana` | Contents |
 |---|---|
 | `services/authentik/.env` | Postgres password, `AUTHENTIK_SECRET_KEY`, LDAP outpost token |
-| `services/authentik/blueprints/audible-connector.yaml`, `audiobookshelf.yaml`, `komga.yaml`, `omnibus.yaml`, `shelfarr.yaml` | OIDC `client_secret` for each application (`.template` files in Git have the value removed) |
-| `services/authentik/blueprints/avrana-enrollment.yaml` | SMTP2GO password; a Jellyfin API key and the Komga admin e-mail and password, both embedded in expression policies that create member accounts |
-| `services/authentik/blueprints/avrana-recovery.yaml` | SMTP2GO password |
+| `services/authentik/blueprints.env` | the nine values the blueprints reference with `!Env` (names in `blueprints.env.example`): the OIDC `client_secret` of audible-connector, audiobookshelf, komga, omnibus and shelfarr; the SMTP2GO password; the Jellyfin API key and the Komga admin e-mail and password used by the expression policies that create member accounts. Loaded by the worker only. The blueprint files themselves carry no secrets since 2026-10-06 and are tracked in Git |
 | `services/avrana-audible-connector/secrets/` | `companion_token`, `oidc_client_secret`, `session_key` (regenerate with `scripts/gen-secrets.sh` only if also updating Authentik) |
 | `services/beszel/secrets/` | hub and agent keys |
 | `services/homepage/widget-secrets.env` | API keys for the dashboard widgets |
@@ -54,5 +52,7 @@ service's `.env.example`.
 - Never print, paste or commit a value. Ask the owner to type it at a hidden prompt on the host.
 - Never search the disk for a credential and never `source` a file found that way.
 - `scripts/review_git_content.py --staged` must pass before every commit.
-- Rotating a secret that appears in a blueprint means editing the deployed blueprint file as well as the
-  service, or Authentik restores the old value the next time it applies blueprints.
+- Rotating a secret the blueprints reference means changing it in `services/authentik/blueprints.env`
+  and recreating the worker (`docker compose up -d --no-deps worker`) as well as in the service, or
+  Authentik restores the old value the next time it applies blueprints. Never put a value back into a
+  blueprint file: they are tracked in Git.

@@ -7,7 +7,7 @@
 How long an Avrana login lasts, and how to sign in with Face ID. Companion to
 [Authentik & SSO](../../docs/services/authentik.md). Applied **2026-08-28** on Authentik **2026.5.6**.
 
-Declarative config lives in the gitignored `services/authentik/blueprints/avrana-session-tuning.yaml`.
+Declarative config lives in `services/authentik/blueprints/avrana-session-tuning.yaml` (tracked in Git).
 It is auto-applied by the worker; `docker restart authentik-worker` forces a re-apply.
 A pre-change snapshot of every value touched is in `services/authentik/backups/pre-session-tuning-*.json`.
 

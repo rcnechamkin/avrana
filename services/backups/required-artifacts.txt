@@ -141,6 +141,7 @@ stack-config|member|stack-config/stack-config.tar.zst|services/authentik/bluepri
 stack-config|member|stack-config/stack-config.tar.zst|services/authentik/blueprints/shelfarr.yaml
 stack-config|member|stack-config/stack-config.tar.zst|services/authentik/docker-compose.yml
 stack-config|member|stack-config/stack-config.tar.zst|services/authentik/.env
+stack-config|member|stack-config/stack-config.tar.zst|services/authentik/blueprints.env
 stack-config|member|stack-config/stack-config.tar.zst|services/avrana-audible-connector/docker-compose.yml
 stack-config|member|stack-config/stack-config.tar.zst|services/avrana-audible-connector/.env
 stack-config|member|stack-config/stack-config.tar.zst|services/avrana-audible-connector/secrets/companion_token

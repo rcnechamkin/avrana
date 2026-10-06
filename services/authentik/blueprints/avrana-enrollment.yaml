@@ -1,6 +1,3 @@
-# TEMPLATE. Secret values were removed when this was imported from production on 2026-10-04.
-# The deployed file is services/authentik/blueprints/avrana-enrollment.yaml (mode 0600, not in Git, restored from backup).
-# docs/SECRETS.md lists each removed value and where it comes from.
 version: 1
 metadata:
   name: Avrana - Invite enrollment
@@ -141,93 +138,95 @@ entries:
       name: avrana-jellyfin-create
     attrs:
       execution_logging: true
-      expression: |
-        import hashlib
-        from urllib.parse import urljoin
+      expression: !Format
+        - |
+          import hashlib
+          from urllib.parse import urljoin
 
-        plan = request.context.get("flow_plan")
-        if not plan:
-            return True
+          plan = request.context.get("flow_plan")
+          if not plan:
+              return True
 
-        prompt = plan.context.get("prompt_data", {})
+          prompt = plan.context.get("prompt_data", {})
 
-        # Two independent signals, both set via the invitation's fixed_data (never a form
-        # field the enrollee fills in themselves):
-        #   avrana_groups containing "avrana-videos"  -> real access: create ENABLED, tile
-        #                                                 visible (existing behaviour).
-        #   avrana_precreate_jellyfin: true            -> identity only: create the account
-        #                                                 now but leave it DISABLED, so it
-        #                                                 exists for an admin to flip on
-        #                                                 later without a second enrollment.
-        # Jellyfin has no concept of Authentik groups, so hiding the tile alone would NOT
-        # block login -- IsDisabled is the only real gate, which is why the precreate path
-        # explicitly sets it after creation.
-        groups = plan.context.get("groups", [])
-        want_access = any(g.name == "avrana-videos" for g in groups)
-        want_precreate = bool(prompt.get("avrana_precreate_jellyfin"))
-        if not (want_access or want_precreate):
-            ak_logger.info("jellyfin-create: no avrana-videos and no precreate flag, skipping")
-            return True
+          # Two independent signals, both set via the invitation's fixed_data (never a form
+          # field the enrollee fills in themselves):
+          #   avrana_groups containing "avrana-videos"  -> real access: create ENABLED, tile
+          #                                                 visible (existing behaviour).
+          #   avrana_precreate_jellyfin: true            -> identity only: create the account
+          #                                                 now but leave it DISABLED, so it
+          #                                                 exists for an admin to flip on
+          #                                                 later without a second enrollment.
+          # Jellyfin has no concept of Authentik groups, so hiding the tile alone would NOT
+          # block login -- IsDisabled is the only real gate, which is why the precreate path
+          # explicitly sets it after creation.
+          groups = plan.context.get("groups", [])
+          want_access = any(g.name == "avrana-videos" for g in groups)
+          want_precreate = bool(prompt.get("avrana_precreate_jellyfin"))
+          if not (want_access or want_precreate):
+              ak_logger.info("jellyfin-create: no avrana-videos and no precreate flag, skipping")
+              return True
 
-        username = prompt.get("username")
-        password = prompt.get("password")
-        email = prompt.get("email")
+          username = prompt.get("username")
+          password = prompt.get("password")
+          email = prompt.get("email")
 
-        if not (username and password and email):
-            ak_logger.warning("jellyfin-create: missing prompt data", username=bool(username), password=bool(password), email=bool(email))
-            return True
+          if not (username and password and email):
+              ak_logger.warning("jellyfin-create: missing prompt data", username=bool(username), password=bool(password), email=bool(email))
+              return True
 
-        # Jellyfin runs on HOST networking, so it is NOT reachable by container name
-        # from the authentik-server container -- it must be addressed by the host LAN IP.
-        # POST /Users/New (CreateUserByName) takes {Name, Password} and sets the password
-        # server-side. This is credential REPLICATION, not SSO: Jellyfin stores its own
-        # copy, so a later Authentik password change will not propagate here.
-        jellyfin_url = "http://10.0.0.218:8096"
-        api_key = "<SECRET - see docs/SECRETS.md>"
-        headers = {"X-MediaBrowser-Token": api_key}
+          # Jellyfin runs on HOST networking, so it is NOT reachable by container name
+          # from the authentik-server container -- it must be addressed by the host LAN IP.
+          # POST /Users/New (CreateUserByName) takes {Name, Password} and sets the password
+          # server-side. This is credential REPLICATION, not SSO: Jellyfin stores its own
+          # copy, so a later Authentik password change will not propagate here.
+          jellyfin_url = "http://10.0.0.218:8096"
+          api_key = "%s"
+          headers = {"X-MediaBrowser-Token": api_key}
 
-        try:
-            resp = requests.post(
-                urljoin(jellyfin_url, "/Users/New"),
-                json={"Name": username, "Password": password},
-                headers=headers,
-                timeout=10,
-            )
-            if resp.status_code not in (200, 204):
-                ak_logger.warning("jellyfin-create: unexpected status", username=username, status=resp.status_code, body=resp.text[:200])
-                return True
-            ak_logger.info("jellyfin-create: user created", username=username, status=resp.status_code)
+          try:
+              resp = requests.post(
+                  urljoin(jellyfin_url, "/Users/New"),
+                  json={"Name": username, "Password": password},
+                  headers=headers,
+                  timeout=10,
+              )
+              if resp.status_code not in (200, 204):
+                  ak_logger.warning("jellyfin-create: unexpected status", username=username, status=resp.status_code, body=resp.text[:200])
+                  return True
+              ak_logger.info("jellyfin-create: user created", username=username, status=resp.status_code)
 
-            if not want_access:
-                # Precreate-only: disable the freshly created account. Send back the FULL
-                # policy Jellyfin just assigned (with IsDisabled flipped) rather than a
-                # partial body -- /Users/{id}/Policy replaces the whole object.
-                created = resp.json() if resp.content else {}
-                uid = created.get("Id")
-                if not uid:
-                    lookup = requests.get(urljoin(jellyfin_url, "/Users"), headers=headers, timeout=10)
-                    match = next((u for u in lookup.json() if u.get("Name") == username), None)
-                    uid = match.get("Id") if match else None
-                    created = match or {}
-                policy = created.get("Policy") or {}
-                policy["IsDisabled"] = True
-                if uid:
-                    pr = requests.post(urljoin(jellyfin_url, f"/Users/{uid}/Policy"),
-                                        json=policy, headers=headers, timeout=10)
-                    if pr.status_code in (200, 204):
-                        ak_logger.info("jellyfin-create: account disabled pending access grant", username=username)
-                    else:
-                        ak_logger.warning("jellyfin-create: failed to disable precreated account",
-                                           username=username, status=pr.status_code, body=pr.text[:200])
-                else:
-                    ak_logger.error("jellyfin-create: could not resolve new user id to disable it", username=username)
-        except Exception as e:
-            ak_logger.error("jellyfin-create: request failed", username=username, error=str(e))
-            # Don't fail the enrollment flow if Jellyfin is unreachable
-            return True
+              if not want_access:
+                  # Precreate-only: disable the freshly created account. Send back the FULL
+                  # policy Jellyfin just assigned (with IsDisabled flipped) rather than a
+                  # partial body -- /Users/{id}/Policy replaces the whole object.
+                  created = resp.json() if resp.content else {}
+                  uid = created.get("Id")
+                  if not uid:
+                      lookup = requests.get(urljoin(jellyfin_url, "/Users"), headers=headers, timeout=10)
+                      match = next((u for u in lookup.json() if u.get("Name") == username), None)
+                      uid = match.get("Id") if match else None
+                      created = match or {}
+                  policy = created.get("Policy") or {}
+                  policy["IsDisabled"] = True
+                  if uid:
+                      pr = requests.post(urljoin(jellyfin_url, f"/Users/{uid}/Policy"),
+                                          json=policy, headers=headers, timeout=10)
+                      if pr.status_code in (200, 204):
+                          ak_logger.info("jellyfin-create: account disabled pending access grant", username=username)
+                      else:
+                          ak_logger.warning("jellyfin-create: failed to disable precreated account",
+                                             username=username, status=pr.status_code, body=pr.text[:200])
+                  else:
+                      ak_logger.error("jellyfin-create: could not resolve new user id to disable it", username=username)
+          except Exception as e:
+              ak_logger.error("jellyfin-create: request failed", username=username, error=str(e))
+              # Don't fail the enrollment flow if Jellyfin is unreachable
+              return True
 
-        return True
+          return True
 
+        - !Env AVRANA_JELLYFIN_API_KEY
   # --- invitation fixed_data -> real group membership ---------------------------
   # The invitation stage merges fixed_data into plan.context["prompt_data"], but
   # user_write reads group assignments from the TOP-LEVEL plan.context["groups"] and
@@ -275,78 +274,81 @@ entries:
       name: avrana-komga-create
     attrs:
       execution_logging: true
-      expression: |
-        import base64
-        from urllib.parse import urljoin
+      expression: !Format
+        - |
+          import base64
+          from urllib.parse import urljoin
 
-        plan = request.context.get("flow_plan")
-        if not plan:
-            return True
+          plan = request.context.get("flow_plan")
+          if not plan:
+              return True
 
-        prompt = plan.context.get("prompt_data", {})
+          prompt = plan.context.get("prompt_data", {})
 
-        # Only for people who actually get comics.
-        groups = plan.context.get("groups", [])
-        if not any(g.name == "avrana-comics" for g in groups):
-            ak_logger.info("komga-create: no avrana-comics, skipping")
-            return True
+          # Only for people who actually get comics.
+          groups = plan.context.get("groups", [])
+          if not any(g.name == "avrana-comics" for g in groups):
+              ak_logger.info("komga-create: no avrana-comics, skipping")
+              return True
 
-        email = prompt.get("email")
-        password = prompt.get("password")
-        if not (email and password):
-            ak_logger.warning("komga-create: missing prompt data", email=bool(email), password=bool(password))
-            return True
+          email = prompt.get("email")
+          password = prompt.get("password")
+          if not (email and password):
+              ak_logger.warning("komga-create: missing prompt data", email=bool(email), password=bool(password))
+              return True
 
-        # WHY THIS EXISTS: Komga's OIDC covers the web UI, but OPDS clients (comic reader
-        # apps) speak HTTP Basic only, and an account created by signing in with Avrana has
-        # no password the member knows. Creating the account here with the SAME email and
-        # password they just chose means those apps work without a second credential.
-        #
-        # This is credential REPLICATION, not SSO, exactly like the Jellyfin policy above:
-        # Komga keeps its own copy, so a later Authentik password change does NOT propagate.
-        #
-        # Komga sits on its own compose network (komga_default) and authentik-server is on
-        # authentik_backend/frontend, so the container name does NOT resolve between them.
-        # Addressed by host LAN IP for the same reason the Jellyfin policy above is.
-        komga_url = "http://10.0.0.218:25600"
-        auth = base64.b64encode(b"<SECRET - see docs/SECRETS.md>").decode()
-        headers = {"Authorization": "Basic " + auth}
+          # WHY THIS EXISTS: Komga's OIDC covers the web UI, but OPDS clients (comic reader
+          # apps) speak HTTP Basic only, and an account created by signing in with Avrana has
+          # no password the member knows. Creating the account here with the SAME email and
+          # password they just chose means those apps work without a second credential.
+          #
+          # This is credential REPLICATION, not SSO, exactly like the Jellyfin policy above:
+          # Komga keeps its own copy, so a later Authentik password change does NOT propagate.
+          #
+          # Komga sits on its own compose network (komga_default) and authentik-server is on
+          # authentik_backend/frontend, so the container name does NOT resolve between them.
+          # Addressed by host LAN IP for the same reason the Jellyfin policy above is.
+          komga_url = "http://10.0.0.218:25600"
+          auth = base64.b64encode(b"%s:%s").decode()
+          headers = {"Authorization": "Basic " + auth}
 
-        try:
-            # If OIDC already auto-created this account (oauth2-account-creation is on), a
-            # second create would 4xx. Check first and set the password on the existing row
-            # instead, so whichever happens first still ends with usable credentials.
-            existing = None
-            resp = requests.get(urljoin(komga_url, "/api/v2/users"), headers=headers, timeout=10)
-            if resp.status_code == 200:
-                for u in resp.json():
-                    if (u.get("email") or "").lower() == email.lower():
-                        existing = u.get("id")
-                        break
+          try:
+              # If OIDC already auto-created this account (oauth2-account-creation is on), a
+              # second create would 4xx. Check first and set the password on the existing row
+              # instead, so whichever happens first still ends with usable credentials.
+              existing = None
+              resp = requests.get(urljoin(komga_url, "/api/v2/users"), headers=headers, timeout=10)
+              if resp.status_code == 200:
+                  for u in resp.json():
+                      if (u.get("email") or "").lower() == email.lower():
+                          existing = u.get("id")
+                          break
 
-            if existing:
-                resp = requests.patch(
-                    urljoin(komga_url, "/api/v2/users/" + existing + "/password"),
-                    json={"password": password}, headers=headers, timeout=10,
-                )
-                ak_logger.info("komga-create: set password on existing account", email=email, status=resp.status_code)
-            else:
-                resp = requests.post(
-                    urljoin(komga_url, "/api/v2/users"),
-                    json={"email": email, "password": password,
-                          "roles": ["FILE_DOWNLOAD", "PAGE_STREAMING"]},
-                    headers=headers, timeout=10,
-                )
-                if resp.status_code not in (200, 201):
-                    ak_logger.warning("komga-create: unexpected status", email=email, status=resp.status_code, body=resp.text[:200])
-                    return True
-                ak_logger.info("komga-create: created", email=email)
-        except Exception as exc:
-            # Never block enrollment because a downstream service is unreachable.
-            ak_logger.warning("komga-create: failed", error=str(exc)[:200])
+              if existing:
+                  resp = requests.patch(
+                      urljoin(komga_url, "/api/v2/users/" + existing + "/password"),
+                      json={"password": password}, headers=headers, timeout=10,
+                  )
+                  ak_logger.info("komga-create: set password on existing account", email=email, status=resp.status_code)
+              else:
+                  resp = requests.post(
+                      urljoin(komga_url, "/api/v2/users"),
+                      json={"email": email, "password": password,
+                            "roles": ["FILE_DOWNLOAD", "PAGE_STREAMING"]},
+                      headers=headers, timeout=10,
+                  )
+                  if resp.status_code not in (200, 201):
+                      ak_logger.warning("komga-create: unexpected status", email=email, status=resp.status_code, body=resp.text[:200])
+                      return True
+                  ak_logger.info("komga-create: created", email=email)
+          except Exception as exc:
+              # Never block enrollment because a downstream service is unreachable.
+              ak_logger.warning("komga-create: failed", error=str(exc)[:200])
 
-        return True
+          return True
 
+        - !Env AVRANA_KOMGA_ADMIN_EMAIL
+        - !Env AVRANA_KOMGA_ADMIN_PASSWORD
   # --- email verification -------------------------------------------------------
   # Uses the SAME SMTP as password recovery. Placed AFTER user_write because Authentik's email
   # stage hard-fails with "No pending user" unless PLAN_CONTEXT_PENDING_USER is set, and only
@@ -363,7 +365,7 @@ entries:
       host: mail.smtp2go.com
       port: 587
       username: avrana-mail
-      password: "<SECRET - not in Git; see docs/SECRETS.md>"
+      password: !Env AVRANA_SMTP2GO_PASSWORD
       use_tls: true
       use_ssl: false
       timeout: 30

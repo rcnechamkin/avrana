@@ -5,8 +5,8 @@
 > `cody` and root can reach the Docker API through them. Blueprints and the connector secrets are
 > 600/700. Still open, in `docs/ROADMAP.md` and `deploy/host/owner-scripts/`: no host firewall (staged);
 > Mylar3 has no login (script 01); agents still run as `cody` (script 06); the SMTP2GO password awaits
-> rotation; the enrollment blueprint embeds a Jellyfin API key and the Komga admin password in
-> expression code. Where each secret lives: [`SECRETS.md`](SECRETS.md).
+> rotation. The blueprints no longer embed any secret (moved to `services/authentik/blueprints.env`,
+> worker only, 2026-10-06). Where each secret lives: [`SECRETS.md`](SECRETS.md).
 
 This is operational guidance, not a new security audit. It incorporates BookStack pages 37, 42, 59, 69, 76 and 77 with the production boundaries verified in this session.
 

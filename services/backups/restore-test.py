@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Prove an Avrana backup run can rebuild the server, without touching the run or production.
 
-    restore-test.py [RUN_DIR] [--work DIR] [--boot-abs] [--alert] [--no-state] [--repo DIR]
+    restore-test.py [RUN_DIR] [--work DIR] [--boot LIST|--boot-all] [--alert] [--no-state] [--repo DIR]
 
 RUN_DIR defaults to the newest complete run under the backup root (AVRANA_BACKUP_ROOT, or
 /mnt/avrana_media/.backups/avrana). Runs named *.partial or *.partial-failed are never chosen.
@@ -17,8 +17,10 @@ What it does, in order:
   5. tests every .zst archive, lists every tar, and checks the three SQL dumps are complete
   6. checks rebuild prerequisites: compose files, secrets, tunnel credentials, units, fstab,
      Docker data-root, external networks named in BOOTSTRAP.md, Dockerfiles for built images
-  7. optionally (--boot-abs) boots a throwaway Audiobookshelf from the restored copy on
-     127.0.0.1:18378 with the library mounted read-only
+  7. optionally (--boot abs,komga,jellyfin,authentik or --boot-all) boots throwaway servers from
+     the restored copies (127.0.0.1 ports 18378, 18600 and 18096; Authentik on an internal network
+     only), with the images pinned in the run's own compose files; Authentik gets a throwaway
+     Postgres loaded from the dump
   8. fingerprints the run again and fails if anything differs
 
 Nothing is ever opened in place inside the run directory except for reading bytes. Nothing is
@@ -319,12 +321,44 @@ def check_sqlite(run, work, report):
         copy.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(path, copy)                      # the original is only ever read
         sqlite_check(copy, rel, SQLITE_TABLES.get(rel, []), report)
-    report.check(found >= 18, f"sqlite: {found} databases checked on copies",
-                 f"sqlite: only {found} databases found, expected at least 18")
+    # 17 since Kavita's retirement (2026-10-06); runs made before that day carry 18
+    report.check(found >= 17, f"sqlite: {found} databases checked on copies",
+                 f"sqlite: only {found} databases found, expected at least 17")
 
 
 def zstd_stream(path):
     return subprocess.Popen(["zstd", "-dc", str(path)], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+
+
+def run_from_zstd(path, command, text=False, timeout=None):
+    """Run command with the decompressed archive on its stdin; returns a CompletedProcess.
+
+    The parent closes its end of the pipe once the consumer has it, so a consumer that exits
+    early (psql on an error, tar on a bad member) makes zstd stop on EPIPE instead of blocking
+    forever on a full pipe. A timeout kills both and yields return code -1."""
+    stream = zstd_stream(path)
+    try:
+        consumer = subprocess.Popen(command, stdin=stream.stdout, stdout=subprocess.PIPE,
+                                    stderr=subprocess.PIPE, text=text)
+    except OSError:
+        stream.kill()
+        stream.wait()
+        raise
+    stream.stdout.close()
+    try:
+        out, err = consumer.communicate(timeout=timeout)
+        code = consumer.returncode
+    except subprocess.TimeoutExpired:
+        consumer.kill()
+        stream.kill()
+        out, err = consumer.communicate()
+        code = -1
+    try:
+        stream.wait(timeout=30)
+    except subprocess.TimeoutExpired:
+        stream.kill()
+        stream.wait()
+    return subprocess.CompletedProcess(command, code, out, err)
 
 
 def check_archives(run, work, report):
@@ -334,9 +368,7 @@ def check_archives(run, work, report):
             report.fail(f"archive: {rel} fails zstd -t")
             continue
         if rel.endswith(".tar.zst"):
-            stream = zstd_stream(path)
-            listing = subprocess.run(["tar", "-tf", "-"], stdin=stream.stdout, capture_output=True, text=True)
-            stream.wait()
+            listing = run_from_zstd(path, ["tar", "-tf", "-"], text=True)
             members = [m[2:] if m.startswith("./") else m for m in listing.stdout.splitlines()]
             if listing.returncode != 0 or not members:
                 report.fail(f"archive: {rel} cannot be listed")
@@ -382,10 +414,7 @@ def check_archives(run, work, report):
     if archive.is_file():
         target = work / "jellyfin"
         target.mkdir(parents=True, exist_ok=True)
-        stream = zstd_stream(archive)
-        subprocess.run(["tar", "-C", str(target), "-xf", "-", "data/jellyfin.db"],
-                       stdin=stream.stdout, capture_output=True)
-        stream.wait()
+        run_from_zstd(archive, ["tar", "-C", str(target), "-xf", "-", "data/jellyfin.db"])
         extracted = target / "data/jellyfin.db"
         if extracted.is_file():
             sqlite_check(extracted, "jellyfin-config.tar.zst:data/jellyfin.db", [], report)
@@ -394,9 +423,7 @@ def check_archives(run, work, report):
 
 
 def tar_members(path):
-    stream = zstd_stream(path)
-    listing = subprocess.run(["tar", "-tf", "-"], stdin=stream.stdout, capture_output=True, text=True)
-    stream.wait()
+    listing = run_from_zstd(path, ["tar", "-tf", "-"], text=True)
     return {m[2:] if m.startswith("./") else m for m in listing.stdout.splitlines()}
 
 
@@ -479,9 +506,7 @@ def boot_abs(run, work, report):
     config.mkdir(parents=True)
     metadata.mkdir(parents=True)
     shutil.copyfile(run / "audiobookshelf/absdatabase.sqlite", config / "absdatabase.sqlite")
-    stream = zstd_stream(run / "audiobookshelf/metadata.tar.zst")
-    subprocess.run(["tar", "-C", str(metadata), "-xf", "-"], stdin=stream.stdout, capture_output=True)
-    stream.wait()
+    run_from_zstd(run / "audiobookshelf/metadata.tar.zst", ["tar", "-C", str(metadata), "-xf", "-"])
     subprocess.run(["docker", "rm", "-f", ABS_NAME], capture_output=True)
     started = subprocess.run(
         ["docker", "run", "-d", "--name", ABS_NAME, "--user", "1000:1000", "--pull", "never",
@@ -507,6 +532,210 @@ def boot_abs(run, work, report):
                      "abs boot: the throwaway server did not initialise from the restored database")
     finally:
         subprocess.run(["docker", "rm", "-f", ABS_NAME], capture_output=True)
+
+
+# ---- boot tests ---------------------------------------------------------------------------------
+# Each starts a throwaway container from the restored copy, with a throwaway name, on 127.0.0.1
+# ports that nothing else uses, and removes it afterwards. Images are the ones pinned in the
+# compose files inside the run's stack-config archive, so a rebuild on a new host is what is
+# tested. No production container, volume or network is touched. No secret from the run is read:
+# Authentik gets a throwaway secret key and database password (this Authentik needs no Redis).
+BOOT_PREFIX = "avrana-restore-test-"
+BOOT_NETWORK = BOOT_PREFIX + "net"
+BOOT_PORTS = {"komga": "18600", "jellyfin": "18096"}
+
+
+def compose_image(run, member, service):
+    """The pinned image of a service, read from a compose file inside the stack-config archive."""
+    text = run_from_zstd(run / "stack-config/stack-config.tar.zst", ["tar", "-xOf", "-", member], text=True).stdout
+    in_service, indent = False, None
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not in_service:
+            if stripped == f"{service}:" and line.startswith("  ") and not line.startswith("    "):
+                in_service = True
+            continue
+        if line and not line.startswith("   ") and not line.startswith("  #"):
+            break                                          # next service
+        if stripped.startswith("image:"):
+            return stripped.split("image:", 1)[1].split("#", 1)[0].strip().strip("\"'")
+    return None
+
+
+def docker_rm(*names):
+    for name in names:
+        subprocess.run(["docker", "rm", "-f", name], capture_output=True)
+
+
+def docker_logs_tail(name, lines=3):
+    out = subprocess.run(["docker", "logs", "--tail", str(lines), name], capture_output=True, text=True)
+    return " | ".join(l.strip()[:160] for l in (out.stdout + out.stderr).splitlines() if l.strip())
+
+
+def wait_healthy(name, seconds):
+    """True once the container's own health check reports healthy; False on timeout or exit."""
+    import time
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        state = subprocess.run(["docker", "inspect", "--format", "{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{end}}",
+                                name], capture_output=True, text=True).stdout.split()
+        if not state or state[0] != "running":
+            return False
+        if len(state) > 1 and state[1] == "healthy":
+            return True
+        time.sleep(5)
+    return False
+
+
+def wait_http(url, seconds, needle=None):
+    """Return the body once the URL answers 2xx (and contains needle when given), else None."""
+    import time
+    import urllib.request
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        try:
+            with urllib.request.urlopen(url, timeout=3) as response:
+                body = response.read().decode(errors="replace")
+                if needle is None or needle in body:
+                    return body
+        except OSError:
+            pass
+        time.sleep(3)
+    return None
+
+
+def boot_komga(run, work, report):
+    image = compose_image(run, "services/komga/docker-compose.yml", "komga")
+    if not image:
+        report.fail("komga boot: no pinned image in services/komga/docker-compose.yml inside stack-config")
+        return
+    config = work / "komga/config"
+    config.mkdir(parents=True)
+    shutil.copyfile(run / "komga/database.sqlite", config / "database.sqlite")
+    shutil.copyfile(run / "komga/application.yml", config / "application.yml")
+    name, port = BOOT_PREFIX + "komga", BOOT_PORTS["komga"]
+    docker_rm(name)
+    started = subprocess.run(
+        ["docker", "run", "-d", "--name", name, "--user", "1000:1000", "--pull", "never",
+         "-e", "TZ=America/Los_Angeles", "-v", f"{config}:/config", "-p", f"127.0.0.1:{port}:25600", image],
+        capture_output=True, text=True)
+    try:
+        if started.returncode != 0:
+            report.fail(f"komga boot: could not start: {started.stderr.strip()[:160]}")
+            return
+        body = wait_http(f"http://127.0.0.1:{port}/actuator/health", 180, '"UP"')
+        report.check(body is not None, "komga boot: throwaway Komga is UP on the restored database",
+                     "komga boot: the throwaway server did not report UP within 180 s")
+    finally:
+        docker_rm(name)
+
+
+def boot_jellyfin(run, work, report):
+    image = compose_image(run, "services/media/docker-compose.yml", "jellyfin")
+    if not image:
+        report.fail("jellyfin boot: no pinned image in services/media/docker-compose.yml inside stack-config")
+        return
+    config, cache = work / "jellyfin/config", work / "jellyfin/cache"
+    config.mkdir(parents=True)
+    cache.mkdir(parents=True)
+    run_from_zstd(run / "jellyfin/jellyfin-config.tar.zst", ["tar", "-C", str(config), "-xf", "-"])
+    name, port = BOOT_PREFIX + "jellyfin", BOOT_PORTS["jellyfin"]
+    docker_rm(name)
+    started = subprocess.run(
+        ["docker", "run", "-d", "--name", name, "--user", "1000:1000", "--pull", "never",
+         "-e", "TZ=America/Los_Angeles", "-e", "HOME=/config", "--tmpfs", "/tmp:rw,size=256m",
+         # the restored encoding.xml points at /transcode, a tmpfs in production
+         "--tmpfs", "/transcode:rw,size=512m,mode=1777", "--tmpfs", "/jellyfin/Dictionaries:rw,size=64m,uid=1000,gid=1000",
+         "-v", f"{config}:/config", "-v", f"{cache}:/cache",
+         "-p", f"127.0.0.1:{port}:8096", image], capture_output=True, text=True)
+    try:
+        if started.returncode != 0:
+            report.fail(f"jellyfin boot: could not start: {started.stderr.strip()[:160]}")
+            return
+        body = wait_http(f"http://127.0.0.1:{port}/health", 300, "Healthy")
+        report.check(body is not None, "jellyfin boot: throwaway Jellyfin is Healthy on the restored configuration",
+                     "jellyfin boot: the throwaway server did not report Healthy within 300 s: " + docker_logs_tail(name))
+    finally:
+        docker_rm(name)
+
+
+def boot_authentik(run, work, report):
+    member = "services/authentik/docker-compose.yml"
+    images = {s: compose_image(run, member, s) for s in ("server", "postgresql")}
+    if not all(images.values()):
+        report.fail(f"authentik boot: pinned images missing in {member}: "
+                    + ", ".join(s for s, i in images.items() if not i))
+        return
+    import secrets
+    pg, server = (BOOT_PREFIX + s for s in ("pg", "authentik"))
+    pg_password = secrets.token_urlsafe(24)                    # throwaway, never written anywhere
+    docker_rm(pg, server)
+    subprocess.run(["docker", "network", "rm", BOOT_NETWORK], capture_output=True)
+    created = subprocess.run(["docker", "network", "create", "--internal", BOOT_NETWORK], capture_output=True, text=True)
+    try:
+        if created.returncode != 0:
+            report.fail(f"authentik boot: could not create the throwaway network: {created.stderr.strip()[:160]}")
+            return
+        base = ["docker", "run", "-d", "--network", BOOT_NETWORK, "--pull", "never"]
+        p = subprocess.run(base + ["--name", pg, "-e", "POSTGRES_DB=authentik", "-e", "POSTGRES_USER=authentik",
+                                   "-e", f"POSTGRES_PASSWORD={pg_password}", "--tmpfs", "/var/lib/postgresql/data",
+                                   images["postgresql"]], capture_output=True, text=True)
+        if p.returncode != 0:
+            report.fail(f"authentik boot: could not start postgres: {p.stderr.strip()[:160]}")
+            return
+        import time
+        # over TCP on purpose: the image's init phase runs a temporary server that only listens on
+        # the Unix socket, and a load that connects to it fails when that server is shut down
+        for _ in range(45):
+            if subprocess.run(["docker", "exec", pg, "pg_isready", "-h", "127.0.0.1", "-U", "authentik"],
+                              capture_output=True).returncode == 0:
+                break
+            time.sleep(2)
+        else:
+            report.fail("authentik boot: postgres did not become ready within 90 s")
+            return
+        loaded = run_from_zstd(run / "authentik/authentik.pgdump.zst",
+                               ["docker", "exec", "-i", pg, "psql", "-q", "-v", "ON_ERROR_STOP=1", "-U", "authentik",
+                                "-d", "authentik"], text=True, timeout=600)
+        if loaded.returncode != 0:
+            # only the error class: the statement echo could carry data from the dump
+            errors = [l[:120] for l in loaded.stderr.splitlines() if l.startswith(("psql:", "ERROR"))]
+            report.fail("authentik boot: the dump did not load: " + (errors[0] if errors else f"rc {loaded.returncode}"))
+            return
+        users = subprocess.run(["docker", "exec", pg, "psql", "-tA", "-U", "authentik", "-d", "authentik", "-c",
+                                "select count(*) from authentik_core_user"], capture_output=True, text=True).stdout.strip()
+        report.check(users.isdigit() and int(users) > 0, f"authentik boot: dump loaded ({users} users)",
+                     "authentik boot: dump loaded but authentik_core_user is empty")
+        s = subprocess.run(base + ["--name", server,
+                                   "-e", f"AUTHENTIK_SECRET_KEY={secrets.token_urlsafe(48)}",
+                                   "-e", f"AUTHENTIK_POSTGRESQL__HOST={pg}", "-e", "AUTHENTIK_POSTGRESQL__USER=authentik",
+                                   "-e", "AUTHENTIK_POSTGRESQL__NAME=authentik",
+                                   "-e", f"AUTHENTIK_POSTGRESQL__PASSWORD={pg_password}",
+                                   "-e", "AUTHENTIK_ERROR_REPORTING__ENABLED=false",
+                                   "-e", "AUTHENTIK_DISABLE_UPDATE_CHECK=true", "-e", "AUTHENTIK_DISABLE_STARTUP_ANALYTICS=true",
+                                   images["server"], "server"], capture_output=True, text=True)
+        if s.returncode != 0:
+            report.fail(f"authentik boot: could not start the server: {s.stderr.strip()[:160]}")
+            return
+        ready = wait_healthy(server, 300)              # the image's own check, `ak healthcheck`
+        report.check(ready, "authentik boot: throwaway Authentik is healthy on the restored database",
+                     "authentik boot: the throwaway server was not healthy within 300 s: " + docker_logs_tail(server))
+        if ready:
+            # from inside the container (internal network): any HTTP answer below 500 means the
+            # API routes and the database behind them work; 403 is the expected unauthenticated reply
+            probe = ("import urllib.request, urllib.error\n"
+                     "try:\n    print(urllib.request.urlopen('http://127.0.0.1:9000/api/v3/flows/instances/', timeout=10).status)\n"
+                     "except urllib.error.HTTPError as e:\n    print(e.code)\n")
+            answer = subprocess.run(["docker", "exec", server, "python3", "-c", probe], capture_output=True, text=True)
+            code = answer.stdout.strip()
+            report.check(code.isdigit() and int(code) < 500, f"authentik boot: API answers ({code})",
+                         f"authentik boot: API probe failed: {(code or answer.stderr.strip())[:160]}")
+    finally:
+        docker_rm(server, pg)
+        subprocess.run(["docker", "network", "rm", BOOT_NETWORK], capture_output=True)
+
+
+BOOT_TESTS = {"abs": boot_abs, "komga": boot_komga, "jellyfin": boot_jellyfin, "authentik": boot_authentik}
 
 
 def write_state(root, run, report, started):
@@ -538,7 +767,10 @@ def main():
     parser.add_argument("run", nargs="?")
     parser.add_argument("--work", help="scratch parent directory (default: the system temp directory)")
     parser.add_argument("--repo", default=str(HERE.parents[1]), help="checkout or deployed tree to check against")
-    parser.add_argument("--boot-abs", action="store_true", help="also boot a throwaway Audiobookshelf")
+    parser.add_argument("--boot", default="", metavar="LIST",
+                        help="boot throwaway servers on the restored copies: abs,komga,jellyfin,authentik")
+    parser.add_argument("--boot-all", action="store_true", help="every boot test")
+    parser.add_argument("--boot-abs", action="store_true", help="same as --boot abs")
     parser.add_argument("--alert", action="store_true", help="send an alert e-mail when the test fails")
     parser.add_argument("--no-state", action="store_true", help="do not write RESTORE_TEST_LAST.json")
     args = parser.parse_args()
@@ -569,8 +801,17 @@ def main():
         check_sqlite(run, work, report)
         check_archives(run, work, report)
         check_prerequisites(run, repo, report)
+        wanted = [name for name in args.boot.split(",") if name]
         if args.boot_abs:
-            boot_abs(run, work, report)
+            wanted.append("abs")
+        if args.boot_all:
+            wanted = list(BOOT_TESTS)
+        unknown = sorted(set(wanted) - set(BOOT_TESTS))
+        if unknown:
+            print(f"FAIL  unknown boot test(s): {', '.join(unknown)}")
+            return 2
+        for name in dict.fromkeys(wanted):
+            BOOT_TESTS[name](run, work, report)
     finally:
         shutil.rmtree(work, ignore_errors=True)
     after = fingerprint(run)
