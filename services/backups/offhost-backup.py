@@ -151,7 +151,12 @@ def describe(counts):
 
 
 def remote_runs(remote):
-    """Run name -> True when its completion marker exists."""
+    """Run name -> True when its completion marker exists.
+
+    The marker is found by listing the run directory, never by addressing the file: a listing is a
+    cheap class C call that keeps working when the account's download cap is exhausted. Any error
+    is raised, so "could not check" is never mistaken for "no marker".
+    """
     listing = rclone(["lsf", "--dirs-only", remote])
     if listing.returncode != 0:
         if "directory not found" in listing.stderr:
@@ -160,8 +165,10 @@ def remote_runs(remote):
     found = {}
     for name in (line.strip().rstrip("/") for line in listing.stdout.splitlines()):
         if RUN_NAME.match(name):
-            marker = rclone(["lsf", f"{remote}{name}/{MARKER}"])
-            found[name] = marker.returncode == 0 and MARKER in marker.stdout
+            entries = rclone(["lsf", "--files-only", f"{remote}{name}/"])
+            if entries.returncode != 0:
+                raise RuntimeError(f"cannot list {remote}{name}: {entries.stderr.strip()[-200:]}")
+            found[name] = MARKER in (line.strip() for line in entries.stdout.splitlines())
     return found
 
 

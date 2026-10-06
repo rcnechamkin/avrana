@@ -157,6 +157,39 @@ class OffhostPolicyTests(unittest.TestCase):
                                              marker["symlinks_skipped"]))
 
 
+class RemoteRunsTests(unittest.TestCase):
+    """The marker is found by listing the run directory; a failed check is an error, not absence."""
+
+    def fake(self, responses):
+        def rclone(arguments, **_):
+            key = arguments[-1]
+            code, out, err = responses[key]
+            return subprocess.CompletedProcess(arguments, code, out, err)
+        return rclone
+
+    def run_with(self, responses):
+        original = offhost.rclone
+        offhost.rclone = self.fake(responses)
+        try:
+            return offhost.remote_runs("tier:")
+        finally:
+            offhost.rclone = original
+
+    def test_marker_seen_in_directory_listing(self):
+        runs = self.run_with({"tier:": (0, "2026-10-04T20-52-13Z/\n2026-10-05T09-31-09Z/\nstray/\n", ""),
+                              "tier:2026-10-04T20-52-13Z/": (0, "MANIFEST.txt\nOFFHOST-COMPLETE.json\n", ""),
+                              "tier:2026-10-05T09-31-09Z/": (0, "MANIFEST.txt\n", "")})
+        self.assertEqual({"2026-10-04T20-52-13Z": True, "2026-10-05T09-31-09Z": False}, runs)
+
+    def test_failed_check_is_an_error_not_absence(self):
+        with self.assertRaises(RuntimeError):
+            self.run_with({"tier:": (0, "2026-10-04T20-52-13Z/\n", ""),
+                           "tier:2026-10-04T20-52-13Z/": (1, "", "403 download_cap_exceeded")})
+
+    def test_empty_tier(self):
+        self.assertEqual({}, self.run_with({"tier:": (3, "", "directory not found")}))
+
+
 class OffhostMarkerTests(unittest.TestCase):
     """restore-test.py must verify the marker a downloaded run carries, not skip it."""
 
