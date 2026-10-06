@@ -14,6 +14,7 @@ says how to roll back. Run them in order; each is independent and can wait.
 | `06-avrana-agent-account.sh` | Creates the unprivileged `avrana-agent` account with the `avrana-ro` read-only wrapper and a memory ceiling | none | the script's own checks |
 | `07-update-cloudflared.sh` | Installs cloudflared from Cloudflare's apt repository (you confirm the key fingerprint at a prompt) and points the tunnel unit at it; the 2025.6.1 binary is kept for rollback (C3) | tunnel, about 10 s | the script checks 12 hostnames and rolls back on its own if any fails; then commit `deploy/host/cloudflared/cloudflared-avrana.service` |
 | `08-backup-seal.sh` | Installs `avrana-backup-seal` (root): completed backup runs become root-owned and undeletable by `cody`, retention moves to root (E5) | none | the script proves `cody` can read but not delete, and runs the restore test |
+| `09-smartd-alert.sh` | Adds a `run.d` hook so smartd disk warnings go through `scripts/avrana-alert.py` (A21); useful once SMTP2GO is rotated | none | the script sends a test message through the hook |
 
 After `04`, commit the updated `deploy/host/fstab` and `deploy/host/apt/` files that `02` copies
 into the live tree, and remove `cloudflared/config-comics.yml` from the backup's `cloudflared`

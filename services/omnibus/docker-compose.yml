@@ -125,6 +125,10 @@ services:
     environment:
       - TZ=America/Los_Angeles
       - OMNIBUS_REDIS_URL=redis://omnibus-redis:6379
+      # Where the engine reports job completion (upstream: "the engine calls back to the web app
+      # to fire job-completion notifications"). Without it the engine tried localhost:3000 and
+      # logged "[Notify] Could not reach Node" after every job (bug hunt A17, fixed 2026-10-06).
+      - OMNIBUS_NODE_URL=http://omnibus:3000
       - DATABASE_URL=file:/config/omnibus.db
       - OMNIBUS_CACHE_DIR=/config/cache
       - OMNIBUS_LOGS_DIR=/config/logs

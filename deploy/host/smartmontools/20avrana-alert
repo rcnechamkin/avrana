@@ -1,0 +1,8 @@
+#!/bin/sh
+# smartd -> Avrana alert e-mail (bug hunt A21). Installed by owner script 09 into
+# /etc/smartmontools/run.d/, where smartd-runner calls every script with the message file as $1
+# (10mail, the stock script, keeps sending to root's local mailbox as well).
+# Runs as root; the alert script and its .env.alert belong to cody, so it is run as cody.
+input="$1"
+subject="${SMARTD_SUBJECT:-smartd warning on $(hostname)}"
+exec runuser -u cody -- /usr/bin/python3 /home/cody/avrana/scripts/avrana-alert.py --subject "$subject" < "$input"

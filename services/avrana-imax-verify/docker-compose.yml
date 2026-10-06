@@ -27,14 +27,23 @@ services:
       # Pluggable FAIL hook. Avrana has no notification platform, so none is built here: set a
       # command and {json}/{title}/{reason} are substituted. Empty = no notification.
       - IMAX_NOTIFY_CMD=
+      # Webhook authentication (forensic audit N2). Radarr sends the username and password set on
+      # its Webhook connection as HTTP Basic auth. "warn" accepts and logs an unauthenticated POST;
+      # switch to "required" once Radarr carries the credentials (user radarr, password from .env).
+      - IMAX_WEBHOOK_AUTH=${IMAX_WEBHOOK_AUTH:-warn}
+      - IMAX_WEBHOOK_USER=radarr
+      - IMAX_WEBHOOK_PASSWORD=${IMAX_WEBHOOK_PASSWORD:-}
+      # Only files under this root are probed, whatever the webhook body says.
+      - IMAX_ALLOWED_ROOT=/data/movies
 
     volumes:
       # Config + expectations + results. The expectations store is meant to be edited by hand.
       - ./:/config
-      # Media, READ-ONLY, mounted at the SAME path Radarr uses (/data). Radarr's webhook reports
-      # container paths like /data/movies/..., so identical mounts mean no path translation and
-      # nothing to get wrong. Read-only because this service must never touch the library.
-      - /mnt/avrana_media:/data:ro
+      # Movies only, READ-ONLY, at the SAME path Radarr uses (/data/movies). Radarr's webhook
+      # reports container paths like /data/movies/..., so identical mounts mean no path
+      # translation. Narrowed from the whole array on 2026-10-06 (forensic audit C2): this
+      # service has no business seeing anything but the movie library.
+      - /mnt/avrana_media/movies:/data/movies:ro
 
     ports:
       # LAN-only. No Authentik integration, so it must not be tunneled.

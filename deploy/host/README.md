@@ -12,6 +12,7 @@ automatically; `BOOTSTRAP.md` says what to do with each file.
 | `netplan-br0.example.yaml` | `/etc/netplan/50-cloud-init.yaml` | Reconstruction from `networkctl`. |
 | `sshd_config.d/00-avrana-pubkey-only.conf` | `/etc/ssh/sshd_config.d/` | Copy. |
 | `backup-seal.sh`, `systemd/avrana-backup-seal.{service,path,timer}` | `/usr/local/sbin/avrana-backup-seal`, `/etc/systemd/system/` | Owner script 08 installs and enables them (bug hunt E5): completed backup runs become root-owned, retention moves to root. |
+| `smartmontools/20avrana-alert` | `/etc/smartmontools/run.d/` | Owner script 09 installs it (A21): smartd warnings go through `scripts/avrana-alert.py`. |
 | `systemd/sabnzbd.service`, `systemd/mylar3.service` | `/etc/systemd/system/` | Copy. Their `require-array` drop-ins are in `deploy/storage/dropins/`; Docker's is `deploy/docker/docker-require-array.conf`. |
 | `apt/50unattended-upgrades`, `apt/20auto-upgrades` | `/etc/apt/apt.conf.d/` | Copy. |
 | `cloudflared/config.yml` | `/home/cody/.cloudflared/config.yml` | Copy. The tunnel credential file it names is a secret and is not here. |

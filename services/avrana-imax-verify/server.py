@@ -45,10 +45,51 @@ DEFER_MAX_S = int(os.environ.get("IMAX_DEFER_MAX_S", "10800"))   # give up defer
 # Avrana has no notification platform of its own, so nothing is built here beyond the hook.
 NOTIFY_CMD = os.environ.get("IMAX_NOTIFY_CMD", "")
 
+# Only files under this root are ever probed (forensic audit N2: the webhook body named the path
+# and nothing checked it). Radarr reports container paths, and the compose file mounts the movies
+# tree at the same path, so a legitimate import is always under here.
+ALLOWED_ROOT = Path(os.environ.get("IMAX_ALLOWED_ROOT", "/data/movies"))
+
+# Webhook authentication. Radarr's webhook connection carries a username and password as HTTP
+# Basic auth. IMAX_WEBHOOK_AUTH: "required" rejects a POST without the right credentials;
+# "warn" (the roll-out mode) accepts it but logs a warning; "off" checks nothing.
+WEBHOOK_AUTH = os.environ.get("IMAX_WEBHOOK_AUTH", "warn").lower()
+WEBHOOK_USER = os.environ.get("IMAX_WEBHOOK_USER", "radarr")
+WEBHOOK_PASSWORD = os.environ.get("IMAX_WEBHOOK_PASSWORD", "")
+
 JOBS: "queue.Queue[dict]" = queue.Queue()
 RESULTS = Path(os.environ.get("IMAX_RESULTS", "/config/results"))
 LOG = RESULTS / "verifications.log"
 HISTORY = RESULTS / "history.jsonl"
+
+
+def allowed_path(path: str) -> Path | None:
+    """The resolved file if it lies under ALLOWED_ROOT and exists, else None.
+
+    Resolving follows symlinks, so a link inside the library that points outside is refused too."""
+    try:
+        root = ALLOWED_ROOT.resolve()
+        candidate = Path(path).resolve()
+    except (OSError, RuntimeError):
+        return None
+    if root != candidate and root not in candidate.parents:
+        return None
+    return candidate if candidate.is_file() else None
+
+
+def authorized(header: str | None) -> bool:
+    """True when the Authorization header carries the configured Basic credentials."""
+    import base64
+    import hmac
+    if not WEBHOOK_PASSWORD:
+        return False
+    if not header or not header.startswith("Basic "):
+        return False
+    try:
+        user, _, password = base64.b64decode(header[6:].strip()).decode().partition(":")
+    except (ValueError, UnicodeDecodeError):
+        return False
+    return hmac.compare_digest(user, WEBHOOK_USER) and hmac.compare_digest(password, WEBHOOK_PASSWORD)
 
 
 def log(msg: str) -> None:
@@ -245,10 +286,18 @@ class Handler(BaseHTTPRequestHandler):
         return self._send(404, {"error": "not found"})
 
     def do_POST(self):                               # noqa: N802
-        n = int(self.headers.get("Content-Length") or 0)
+        if WEBHOOK_AUTH != "off" and not authorized(self.headers.get("Authorization")):
+            if WEBHOOK_AUTH == "required":
+                self.send_response(401)
+                self.send_header("WWW-Authenticate", 'Basic realm="avrana-imax-verify"')
+                self.end_headers()
+                log(f"rejected unauthenticated POST from {self.client_address[0]}")
+                return
+            log(f"WARN unauthenticated POST from {self.client_address[0]} accepted (IMAX_WEBHOOK_AUTH=warn)")
+        n = min(int(self.headers.get("Content-Length") or 0), 1 << 20)
         try:
             payload = json.loads(self.rfile.read(n) or b"{}")
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, UnicodeDecodeError):
             return self._send(400, {"error": "invalid json"})
 
         ev = payload.get("eventType")
@@ -264,6 +313,10 @@ class Handler(BaseHTTPRequestHandler):
         path = mf.get("path") or (str(Path(folder) / rel) if folder and rel else None)
         if not path:
             return self._send(200, {"status": "ignored", "reason": "no file path"})
+        if allowed_path(path) is None:
+            log(f"ignored '{movie.get('title')}': path is not a file under {ALLOWED_ROOT}")
+            return self._send(200, {"status": "ignored", "reason": "path outside the movie library"})
+        path = str(allowed_path(path))
 
         is_imax, why = matched_imax(payload)
         if not is_imax:
@@ -284,7 +337,9 @@ def main() -> None:
         threading.Thread(target=worker, daemon=True).start()
     log(f"avrana-imax-verify on :{PORT} samples={SAMPLES} threads={iv.FFMPEG_THREADS} "
         f"radarr={'yes' if RADARR_URL else 'no'} jellyfin_defer={'yes' if JELLYFIN_URL else 'no'} "
-        f"notify={'yes' if NOTIFY_CMD else 'no'}")
+        f"notify={'yes' if NOTIFY_CMD else 'no'} root={ALLOWED_ROOT} webhook_auth={WEBHOOK_AUTH}")
+    if WEBHOOK_AUTH != "off" and not WEBHOOK_PASSWORD:
+        log("WARN IMAX_WEBHOOK_PASSWORD is empty: every POST is unauthenticated")
     ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()
 
 

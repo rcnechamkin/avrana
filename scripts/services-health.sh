@@ -73,6 +73,20 @@ else
   fi
 fi
 
+# libation-status bind-mounts ONE file (LibationContext.db). If Libation ever replaces that file
+# instead of writing in place, the container keeps the old inode and reports stale state for ever
+# (same fault class as the 2026-08-29 CWA failure; bug hunt risk 6). Compare inodes.
+# (Batch 6.)
+host_inode=$(stat -c %i /home/cody/avrana/services/libation/config/LibationContext.db 2>/dev/null)
+container_inode=$(docker exec libation-status stat -c %i /data/LibationContext.db 2>/dev/null)
+if [ -n "$host_inode" ] && [ -n "$container_inode" ]; then
+  if [ "$host_inode" = "$container_inode" ]; then
+    printf 'OK   libation-status sees the live database file\n'
+  else
+    printf 'WARN libation-status holds a replaced database file (dead inode): docker compose -p libation-status up -d --force-recreate\n' >&2
+  fi
+fi
+
 # ---- media array: mounted, the right filesystem, writable, no kernel storage errors ------------
 # Until Batch 1 (finding A2) these were checked once, by verify-array.sh at boot+5min. A USB drop
 # or an ext4 remount-read-only later in the boot went unseen until the 02:30 backup failed, and

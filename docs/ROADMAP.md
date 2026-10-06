@@ -9,19 +9,38 @@ with its own README; everything below that is not a script needs the owner's han
 Scripts, in order (`deploy/host/owner-scripts/README.md`): Mylar3 login (A5), fstab `nofail` and
 the unattended-upgrade blacklist (A6, A14), Compose v1 package removal (A12), retirement of the comics
 tunnel, nginx, libvirt and Plex, the Kavita config directory, the `avrana-agent` account, the
-cloudflared update from Cloudflare's apt repository (C3), the backup seal (E5).
+cloudflared update from Cloudflare's apt repository (C3), the backup seal (E5), the smartd alert
+hook (A21).
 
 Not scripts:
 
 - Raise the Backblaze download cap; run `services/backups/offhost-verify-secrets.sh` once.
 - Rotate the Komga admin password, the `audible-connector` and `omnibus` OIDC secrets, and the SMTP2GO
   password; then run the Batch 1 alert-configuration script. Until then no alert e-mail is delivered.
+- Radarr > Settings > Connect > the imax-verify webhook: username `radarr`, password = the
+  `IMAX_WEBHOOK_PASSWORD` line of `services/avrana-imax-verify/.env`; then set
+  `IMAX_WEBHOOK_AUTH=required` there and `docker compose up -d` in that directory.
+- Omnibus > the Mylar library's settings: turn off metadata writing (the mount is read-only on
+  purpose; the engine logs about 300 failed writes a day, A17).
+- Seerr > Settings: CSRF protection on, proxy trust on (A20).
 - Add a second SSH key.
 - Set `rcnechamkin/Kern-Ecosystem` to archived on GitHub (tag `archive-2026-10-04` is pushed).
 - Decide where the Avrana Party wiki pages belong (`docs/archive/bookstack/INDEX.md`, OWNER REVIEW).
 - Approve retirement of the BookStack containers now that their content is archived.
 - Apply the staged firewall (`deploy/ufw/`) from a console session.
 - A UPS.
+
+## Done in Batch 6 (2026-10-06), for the record
+
+- `avrana-imax-verify` (forensic audit C2/N2): mounts only `movies` read-only, probes only files
+  under `/data/movies` whatever the webhook names, and checks Basic-auth credentials on every POST
+  (`IMAX_WEBHOOK_AUTH=warn` until Radarr carries them: owner step below, then `required`).
+- `omnibus-engine` (A17, half): `OMNIBUS_NODE_URL` set, so job notifications reach the web app.
+  The metadata writes into the read-only Mylar library are an Omnibus library setting (owner).
+- Health check: `libation-status` dead-inode detection (risk 6).
+- smartd warnings through the alert script: staged as owner script 09 (A21).
+- Sibling header forgery on `authentik_frontend` (forensic audit D4): isolation staged on branch
+  `batch6-authentik-isolation`, not applied (restarts the Authentik server).
 
 ## Done in Batch 4 (2026-10-06), for the record
 
