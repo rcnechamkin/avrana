@@ -4,9 +4,19 @@ State on 2026-10-06, after remediation Batches 1 to 4. Finding numbers (A5, A9 .
 October 2026 bug hunt. Everything that needs root is staged as a script in `deploy/host/owner-scripts/`
 with its own README; everything below that is not a script needs the owner's hands or a decision.
 
-The member-facing experience (design system, Avrana home, notifications) has its own plan:
-[`docs/design/SERVICE-PLAN.md`](design/SERVICE-PLAN.md). Its M0 is the subset of the owner items below
-that members depend on: e-mail delivery, `akadmin` MFA, Seerr CSRF and off-host verification.
+## Avrana Media 2.0 (approved direction, 2026-10-11)
+
+The member-facing product milestone: [`docs/design/MEDIA-2.0.md`](design/MEDIA-2.0.md). M3 (the
+Avrana home) is the launch; M4 and M5 are post-launch. Current sprint:
+[`docs/design/MEDIA-2.0-SPRINT-1.md`](design/MEDIA-2.0-SPRINT-1.md). Items below that Media 2.0
+depends on:
+
+- **M0 (blocks invites and every notification):** the SMTP2GO rotation and alert script, `akadmin`
+  MFA and Authentik proposals P1 to P6, Seerr CSRF and proxy trust (A20), off-host verification.
+- **Gate G1:** the sibling header forgery fix (forensic audit D4, branch `batch6-authentik-isolation`)
+  must be applied and verified before M3 reads member data. It is no longer optional hardening.
+- **Gate G2:** authorization and isolation tests for the portal and the Kindle connector (forensic
+  audit E4) before M3.
 
 ## Waiting on the owner
 
@@ -43,7 +53,7 @@ Not scripts:
   The metadata writes into the read-only Mylar library are an Omnibus library setting (owner).
 - Health check: `libation-status` dead-inode detection (risk 6).
 - smartd warnings through the alert script: staged as owner script 09 (A21).
-- Sibling header forgery on `authentik_frontend` (forensic audit D4): isolation staged on branch
+- Sibling header forgery on `authentik_frontend` (forensic audit D4, now Media 2.0 gate G1): isolation staged on branch
   `batch6-authentik-isolation`, not applied (restarts the Authentik server).
 
 ## Done in Batch 4 (2026-10-06), for the record

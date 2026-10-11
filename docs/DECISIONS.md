@@ -50,3 +50,14 @@ Conflicts in the table above that are now settled: the off-host backup exists; t
 components and a completeness gate; Compose v2 is the only supported version (v1 is still installed and
 half the containers still carry its label).
 
+## Owner decisions, 2026-10-11: Avrana Media 2.0
+
+| Decision | Consequence |
+|---|---|
+| The member experience plan is formalised as **Avrana Media 2.0**, a product-experience milestone, not a backend rewrite | [`docs/design/MEDIA-2.0.md`](design/MEDIA-2.0.md) is the charter; production approval and rollback rules are unchanged |
+| **M3 (the Avrana home) is the launch milestone**; M4 and M5 are post-launch, taken on only with usage evidence | Request filing through Avrana, request status, notifications and in-site players or readers are out of M3 |
+| **Security first**: the identity-header boundary (forensic audit D4) is resolved before M3, with per-user authorization and isolation tests | D4 becomes gate G1; the portal and Kindle test suites become gate G2 |
+| Target audience is about 15 members | Nothing is built for scale; quality, onboarding and follow-through are the bar |
+| Upstream applications are preserved and unmodified; custom infrastructure is one small application | No frames, proxy injection, upstream patches, custom players or dedicated search engine |
+| Real-member acceptance testing joins automated accessibility, security and API contract tests | Testers, tasks and pass criteria in Section 7 of the charter |
+| Member and operator interfaces stay separate | Status reaches members only as an operator-set notice in plain language |

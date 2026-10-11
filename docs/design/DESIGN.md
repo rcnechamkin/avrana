@@ -127,6 +127,7 @@ components:
 > `services/avrana-audible-connector/connector/app/static/style.css`,
 > `services/authentik/blueprints/avrana-landing.yaml`). It codifies the existing identity and
 > closes the gaps listed in [the 2026-10-11 audit](../audits/2026-10-11-web-interface-audit.md).
+> It is the visual standard for [Avrana Media 2.0](MEDIA-2.0.md).
 > Nothing here is deployed. Every change to a running service needs the owner's approval for that
 > change, per `AGENTS.md`.
 

@@ -161,6 +161,10 @@ and a universal footer. No accent colour, no shadows, no icons.
 
 ## 5. Incremental implementation plan
 
+> **Superseded 2026-10-11** by [Avrana Media 2.0](../design/MEDIA-2.0.md): phases 1 and 2 are now
+> part of M1, phase 3 is split between M1 and M3, phase 4 is M1, and phase 5's decisions are listed
+> there. The table below is kept as the audit's original recommendation.
+
 Each phase is one PR per service, verified offline (`python3 tests/run_offline.py` plus fixture
 renders at 1280px and 390px), and deployed by the owner one service at a time per
 `docs/DEPLOYMENT.md`. Authentication paths, routes, group gating, CSRF, redirects and copy meaning
