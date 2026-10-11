@@ -31,4 +31,10 @@ Production consists of independent Compose projects plus host services. Definiti
 
 BookStack pages 55 and 57 describe Kern as a planned umbrella/control plane above Avrana. Do not infer a deployed orchestrator from old Python directories. Page 55 calls Kern HQ planned, but page 62 and live Docker inspection show Home Assistant running; that contradiction is recorded in [decisions](DECISIONS.md).
 
+**Interfaces (2026-10-11).** Members and the operator use separate interfaces. Members start at
+`avrana.net` (the portal, behind Authentik's embedded outpost) and hand off to the upstream member
+apps on their own hostnames; the operator uses Homepage, OliveTin and the admin UIs. The planned
+evolution of the portal into a member home, and the rules that keep the two audiences apart, are in
+[Avrana Media 2.0](design/MEDIA-2.0.md).
+
 Avrana Party is a separate Raspberry Pi project (`party.local`, `rcnechamkin/avrana-party`), according to archive pages 87–90. That device was not inspected and is outside this migration's deployment scope.
