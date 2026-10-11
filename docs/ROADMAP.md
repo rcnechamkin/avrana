@@ -4,6 +4,10 @@ State on 2026-10-06, after remediation Batches 1 to 4. Finding numbers (A5, A9 .
 October 2026 bug hunt. Everything that needs root is staged as a script in `deploy/host/owner-scripts/`
 with its own README; everything below that is not a script needs the owner's hands or a decision.
 
+The member-facing experience (design system, Avrana home, notifications) has its own plan:
+[`docs/design/SERVICE-PLAN.md`](design/SERVICE-PLAN.md). Its M0 is the subset of the owner items below
+that members depend on: e-mail delivery, `akadmin` MFA, Seerr CSRF and off-host verification.
+
 ## Waiting on the owner
 
 Scripts, in order (`deploy/host/owner-scripts/README.md`): Mylar3 login (A5), fstab `nofail` and
