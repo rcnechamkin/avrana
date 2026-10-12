@@ -176,6 +176,31 @@ purchased-vs-Plus, selection, ASIN dedup, refresh-safe jobs, progress/polling, f
 one-time revocation, scheduled ask/auto scans, disconnect/reconnect, path-traversal, and the
 companion-privacy deployment invariants.
 
+`connector/tests/test_a11y.py` (S1-4 / AVR-359) renders every page state from the fake companion and checks
+the manual refresh control, headings, labels, `role="alert"` and `role="status"`, contrast, focus ring,
+44px targets, `color-scheme`, CSRF tokens and copy (no em or en dashes, no first person). It uses the
+stdlib helper `connector/tests/a11y_helpers.py` and the shared `style.css` is the only stylesheet. It is not
+run by the repository's `tests/run_offline.py` because it needs the packages above. From this directory,
+with a Python that has `connector/requirements.txt` plus `pytest` installed (`pyyaml` is needed only by
+`test_deploy_config.py`; the `companion` tests import `termios`, so they run on Linux or macOS only):
+
+```bash
+cd connector
+python -m pytest tests/test_a11y.py -q            # the accessibility and refresh checks
+python -m pytest tests -q                         # the whole connector suite
+```
+
+It is not a browser: layout, 200% text zoom and screen reader speech still need a manual pass.
+
+### Import progress page
+
+The page no longer reloads itself. It shows the current status in a `role="status"` line ("2 of 5 imported,
+1 failed, 2 still in progress.") and a plain **Refresh** link to the same page: a `GET`, no JavaScript, no
+form. Opening the page has always checked on running jobs, dispatched queued ones and, in one-time mode,
+finished the import and disconnected once every selected book is in; the Refresh link does exactly that and
+nothing more. After a one-time import has finished the page shows the result and no Refresh link, because
+the next visit goes to the connect page. In-place polling is deferred to Media 2.0 M3.
+
 ### Credential-free UI walkthrough (mock companion)
 ```bash
 bash scripts/gen-secrets.sh
