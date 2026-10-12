@@ -79,38 +79,51 @@ required things live on one page:
 
 **The username is the only join key.** Calibre-Web accounts are LDAP-provisioned and Audiobookshelf
 users are created to match, so the Authentik username (`X-authentik-username`) is looked up in both
-libraries. The e-mail header plays **no part** in resolving an account: it is user-editable in
-Authentik and not unique, and an earlier e-mail fallback let a member with an account in only one
-library act as whoever owned that e-mail in the other.
+libraries. The e-mail header plays **no part** in resolving an account: it is not unique, and if
+members can edit their own e-mail in Authentik it is attacker-controlled. (Whether they can is
+unverified.) An earlier e-mail fallback let a member with an account in only one library act as
+whoever owned that e-mail in the other.
 
 The rule, identical in both libraries:
 
-1. Match is case-insensitive, exact case wins, and two accounts that cannot be told apart (same name,
-   or differing only by case with no exact match) resolve to **nobody**, never to whichever is listed
-   first.
-2. No username means no identity (see below).
-3. If neither account is found the page says so plainly rather than pretending it saved.
+1. Match is case-insensitive, **exact case wins**. If no account matches in exact case and several
+   match in another case, or if several accounts have the identical name, the result is **nobody**,
+   never whichever is listed first.
+2. Case folding is ASCII-only (as SQLite's `lower()` is) and a username containing any non-ASCII
+   character never matches a library account, so look-alikes such as the Kelvin sign cannot match in
+   one library and not the other. A member whose Authentik username is non-ASCII sees "No ...
+   account found".
+3. No username means no identity (see below).
+4. If neither account is found the page says so plainly rather than pretending it saved.
 
 ### Members whose names differ: `KINDLE_USERNAME_ALIASES`
 
 The one real mismatch (`scripts/offboard.py`: there is no single join key across these systems) is
 the admin, `akadmin` in Authentik and `Cody` in the libraries. The owner covers such cases explicitly
-with an environment variable, empty by default:
+with an environment variable, empty by default.
+
+Grammar: tokens separated by commas, newlines or other whitespace; **every token is exactly
+`authentik_username=library_username`**, both sides non-empty, no further `=`.
 
 ```
-KINDLE_USERNAME_ALIASES=akadmin=Cody            # authentik_username=library_username
-KINDLE_USERNAME_ALIASES="akadmin=Cody a=b,c=d"  # comma- or space-separated pairs
+KINDLE_USERNAME_ALIASES=akadmin=Cody
+KINDLE_USERNAME_ALIASES="akadmin=Cody,ann=ann.lee"
 ```
 
+- **Names containing spaces or commas are not supported.** `John Smith=Cody` would split into the
+  tokens `John` and `Smith=Cody`; because any malformed token refuses the whole map (below), it
+  fails closed instead of aliasing a user called `Smith`. Rename such an account instead.
+- Any malformed token, or an ambiguous map (a target that is also a source, two sources with one
+  target, one source with two targets), refuses the **whole** map: no aliases at all, one stderr line
+  with counts only, never names.
 - One entry applies to **both** libraries: the only known case is one name used everywhere. A member
   whose two library usernames differ from each other should have one of them renamed instead.
-- The source is an exact match on the Authentik username; no chaining, no case folding, nothing
-  derived from request data.
-- The target name then belongs to that source alone: any other login whose username equals it (any
-  case) gets the 404, so two Authentik users can never share one library account.
-- Malformed entries are ignored. An ambiguous map (a target that is also a source, two sources with
-  one target, one source with two targets) is refused whole, so a typo fails closed. The one log line
-  carries counts only, never names.
+- The source is matched **case-sensitively** against the Authentik username, with no chaining and
+  nothing derived from request data. Library lookup is case-insensitive, so any case variant of an
+  alias source or target other than the exact source resolves to nobody (404): that variant would
+  otherwise reach the aliased account.
+- The target name belongs to that source alone: any other login whose username equals it (any case)
+  gets the 404, so two Authentik users can never share one library account.
 - It is commented out in `docker-compose.yml`. Changing it needs the container recreated.
 
 ### Before deploying: owner checklist (read-only)
@@ -124,10 +137,14 @@ either library while you check.
    live.
 3. Audiobookshelf, Settings, Users: compare names.
 4. Anyone who differs gets either a rename in the library, or one `authentik=library` entry in
-   `KINDLE_USERNAME_ALIASES` (only when both libraries use the same differing name).
-5. Two library accounts that differ only by case (e.g. `Sam` and `sam`) now resolve to nobody; rename
-   one.
-6. Check that no Authentik user is named like an alias target (that user would get the 404).
+   `KINDLE_USERNAME_ALIASES` (only when both libraries use the same differing name, and the name
+   has no spaces or commas).
+5. Two library accounts that differ only by case (e.g. `Sam` and `sam`) resolve to nobody unless the
+   Authentik username matches one of them in exact case; rename one.
+6. No library account may share a name, ignoring case, with any alias source or target other than
+   the intended one; and no Authentik user may be named like an alias target (that user gets the
+   404).
+7. Any member with a non-ASCII username needs it renamed (it never matches).
 
 ## Not a member: 404, never 403
 
@@ -139,10 +156,19 @@ repeated `X-authentik-username`, `-email` or `-groups` line. Unknown POST routes
 members, before the body is read. `/healthz` is the only route that needs no identity.
 
 Other limits: a POST body over 16 KiB gets 413, a non-numeric or negative `Content-Length` 400, a
-body that stalls for 15 s 408, and an address over 254 characters or containing non-ASCII look-alikes
+POST body that does not arrive within 15 s in total 408, and an address over 254 characters or containing non-ASCII look-alikes
 (Kelvin sign for `k`, dotless `i`) is rejected like any non-`@kindle.com` address. If Calibre-Web or
 Audiobookshelf cannot be read the page answers a plain 503 and writes nothing. The server speaks
 HTTP/1.0 so every reply closes the connection; the early replies depend on that.
+
+Timeouts, accurately: an idle connection is dropped after 15 s; a POST body must arrive within 15 s
+**in total** (a trickle does not extend it); a slow trickle of the request line and headers, before
+any identity is known, is bounded only by the upstream outpost, because the stdlib server cannot
+enforce a total deadline there. Only `/` is a page for GET (every other path, including
+`/health` and `/healthzz`, is the 404); only the exact `/healthz` is open without an identity.
+
+If a save or remove succeeds but the page then cannot re-read a library, the answer is a 503 even
+though the write landed; repeating the action is harmless (it is idempotent).
 
 Device label collisions: Audiobookshelf's global array may already hold a device named
 `Kindle (<username>)` scoped to someone else. It is left untouched and the new device is labelled

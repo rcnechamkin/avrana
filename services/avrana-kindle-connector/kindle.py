@@ -33,6 +33,7 @@ import re
 import sqlite3
 import sys
 import threading
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -65,15 +66,28 @@ MAX_ADDRESS = 254      # RFC 5321 path limit; Kindle addresses are far shorter
 _abs_lock = threading.Lock()
 
 
+def _fold(name: str) -> str:
+    """ASCII-only case fold. Python's str.lower() is Unicode-aware (U+212A Kelvin sign becomes k)
+    while SQLite's lower() is not, so the two libraries would disagree on look-alike names."""
+    return name.encode("utf-8").lower().decode("utf-8")
+
+
 def load_aliases(raw: str) -> dict[str, str]:
-    """Parse KINDLE_USERNAME_ALIASES: comma- or space-separated `authentik_username=library_username`.
+    """Parse KINDLE_USERNAME_ALIASES.
+
+    Grammar: tokens separated by commas, newlines or other whitespace; every token is exactly
+    `authentik_username=library_username` - both sides non-empty, no further `=`. Names containing
+    spaces (or commas) are therefore NOT supported: they would split into fragments, and a fragment
+    like `Smith` must never become an alias of its own.
 
     The ONLY way a login whose Authentik username differs from its library username (the admin is
     `akadmin` in Authentik and `Cody` in the libraries) is matched. Set by the owner, empty by
     default, never derived from request data. Exact match on the Authentik username; the target is
-    then looked up in both libraries like any other username. Malformed entries are ignored; a map
-    that is ambiguous (a target that is also a source, two sources sharing a target, one source
-    given two targets) is refused whole. Only counts are logged, never names.
+    then looked up in both libraries like any other username.
+
+    Fails closed: ANY malformed token, or an ambiguous map (a target that is also a source, two
+    sources sharing a target, one source with two targets), refuses the whole map - no aliases at
+    all, one stderr line, counts only, never names.
     """
     pairs, bad, conflict = {}, 0, False
     for tok in re.split(r"[,\s]+", raw or ""):
@@ -86,13 +100,12 @@ def load_aliases(raw: str) -> dict[str, str]:
             conflict = True
         else:
             pairs[src] = dst
-    targets = [t.lower() for t in pairs.values()]
-    if conflict or len(set(targets)) != len(targets) or any(t in {k.lower() for k in pairs} for t in targets):
-        print(f"kindle: username alias map refused ({len(pairs)} usable entries); no aliases in effect",
-              file=sys.stderr)
+    targets = [_fold(t) for t in pairs.values()]
+    if (bad or conflict or len(set(targets)) != len(targets)
+            or any(t in {_fold(k) for k in pairs} for t in targets)):
+        print(f"kindle: username alias map refused ({bad} malformed, {len(pairs)} usable entries); "
+              "no aliases in effect", file=sys.stderr)
         return {}
-    if bad:
-        print(f"kindle: ignored {bad} malformed username alias entries", file=sys.stderr)
     return pairs
 
 
@@ -102,13 +115,14 @@ ALIASES = load_aliases(os.environ.get("KINDLE_USERNAME_ALIASES", ""))
 def library_name(username: str):
     """The name to look up in Calibre-Web and Audiobookshelf for this Authentik username, or None.
 
-    None (fail closed) when the username is the target of an alias but is not that alias's source:
-    otherwise a second Authentik user literally named like the aliased library account would share
-    it. The e-mail header plays no part in resolution - it is user-editable and not unique.
+    None (fail closed) when the username equals, ignoring case, an alias source or target without
+    being that exact source: otherwise a second Authentik user named like the aliased library
+    account (or a case variant of the source, which the case-insensitive library lookup would
+    resolve to it) would share it. The e-mail header plays no part in resolution - it is user-editable and not unique.
     """
     if username in ALIASES:
         return ALIASES[username]
-    if username.lower() in {t.lower() for t in ALIASES.values()}:
+    if _fold(username) in {_fold(n) for n in (*ALIASES, *ALIASES.values())}:
         return None
     return username
 
@@ -134,9 +148,13 @@ def _pick(rows, name_of, wanted: str):
 
     The match is case-insensitive (Authentik and the libraries do not agree on case) but exact case
     wins, and two candidates that cannot be told apart resolve to nobody rather than to whichever
-    was listed first - the first match is not necessarily the right person.
+    was listed first - the first match is not necessarily the right person. Case folding is
+    ASCII-only, the same as SQLite's lower(), and a name with any non-ASCII character matches
+    nobody, so look-alikes (U+212A Kelvin sign) cannot match in one library and not the other.
     """
-    folded = [r for r in rows if name_of(r).lower() == wanted.lower()]
+    if not wanted.isascii():
+        return None, False
+    folded = [r for r in rows if _fold(name_of(r)) == _fold(wanted)]
     exact = [r for r in folded if name_of(r) == wanted]
     if len(exact) == 1:
         return exact[0], True
@@ -353,8 +371,13 @@ class Handler(BaseHTTPRequestHandler):
     # HTTP/1.0 (the stdlib default): every response closes the connection. Replies that are sent
     # without reading the request body (404, 400, 413) rely on that; do not switch to keep-alive.
     protocol_version = "HTTP/1.0"
-    # Per-connection socket timeout: a client that trickles or stalls cannot pin a thread.
+    # Idle limit per socket read: a connection that goes quiet for 15 s is dropped. It is NOT a total
+    # limit: a client sending one byte every few seconds resets it each time. The body therefore has
+    # its own total deadline below; a slow trickle of the request line and headers (before any
+    # identity is known) is bounded only by the upstream outpost, which stdlib http.server cannot
+    # enforce cleanly here.
     timeout = 15
+    body_deadline = 15  # seconds, in total, for the whole POST body to arrive
 
     def _send(self, code, body, ctype="text/html; charset=utf-8", location=None):
         data = body.encode()
@@ -375,6 +398,26 @@ class Handler(BaseHTTPRequestHandler):
 
     def _identity(self):
         return self._hdr(USERNAME_HEADER), self._hdr(EMAIL_HEADER), parse_groups(self._hdr(GROUPS_HEADER))
+
+    def _read_body(self, length):
+        """The POST body, or None if it did not arrive within `body_deadline` seconds in total (or the
+        socket failed). Never the unbounded rfile.read(length): that restarts the idle timeout on
+        every byte, so a trickling client could hold the thread indefinitely."""
+        deadline = time.monotonic() + self.body_deadline
+        buf = b""
+        try:
+            while len(buf) < length:
+                left = deadline - time.monotonic()
+                if left <= 0:
+                    return None
+                self.connection.settimeout(min(left, self.timeout))
+                chunk = self.rfile.read1(length - len(buf))
+                if not chunk:  # client closed early: use what arrived, like read() would
+                    break
+                buf += chunk
+        except OSError:  # includes the socket timeout
+            return None
+        return buf
 
     def _member(self):
         """Library username of a permitted member, or None. Anything else is a 404.
@@ -439,7 +482,7 @@ class Handler(BaseHTTPRequestHandler):
         if route == "/healthz":
             return self._send(200, "ok", "text/plain; charset=utf-8")
         username = self._member()
-        if username is None:
+        if username is None or route != "/":  # the page lives at "/" only; /health, /save etc. are 404
             return self._send(404, render_not_found())
         state = self._read_state(username)
         if state is None:
@@ -466,9 +509,8 @@ class Handler(BaseHTTPRequestHandler):
         length = int(raw_len)
         if length > MAX_BODY:
             return self._send(413, "request too large", "text/plain; charset=utf-8")
-        try:
-            data = self.rfile.read(length)
-        except OSError:  # includes the socket timeout: the client stalled or trickled the body
+        data = self._read_body(length)
+        if data is None:
             return self._send(408, "request timeout", "text/plain; charset=utf-8")
         form = urllib.parse.parse_qs(data.decode("utf-8", "replace"))
         address = (form.get("address", [""])[0] or "").strip()
