@@ -78,11 +78,53 @@ required things live on one page:
 ## Identity matching
 
 Calibre-Web accounts are LDAP-provisioned so the username matches Authentik, with email as a
-fallback; Audiobookshelf is matched on username or email. This mirrors `scripts/offboard.py`,
-which exists because **there is no single join key across these systems** — Jellyfin stores no
-email at all, and the admin is `akadmin` in Authentik but `Cody` elsewhere.
+fallback; Audiobookshelf uses the same rule. This mirrors `scripts/offboard.py`, which exists
+because **there is no single join key across these systems** — Jellyfin stores no email at all, and
+the admin is `akadmin` in Authentik but `Cody` elsewhere.
+
+The rule, identical in both libraries:
+
+1. The username decides. Match is case-insensitive, exact case wins, and two accounts that differ
+   only by case resolve to **nobody** rather than to whichever is listed first.
+2. Email is used only when no account has that username, and only when **exactly one** account
+   has that email.
+3. No username means no identity (see below). Email is never used alone.
 
 If neither account is found the page says so plainly rather than pretending it saved.
+
+## Not a member: 404, never 403
+
+A request that is not an `avrana-books` member gets a plain **404 "That page does not exist."**
+built from the page's own shell, with nothing about Kindle, Amazon or the sender address (audit
+finding A5, same rule as the portal). That covers: no headers, empty or wrong groups, a group name
+that merely contains `avrana-books`, **no username**, and a repeated `X-authentik-username`,
+`-email` or `-groups` line. Unknown POST routes also 404 for members, before the body is read.
+`/healthz` is the only route that needs no identity.
+
+POST bodies over 16 KiB get 413, a non-numeric or negative `Content-Length` gets 400, and an address
+over 254 characters is rejected like any other non-`@kindle.com` address.
+
+Known and deliberately left alone (owner decision): the e-mail fallback still lets a login with an
+unmatched username act as the one account that owns its e-mail; a group whose name contains `,` is
+split by `parse_groups` and could count as `avrana-books`; a different user's Audiobookshelf device
+that happens to carry the label `Kindle (<username>)` is replaced on save. Each has an
+`expectedFailure` test in `tests/test_authz.py`.
+
+## Tests
+
+`tests/test_authz.py` (G2) is offline and standard library only. It drives the real `Handler` over a
+loopback server with a temporary Calibre-Web SQLite file and an in-memory Audiobookshelf fake, all
+synthetic data. It covers denied, permitted and malformed identities for every route, isolation
+between three members (full before/after state, the PATCH body preserving everyone else's entries
+byte for byte, every device written as `specificUsers` with exactly the caller's id), and failures
+mid-write. Run it with the rest of the offline suite:
+
+```bash
+python3 tests/run_offline.py
+```
+
+`tests/test_kindle.py` holds the original pure-logic tests plus live gating checks that need the
+running containers; `run_offline.py` runs only the former.
 
 ## Operating
 
@@ -90,12 +132,12 @@ If neither account is found the page says so plainly rather than pretending it s
 cd services/avrana-kindle-connector
 cp .env.example .env    # ABS_API_KEY
 docker compose -p avrana-kindle-connector up -d --build
-python3 -m pytest tests/ -q
+python3 tests/run_offline.py   # from the repository root
 ```
 
 Verified end to end: CWA write lands in `app.db`; ABS write creates a device scoped to exactly
 that user; `/remove` clears both; a non-Kindle address is rejected without touching either store;
-a user without `avrana-books` gets 403, and so does a request with no headers at all.
+a user without `avrana-books` gets a 404, and so does a request with no headers at all.
 
 ## Rollback
 
