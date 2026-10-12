@@ -372,19 +372,48 @@ class DocumentTests(unittest.TestCase):
                         self.fail("unexpected link target " + e.attrs["target"])
         self.assertGreater(seen, 10, "the help pages carry store links; the check must see them")
 
-    def test_message_blocks_carry_a_live_region_role(self):
-        msg_start = re.compile(r"^(Nothing is set up on this account yet|That page does not exist|"
-                               r"It is advised to use)")
-        seen = set()
+    def test_message_blocks_carry_the_right_role_and_no_page_has_a_live_region(self):
+        """Every block here is present at page load; the portal has no live updates. So no GET page
+        has role=status or role=alert, the interstitial warning is a note, and the rest are plain
+        paragraphs."""
+        expect = {   # start of the text -> required role (None means the attribute is absent)
+            "Nothing is set up on this account yet": None,
+            "That page does not exist": None,
+            "It is advised to use": "note",
+        }
+        msg_start = re.compile("^(" + "|".join(re.escape(k) for k in expect) + ")")
+        seen = {}
         for label, _m, root in unique_pages():
             with self.subTest(page=label):
                 for e in root.walk():
+                    self.assertNotIn(e.attrs.get("role"), ("status", "alert"), f"{e.tag}: {e.text()}")
+                    self.assertFalse({"aria-live", "aria-atomic"} & set(e.attrs), e.tag)
                     if e.tag == "p" and msg_start.match(e.text()):
-                        seen.add(msg_start.match(e.text()).group(1))
-                        self.assertIn(e.attrs.get("role"), ("status", "alert"), e.text())
+                        key = msg_start.match(e.text()).group(1)
+                        seen[key] = seen.get(key, 0) + 1
+                        self.assertEqual(expect[key], e.attrs.get("role"), e.text())
                     if "msg" in e.classes:
-                        self.assertIn(e.attrs.get("role"), ("status", "alert"), e.text())
-        self.assertEqual(3, len(seen), f"expected the empty, 404 and interstitial messages: {seen}")
+                        self.assertTrue(msg_start.match(e.text()), e.text())
+        self.assertEqual(set(expect), set(seen), "the empty, 404 and interstitial messages must all be seen")
+
+    def test_footer_nav_is_labelled_footer(self):
+        for label, _m, root in unique_pages():
+            with self.subTest(page=label):
+                footer = next(e for e in root.walk() if e.tag == "footer")
+                navs = [e for e in footer.walk() if e.tag == "nav"]
+                self.assertEqual(["Footer"], [n.attrs.get("aria-label") for n in navs])
+
+    def test_interstitial_continue_link_names_its_destination_as_one_phrase(self):
+        root = parse(portal.render_interstitial(portal.by_path("watch"), *portal.INTERSTITIALS["watch"]))
+        links = [e for e in root.walk() if e.tag == "a" and e.attrs.get("href", "").startswith("https://")
+                 and "tile" in e.classes]
+        self.assertEqual(1, len(links))
+        name = links[0].name()
+        self.assertEqual("Understood, continue to watch.avrana.net", name)
+        # the visible label stays inside the accessible name (WCAG 2.5.3 label in name)
+        self.assertIn("Understood", links[0].text())
+        self.assertIn("Understood", name)
+        self.assertEqual(1, name.count("watch.avrana.net"))
 
     def test_step_lists_are_lists(self):
         for topic in portal.HELP:
@@ -544,6 +573,88 @@ class StylesheetTests(unittest.TestCase):
                             for d in sized), "min-height needs a box that honours it")
         self.assertEqual(sized[0], rule_for("a.store", "min-height")[0])
         self.assertEqual(sized[0], rule_for("a.account", "min-height")[0])
+
+    def _tile_state_colours(self, state):
+        """(background, {where: colour}) of text in a tile in a hover/focus state, from the sheet."""
+        toks = tokens()
+        tile = [d for sel, d in css_rules() if f"a.tile:{state}" in selectors(sel)]
+        self.assertTrue(tile, f"a.tile:{state} must have a rule")
+        bg = resolve(next(d["background"] for d in tile if "background" in d), toks)
+        base = next(d["color"] for d in tile if "color" in d)
+        texts = {"tile": resolve(base, toks)}
+        for sel, d in css_rules():
+            for s in selectors(sel):
+                if s.startswith(f"a.tile:{state} ") and "color" in d:
+                    texts[s] = resolve(d["color"], toks)
+        # label and host inherit the tile's colour; a rule of their own would escape this check
+        for sel, d in css_rules():
+            for s in selectors(sel):
+                if s.startswith("a.tile .") and s != "a.tile .desc" and "color" in d:
+                    self.fail(f"{s} sets its own colour; it would escape the inverted-state check")
+        return bg, texts
+
+    def test_tile_text_meets_4_5_to_1_when_inverted_on_hover_and_focus(self):
+        for state in ("hover", "focus-visible"):
+            with self.subTest(state=state):
+                bg, texts = self._tile_state_colours(state)
+                self.assertIn(f"a.tile:{state} .desc", texts, "the description needs its own inverted colour")
+                for where, rgb in texts.items():
+                    self.assertGreaterEqual(contrast(rgb, bg), 4.5, f"{where} on {bg} in :{state}")
+
+    def test_inverted_tile_check_catches_the_known_bad_grey(self):
+        self.assertAlmostEqual(2.81, contrast(parse_color("#9a9a9a"), (255, 255, 255)), delta=0.01)
+        self.assertLess(contrast(parse_color("#9a9a9a"), (255, 255, 255)), 4.5)
+
+    def test_visually_hidden_text_uses_clip_and_position_not_display_none(self):
+        sr = rule_for(".sr")
+        self.assertEqual(1, len(sr))
+        d = sr[0]
+        self.assertEqual("absolute", d.get("position"))
+        self.assertEqual("1px", d.get("width"))
+        self.assertEqual("1px", d.get("height"))
+        self.assertEqual("hidden", d.get("overflow"))
+        self.assertRegex(d.get("clip", "").replace(" ", ""), r"^rect\(0(px)?,0(px)?,0(px)?,0(px)?\)$")
+        self.assertEqual("nowrap", d.get("white-space"))
+        # nothing in the stylesheet hides it from assistive technology
+        for sel, decl in css_rules():
+            if any(re.search(r"\.sr\b|\bspan\b", s) for s in selectors(sel)):
+                self.assertNotEqual("none", decl.get("display"), sel)
+                self.assertNotIn(decl.get("visibility"), ("hidden", "collapse"), sel)
+                self.assertNotEqual("0", decl.get("opacity"), sel)
+        seen = 0
+        for _label, _m, root in unique_pages():
+            for e in root.walk():
+                if "sr" in e.classes:
+                    seen += 1
+                    self.assertNotIn("hidden", e.attrs)
+                    self.assertNotIn("style", e.attrs)
+                    self.assertNotEqual("true", e.attrs.get("aria-hidden"))
+                    self.assertEqual(" (opens in a new tab)", "".join(k for k in e.kids if isinstance(k, str)))
+        self.assertGreater(seen, 10)
+
+    def test_store_link_target_does_not_overlap_adjacent_text(self):
+        def px(v):
+            m = re.fullmatch(r"(-?\d+(?:\.\d+)?)px", v)
+            self.assertTrue(m, v)
+            return float(m.group(1))
+
+        def sides(v):
+            """(top, bottom) of a one-, two- or three/four-value shorthand."""
+            parts = v.split()
+            return (parts[0], parts[0]) if len(parts) < 3 else (parts[0], parts[2])
+
+        merged = {}
+        for d in rule_for("a.store"):
+            merged.update(d)
+        self.assertEqual("44px", merged["min-height"])
+        pad_t, pad_b = (px(x) for x in sides(merged["padding"]))
+        mar_t, mar_b = (px(x) for x in sides(merged["margin"]))
+        gap = px(rule_for(".client")[0]["gap"])
+        ol_top = px(rule_for(".client ol")[0]["margin"].split()[0])
+        # how far the 44px target reaches past its own layout box, above and below
+        self.assertLessEqual(-mar_t, gap, "the target reaches into the app name above it")
+        self.assertLessEqual(-mar_b, gap + ol_top, "the target reaches into the first step below it")
+        self.assertGreaterEqual(pad_t + pad_b + 22, 44 - 2.5, "padding plus one line must still make about 44px")
 
     def test_text_can_grow_without_clipping_or_sideways_scroll(self):
         small_boxes = {".rule", ".sr"}

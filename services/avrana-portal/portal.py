@@ -412,7 +412,7 @@ STYLE = """
   a.account:hover,a.account:focus-visible,a.store:hover,a.store:focus-visible{
     text-decoration-color:var(--fg);}
   a.account{letter-spacing:0.03em;font-size:0.9rem;}
-  a.store{font-size:0.92rem;align-self:flex-start;}
+  a.store{font-size:0.92rem;align-self:flex-start;padding:8px 0 12px;margin:-8px 0 -14px;}
   dl.facts{margin:0;display:grid;grid-template-columns:auto 1fr;gap:12px 28px;align-items:baseline;}
   dl.facts dt{color:var(--dim);font-size:0.9rem;letter-spacing:0.08em;text-transform:uppercase;}
   dl.facts dd{margin:0;font-size:1.15rem;overflow-wrap:anywhere;}
@@ -459,7 +459,7 @@ SHELL = """<!doctype html>
 {body}
   </main>
   <footer>
-    <nav aria-label="Page links">
+    <nav aria-label="Footer">
 {footer}
     </nav>
   </footer>
@@ -622,7 +622,7 @@ def render_account(groups: set[str], name: str, username: str, email: str) -> st
         access_block = (
             '    <section class="block">\n'
             "      <h2>Your access</h2>\n"
-            '      <p class="note msg" role="status">Nothing is set up on this account yet. '
+            '      <p class="note msg">Nothing is set up on this account yet. '
             "Ask Cody to add what you need.</p>\n"
             "    </section>"
         )
@@ -677,7 +677,7 @@ def render_help_index(topics) -> str:
         for _grp, label, host, _plat in topics
     )
     body = (f'  <nav class="tiles" aria-label="Help topics">\n{tiles}\n  </nav>' if tiles else
-            '  <section class="block"><p class="note msg" role="status">Nothing is set up on this account yet.</p></section>')
+            '  <section class="block"><p class="note msg">Nothing is set up on this account yet.</p></section>')
     return SHELL.format(title="Help · Avrana", style=STYLE, heading='<a href="/">AVRANA</a>',
                         body=body, footer='    <a class="account" href="/">Back</a>')
 
@@ -723,10 +723,10 @@ def render_interstitial(svc, warning: str, help_path: str) -> str:
     body = (
         '  <section class="block">\n'
         f'    <h2>Before you continue</h2>\n'
-        f'    <p class="note msg" role="status">{warning}</p>\n'
+        f'    <p class="note msg" role="note">{warning}</p>\n'
         "  </section>\n"
         '  <nav class="tiles" aria-label="Continue">\n'
-        f'    <a class="tile" href="https://{host}">\n'
+        f'    <a class="tile" href="https://{host}" aria-label="Understood, continue to {host}">\n'
         f'      <span class="label">Understood</span>\n'
         f'      <span class="desc">Continue to <span class="host">{host}</span></span>\n'
         "    </a>\n"
@@ -747,7 +747,7 @@ def render_404() -> str:
         style=STYLE,
         heading='<a href="/">AVRANA</a>',
         body='  <section class="block">\n'
-             '    <p class="note msg" role="status">That page does not exist.</p>\n'
+             '    <p class="note msg">That page does not exist.</p>\n'
              "  </section>",
         footer='    <a class="account" href="/">Back</a>',
     )

@@ -137,10 +137,39 @@ redirects and headers are unchanged. Interactive edges use the Control Rule (`--
 account and store links are 44px targets (padding offset by a negative margin, so the layout does
 not move). Pages are `header` / `main` / `footer` with labelled `nav`s, one `h1` (the wordmark),
 and help topics open with an `h2` topic headline before their `h3` platforms. Notices carry
-`role="status"`; store links that open a new tab say so in a visually hidden span. The account note
-and interstitial lose their em dash and first person ("I understand" is now "Understood").
+no `role="status"` or `role="alert"` (the portal has no live updates: every message is present at
+page load, so the 404 line and the empty-state notes are plain paragraphs and the interstitial
+warning is `role="note"`); store links that open a new tab say so in a visually hidden span. The account
+note and interstitial lose their em dash and first person ("I understand" is now "Understood"), the
+interstitial's continue link is named "Understood, continue to watch.avrana.net" (`aria-label`), the
+footer `nav` is labelled "Footer", and the store links keep a 44px target without reaching into the
+app name above them.
 `tests/test_portal_a11y.py` pins all of this for every identity and render function; the axe-core
 and screen-width checks wait for the browser harness (S1-5).
+
+### Open for design review
+
+Decisions the accessibility pass left alone because they are composition or token choices owned by
+the design team. Nothing here was changed.
+
+- **No topic headline on home, chooser, help index or account.** `docs/design/DESIGN.md` asks for
+  one `h1` headline per page; on these pages the wordmark is the `h1` and there is no topic headline
+  under it (help topic pages do have an `h2` topic headline).
+- **Font stack.** It lacks the metric-compatible fallbacks named in the design tokens.
+- **Status colour claim.** DESIGN.md says the status colours are "all above 10:1", but `#ff8b8b` on
+  black is 9.32:1. The portal itself uses no status colours.
+- **Platform jump-links row.** Raised in review; undecided.
+- **Compact wordmark.** Raised in review; undecided.
+- **Route name "requestabook".** A member in only the audiobooks group sees a Request tile
+  ("Audiobooks / Ask for an audiobook") that links to `/requestabook`. The route name contains
+  "book"; it is kept for old links and is not shown as text.
+- **Duplicate entries on the account page (pre-existing).** "Your access" lists the label of every
+  permitted service, and the Request service for a library reuses that library's label. A member in
+  `avrana-books` therefore sees "Books" twice (the Books service and Request Books; the list is
+  Books, Kindle, Books). The same happens for `avrana-comics` ("Comics" twice), and for a member
+  in both `avrana-books` and `avrana-audiobooks` ("Books" twice, from the Books service and the
+  combined Request Books). A member in `avrana-audiobooks` only, or `avrana-videos` only, sees no
+  duplicate (Listen / Audiobooks, Watch / Movies & TV).
 
 ## SSO experience across services
 
