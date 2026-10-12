@@ -19,7 +19,7 @@ from avrana_home.aggregate import DEFAULT_HARD_CAP, derive_hard_cap, gather
 from avrana_home.cache import (DisposableCache, MemberCache, STORED_OVERHEAD, CachePathInUseError,
                                SharedCache, _dumps, _loads)
 from avrana_home.contract import (ArtworkResult, MappingFailed, SectionResult, SectionState, Service,
-                                  UpstreamUser, _Flight)
+                                  UpstreamUser, _Flight, _SharedFailure)
 from avrana_home.principal import PrincipalError, principal_from_raw_headers
 from avrana_home.resilience import (REQUEST_BUDGET, CircuitBreaker, FakeClock, ItemGone, RouteMissing,
                                     SystemClock, UpstreamNotFound, UpstreamTimeout, UserGone,
@@ -243,6 +243,24 @@ class N3FollowersAndBudgets(unittest.TestCase):
         self.assertIsNot(caught[0], caught[1])
         self.assertIsNot(caught[0], flight.exc)
         self.assertEqual(caught[0].reason, "unmapped")
+
+    def test_followers_of_a_failed_leader_each_get_their_own_exception_instance(self):
+        ad = FakeAdapter(Service.JELLYFIN, {}, FakeClock())
+        p = make_principal("member-z", GROUPS)
+        flight = _Flight(ad.clock.now())
+        flight.exc = UpstreamTimeout()
+        flight.finished = ad.clock.now()
+        flight.event.set()
+        caught = []
+        for _ in range(2):
+            ad._flights["member-z"] = flight
+            try:
+                ad._mapped(ad.cache.for_member(p), p, ad.breaker.acquire(), type("C", (), {})())
+            except _SharedFailure as exc:
+                caught.append(exc.err)
+        self.assertIsNot(caught[0], caught[1])
+        self.assertIsNot(caught[0], flight.exc)
+        self.assertIsInstance(caught[0], UpstreamTimeout)
 
     def test_a_follower_does_not_accept_a_mapping_older_than_the_ttl(self):
         clock = FakeClock()
@@ -549,6 +567,18 @@ class N9bN12N13FileSafety(CacheBase):
             self.assertIsNone(c.path)
         with open(target, "rb") as fh:
             self.assertEqual(fh.read(), b"x" * 100)                        # the link target is untouched
+
+    def test_creation_is_exclusive_even_if_the_file_appears_after_the_check(self):
+        from unittest import mock
+        p = self.path("race.db")
+        with open(p, "wb") as fh:
+            fh.write(b"appeared after the check" * 20)
+        with mock.patch.object(DisposableCache, "_prepare_path", lambda *a, **k: None):
+            with self.assertLogs("avrana_home", "WARNING"):
+                c = self.make(SharedCache, path=p)
+        self.assertIsNone(c.path)
+        with open(p, "rb") as fh:
+            self.assertTrue(fh.read().startswith(b"appeared after the check"))
 
     def test_our_own_leftover_file_is_replaced(self):
         p = self.path("own.db")
