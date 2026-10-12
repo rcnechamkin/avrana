@@ -134,9 +134,13 @@ networks:
   frontend:
   backend: {internal: true}
   avrana-ldap: {external: true}
-  # One network per proxied backend; each app's compose file joins its own as an external
-  # network (authentik_portal, authentik_kindle, authentik_olivetin). Not internal: the apps keep
-  # their outbound access (the Kindle connector talks to Audiobookshelf over the LAN).
-  portal:
-  kindle:
-  olivetin:
+  # One private network per proxied backend (G1). Members: this server and that one backend,
+  # nothing else (scripts/check-network-isolation.py, tests/test_network_isolation.py).
+  # Explicit names, so the Docker network names do not depend on the Compose project name; each
+  # backend's compose file joins its network as external. Not internal: the backends keep their
+  # outbound access (the Kindle connector and OliveTin reach Audiobookshelf and Jellyfin by LAN IP).
+  # Never run `docker compose down` here: it removes these networks, and the backends keep a stale
+  # network ID until they are recreated.
+  portal: {name: authentik_portal}
+  kindle: {name: authentik_kindle}
+  olivetin: {name: authentik_olivetin}

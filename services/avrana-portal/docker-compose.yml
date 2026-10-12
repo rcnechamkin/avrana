@@ -4,9 +4,10 @@
 # the avrana-users group) -> reverse-proxies HERE with X-authentik-* headers injected. This
 # service reads X-authentik-groups and renders only the tiles the user may use.
 #
-# It joins Authentik's `frontend` network so the embedded outpost (inside authentik-server) can
-# reach it by name, and it publishes NO host port — nothing can reach it except through the
-# outpost, so the auth gate can't be bypassed.
+# It joins only the private network `authentik_portal`, shared with authentik-server alone (G1), so
+# the embedded outpost (inside authentik-server) can reach it by name and no sibling container can
+# send it forged X-authentik-* headers. It publishes NO host port, so nothing can reach it except
+# through the outpost and the auth gate can't be bypassed.
 services:
   avrana-portal:
     build: .
