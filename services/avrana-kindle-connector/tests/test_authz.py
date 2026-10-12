@@ -776,11 +776,8 @@ class IdentityResolution(Base):
         self.assertEqual(self.rows()[0][3], NEW_A)
         self.assertEqual(self.rows()[1], CWA_ROWS[1])
 
-    @unittest.expectedFailure
     def test_unmatched_username_with_a_victims_email_cannot_act_as_the_victim(self):
-        # A login that matches no account by username but carries B's e-mail resolves to B in both
-        # libraries through the e-mail fallback. Kept for owner decision: the fallback exists because
-        # the admin is `akadmin` in Authentik but `Cody` elsewhere (README, Identity matching).
+        # The e-mail header is not a join key (Authentik lets users edit it): it never resolves an account.
         h = hdr(user="member-z", email="b@example.test")
         r = self.get(headers=h)
         self.assertNotIn(ADDR["b"], r.text)
@@ -788,12 +785,43 @@ class IdentityResolution(Base):
         self.post("/save", NEW_A, headers=h)
         self.assertNoWrites(before)
 
-    def test_unique_email_fallback_still_works_when_username_is_unknown(self):
-        # the legitimate use of the fallback: a renamed account with a unique e-mail
-        r = self.post("/save", NEW_B, headers=hdr(user="renamed-b", email="b@example.test"))
-        self.assertEqual(self.rows()[1][3], NEW_B)
-        self.assertEqual([d["email"] for d in self.abs.devices if d["users"] == ["abs-u-b"]], [NEW_B])
+    def test_email_header_never_resolves_an_account(self):
+        before = self.state()
+        for e in ("b@example.test", "B@EXAMPLE.TEST", "c@example.test"):
+            r = self.post("/save", NEW_B, headers=hdr(user="renamed-b", email=e))
+            self.assertIn("No library account found", r.text)
+            self.assertNoAddressLeak(r.text)
+            self.assertNotIn("Removed", self.post("/remove", headers=hdr(user="renamed-b", email=e), body=b"").text)
+        self.assertNoWrites(before)
+
+    def test_partial_account_member_cannot_reach_the_victims_abs_account(self):
+        # mallory: Calibre-Web row, NO Audiobookshelf account, e-mail header = alice's (member-a's).
+        con = sqlite3.connect(self.db)
+        con.execute("INSERT INTO user VALUES (4,'mallory','m@example.test',NULL)")
+        con.commit()
+        con.close()
+        h = hdr(user="mallory", email="a@example.test")
+        r = self.get(headers=h)
+        self.assertNotIn(ADDR["a"], r.text)
+        abs_before = copy.deepcopy(self.abs.devices)
+        r = self.post("/save", "mallory_x1@kindle.com", headers=h)
+        self.assertIn("Saved to Calibre-Web.", r.text)
+        self.assertEqual(self.abs.devices, abs_before)
+        self.assertEqual(self.abs.patches, [])
         self.assertEqual(self.rows()[0], CWA_ROWS[0])
+        self.post("/remove", headers=h, body=b"")
+        self.assertEqual(self.abs.devices, abs_before)
+
+    def test_abs_only_member_cannot_reach_the_victims_calibre_web_row(self):
+        # mirror case: Audiobookshelf account, NO Calibre-Web row, e-mail header = alice's
+        self.abs.users.append(abs_user("abs-u-m", "mallory", "m@example.test"))
+        h = hdr(user="mallory", email="a@example.test")
+        r = self.get(headers=h)
+        self.assertNotIn(ADDR["a"], r.text)
+        self.post("/save", "mallory_x1@kindle.com", headers=h)
+        self.post("/remove", headers=h, body=b"")
+        self.assertEqual(self.rows(), CWA_ROWS)
+        self.assertEqual([d["email"] for d in self.abs.devices if d["users"] == ["abs-u-a"]], [ADDR["a"]])
 
     def test_ambiguous_email_fallback_matches_nobody(self):
         con = sqlite3.connect(self.db)
@@ -868,6 +896,95 @@ class IdentityResolution(Base):
                              "users": []}] + [d for d in ABS_DEVICES if d["users"] != ["abs-u-a"]]
         self.post("/save", NEW_A)
         self.assertNotIn(ADDR["shared"] + "\"", json.dumps([d for d in self.abs.devices if d["name"] == "Kindle (member-a)"]))
+
+
+# ---------------------------------------------------------------- owner-set username aliases
+class AliasMap(unittest.TestCase):
+    def parse(self, raw):
+        import contextlib
+        import io
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            return kindle.load_aliases(raw), err.getvalue()
+
+    def test_valid_formats(self):
+        self.assertEqual(self.parse("")[0], {})
+        self.assertEqual(self.parse(None)[0], {})
+        self.assertEqual(self.parse("akadmin=admin-c")[0], {"akadmin": "admin-c"})
+        self.assertEqual(self.parse("a=b, c=d\ne=f  g=h")[0], {"a": "b", "c": "d", "e": "f", "g": "h"})
+        self.assertEqual(self.parse("a=b,a=b")[0], {"a": "b"})  # an exact repeat is harmless
+
+    def test_malformed_entries_are_ignored_and_only_counted(self):
+        got, log = self.parse("novalue =x y= a=b=c ok=fine")
+        self.assertEqual(got, {"ok": "fine"})
+        self.assertIn("ignored 4 malformed", log)
+        for name in ("novalue", "ok", "fine"):
+            self.assertNotIn(name, log)
+
+    def test_ambiguous_maps_are_refused_whole_with_a_count_only_log(self):
+        for raw in ("a=b,b=c", "a=x,b=x", "a=x,b=X", "a=x,a=y", "a=A", "a=b,fine=ok,B=z"):
+            with self.subTest(raw):
+                got, log = self.parse(raw)
+                self.assertEqual(got, {}, "the whole map must be refused")
+                self.assertEqual(log.count("\n"), 1)
+                self.assertIn("refused", log)
+                for name in ("fine", "ok", "x", "y"):
+                    self.assertNotRegex(log, r"\b" + name + r"\b")
+
+    def test_no_aliases_by_default(self):
+        self.assertEqual(kindle.ALIASES, {})
+        self.assertEqual(kindle.library_name("akadmin"), "akadmin")
+
+
+class AliasedLogin(Base):
+    def setUp(self):
+        super().setUp()
+        saved = kindle.ALIASES
+        kindle.ALIASES = {"akadmin": "admin-c"}
+        self.addCleanup(lambda: setattr(kindle, "ALIASES", saved))
+
+    def test_alias_resolves_in_both_libraries_and_only_touches_the_target(self):
+        h = hdr(user="akadmin", email="whatever@example.test")
+        r = self.get(headers=h)
+        self.assertIn(ADDR["c"], r.text)
+        self.assertNoAddressLeak(r.text, allowed=(ADDR["c"],))
+        rows0, dev0, _ = self.state()
+        r = self.post("/save", "admin_c_new@kindle.com", headers=h)
+        self.assertIn("Saved to Calibre-Web and Audiobookshelf", r.text)
+        rows1, dev1, _ = self.state()
+        self.assertEqual(rows1[:2], rows0[:2])
+        self.assertEqual(rows1[2][3], "admin_c_new@kindle.com")
+        mine = [d for d in dev1 if d["users"] == ["abs-u-c"]]
+        self.assertEqual([(d["name"], d["email"]) for d in mine], [("Kindle (admin-c)", "admin_c_new@kindle.com")])
+        self.assertEqual([d for d in dev1 if d["users"] != ["abs-u-c"]], [d for d in dev0 if d["users"] != ["abs-u-c"]])
+
+    def test_the_target_name_belongs_to_the_alias_source_alone(self):
+        before = self.state()
+        for u in ("admin-c", "ADMIN-C", "Admin-C"):
+            with self.subTest(u):
+                self.assertEqual(self.get(headers=hdr(user=u)).status, 404)
+                self.assertEqual(self.post("/save", NEW_A, headers=hdr(user=u)).status, 404)
+        self.assertNoWrites(before)
+
+    def test_alias_needs_an_exact_source_and_never_chains(self):
+        before = self.state()
+        for u in ("AKADMIN", "Akadmin", "akadmin2"):
+            with self.subTest(u):
+                r = self.post("/save", NEW_A, headers=hdr(user=u))
+                self.assertIn("No library account found", r.text)
+        self.assertNoWrites(before)
+
+    def test_alias_to_a_name_that_does_not_exist_resolves_nobody(self):
+        kindle.ALIASES = {"akadmin": "nobody-here"}
+        before = self.state()
+        r = self.post("/save", NEW_A, headers=hdr(user="akadmin"))
+        self.assertIn("No library account found", r.text)
+        self.assertNoWrites(before)
+
+    def test_unaliased_members_are_unaffected(self):
+        r = self.get(headers=hdr(user="member-b"))
+        self.assertIn(ADDR["b"], r.text)
+        self.assertNoAddressLeak(r.text, allowed=(ADDR["b"],))
 
 
 class WriteFailures(Base):

@@ -31,6 +31,7 @@ import json
 import os
 import re
 import sqlite3
+import sys
 import threading
 import urllib.error
 import urllib.parse
@@ -60,6 +61,54 @@ MAX_BODY = 16384       # bytes; the only field is one address
 MAX_ADDRESS = 254      # RFC 5321 path limit; Kindle addresses are far shorter
 
 _abs_lock = threading.Lock()
+
+
+def load_aliases(raw: str) -> dict[str, str]:
+    """Parse KINDLE_USERNAME_ALIASES: comma- or space-separated `authentik_username=library_username`.
+
+    The ONLY way a login whose Authentik username differs from its library username (the admin is
+    `akadmin` in Authentik and `Cody` in the libraries) is matched. Set by the owner, empty by
+    default, never derived from request data. Exact match on the Authentik username; the target is
+    then looked up in both libraries like any other username. Malformed entries are ignored; a map
+    that is ambiguous (a target that is also a source, two sources sharing a target, one source
+    given two targets) is refused whole. Only counts are logged, never names.
+    """
+    pairs, bad, conflict = {}, 0, False
+    for tok in re.split(r"[,\s]+", raw or ""):
+        if not tok:
+            continue
+        src, sep, dst = tok.partition("=")
+        if not sep or not src or not dst or "=" in dst:
+            bad += 1
+        elif src in pairs and pairs[src] != dst:
+            conflict = True
+        else:
+            pairs[src] = dst
+    targets = [t.lower() for t in pairs.values()]
+    if conflict or len(set(targets)) != len(targets) or any(t in {k.lower() for k in pairs} for t in targets):
+        print(f"kindle: username alias map refused ({len(pairs)} usable entries); no aliases in effect",
+              file=sys.stderr)
+        return {}
+    if bad:
+        print(f"kindle: ignored {bad} malformed username alias entries", file=sys.stderr)
+    return pairs
+
+
+ALIASES = load_aliases(os.environ.get("KINDLE_USERNAME_ALIASES", ""))
+
+
+def library_name(username: str):
+    """The name to look up in Calibre-Web and Audiobookshelf for this Authentik username, or None.
+
+    None (fail closed) when the username is the target of an alias but is not that alias's source:
+    otherwise a second Authentik user literally named like the aliased library account would share
+    it. The e-mail header plays no part in resolution - it is user-editable and not unique.
+    """
+    if username in ALIASES:
+        return ALIASES[username]
+    if username.lower() in {t.lower() for t in ALIASES.values()}:
+        return None
+    return username
 
 
 # ---------------------------------------------------------------- helpers
@@ -94,24 +143,16 @@ def _pick(rows, name_of, wanted: str):
     return (folded[0] if len(folded) == 1 else None), bool(folded)
 
 
-def cwa_find(username: str, email: str):
-    """Calibre-Web accounts are LDAP-provisioned, so the username matches Authentik; email is a
-    fallback for anyone created before that. The fallback is only used when NO account has this
-    username, and only when exactly one account has this e-mail."""
+def cwa_find(username: str):
+    """Calibre-Web accounts are LDAP-provisioned, so the username matches Authentik (see
+    KINDLE_USERNAME_ALIASES for the exceptions). The username is the only join key."""
     if not username:
         return None
     con = sqlite3.connect(f"file:{CWA_DB}?mode=ro", uri=True)
     try:
         rows = con.execute("SELECT id, name, kindle_mail FROM user WHERE lower(name)=lower(?) ORDER BY id",
                            (username,)).fetchall()
-        row, seen = _pick(rows, lambda r: r[1] or "", username)
-        if seen:
-            return row
-        if email:
-            rows = con.execute("SELECT id, name, kindle_mail FROM user WHERE lower(email)=lower(?) ORDER BY id",
-                               (email,)).fetchall()
-            return rows[0] if len(rows) == 1 else None
-        return None
+        return _pick(rows, lambda r: r[1] or "", username)[0]
     finally:
         con.close()
 
@@ -125,19 +166,12 @@ def cwa_set(user_id: int, address: str | None):
         con.close()
 
 
-def abs_find(username: str, email: str):
-    """Same rule as cwa_find: the username decides; e-mail is only a fallback when no account has
-    this username, and only when exactly one account has this e-mail."""
+def abs_find(username: str):
+    """Same rule as cwa_find: the username decides, nothing else."""
     if not username:
         return None
     users = abs_call("/api/users").get("users", [])
-    user, seen = _pick(users, lambda u: u.get("username") or "", username)
-    if seen:
-        return user
-    if email:
-        same = [u for u in users if (u.get("email") or "").lower() == email.lower()]
-        return same[0] if len(same) == 1 else None
-    return None
+    return _pick(users, lambda u: u.get("username") or "", username)[0]
 
 
 def abs_devices():
@@ -308,7 +342,7 @@ class Handler(BaseHTTPRequestHandler):
         return self._hdr(USERNAME_HEADER), self._hdr(EMAIL_HEADER), parse_groups(self._hdr(GROUPS_HEADER))
 
     def _member(self):
-        """(username, email) of a permitted member, or None. Anything else is a 404.
+        """Library username of a permitted member, or None. Anything else is a 404.
 
         Fails closed: each identity header may appear at most once (a repeated line means something
         other than the outpost wrote it, and which copy wins is not worth guessing), and a member
@@ -318,14 +352,14 @@ class Handler(BaseHTTPRequestHandler):
         for name in (USERNAME_HEADER, EMAIL_HEADER, GROUPS_HEADER):
             if len(self.headers.get_all(name) or []) > 1:
                 return None
-        username, email, groups = self._identity()
+        username, _email, groups = self._identity()
         if REQUIRED_GROUP not in groups or not username:
             return None
-        return username, email
+        return library_name(username)
 
-    def _state(self, username, email):
-        cwa = cwa_find(username, email)
-        absu = abs_find(username, email)
+    def _state(self, username):
+        cwa = cwa_find(username)
+        absu = abs_find(username)
         cwa_val = (cwa[2] if cwa else None) or None
         abs_val = None
         if absu:
@@ -335,27 +369,26 @@ class Handler(BaseHTTPRequestHandler):
                     break
         return cwa, absu, cwa_val, abs_val
 
-    def _refresh(self, username, email, before, failed):
+    def _refresh(self, username, before, failed):
         """Re-read state after a write. If a write already failed and the read does too (the library
         that failed is probably down), answer from Calibre-Web plus the pre-write Audiobookshelf
         state rather than dropping the connection after the other library was already changed."""
         try:
-            return self._state(username, email)
+            return self._state(username)
         except Exception:
             if not failed:
                 raise
-            cwa = cwa_find(username, email)
+            cwa = cwa_find(username)
             return cwa, before[1], (cwa[2] if cwa else None) or None, before[3]
 
     def do_GET(self):
         route = self.path.split("?", 1)[0].rstrip("/") or "/"
         if route == "/healthz":
             return self._send(200, "ok", "text/plain; charset=utf-8")
-        member = self._member()
-        if member is None:
+        username = self._member()
+        if username is None:
             return self._send(404, render_not_found())
-        username, email = member
-        cwa, absu, cwa_val, abs_val = self._state(username, email)
+        cwa, absu, cwa_val, abs_val = self._state(username)
         banner = None
         if not cwa and not absu:
             banner = ("err", "No Calibre-Web or Audiobookshelf account found for this login.")
@@ -364,10 +397,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         route = self.path.split("?", 1)[0].rstrip("/") or "/"
-        member = self._member()
-        if member is None or route not in ("/save", "/remove"):
+        username = self._member()
+        if username is None or route not in ("/save", "/remove"):
             return self._send(404, render_not_found())
-        username, email = member
 
         # The form is one short field. Refuse anything else up front: a negative length makes
         # rfile.read() wait for EOF and a huge one waits for bytes that never come, each pinning a
@@ -381,7 +413,7 @@ class Handler(BaseHTTPRequestHandler):
         form = urllib.parse.parse_qs(self.rfile.read(length).decode("utf-8", "replace"))
         address = (form.get("address", [""])[0] or "").strip()
 
-        cwa, absu, cwa_val, abs_val = self._state(username, email)
+        cwa, absu, cwa_val, abs_val = self._state(username)
 
         before = (cwa, absu, cwa_val, abs_val)
 
@@ -397,7 +429,7 @@ class Handler(BaseHTTPRequestHandler):
                     abs_set(absu, None, f"Kindle ({username})"); written.append("Audiobookshelf")
                 except Exception:
                     failed.append("Audiobookshelf")
-            cwa, absu, cwa_val, abs_val = self._refresh(username, email, before, failed)
+            cwa, absu, cwa_val, abs_val = self._refresh(username, before, failed)
             if failed:
                 msg = ("err", "Removed from " + (" and ".join(written) or "nothing") +
                        "; failed for " + " and ".join(failed) + ".")
@@ -424,7 +456,7 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 failed.append("Audiobookshelf")
 
-        cwa, absu, cwa_val, abs_val = self._refresh(username, email, before, failed)
+        cwa, absu, cwa_val, abs_val = self._refresh(username, before, failed)
         if failed:
             msg = ("err", "Saved to " + (" and ".join(written) or "nothing") +
                    "; failed for " + " and ".join(failed) + ".")
