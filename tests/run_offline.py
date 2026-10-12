@@ -24,6 +24,7 @@ def main():
         test()
         print('PASS', name)
     print(f'{len(tests)} offline Kindle tests passed')
+    subprocess.run([sys.executable, '-B', '-m', 'unittest', 'discover', '-s', str(ROOT / 'services/avrana-kindle-connector/tests'), '-p', 'test_authz.py'], check=True)
     subprocess.run([sys.executable, '-B', '-m', 'unittest', 'discover', '-s', str(ROOT / 'services/backups/tests'), '-p', 'test_*.py'], check=True)
 
 
