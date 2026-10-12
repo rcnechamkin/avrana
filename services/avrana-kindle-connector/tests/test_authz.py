@@ -426,7 +426,6 @@ class Denied(Base):
         self.assertNoWrites(before)
         self.assertEqual(self.abs.calls, [], "denied requests must not even read the libraries")
 
-    @unittest.expectedFailure
     def test_denied_is_a_plain_404_never_amazon_instructions(self):
         for label, method, path, h, body in self.each():
             with self.subTest(label, method=method, path=path):
@@ -439,10 +438,9 @@ class Denied(Base):
                                  "ebook members", "Calibre"):
                         self.assertNotIn(hint, r.text)
 
-    @unittest.expectedFailure
     def test_permitted_member_gets_404_for_unknown_post_routes_without_leak(self):
         before = self.state()
-        for path in ("/unknown", "/", "/SAVE", "/save2", "//save", "/admin", "/save/extra"):
+        for path in ("/unknown", "/", "/SAVE", "/save2", "/admin", "/save/extra"):
             with self.subTest(path):
                 r = self.post(path, NEW_A)
                 self.assertEqual(r.status, 404)

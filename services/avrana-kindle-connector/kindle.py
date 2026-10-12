@@ -225,10 +225,14 @@ def render(current_cwa, current_abs, value="", banner=None, can_remove=False):
                        remove=rm, amazon=AMAZON_PDOC, sender=html.escape(SENDER))
 
 
-def render_denied():
-    return PAGE.format(
-        style=STYLE, banner='<div class="banner">This is for Avrana ebook members.</div>',
-        current="", value="", remove="", amazon=AMAZON_PDOC, sender=html.escape(SENDER))
+def render_not_found():
+    """The 404 for everyone who is not a member (and for every unknown route): the same shell as the
+    page, with nothing about Kindle, Amazon or the sender address. 404 rather than 403 so that
+    the existence of this tool is not disclosed (audit finding A5, same rule as the portal)."""
+    return (PAGE.split("{banner}")[0].format(style=STYLE) +
+            '<section><p class="note">That page does not exist.</p></section>\n'
+            '<footer><a class="plain" href="https://avrana.net">Back to Avrana</a></footer>\n'
+            '</main></body></html>\n')
 
 
 # ---------------------------------------------------------------- server
@@ -255,6 +259,13 @@ class Handler(BaseHTTPRequestHandler):
     def _identity(self):
         return self._hdr(USERNAME_HEADER), self._hdr(EMAIL_HEADER), parse_groups(self._hdr(GROUPS_HEADER))
 
+    def _member(self):
+        """(username, email) of a permitted member, or None. Anything else is a 404."""
+        username, email, groups = self._identity()
+        if REQUIRED_GROUP not in groups:
+            return None
+        return username, email
+
     def _state(self, username, email):
         cwa = cwa_find(username, email)
         absu = abs_find(username, email)
@@ -271,9 +282,10 @@ class Handler(BaseHTTPRequestHandler):
         route = self.path.split("?", 1)[0].rstrip("/") or "/"
         if route == "/healthz":
             return self._send(200, "ok", "text/plain; charset=utf-8")
-        username, email, groups = self._identity()
-        if REQUIRED_GROUP not in groups:
-            return self._send(403, render_denied())
+        member = self._member()
+        if member is None:
+            return self._send(404, render_not_found())
+        username, email = member
         cwa, absu, cwa_val, abs_val = self._state(username, email)
         banner = None
         if not cwa and not absu:
@@ -283,9 +295,10 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         route = self.path.split("?", 1)[0].rstrip("/") or "/"
-        username, email, groups = self._identity()
-        if REQUIRED_GROUP not in groups:
-            return self._send(403, render_denied())
+        member = self._member()
+        if member is None or route not in ("/save", "/remove"):
+            return self._send(404, render_not_found())
+        username, email = member
 
         length = int(self.headers.get("Content-Length") or 0)
         form = urllib.parse.parse_qs(self.rfile.read(length).decode("utf-8", "replace"))
@@ -303,9 +316,6 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, render(cwa_val, abs_val, "",
                                           ("ok", "Removed from " + " and ".join(written) + ".") if written
                                           else ("err", "Nothing to remove."), False))
-
-        if route != "/save":
-            return self._send(404, render_denied())
 
         if not KINDLE_RE.match(address):
             return self._send(200, render(cwa_val, abs_val, address,
