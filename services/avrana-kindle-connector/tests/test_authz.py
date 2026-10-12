@@ -572,6 +572,18 @@ class Bodies(Base):
                 self.assertNoAddressLeak(r.text, allowed=(ADDR["a"],))
         self.assertNoWrites(before)
 
+    def test_unicode_case_folding_does_not_admit_lookalike_addresses(self):
+        # re.I on a str pattern folds U+212A (Kelvin sign) to k and U+0131 (dotless i) to i
+        bad = ["a@Kindle.com", "a@kındle.com", "Kelvin@kindle.com", "a@kindle.com x",
+               "ſmile@kindle.com"]
+        before = self.state()
+        for a in bad:
+            self.assertIsNone(kindle.KINDLE_RE.match(a), ascii(a))
+            r = self.post("/save", a)
+            self.assertIn("That is not a @kindle.com address.", r.text, ascii(a))
+        self.assertNoWrites(before)
+        self.assertTrue(kindle.KINDLE_RE.match("UPPER@KINDLE.COM"))  # ASCII case-insensitivity stays
+
     def test_error_banner_escapes_the_submitted_value(self):
         r = self.post("/save", '"><script>alert(1)</script>')
         self.assertNotIn("<script>alert(1)", r.text)

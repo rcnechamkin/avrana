@@ -53,7 +53,8 @@ AMAZON_PDOC = "https://www.amazon.com/hz/mycd/myx#/home/settings/pdoc"
 
 # Deliberately strict. A typo here means books silently vanish: Amazon drops mail addressed to a
 # non-existent @kindle.com without telling anyone.
-KINDLE_RE = re.compile(r"^[A-Za-z0-9._%+-]+@kindle\.com$", re.I)
+# re.A: without it, Unicode case folding makes U+212A (Kelvin sign) match "k" and U+0131 match "i".
+KINDLE_RE = re.compile(r"^[A-Za-z0-9._%+-]+@kindle\.com\Z", re.I | re.A)
 
 MAX_BODY = 16384       # bytes; the only field is one address
 MAX_ADDRESS = 254      # RFC 5321 path limit; Kindle addresses are far shorter
