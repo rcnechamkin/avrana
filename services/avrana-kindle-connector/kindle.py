@@ -145,9 +145,13 @@ def _pick(rows, name_of, wanted: str):
 
     The match is case-insensitive (Authentik and the libraries do not agree on case) but exact case
     wins, and two candidates that cannot be told apart resolve to nobody rather than to whichever
-    was listed first - the first match is not necessarily the right person.
+    was listed first - the first match is not necessarily the right person. Case folding is
+    ASCII-only, the same as SQLite's lower(), and a name with any non-ASCII character matches
+    nobody, so look-alikes (U+212A Kelvin sign) cannot match in one library and not the other.
     """
-    folded = [r for r in rows if name_of(r).lower() == wanted.lower()]
+    if not wanted.isascii():
+        return None, False
+    folded = [r for r in rows if _fold(name_of(r)) == _fold(wanted)]
     exact = [r for r in folded if name_of(r) == wanted]
     if len(exact) == 1:
         return exact[0], True

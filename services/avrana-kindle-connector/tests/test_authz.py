@@ -1162,6 +1162,26 @@ class StoredValues(Base):
         self.assertNotIn("<b>s</b>", r.text)
         self.assertIn("&lt;b&gt;s&lt;/b&gt;@example.test", r.text)
 
+    def test_matching_is_ascii_only_and_consistent_across_libraries(self):
+        kelvin, dotless = "Kevin", "kındle"
+        # Python's lower() folds the Kelvin sign to k, SQLite's does not: both must say "nobody"
+        self.assertEqual(kindle._pick([(1, "kevin")], lambda r: r[1], kelvin), (None, False))
+        self.assertEqual(kindle._pick([(1, kelvin)], lambda r: r[1], "kevin"), (None, False))
+        self.assertEqual(kindle._pick([(1, "kindle")], lambda r: r[1], dotless), (None, False))
+        self.assertEqual(kindle._pick([(1, kelvin)], lambda r: r[1], kelvin), (None, False))  # non-ASCII never matches
+        self.assertEqual(kindle._fold("ABC-Kİ"), "abc-Kİ")
+        self.abs.users.append(abs_user("abs-u-k", "kevin", ""))
+        con = sqlite3.connect(self.db)
+        con.execute("INSERT INTO user VALUES (4,'kevin','k@example.test',NULL)")
+        con.commit()
+        con.close()
+        for wanted in (kelvin, dotless, "member-K"):
+            self.assertIsNone(kindle.cwa_find(wanted), ascii(wanted))
+            self.assertIsNone(kindle.abs_find(wanted), ascii(wanted))
+        self.assertEqual(kindle.cwa_find("KEVIN")[1], "kevin")  # ASCII case-insensitivity stays
+        self.assertEqual(kindle.abs_find("KEVIN")["id"], "abs-u-k")
+        self.assertEqual(kindle.library_name(kelvin), kelvin)  # passed through, then matches nobody
+
     def test_pick_with_identical_exact_names_resolves_to_nobody(self):
         rows = [(1, "dup"), (2, "dup")]
         self.assertEqual(kindle._pick(rows, lambda r: r[1], "dup"), (None, True))
