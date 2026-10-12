@@ -260,9 +260,18 @@ class Handler(BaseHTTPRequestHandler):
         return self._hdr(USERNAME_HEADER), self._hdr(EMAIL_HEADER), parse_groups(self._hdr(GROUPS_HEADER))
 
     def _member(self):
-        """(username, email) of a permitted member, or None. Anything else is a 404."""
+        """(username, email) of a permitted member, or None. Anything else is a 404.
+
+        Fails closed: each identity header may appear at most once (a repeated line means something
+        other than the outpost wrote it, and which copy wins is not worth guessing), and a member
+        with no username has no usable identity - without it the lookups would fall back to e-mail
+        alone, which resolves to whoever owns that address.
+        """
+        for name in (USERNAME_HEADER, EMAIL_HEADER, GROUPS_HEADER):
+            if len(self.headers.get_all(name) or []) > 1:
+                return None
         username, email, groups = self._identity()
-        if REQUIRED_GROUP not in groups:
+        if REQUIRED_GROUP not in groups or not username:
             return None
         return username, email
 

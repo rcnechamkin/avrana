@@ -459,7 +459,6 @@ class Denied(Base):
 
 # ---------------------------------------------------------------- malformed identities
 class MalformedIdentity(Base):
-    @unittest.expectedFailure
     def test_missing_or_blank_username_fails_closed_on_get(self):
         for label, h in (("missing", hdr(user=None, email="b@example.test")),
                          ("empty", hdr(user="", email="b@example.test")),
@@ -469,7 +468,6 @@ class MalformedIdentity(Base):
                 self.assertEqual(r.status, 404)
                 self.assertNoAddressLeak(r.text)
 
-    @unittest.expectedFailure
     def test_missing_username_cannot_write_another_members_rows(self):
         before = self.state()
         for path, h in (("/save", hdr(user=None, email="b@example.test")),
@@ -481,7 +479,6 @@ class MalformedIdentity(Base):
                 self.assertNoAddressLeak(r.text)
         self.assertNoWrites(before)
 
-    @unittest.expectedFailure
     def test_duplicated_identity_headers_fail_closed(self):
         base = hdr(user="member-a")
         cases = {
