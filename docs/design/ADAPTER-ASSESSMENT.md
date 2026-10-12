@@ -23,6 +23,9 @@ bound to that id, and a response-scope tripwire.
 | Contract methods feasible | `continue_items`, `recent_items`, `item`, artwork, search | `recent_items`, `item`, artwork, search. **No `continue_items`.** | `recent_items`, `item`, artwork, search. **No `continue_items`.** |
 | Recommended order | 2nd (highest value, highest risk) | 3rd | 4th |
 
+The exact-username rule in the contract (section 3) therefore applies to Jellyfin and Calibre-Web only; Komga and
+Audiobookshelf are e-mail keyed, as the sources cited in that section show.
+
 ## 1. Audiobookshelf
 
 ### Member mapping
@@ -94,7 +97,10 @@ Risk this creates, stated plainly:
 4. **Sessions are rich.** Listening sessions contain device names, IP addresses and timestamps; the
    adapter keeps only position and item id.
 5. **Token lifetime.** JWT access tokens expire and refresh; a long-lived key is preferable for a service
-   credential. Session expiry must map to `UNAVAILABLE`, not a retry loop (the contract forbids retries).
+   credential. Session expiry must map to `UNAVAILABLE`, not a retry loop (the contract forbids retries). A 401 or 403
+   on the service credential counts toward the circuit shared by all members (three in a row open it for 60 s),
+   whereas a 404 for one member's user id is member-specific: `NOT_LINKED`, mapping dropped, circuit untouched
+   (`ADAPTER-CONTRACT.md` section 6).
 6. **CORS `allowedOrigins`** is empty by default in 2.36 (`docs/services/audiobookshelf.md`). Server-to-server
    calls are unaffected, but do not add the home's origin for convenience.
 

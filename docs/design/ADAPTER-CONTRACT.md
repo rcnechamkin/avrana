@@ -35,9 +35,18 @@ strip, drop empties) and compared **exactly and case-sensitively**; there is no 
 
 Rules for the rest of the application:
 
-- Every adapter method takes a `MemberPrincipal`. A `str` raises `TypeError`.
-- No username is accepted from a query string, body, cookie or model output, ever. The principal
-  cannot be constructed directly (`TypeError`), which makes the one header parser the only source.
+- Every adapter method takes a `MemberPrincipal`. A `str`, a look-alike object or a subclass raises
+  `TypeError` (consumers check `is_minted_principal`: exact type plus the parser's seal).
+- No username is accepted from a query string, body, cookie or model output, ever.
+- **What the construction guarantee is, and is not.** There is no supported construction path other
+  than the header parser, and accidental copies with changed fields are rejected: the class is not a
+  dataclass (`dataclasses.replace` fails), cannot be called, subclassed, copied into another identity
+  or pickled, and is immutable. Python cannot stop code already running in the process from using
+  `object.__new__` and `object.__setattr__`; that is out of scope, and such code could equally edit
+  the parser. The guarantee is against mistakes and misuse, not against hostile in-process code.
+- Non-mapping input to the parser (`None`, a string, a generator, malformed pairs) is no principal.
+  Usernames and group names may not contain Unicode line or paragraph separators, non-breaking or
+  other non-ASCII spaces (an ordinary space is allowed).
 - The trust in these headers exists only because of G1. A shared-secret header from the outpost
   (decision D-3) is the planned second layer and is out of scope here.
 
@@ -49,8 +58,12 @@ Each public method runs these steps, in this order, in the shared base class
 1. **Principal check.** Not a `MemberPrincipal`: `TypeError`.
 2. **Permission.** The member must hold the adapter's Authentik group. Otherwise the result is
    `NOT_PERMITTED` with **zero upstream calls and no cache access**.
-3. **Cache** (member-partitioned, section 5). A hit returns without any upstream call.
-4. **Circuit.** If the service is cooling off: `UNAVAILABLE`, zero upstream calls.
+3. **Cache** (member-partitioned, section 5). A hit returns without any upstream call, even while
+   the circuit is open (cached data is bounded by short TTLs).
+4. **In-flight cap, then circuit.** If the adapter already has its maximum number of upstream calls
+   running (default 4, for example because some are hung): `UNAVAILABLE` (`busy`). If the shared
+   circuit is cooling off, or its single half-open trial is taken: `UNAVAILABLE` (`cooling_off`).
+   Both start no upstream traffic.
 5. **Mapping** (`resolve_user`, section 3). Unmapped or ambiguous: `NOT_LINKED`.
 6. **Hook.** The only place that talks to the upstream, through the guarded transport.
 
@@ -80,17 +93,26 @@ Each public method runs these steps, in this order, in the shared base class
 `resolve_user(principal) -> UpstreamUser | None`. The mapping is explicit and must be unambiguous.
 
 - Match the Authentik username to the upstream account name **exactly** (case-sensitive, no
-  normalisation). This follows how accounts are made in this repository: Jellyfin and Komga accounts
-  are created at enrollment from the same username (credential replication, see
-  `docs/services/jellyfin.md` and `docs/services/sso-architecture.md`), and a casing difference is
-  the documented cause of duplicate accounts.
+  normalisation). **This rule is Jellyfin's and Calibre-Web's only.** Jellyfin accounts are created
+  at enrollment with "the username + password the person typed at signup"
+  (`docs/services/jellyfin.md`, "Auth: credential replication"), and a casing difference is the
+  documented cause of duplicate accounts (`docs/services/sso-architecture.md`, "LDAP was NOT
+  enabled"). Calibre-Web signs members in with their Authentik `cn` over LDAP
+  (`docs/services/calibre-web-automated.md`). **Komga and Audiobookshelf are keyed by e-mail, not
+  username:** Komga accounts are created "with the same email and password"
+  (`docs/services/komga.md`; the `avrana-komga-create` policy in
+  `services/authentik/blueprints/avrana-enrollment.yaml` looks accounts up by e-mail), and
+  Audiobookshelf matches existing users by e-mail (`authOpenIDMatchExistingBy: email`,
+  `docs/services/sso-architecture.md`). Those two need a different mapping rule, discussed in
+  [`ADAPTER-ASSESSMENT.md`](ADAPTER-ASSESSMENT.md).
 - **Loose matches never link.** If no account matches exactly but one matches after Unicode NFKC
   normalisation, case folding or trimming, the result is `NOT_LINKED` (reason `case_or_unicode_mismatch`).
   The operator reconciles the names; the adapter does not guess.
 - **Ambiguity is refused.** Two exact matches, or one exact match that also collides with another
   account after normalisation, is `NOT_LINKED` (reason `ambiguous`). The adapter never picks one.
 - A disabled upstream account is `NOT_LINKED` (reason `disabled`).
-- Mapping outcomes are cached per member (found 300 s, absent or ambiguous 60 s).
+- Mapping outcomes are cached per member (found 300 s, absent or ambiguous 60 s). A 404 on a later
+  member-scoped call drops that member's cached mapping so it is resolved again.
 - Only the opaque upstream id is retained. The fetched user list is not stored.
 
 ## 4. Result types and states
@@ -180,7 +202,11 @@ a 404 or the sign-in flow, never a partial page. These are listed so the UI team
 
 ## 5. Cache rules
 
-In-memory, disposable, bounded (2048 entries). Deleting it (restart) costs speed only.
+In-memory, disposable, bounded. Deleting it (restart) costs speed only. Bounds: 2048 entries and
+32 MiB in total; per member 128 entries and 8 MiB. A member over quota evicts only their own
+oldest entries; under global pressure the member holding the most bytes loses entries first; an
+entry larger than the per-member byte quota is not stored. One member therefore cannot push the
+others out.
 
 | Data | Shared across members? | Key | TTL |
 |---|---|---|---|
@@ -188,32 +214,67 @@ In-memory, disposable, bounded (2048 entries). Deleting it (restart) costs speed
 | Continue items | No | member, service, section, limit | 30 s |
 | Recently added | **No**, because library visibility depends on the member | member, service, section, limit | 120 s |
 | Item metadata | No | member, service, item id | 120 s |
-| Artwork bytes | No (visibility is checked per member first) | member, service, ref | 600 s |
-| Failures, `UNAVAILABLE`, `NOT_LINKED` section results | Never cached (only the mapping outcome is) | | |
+| Artwork bytes | No (visibility is checked per member first) | member, service, ref | 300 s |
+| Failures, `UNAVAILABLE`, `NOT_LINKED` section results, and results from a call that finished after the circuit moved on | Never cached | | |
+
+**Artwork TTL, and why 300 s.** If an item is hidden from a member in Jellyfin, or the member's
+library access changes, cached artwork for that item can still be served until its TTL expires.
+Five minutes is accepted because the image is a poster the member could legitimately see within
+the previous five minutes, and because a loss of the Authentik group takes effect immediately
+(the group check precedes the cache). Shorter TTLs are cheap to set (`ARTWORK_TTL`) if the owner
+wants a tighter window.
 
 The API makes misuse hard: member data goes through `MemberCache.for_member(principal)`, which
-needs a real principal and returns a view that cannot name another member. The key is the exact
-username, so case, whitespace and Unicode variants are different partitions. `SharedCache` is a
-separate class for permission-independent values and is not used for library, progress or artwork
+needs a parser-minted principal and returns a view that cannot name another member. The key is the
+exact username, so case, whitespace and Unicode variants are different partitions. `SharedCache` is
+a separate store for permission-independent values and is not used for library, progress or artwork
 data. The permission check runs **before** any cache read, so removing a group takes effect
 immediately even with a warm cache.
+
+**Proposed deviation from `MEDIA-2.0.md` section 3, for owner confirmation.** The approved
+architecture describes "a small SQLite file in the container's own volume". This reference
+implementation caches in memory only, because everything it caches is per-member and short-lived
+(30 to 300 s), so a file would persist member data to disk for little gain and a restart losing it
+costs one slow page. This is a proposal, not a decision. If SQLite is wanted, the one place where
+it earns its keep is **resized artwork bytes**, keyed per member exactly as above (or shared only
+after the visibility check is proven not to change per member), stored in the container's own
+volume and deleted freely. The approved design is not changed by this document.
 
 ## 6. Failure handling
 
 - Per-call timeout about 2 s (`CallBudget` bounds a whole section across several requests).
 - **No retries** in the request path.
-- A failure opens a per-service **cool-off circuit for 60 s**: no upstream traffic, `UNAVAILABLE`.
-  After the cool-off the next call is a trial; success closes the circuit.
-- `gather()` runs sections concurrently with a hard 3 s wall-clock cap as a backstop. A failing,
-  slow or hung adapter yields `UNAVAILABLE` for its own section only.
+- **The circuit is shared by every member of an adapter.** Policy, exactly:
+  1. Counts toward it (service-wide evidence): timeouts, connection errors (including
+     `http.client` errors), HTTP 5xx, 429, unexpected 3xx, 401 or 403 (the service credential
+     itself is refused), malformed or oversized payloads, total schema drift (below), and
+     `UpstreamMisbehaved` (a response that contradicts the request scope).
+  2. Does not count (specific to one member's or one item's request): 404 and every other 4xx.
+     A 404 on a member-scoped call returns `NOT_LINKED` (`upstream_user_not_found`) and drops that
+     member's cached mapping. A 404 on the user-list call used for mapping is route drift and does
+     count. Other 4xx give `UNAVAILABLE` for that request only.
+  3. Threshold: **3 consecutive** counted failures open it (any success resets the run), so one
+     unlucky or odd request cannot shut a service for everyone. It stays open for 60 s with no
+     upstream traffic.
+  4. After the cool-off it is half-open: exactly **one** trial call is admitted at a time (no
+     thundering herd). Success closes it; one failure re-opens it for a full cool-off.
+  5. Each opening bumps an epoch. A call admitted before that and finishing after (a hung call)
+     is ignored: it cannot close the circuit and cannot populate a cache.
+- **Hung adapters.** `gather()` runs sections on one shared, fixed-size pool with a hard 3 s
+  wall-clock cap as a backstop; an adapter that exceeds it has its circuit force-opened and its
+  section reports `UNAVAILABLE` (`hard_cap`). Python cannot kill a hung thread, so concurrency is
+  bounded instead: each adapter allows 4 in-flight upstream calls, and further requests get
+  `UNAVAILABLE` (`busy`) immediately, starting no work. Queued work that never started is cancelled.
+- **Boundary.** Anything an upstream or transport can provoke (`RecursionError` from nested JSON,
+  numeric overflow, `http.client` errors, wrong types) becomes an `UpstreamError`; a public method
+  returns a state and never raises for upstream-controlled input. Only programming errors propagate.
 - Logging: `adapter_failure service=<name> error=<ExceptionClass>`. Never member identity, titles,
   URLs, exception messages or credentials. Reprs of principals, users and transports are redacted.
 - `health_summary()` is the data for a future `/healthz`: `{"home": "ok", "libraries": "ok|degraded",
   "adapters": [{service, state, last_error_class, retry_in_seconds}]}`. It reports what the request
   path last observed (`unknown` before the first call) and makes no upstream call of its own.
-- Error classes: timeout, unreachable, HTTP error, auth error (401/403), not found (benign for one
-  item), malformed body, oversized body, and `UpstreamMisbehaved` (the response contradicts the
-  request scope, section 7).
+- Error classes: timeout, unreachable, HTTP error, auth error (401/403), not found, malformed body,
+  oversized body, and `UpstreamMisbehaved` (the response contradicts the request scope, section 7).
 
 ## 7. Isolation requirements for every adapter
 
@@ -223,14 +284,23 @@ immediately even with a warm cache.
    method or path raises `ForbiddenRequest` **before** the transport is called.
 3. Upstream ids are validated before use and never interpolated unvalidated.
 4. A response that contradicts the request scope (for example an item whose user data names another
-   user, or more items than requested) is discarded whole: `UNAVAILABLE`, circuit opens.
-5. The credential lives only inside the transport. It is in no result, repr or log line.
+   user or another item, or more items than requested) is discarded whole: `UNAVAILABLE`, and it
+   counts toward the circuit (section 6).
+5. The credential lives only inside the transport. It is in no result, repr or log line. The
+   guard also refuses to bind anything that is not a 32-hex user id.
 6. The service credential is never used to produce an "everyone" or admin view as a fallback.
 
-**Residual risk (stated plainly).** A scope violation that carries no identity hint in the response
-cannot be detected from the response alone. Protection then rests on request scoping and on a
-read-only contract recording against the real server (owner-approved later), which should check that
-the scoped parameter is honoured under API-key authentication.
+The image route cannot carry a `userId`, so the guard cannot bind it to the member. Its member
+scoping rests on the adapter first running a `userId`-scoped lookup of the same item
+(`_visible_item`) and fetching the image only if that returns the requested id.
+
+**Residual risk (stated plainly).** An upstream that ignores `userId` and returns another member's
+items with no identity marker in the response is **undetectable by the adapter**: the tripwires
+(user id or item id named in the user data, over-limit listings) fire only when the upstream
+supplies evidence. A recorded, read-only contract check against the real Jellyfin version, showing
+that `userId` is honoured under API-key authentication and that the response differs per user, is
+therefore **required before any real member data is read**. That check is an owner-approved step.
+**Not implemented yet, listed as follow-up:** a per-member rate limit on adapter calls.
 
 ## 8. Minimum credential per upstream (public documentation; all "to verify")
 
@@ -256,5 +326,9 @@ deployed version is 10.11.11 and nothing was checked against it.
 
 Drift handling: unknown fields are ignored; a missing or wrongly typed required field drops that
 item (never raises into the page); a non-JSON or wrongly shaped top level is `UpstreamMalformed`
-(`UNAVAILABLE`). Re-recording against a real server with a read-only step, before any upstream
+(`UNAVAILABLE`). **Total drift:** if the upstream returned raw items and every one was unparsable
+(not an object, invalid id, missing type, non-numeric position), the section is `UNAVAILABLE`
+(`UpstreamMalformed`, counted toward the circuit) and is never cached as an empty success. Items
+dropped for a legitimate reason (another media type, not in progress) do not count as drift, and
+partial drops stay as before. Re-recording against a real server with a read-only step, before any upstream
 upgrade, remains the Media 2.0 plan (section 7 of `MEDIA-2.0.md`) and is an owner-approved action.
