@@ -269,7 +269,7 @@ HELP = [
         ]),
     ]),
 
-    ("avrana-requests", "Requests", "request.avrana.net", [
+    ("avrana-videos", "Requests", "request.avrana.net", [
         ("iPhone and iPad", [
             ("Pocket for Seerr", "App Store",
              "https://apps.apple.com/us/app/pocket-for-seerr/id6746105104", [
@@ -696,10 +696,14 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Location", location)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(length))
+        self.end_headers()
+
+    def end_headers(self):
+        # Every response, including http.server's own error replies, carries these.
         self.send_header("Cache-Control", "no-store")
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("X-Content-Type-Options", "nosniff")
-        self.end_headers()
+        super().end_headers()
 
     def _send(self, code, body, ctype="text/html; charset=utf-8", location=None):
         data = body.encode("utf-8")
@@ -717,7 +721,9 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, "ok", "text/plain; charset=utf-8")
 
         # Header lookup is case-insensitive via http.client.HTTPMessage.
-        groups = parse_groups(self._hdr(GROUPS_HEADER))
+        # More than one group header is ambiguous (which one did the outpost set?): grant nothing.
+        raw_groups = self.headers.get_all(GROUPS_HEADER) or []
+        groups = parse_groups(raw_groups[0].strip()) if len(raw_groups) == 1 else set()
 
         if route == "/":
             return self._send(200, render_home(groups))

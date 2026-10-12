@@ -100,10 +100,9 @@ UNKNOWN_ROUTES = ["/nope", "/admin", "/ops/x", "/help/nope", "/help/movies/extra
 ROUTES = (["/", "/account", "/help", "/healthz"] + HELP_ROUTES + CHOOSER_ROUTES + SERVICE_ROUTES
           + UNKNOWN_ROUTES)
 
-# Routes whose pinned expectation currently disagrees with portal.py (see the defect tests).
-MATRIX_SKIP = {"/help/requests"}  # AVR-352 defect 1: gated on unused group avrana-requests
-LEAK_SKIP = {("legacy_requests", "/help"),   # defect 1: the index lists the Requests topic
-             ("books", "/")}                   # defect 4: Read tile subtitle says "Comics"
+# Routes excluded from the matrix because a known defect makes the pin fail (none at present).
+MATRIX_SKIP = set()
+LEAK_SKIP = {("books", "/")}   # defect 4 (not fixed): Read tile subtitle says "Comics"
 
 
 def expected(route, groups):
@@ -312,7 +311,6 @@ class PinTests(unittest.TestCase):
         slugs = {portal.HELP_SLUGS[h[1]] for h in portal.HELP}
         self.assertEqual(set(PIN_HELP), slugs)
 
-    @unittest.expectedFailure  # AVR-352 defect 1; remove the decorator with the fix commit
     def test_help_groups_match_the_service_they_document(self):
         got = {portal.HELP_SLUGS[h[1]]: h[0] for h in portal.HELP}
         self.assertEqual(PIN_HELP, got)
@@ -402,8 +400,6 @@ class RouteMatrixTests(unittest.TestCase):
             want = {s for s, g in PIN_HELP.items() if g in groups}
             with self.subTest(ident=ident):
                 got = {p.split("/", 1)[1] for p in tile_paths(fetch(ident, "/help").text)}
-                got.discard("requests")
-                want.discard("requests")  # defect 1 is covered by its own tests
                 self.assertEqual(want, got)
 
     def test_chooser_pages_list_only_permitted_members(self):
@@ -610,10 +606,12 @@ class HeaderFailClosedTests(unittest.TestCase):
     # --- duplicated headers -------------------------------------------------------------
 
     def test_second_group_header_never_adds_groups(self):
-        """Currently the FIRST header wins and the second is ignored. Pinned."""
-        h = [(GROUPS_HEADER, VIDEOS), (GROUPS_HEADER, ADMIN)]
-        self.assertEqual(404, request("/ops", h).status)
-        self.assertEqual(["watch", "request", "help"], tile_paths(request("/", h).text))
+        """Whichever order the two arrive in, the second never adds groups (see also
+        test_duplicated_group_headers_fail_closed, which is stricter)."""
+        for h in ([(GROUPS_HEADER, VIDEOS), (GROUPS_HEADER, ADMIN)],
+                  [(GROUPS_HEADER, VIDEOS), (GROUPS_HEADER, BOOKS)]):
+            self.assertEqual(404, request("/ops", h).status)
+            self.assertEqual(404, request("/books", h).status)
 
     def test_crlf_injected_second_header_never_adds_groups(self):
         wire = (b"GET /ops HTTP/1.1\r\nHost: portal.test\r\nConnection: close\r\n"
@@ -623,7 +621,6 @@ class HeaderFailClosedTests(unittest.TestCase):
                 b"X-authentik-groups: avrana-videos\r\n\r\nX-authentik-groups: authentik Admins\r\n\r\n")
         self.assertEqual(404, send_raw(wire).status)
 
-    @unittest.expectedFailure  # AVR-352 defect 2; remove the decorator with the fix commit
     def test_duplicated_group_headers_fail_closed(self):
         """Two group headers are ambiguous, and which one is genuine depends on how the outpost
         merges client headers. Fail closed: grant nothing in either order."""
@@ -859,7 +856,6 @@ class LeakTests(unittest.TestCase):
 class DefectTests(unittest.TestCase):
     """Proven departures from the fail-closed / no-leak principle. Each is also reported."""
 
-    @unittest.expectedFailure  # AVR-352 defect 1; remove the decorator with the fix commit
     def test_requests_help_follows_the_video_group_not_a_retired_one(self):
         """/help/requests is gated on `avrana-requests`, a group no service uses any more. A holder
         of only that group is shown Seerr's help and hostname (request.avrana.net) although the
@@ -1088,15 +1084,15 @@ class HygieneTests(unittest.TestCase):
                     self.assertIn(r.status, (0, 400, 414, 431, 505))   # 0 = HTTP/0.9-style reply
                     self.assertNotIn("tile", r.text)
 
-    @unittest.expectedFailure  # AVR-352 defect 3; remove the decorator with the fix commit
     def test_error_responses_carry_hygiene_headers(self):
-        """send_error() answers (501, 400, 414, 431, 505) bypass Handler._headers, so they lack
-        the three security headers that every other response has."""
-        for method in ("POST", "PUT", "DELETE"):
+        """http.server's own send_error() replies (here 501) bypass Handler._send, so the three
+        security headers must be added at end_headers() to cover them too. (Replies to request
+        lines too broken to parse are HTTP/0.9-style bare bodies with no headers at all.)"""
+        for method in ("POST", "PUT", "DELETE", "PATCH", "OPTIONS", "FOO"):
             with self.subTest(method=method):
-                self.check(request("/", method=method), method)
-        with self.subTest(case="400"):
-            self.check(send_raw(b"GET / HTTP/1.1 extra\r\n\r\n"), "400")
+                r = request("/", method=method)
+                self.assertEqual(501, r.status)
+                self.check(r, method)
 
 
 if __name__ == "__main__":
