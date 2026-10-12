@@ -64,7 +64,7 @@ native clients and old links still work.
 ### Playback warning before Jellyfin
 
 `/watch` shows a short page firs: *the Jellyfin app gives the most stable playback*, then
-**I understand** (continue) or **Set up the app** (the help page). Built as a general
+**Understood** (continue) or **Set up the app** (the help page). Built as a general
 `path -> warning` table.
 
 **Only the portal route is intercepted.** `watch.avrana.net` goes cloudflared -> Jellyfin
@@ -127,6 +127,20 @@ audiobook", or the full "Ask for an ebook or audiobook" for both). The account n
 lists "playback, reading position". `tests/test_portal_authz.py` (`LibraryVocabularyTests`) checks
 every page for every identity against a word list per library, written out independently of
 `portal.py`.
+
+## Accessibility (AVR-357, 2026-10-11)
+
+Markup and CSS only (sprint item S1-4, `docs/design/DESIGN.md`); routes, gating, statuses,
+redirects and headers are unchanged. Interactive edges use the Control Rule (`--rule-control`,
+#6e6e6e) and dividers keep `--rule-quiet` (#474747). Every link shows one two-ring focus indicator
+(`a:focus-visible`) and no rule removes the outline. `color-scheme: dark` is declared. Footer,
+account and store links are 44px targets (padding offset by a negative margin, so the layout does
+not move). Pages are `header` / `main` / `footer` with labelled `nav`s, one `h1` (the wordmark),
+and help topics open with an `h2` topic headline before their `h3` platforms. Notices carry
+`role="status"`; store links that open a new tab say so in a visually hidden span. The account note
+and interstitial lose their em dash and first person ("I understand" is now "Understood").
+`tests/test_portal_a11y.py` pins all of this for every identity and render function; the axe-core
+and screen-width checks wait for the browser harness (S1-5).
 
 ## SSO experience across services
 
