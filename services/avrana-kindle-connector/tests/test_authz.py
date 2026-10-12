@@ -94,6 +94,7 @@ class FakeAbs:
         self.patches = []
         self.calls = []
         self.fail_patch = False        # PATCH raises, reads still work
+        self.dead_after_patch = False   # after a successful PATCH every call raises
         self.dead_after_failed_patch = False  # once a PATCH has failed, every call raises
         self._dead = False
         self.latency = 0.0             # seconds slept between reading and acting, outside the fake's lock
@@ -130,6 +131,7 @@ class FakeAbs:
                     if d.get("availabilityOption") == "specificUsers" and not d.get("users"):
                         d["availabilityOption"] = "adminOrUp"
                 self.devices = new
+                self._dead = self.dead_after_patch
                 return {"settings": {"ereaderDevices": copy.deepcopy(new)}}
             raise AssertionError(f"unexpected ABS call {method} {path}")
 
@@ -1046,13 +1048,117 @@ class WriteFailures(Base):
         self.assertEqual(self.abs.devices, dev0)
         self.assertEqual(self.rows()[1:], CWA_ROWS[1:])
 
-    def test_get_with_abs_down_never_leaks_or_writes(self):
+    def test_reads_failing_up_front_answer_503_and_write_nothing(self):
         self.abs._dead = True
         before = self.state()
-        r = self.get()
-        self.assertNoAddressLeak(r.text)
+        for r in (self.get(), self.post("/save", NEW_A), self.post("/remove", body=b"")):
+            self.assertEqual(r.status, 503)
+            self.assertEqual(r.headers["content-type"], "text/plain; charset=utf-8")
+            self.assertNotIn("Traceback", r.text)
+            self.assertNoAddressLeak(r.text)
+            self.assertNotIn("member-a", r.text)
+        self.assertNoWrites(before)
+        self.assertEqual(self.server.errors, [])
+
+    def test_calibre_web_unreadable_answers_503(self):
+        kindle.CWA_DB = os.path.join(os.path.dirname(self.db), "missing", "app.db")
+        before = self.state()
+        self.assertEqual(self.get().status, 503)
+        self.assertEqual(self.post("/save", NEW_A).status, 503)
+        self.assertEqual(self.server.errors, [])
+        kindle.CWA_DB = self.db
         self.assertNoWrites(before)
 
+    def test_refresh_survives_both_libraries_down_after_a_failed_write(self):
+        h = self.handler_cls.__new__(self.handler_cls)
+        h._state = lambda u: (_ for _ in ()).throw(OSError("down"))
+        saved = kindle.cwa_find
+        kindle.cwa_find = lambda u: (_ for _ in ()).throw(OSError("down"))
+        self.addCleanup(lambda: setattr(kindle, "cwa_find", saved))
+        before = ((1, "member-a", ADDR["a"]), {"id": "abs-u-a"}, ADDR["a"], ADDR["a"])
+        self.assertEqual(h._refresh("member-a", before, ["Audiobookshelf"]), before)
+
+    def test_refresh_with_nothing_failed_reports_unavailable_not_stale_data(self):
+        h = self.handler_cls.__new__(self.handler_cls)
+        h._state = lambda u: (_ for _ in ()).throw(OSError("down"))
+        self.assertIsNone(h._refresh("member-a", ("x",) * 4, []))
+        h._state = lambda u: ("fresh",)
+        self.assertEqual(h._refresh("member-a", ("x",) * 4, []), ("fresh",))
+        self.assertEqual(h._refresh("member-a", ("x",) * 4, ["Calibre-Web"]), ("fresh",))
+
+    def test_post_refresh_failure_with_nothing_failed_answers_503(self):
+        self.abs.dead_after_patch = True  # the write lands, then the library goes away
+        r = self.post("/save", NEW_A)
+        self.assertEqual(r.status, 503)
+        self.assertNotIn("Traceback", r.text)
+        self.assertEqual(self.server.errors, [])
+        self.assertEqual(self.rows()[0][3], NEW_A)  # observed: the write did happen
+
+
+class Hardening(Base):
+    handler_timeout = 0.4
+
+    def test_stalled_body_times_out_with_408_instead_of_pinning_a_thread(self):
+        before = self.state()
+        t0 = time.time()
+        r = self.request("POST", "/save", hdr(), b"address=", content_length="50", timeout=5)
+        self.assertFalse(r.timed_out)
+        self.assertEqual(r.status, 408)
+        self.assertLess(time.time() - t0, 3)
+        self.assertNoWrites(before)
+
+    def test_timeout_default_and_protocol(self):
+        self.assertEqual(kindle.Handler.timeout, 15)
+        self.assertEqual(kindle.Handler.protocol_version, "HTTP/1.0")
+
+    def test_every_response_is_http_1_0_and_closes_the_connection(self):
+        # early 404/400/413 replies do not read the body; that is only safe if the connection closes
+        for r in (self.get(), self.get(headers=[]), self.post("/save", NEW_A),
+                  self.request("POST", "/save", hdr(), b"x", content_length="abc"),
+                  self.request("POST", "/save", hdr(), b"x", content_length="99999999")):
+            self.assertEqual(r.version, "HTTP/1.0")
+            self.assertFalse(r.timed_out)  # the server closed; we never had to give up waiting
+
+
+class StoredValues(Base):
+    def test_stored_addresses_are_html_escaped_when_rendered(self):
+        evil = '"><script>alert(1)</script>@kindle.com'
+        con = sqlite3.connect(self.db)
+        con.execute("UPDATE user SET kindle_mail=? WHERE id=1", (evil,))
+        con.commit()
+        con.close()
+        self.abs.devices[0]["email"] = '<img src=x onerror=alert(2)>@kindle.com'
+        r = self.get()
+        self.assertNotIn("<script>alert(1)", r.text)
+        self.assertNotIn("<img src=x", r.text)
+        self.assertIn("&lt;script&gt;alert(1)&lt;/script&gt;", r.text)
+        self.assertIn("&lt;img src=x onerror=alert(2)&gt;", r.text)
+        self.assertNotIn('value=""><script', r.text)
+
+    def test_banner_text_and_sender_are_escaped(self):
+        saved = kindle.SENDER
+        kindle.SENDER = "<b>s</b>@example.test"
+        self.addCleanup(lambda: setattr(kindle, "SENDER", saved))
+        r = self.get()
+        self.assertNotIn("<b>s</b>", r.text)
+        self.assertIn("&lt;b&gt;s&lt;/b&gt;@example.test", r.text)
+
+    def test_pick_with_identical_exact_names_resolves_to_nobody(self):
+        rows = [(1, "dup"), (2, "dup")]
+        self.assertEqual(kindle._pick(rows, lambda r: r[1], "dup"), (None, True))
+        self.assertEqual(kindle._pick(rows, lambda r: r[1], "DUP"), (None, True))
+        self.assertEqual(kindle._pick([(1, "Dup")], lambda r: r[1], "dup"), ((1, "Dup"), True))
+        self.assertEqual(kindle._pick([(1, "Dup"), (2, "dup")], lambda r: r[1], "dup"), ((2, "dup"), True))
+        self.assertEqual(kindle._pick([], lambda r: r[1], "dup"), (None, False))
+
+    def test_two_audiobookshelf_users_with_the_same_exact_name_resolve_to_nobody(self):
+        self.abs.users.append(abs_user("abs-u-dup", "member-a", "dup@example.test"))
+        dev0 = copy.deepcopy(self.abs.devices)
+        r = self.post("/save", NEW_A)
+        self.assertIn("Saved to Calibre-Web.", r.text)  # the unambiguous library only
+        self.assertEqual(self.abs.patches, [])
+        self.assertEqual(self.abs.devices, dev0)
+        self.assertNotIn(ADDR["b"], r.text)
 
 
 class ParseGroups(unittest.TestCase):

@@ -320,6 +320,11 @@ def render_not_found():
 # ---------------------------------------------------------------- server
 class Handler(BaseHTTPRequestHandler):
     server_version = "avrana-kindle/1"
+    # HTTP/1.0 (the stdlib default): every response closes the connection. Replies that are sent
+    # without reading the request body (404, 400, 413) rely on that; do not switch to keep-alive.
+    protocol_version = "HTTP/1.0"
+    # Per-connection socket timeout: a client that trickles or stalls cannot pin a thread.
+    timeout = 15
 
     def _send(self, code, body, ctype="text/html; charset=utf-8", location=None):
         data = body.encode()
@@ -369,17 +374,31 @@ class Handler(BaseHTTPRequestHandler):
                     break
         return cwa, absu, cwa_val, abs_val
 
-    def _refresh(self, username, before, failed):
-        """Re-read state after a write. If a write already failed and the read does too (the library
-        that failed is probably down), answer from Calibre-Web plus the pre-write Audiobookshelf
-        state rather than dropping the connection after the other library was already changed."""
+    def _read_state(self, username):
+        """State, or None when a library cannot be read (the caller answers 503, nothing written)."""
         try:
             return self._state(username)
         except Exception:
-            if not failed:
-                raise
+            return None
+
+    def _unavailable(self):
+        return self._send(503, "temporarily unavailable", "text/plain; charset=utf-8")
+
+    def _refresh(self, username, before, failed):
+        """Re-read state after a write. If a write already failed and the read does too (the library
+        that failed is probably down), answer from whatever can still be read, falling back to the
+        pre-write state, rather than dropping the connection after the other library was already
+        changed. Returns None only when nothing failed and the read does (the caller answers 503)."""
+        state = self._read_state(username)
+        if state is not None:
+            return state
+        if not failed:
+            return None
+        try:
             cwa = cwa_find(username)
-            return cwa, before[1], (cwa[2] if cwa else None) or None, before[3]
+        except Exception:
+            return before
+        return cwa, before[1], (cwa[2] if cwa else None) or None, before[3]
 
     def do_GET(self):
         route = self.path.split("?", 1)[0].rstrip("/") or "/"
@@ -388,7 +407,10 @@ class Handler(BaseHTTPRequestHandler):
         username = self._member()
         if username is None:
             return self._send(404, render_not_found())
-        cwa, absu, cwa_val, abs_val = self._state(username)
+        state = self._read_state(username)
+        if state is None:
+            return self._unavailable()
+        cwa, absu, cwa_val, abs_val = state
         banner = None
         if not cwa and not absu:
             banner = ("err", "No Calibre-Web or Audiobookshelf account found for this login.")
@@ -410,10 +432,17 @@ class Handler(BaseHTTPRequestHandler):
         length = int(raw_len)
         if length > MAX_BODY:
             return self._send(413, "request too large", "text/plain; charset=utf-8")
-        form = urllib.parse.parse_qs(self.rfile.read(length).decode("utf-8", "replace"))
+        try:
+            data = self.rfile.read(length)
+        except OSError:  # includes the socket timeout: the client stalled or trickled the body
+            return self._send(408, "request timeout", "text/plain; charset=utf-8")
+        form = urllib.parse.parse_qs(data.decode("utf-8", "replace"))
         address = (form.get("address", [""])[0] or "").strip()
 
-        cwa, absu, cwa_val, abs_val = self._state(username)
+        state = self._read_state(username)
+        if state is None:
+            return self._unavailable()
+        cwa, absu, cwa_val, abs_val = state
 
         before = (cwa, absu, cwa_val, abs_val)
 
@@ -429,7 +458,10 @@ class Handler(BaseHTTPRequestHandler):
                     abs_set(absu, None, f"Kindle ({username})"); written.append("Audiobookshelf")
                 except Exception:
                     failed.append("Audiobookshelf")
-            cwa, absu, cwa_val, abs_val = self._refresh(username, before, failed)
+            state = self._refresh(username, before, failed)
+            if state is None:
+                return self._unavailable()
+            cwa, absu, cwa_val, abs_val = state
             if failed:
                 msg = ("err", "Removed from " + (" and ".join(written) or "nothing") +
                        "; failed for " + " and ".join(failed) + ".")
@@ -456,7 +488,10 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 failed.append("Audiobookshelf")
 
-        cwa, absu, cwa_val, abs_val = self._refresh(username, before, failed)
+        state = self._refresh(username, before, failed)
+        if state is None:
+            return self._unavailable()
+        cwa, absu, cwa_val, abs_val = state
         if failed:
             msg = ("err", "Saved to " + (" and ".join(written) or "nothing") +
                    "; failed for " + " and ".join(failed) + ".")
