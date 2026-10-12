@@ -22,7 +22,7 @@ TEST_BUDGET = {
 }
 
 ALL_GROUPS = frozenset({"avrana-videos", "avrana-audiobooks", "avrana-comics", "avrana-books",
-                        "avrana-requests", "library-contributors"})
+                        "library-contributors"})
 
 
 def principal(groups=("avrana-videos",), subject="synthetic-member-a"):
@@ -30,7 +30,7 @@ def principal(groups=("avrana-videos",), subject="synthetic-member-a"):
 
 
 def make_pipeline(provider=None, budget=None, corpus=None, **kw):
-    corpus = corpus or Corpus.load(MANIFEST)
+    corpus = corpus or Corpus.load(MANIFEST, strict=False)
     provider = provider or FakeProvider("rules")
     budget = budget or BudgetGuard(BudgetConfig.from_mapping(TEST_BUDGET))
     return AnswerPipeline(corpus, provider, budget, **kw)

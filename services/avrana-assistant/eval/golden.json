@@ -13,8 +13,7 @@
     "viewer-01": {
       "username": "synthetic-viewer-01",
       "groups": [
-        "avrana-videos",
-        "avrana-requests"
+        "avrana-videos"
       ]
     },
     "reader-02": {
@@ -37,7 +36,6 @@
         "avrana-audiobooks",
         "avrana-comics",
         "avrana-books",
-        "avrana-requests",
         "library-contributors"
       ]
     },

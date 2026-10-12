@@ -28,6 +28,7 @@ class Doc:
     audience: dict
     data_class: str
     review_status: str
+    stale: bool = False   # a source file drifted since extraction (computed at load time)
 
 
 def visible(doc: Doc, principal: Principal) -> bool:
@@ -45,16 +46,28 @@ def visible(doc: Doc, principal: Principal) -> bool:
 
 
 class Corpus:
-    def __init__(self, docs: list[Doc]):
+    """`strict` (the default, for any production-style configuration) fails closed: documents whose
+    sources are stale are not retrievable. Tests and the evaluation use strict=False against the pinned
+    corpus, where staleness only produces warnings."""
+
+    def __init__(self, docs: list[Doc], strict: bool = True):
+        self.strict = strict
         self.docs = {d.id: d for d in docs}
         if len(self.docs) != len(docs):
             raise CorpusError("duplicate document id")
 
     @classmethod
-    def load(cls, *manifest_paths: Path, verify: bool = True) -> "Corpus":
+    def load(cls, *manifest_paths: Path, verify: bool = True, strict: bool = True,
+             repo_root: Path | None = None) -> "Corpus":
         docs: list[Doc] = []
         for mp in manifest_paths:
             mp = Path(mp)
+            root = Path(repo_root) if repo_root else corpus_check.find_repo_root(mp)
+            if strict:
+                hard = corpus_check.check_hard(mp, root)
+                if hard:
+                    raise CorpusError(f"{mp.name}: {len(hard)} manifest problem(s); first: {hard[0]}")
+            stale_ids = corpus_check.stale_doc_ids(mp, root)
             manifest = corpus_check.load_manifest(mp)
             for d in manifest["documents"]:
                 p = mp.parent / d["path"]
@@ -67,11 +80,14 @@ class Corpus:
                 # Operator-internal content is never indexed, fixture or not: it would reach prompts.
                 if not fixture and has_internal_markers(text):
                     raise CorpusError(f"{d['id']}: operator-internal marker")
-                docs.append(Doc(d["id"], d["title"], text, d["audience"], d["data_class"], d["review_status"]))
-        return cls(docs)
+                docs.append(Doc(d["id"], d["title"], text, d["audience"], d["data_class"], d["review_status"],
+                                d["id"] in stale_ids))
+        return cls(docs, strict)
 
     def get(self, doc_id: str, principal: Principal) -> Doc | None:
         d = self.docs.get(doc_id)
+        if d is not None and self.strict and d.stale:
+            return None
         return d if d is not None and visible(d, principal) else None
 
     def lead_text(self, doc_id: str, principal: Principal, paragraphs: int = 2) -> str:
@@ -118,6 +134,8 @@ class Retriever:
         chunks: list[tuple[Doc, int, str, Counter]] = []
         quarantined: list[str] = []
         for doc in self.corpus.docs.values():
+            if self.corpus.strict and doc.stale:
+                continue
             if not visible(doc, principal) or (only_doc is not None and doc.id != only_doc):
                 continue
             for i, text in enumerate(chunk(doc)):

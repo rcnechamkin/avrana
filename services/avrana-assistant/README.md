@@ -27,6 +27,16 @@ permission matrix) and [`docs/assistant/DATA-CLASSIFICATION.md`](../../docs/assi
 | `eval/` | Golden set, fixtures, runner (see below) |
 | `tests/` | `unittest` suite |
 
+Corpus staleness. Hard checks (well-formed manifest, source paths exist, documents exist and are
+referenced, each document's recorded hash, no deny-list marker) fail the offline suite. Source drift (a
+source file's blob hash changed or an anchor string vanished) does **not**: the default test prints
+`WARN corpus stale: <doc id> <- <source path>` and passes, so this service can never block edits to the
+portal or onboarding files. `Corpus.load` is strict by default (fails closed: documents with stale
+sources are not retrievable, hard problems raise); tests and the eval load the pinned corpus with
+`strict=False`. Before approving the corpus run the strict gate, which exits non-zero on any staleness:
+
+    python -B services/avrana-assistant/avrana_assistant/corpus_check.py --strict
+
 Run everything offline: `python -B tests/run_offline.py` from the repository root (this service's tests are
 the last step), or `python -B -m unittest discover -s services/avrana-assistant/tests`.
 

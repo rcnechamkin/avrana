@@ -59,6 +59,7 @@ class GoldenSetTests(unittest.TestCase):
         for key, m in self.golden["members"].items():
             self.assertTrue(set(m["groups"]) <= vocab, key)
             self.assertNotIn("authentik Admins", m["groups"], "admin group must not appear in member fixtures")
+            self.assertNotIn("avrana-requests", m["groups"], "retired group")
             if not m.get("anonymous"):
                 self.assertTrue(m["username"].startswith("synthetic-"), key)
         self.assertGreaterEqual(len({tuple(sorted(m["groups"])) for m in self.golden["members"].values()}), 4)

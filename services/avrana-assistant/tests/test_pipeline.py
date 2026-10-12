@@ -35,7 +35,7 @@ class PipelineTests(unittest.TestCase):
             pl.answer({"subject": "x", "groups": ["avrana-videos"]}, Q_OK)  # identity must be a Principal
 
     def test_audience_filter_hides_unentitled_docs(self):
-        corpus = Corpus.load(MANIFEST)
+        corpus = Corpus.load(MANIFEST, strict=False)
         ret = Retriever(corpus)
         res = ret.search(principal(("avrana-comics",)), "movies Roku Jellyfin Swiftfin watch")
         self.assertNotIn("movies-tv-access", [p.doc_id for p in res.passages])
@@ -51,7 +51,7 @@ class PipelineTests(unittest.TestCase):
 
     def test_approved_corpus_has_no_quarantined_chunks(self):
         for pr in (principal(tuple(_support.ALL_GROUPS)),):
-            res = Retriever(Corpus.load(MANIFEST)).search(pr, "app sign in password request library status")
+            res = Retriever(Corpus.load(MANIFEST, strict=False)).search(pr, "app sign in password request library status")
             self.assertEqual(res.quarantined, ())
 
     def test_injection_in_question_refused(self):

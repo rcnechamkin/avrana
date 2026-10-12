@@ -62,7 +62,7 @@ def principal_of(golden: dict, key: str) -> Principal:
 
 @functools.lru_cache(maxsize=None)
 def _corpus(paths: tuple) -> Corpus:
-    return Corpus.load(*paths)  # immutable after load; cached to keep the suite fast
+    return Corpus.load(*paths, strict=False)  # pinned corpus, non-strict; immutable after load; cached to keep the suite fast
 
 
 def build_pipeline(golden: dict, case: dict, provider) -> AnswerPipeline:

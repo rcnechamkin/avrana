@@ -94,8 +94,8 @@
       "sources": [
         {
           "path": "services/avrana-portal/portal.py",
-          "anchor": "HELP[avrana-videos]",
-          "anchor_text": "(\"avrana-videos\", \"Movies and TV\", \"watch.avrana.net\", [",
+          "anchor": "HELP: Movies and TV server address step",
+          "anchor_text": "Add server: https://watch.avrana.net",
           "blob": "bec580d8e12a863801db047b62b73e1ddae2f80b"
         },
         {
@@ -135,8 +135,8 @@
       "sources": [
         {
           "path": "services/avrana-portal/portal.py",
-          "anchor": "HELP[avrana-audiobooks]",
-          "anchor_text": "(\"avrana-audiobooks\", \"Audiobooks\", \"listen.avrana.net\", [",
+          "anchor": "HELP: Audiobooks server address step",
+          "anchor_text": "Add server: https://listen.avrana.net",
           "blob": "bec580d8e12a863801db047b62b73e1ddae2f80b"
         },
         {
@@ -164,8 +164,8 @@
       "sources": [
         {
           "path": "services/avrana-portal/portal.py",
-          "anchor": "HELP[avrana-comics]",
-          "anchor_text": "(\"avrana-comics\", \"Comics\", \"read.avrana.net\", [",
+          "anchor": "HELP: Comics reader apps",
+          "anchor_text": "Install Panels from the App Store.",
           "blob": "bec580d8e12a863801db047b62b73e1ddae2f80b"
         },
         {
@@ -199,8 +199,8 @@
       "sources": [
         {
           "path": "services/avrana-portal/portal.py",
-          "anchor": "HELP[avrana-books]",
-          "anchor_text": "(\"avrana-books\", \"Books\", \"books.avrana.net\", [",
+          "anchor": "HELP: Books in the browser",
+          "anchor_text": "Open a book to read it in the browser, or use the download button.",
           "blob": "bec580d8e12a863801db047b62b73e1ddae2f80b"
         },
         {
@@ -251,8 +251,7 @@
       "audience": {
         "kind": "any_of_groups",
         "groups": [
-          "avrana-videos",
-          "avrana-requests"
+          "avrana-videos"
         ]
       },
       "data_class": "member-general",
@@ -267,8 +266,8 @@
         },
         {
           "path": "services/avrana-portal/portal.py",
-          "anchor": "HELP[avrana-requests]",
-          "anchor_text": "(\"avrana-requests\", \"Requests\", \"request.avrana.net\", [",
+          "anchor": "HELP: Requests app for iPhone",
+          "anchor_text": "Install Pocket for Seerr from the App Store.",
           "blob": "bec580d8e12a863801db047b62b73e1ddae2f80b"
         },
         {
@@ -375,8 +374,8 @@
         },
         {
           "path": "services/avrana-portal/portal.py",
-          "anchor": "render_account: only what the user has",
-          "anchor_text": "Only what the user HAS",
+          "anchor": "render_account: your access list",
+          "anchor_text": "Your access",
           "blob": "bec580d8e12a863801db047b62b73e1ddae2f80b"
         },
         {
