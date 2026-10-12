@@ -835,6 +835,59 @@ class WritesBooksAndAudiobooks(_WritesMixin, T.Base):
     saved, removed = "Saved to Calibre-Web and Audiobookshelf", "Removed from Calibre-Web and Audiobookshelf."
 
 
+class OutcomeBanners(unittest.TestCase):
+    """kindle.outcome over every combination of entitlement x what each library did x save/remove."""
+
+    LIBS = ("Calibre-Web", "Audiobookshelf")
+
+    def combos(self):
+        import itertools
+        for verb, audio, states in itertools.product(("save", "remove"), (False, True),
+                                                     itertools.product(("written", "failed", "untouched"), repeat=2)):
+            written = [l for l, s in zip(self.LIBS, states) if s == "written"]
+            failed = [l for l, s in zip(self.LIBS, states) if s == "failed"]
+            yield verb, audio, written, failed
+
+    def test_every_combination_reads_well_and_names_only_entitled_libraries(self):
+        n = 0
+        for verb, audio, written, failed in self.combos():
+            n += 1
+            with self.subTest(verb=verb, audiobooks=audio, written=written, failed=failed):
+                kind, msg = kindle.outcome(verb, written, failed, audio, "sender@example.test")
+                low = msg.lower()
+                self.assertIn(kind, ("ok", "err"))
+                self.assertEqual(kind == "err" or False, bool(failed) or (not written))
+                if failed:
+                    self.assertEqual(kind, "err", "any failure is an alert")
+                for bad in ("to nothing", "from nothing", " and ", "nothing;"):
+                    if bad == " and " and len(written) + len(failed) > 0 and (
+                            "Saved to Calibre-Web and Audiobookshelf" in msg or "Removed from Calibre-Web and Audiobookshelf" in msg
+                            or "failed for Calibre-Web and Audiobookshelf" in msg):
+                        continue  # a real two-library join
+                    self.assertNotIn(bad, low)
+                self.assertNotRegex(msg, r"(?:to|from|for|and)\s*[.;]")
+                self.assertNotRegex(msg, r"\s{2,}|\s[.;,]")
+                if not audio:
+                    for word in ("audiobook", "listen", "both libraries"):
+                        self.assertNotIn(word, low)
+                shown_w = [l for l in written if audio or l != "Audiobookshelf"]
+                shown_f = [l for l in failed if audio or l != "Audiobookshelf"]
+                if failed and not (shown_w and shown_f):
+                    self.assertEqual(msg, f"Something went wrong while {'saving' if verb == 'save' else 'removing'}. Try again.")
+                if failed and shown_w and shown_f:
+                    word = "Saved to" if verb == "save" else "Removed from"
+                    self.assertEqual(msg, f"{word} {' and '.join(shown_w)}; failed for {' and '.join(shown_f)}.")
+                if not failed and written:
+                    if verb == "save":
+                        self.assertTrue(msg.startswith("Saved") and "Remember to approve sender@example.test" in msg)
+                    else:
+                        self.assertTrue(msg in ("Removed.", "Removed from " + " and ".join(shown_w) + "."))
+                if not failed and not written:
+                    self.assertEqual(msg, "Nothing to remove." if verb == "remove"
+                                     else "No library account was found for this sign-in.")
+        self.assertEqual(n, 36)
+
+
 BANNED = ("audiobookshelf", "audiobook", "listen.", "both libraries")
 
 
@@ -896,7 +949,9 @@ class BooksOnlyWholePage(T.Base):
         self.assertIn("Removed from Calibre-Web.", pages["removed"].text)
         self.assertIn("Something went wrong while saving. Try again.", pages["partial failure, save"].text)
         self.assertIn("Something went wrong while removing. Try again.", pages["partial failure, remove"].text)
-        self.assertIn("Saved to nothing; failed for Calibre-Web.", pages["both failed, save"].text)
+        self.assertIn("Something went wrong while saving. Try again.", pages["both failed, save"].text)
+        self.assertIn("Something went wrong while removing. Try again.", pages["both failed, remove"].text)
+        self.assertIn("Something went wrong while saving. Try again.", pages["calibre-web failed, save"].text)
         self.assertIn("Save address", pages["values"].text)
         self.assertEqual(Doc(pages["values"].text).find("dt")[0].all_text, "Calibre-Web")
         self.assertEqual(len(Doc(pages["values"].text).find("dt")), 1)

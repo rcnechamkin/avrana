@@ -400,6 +400,29 @@ def render_not_found():
     return NOT_FOUND.format(style=NOT_FOUND_STYLE)
 
 
+def outcome(verb, written, failed, audiobooks, sender):
+    """The banner for a save or remove: (kind, message). Names only libraries the member may see
+    (Audiobookshelf needs AUDIOBOOKS_GROUP). An empty list is never put in a sentence: unless a visible
+    library was written AND a visible library failed, any failure reads as the generic message, so a hidden
+    library can neither be named nor be implied ("Saved to nothing")."""
+    def show(names):
+        return [n for n in names if audiobooks or n != "Audiobookshelf"]
+
+    sw, sf = show(written), show(failed)
+    saving = verb == "save"
+    if failed:
+        if sw and sf:
+            return "err", ("Saved to " if saving else "Removed from ") + " and ".join(sw) +                 "; failed for " + " and ".join(sf) + "."
+        return "err", f"Something went wrong while {'saving' if saving else 'removing'}. Try again."
+    if written:
+        if saving:
+            return "ok", ("Saved to " + " and ".join(sw) if sw else "Saved") +                 ". Remember to approve " + sender + " on Amazon."
+        return "ok", "Removed from " + " and ".join(sw) + "." if sw else "Removed."
+    if saving:
+        return "err", "No library account was found for this sign-in."
+    return "err", "Nothing to remove."
+
+
 # ---------------------------------------------------------------- server
 class Handler(BaseHTTPRequestHandler):
     server_version = "avrana-kindle/1"
@@ -469,11 +492,6 @@ class Handler(BaseHTTPRequestHandler):
         if REQUIRED_GROUP not in groups or not username:
             return None
         return library_name(username)
-
-    def _shown(self, names):
-        """The libraries a member may see named: Audiobookshelf only with AUDIOBOOKS_GROUP. Writes still go
-        to every library where the login has an account (see do_POST); only the wording is filtered."""
-        return [n for n in names if n != "Audiobookshelf" or self._audiobooks()]
 
     def _audiobooks(self):
         """True when the member also holds the audiobooks group (display only, see AUDIOBOOKS_GROUP)."""
@@ -579,15 +597,7 @@ class Handler(BaseHTTPRequestHandler):
             if state is None:
                 return self._unavailable()
             cwa, absu, cwa_val, abs_val = state
-            sw, sf = self._shown(written), self._shown(failed)
-            if failed:
-                msg = ("err", "Removed from " + (" and ".join(sw) or "nothing") +
-                       "; failed for " + " and ".join(sf) + "." if sf
-                       else "Something went wrong while removing. Try again.")
-            elif written:
-                msg = ("ok", "Removed from " + " and ".join(sw) + "." if sw else "Removed.")
-            else:
-                msg = ("err", "Nothing to remove.")
+            msg = outcome("remove", written, failed, self._audiobooks(), SENDER)
             return self._send(200, render(cwa_val, abs_val, "", msg, bool(cwa_val or abs_val),
                                           audiobooks=self._audiobooks()))
 
@@ -613,16 +623,7 @@ class Handler(BaseHTTPRequestHandler):
         if state is None:
             return self._unavailable()
         cwa, absu, cwa_val, abs_val = state
-        sw, sf = self._shown(written), self._shown(failed)
-        if failed:
-            msg = ("err", "Saved to " + (" and ".join(sw) or "nothing") +
-                   "; failed for " + " and ".join(sf) + "." if sf
-                   else "Something went wrong while saving. Try again.")
-        elif written:
-            msg = ("ok", ("Saved to " + " and ".join(sw) if sw else "Saved") +
-                   ". Remember to approve " + SENDER + " on Amazon.")
-        else:
-            msg = ("err", "No library account was found for this sign-in.")
+        msg = outcome("save", written, failed, self._audiobooks(), SENDER)
         return self._send(200, render(cwa_val, abs_val, address, msg, bool(cwa_val or abs_val),
                                       audiobooks=self._audiobooks()))
 
