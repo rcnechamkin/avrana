@@ -1,0 +1,85 @@
+{
+  "_synthetic": "Hand-written SYNTHETIC fixture, written from recollection of the public Audiobookshelf API. Hand-written, unverified against the deployed version; a recorded read-only contract check is a separate owner-approved step before any real data is read. Invented users, ids and titles.",
+  "_schema": "Shaped like GET /api/users/{id} (admin): one user with permissions and mediaProgress. Unverified.",
+  "response": {
+    "id": "bbbbbbbb-2222-4bbb-8bbb-bbbbbbbbbbbb",
+    "username": "member-b",
+    "type": "user",
+    "isActive": true,
+    "isLocked": false,
+    "permissions": {
+      "download": true,
+      "update": false,
+      "delete": false,
+      "upload": false,
+      "accessAllLibraries": true,
+      "accessAllTags": true,
+      "accessExplicitContent": true,
+      "selectedTagsNotAccessible": false
+    },
+    "librariesAccessible": [],
+    "itemTagsSelected": [],
+    "mediaProgress": [
+      {
+        "id": "mp_book000001",
+        "userId": "bbbbbbbb-2222-4bbb-8bbb-bbbbbbbbbbbb",
+        "libraryItemId": "li_book000001",
+        "episodeId": null,
+        "mediaItemType": "book",
+        "duration": 36000.0,
+        "progress": 0.07,
+        "currentTime": 2520.0,
+        "isFinished": false,
+        "hideFromContinueListening": false,
+        "lastUpdate": 1700000100000,
+        "startedAt": 1700000000000,
+        "finishedAt": null
+      },
+      {
+        "id": "mp_book000003",
+        "userId": "bbbbbbbb-2222-4bbb-8bbb-bbbbbbbbbbbb",
+        "libraryItemId": "li_book000003",
+        "episodeId": null,
+        "mediaItemType": "book",
+        "duration": 36000.0,
+        "progress": 0.6,
+        "currentTime": 21600.0,
+        "isFinished": false,
+        "hideFromContinueListening": false,
+        "lastUpdate": 1700000400000,
+        "startedAt": 1700000300000,
+        "finishedAt": null
+      },
+      {
+        "id": "mp_book000004",
+        "userId": "bbbbbbbb-2222-4bbb-8bbb-bbbbbbbbbbbb",
+        "libraryItemId": "li_book000004",
+        "episodeId": null,
+        "mediaItemType": "book",
+        "duration": 30000.0,
+        "progress": 0.3,
+        "currentTime": 9000.0,
+        "isFinished": false,
+        "hideFromContinueListening": false,
+        "lastUpdate": 1700000800000,
+        "startedAt": 1700000700000,
+        "finishedAt": null
+      },
+      {
+        "id": "mp_book000010",
+        "userId": "bbbbbbbb-2222-4bbb-8bbb-bbbbbbbbbbbb",
+        "libraryItemId": "li_book000010",
+        "episodeId": null,
+        "mediaItemType": "book",
+        "duration": 40000.0,
+        "progress": 0.75,
+        "currentTime": 30000.0,
+        "isFinished": false,
+        "hideFromContinueListening": false,
+        "lastUpdate": 1700000250000,
+        "startedAt": 1700000150000,
+        "finishedAt": null
+      }
+    ]
+  }
+}

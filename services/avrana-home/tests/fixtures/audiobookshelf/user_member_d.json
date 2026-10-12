@@ -1,0 +1,24 @@
+{
+  "_synthetic": "Hand-written SYNTHETIC fixture, written from recollection of the public Audiobookshelf API. Hand-written, unverified against the deployed version; a recorded read-only contract check is a separate owner-approved step before any real data is read. Invented users, ids and titles.",
+  "_schema": "Shaped like GET /api/users/{id} (admin): one user with permissions and mediaProgress. Unverified.",
+  "response": {
+    "id": "dddddddd-4444-4ddd-8ddd-dddddddddddd",
+    "username": "member-d",
+    "type": "user",
+    "isActive": true,
+    "isLocked": false,
+    "permissions": {
+      "download": true,
+      "update": false,
+      "delete": false,
+      "upload": false,
+      "accessAllLibraries": true,
+      "accessAllTags": true,
+      "accessExplicitContent": true,
+      "selectedTagsNotAccessible": false
+    },
+    "librariesAccessible": [],
+    "itemTagsSelected": [],
+    "mediaProgress": []
+  }
+}

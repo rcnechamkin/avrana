@@ -1,0 +1,310 @@
+{
+  "_synthetic": "Hand-written SYNTHETIC fixture, written from recollection of the public Audiobookshelf API. Hand-written, unverified against the deployed version; a recorded read-only contract check is a separate owner-approved step before any real data is read. Invented users, ids and titles.",
+  "_schema": "Shaped like GET /api/users (admin): {users: [user]}. Unverified.",
+  "response": {
+    "users": [
+      {
+        "id": "aaaaaaaa-1111-4aaa-8aaa-aaaaaaaaaaaa",
+        "username": "member-a",
+        "type": "user",
+        "isActive": true,
+        "isLocked": false,
+        "permissions": {
+          "download": true,
+          "update": false,
+          "delete": false,
+          "upload": false,
+          "accessAllLibraries": false,
+          "accessAllTags": true,
+          "accessExplicitContent": false,
+          "selectedTagsNotAccessible": false
+        },
+        "librariesAccessible": [
+          "lib_aaa"
+        ],
+        "itemTagsSelected": [],
+        "mediaProgress": [
+          {
+            "id": "mp_book000001",
+            "userId": "aaaaaaaa-1111-4aaa-8aaa-aaaaaaaaaaaa",
+            "libraryItemId": "li_book000001",
+            "episodeId": null,
+            "mediaItemType": "book",
+            "duration": 36000.0,
+            "progress": 0.42,
+            "currentTime": 15120.0,
+            "isFinished": false,
+            "hideFromContinueListening": false,
+            "lastUpdate": 1700000300000,
+            "startedAt": 1700000200000,
+            "finishedAt": null
+          },
+          {
+            "id": "mp_book000002",
+            "userId": "aaaaaaaa-1111-4aaa-8aaa-aaaaaaaaaaaa",
+            "libraryItemId": "li_book000002",
+            "episodeId": null,
+            "mediaItemType": "book",
+            "duration": 32000.0,
+            "progress": 0.9,
+            "currentTime": 28800.0,
+            "isFinished": false,
+            "hideFromContinueListening": false,
+            "lastUpdate": 1700000200000,
+            "startedAt": 1700000100000,
+            "finishedAt": null
+          },
+          {
+            "id": "mp_book000003",
+            "userId": "aaaaaaaa-1111-4aaa-8aaa-aaaaaaaaaaaa",
+            "libraryItemId": "li_book000003",
+            "episodeId": null,
+            "mediaItemType": "book",
+            "duration": 36000.0,
+            "progress": 0.1,
+            "currentTime": 3600.0,
+            "isFinished": false,
+            "hideFromContinueListening": false,
+            "lastUpdate": 1700000900000,
+            "startedAt": 1700000800000,
+            "finishedAt": null
+          },
+          {
+            "id": "mp_book000004",
+            "userId": "aaaaaaaa-1111-4aaa-8aaa-aaaaaaaaaaaa",
+            "libraryItemId": "li_book000004",
+            "episodeId": null,
+            "mediaItemType": "book",
+            "duration": 30000.0,
+            "progress": 0.3,
+            "currentTime": 9000.0,
+            "isFinished": false,
+            "hideFromContinueListening": false,
+            "lastUpdate": 1700000800000,
+            "startedAt": 1700000700000,
+            "finishedAt": null
+          },
+          {
+            "id": "mp_book000006",
+            "userId": "aaaaaaaa-1111-4aaa-8aaa-aaaaaaaaaaaa",
+            "libraryItemId": "li_book000006",
+            "episodeId": null,
+            "mediaItemType": "book",
+            "duration": 36000.0,
+            "progress": 1.0,
+            "currentTime": 36000.0,
+            "isFinished": true,
+            "hideFromContinueListening": false,
+            "lastUpdate": 1700000700000,
+            "startedAt": 1700000600000,
+            "finishedAt": null
+          },
+          {
+            "id": "mp_book000007",
+            "userId": "aaaaaaaa-1111-4aaa-8aaa-aaaaaaaaaaaa",
+            "libraryItemId": "li_book000007",
+            "episodeId": null,
+            "mediaItemType": "book",
+            "duration": 35000.0,
+            "progress": 0.2,
+            "currentTime": 7000.0,
+            "isFinished": false,
+            "hideFromContinueListening": true,
+            "lastUpdate": 1700000600000,
+            "startedAt": 1700000500000,
+            "finishedAt": null
+          },
+          {
+            "id": "mp_book000008",
+            "userId": "aaaaaaaa-1111-4aaa-8aaa-aaaaaaaaaaaa",
+            "libraryItemId": "li_book000008",
+            "episodeId": null,
+            "mediaItemType": "book",
+            "duration": 36000.0,
+            "progress": 0.5,
+            "currentTime": 18000.0,
+            "isFinished": false,
+            "hideFromContinueListening": false,
+            "lastUpdate": 1700000500000,
+            "startedAt": 1700000400000,
+            "finishedAt": null
+          }
+        ]
+      },
+      {
+        "id": "bbbbbbbb-2222-4bbb-8bbb-bbbbbbbbbbbb",
+        "username": "member-b",
+        "type": "user",
+        "isActive": true,
+        "isLocked": false,
+        "permissions": {
+          "download": true,
+          "update": false,
+          "delete": false,
+          "upload": false,
+          "accessAllLibraries": true,
+          "accessAllTags": true,
+          "accessExplicitContent": true,
+          "selectedTagsNotAccessible": false
+        },
+        "librariesAccessible": [],
+        "itemTagsSelected": [],
+        "mediaProgress": [
+          {
+            "id": "mp_book000001",
+            "userId": "bbbbbbbb-2222-4bbb-8bbb-bbbbbbbbbbbb",
+            "libraryItemId": "li_book000001",
+            "episodeId": null,
+            "mediaItemType": "book",
+            "duration": 36000.0,
+            "progress": 0.07,
+            "currentTime": 2520.0,
+            "isFinished": false,
+            "hideFromContinueListening": false,
+            "lastUpdate": 1700000100000,
+            "startedAt": 1700000000000,
+            "finishedAt": null
+          },
+          {
+            "id": "mp_book000003",
+            "userId": "bbbbbbbb-2222-4bbb-8bbb-bbbbbbbbbbbb",
+            "libraryItemId": "li_book000003",
+            "episodeId": null,
+            "mediaItemType": "book",
+            "duration": 36000.0,
+            "progress": 0.6,
+            "currentTime": 21600.0,
+            "isFinished": false,
+            "hideFromContinueListening": false,
+            "lastUpdate": 1700000400000,
+            "startedAt": 1700000300000,
+            "finishedAt": null
+          },
+          {
+            "id": "mp_book000004",
+            "userId": "bbbbbbbb-2222-4bbb-8bbb-bbbbbbbbbbbb",
+            "libraryItemId": "li_book000004",
+            "episodeId": null,
+            "mediaItemType": "book",
+            "duration": 30000.0,
+            "progress": 0.3,
+            "currentTime": 9000.0,
+            "isFinished": false,
+            "hideFromContinueListening": false,
+            "lastUpdate": 1700000800000,
+            "startedAt": 1700000700000,
+            "finishedAt": null
+          },
+          {
+            "id": "mp_book000010",
+            "userId": "bbbbbbbb-2222-4bbb-8bbb-bbbbbbbbbbbb",
+            "libraryItemId": "li_book000010",
+            "episodeId": null,
+            "mediaItemType": "book",
+            "duration": 40000.0,
+            "progress": 0.75,
+            "currentTime": 30000.0,
+            "isFinished": false,
+            "hideFromContinueListening": false,
+            "lastUpdate": 1700000250000,
+            "startedAt": 1700000150000,
+            "finishedAt": null
+          }
+        ]
+      },
+      {
+        "id": "cccccccc-3333-4ccc-8ccc-cccccccccccc",
+        "username": "member-c",
+        "type": "user",
+        "isActive": true,
+        "isLocked": false,
+        "permissions": {
+          "download": true,
+          "update": false,
+          "delete": false,
+          "upload": false,
+          "accessAllLibraries": true,
+          "accessAllTags": false,
+          "accessExplicitContent": true,
+          "selectedTagsNotAccessible": true
+        },
+        "librariesAccessible": [],
+        "itemTagsSelected": [
+          "mature"
+        ],
+        "mediaProgress": [
+          {
+            "id": "mp_book000001",
+            "userId": "cccccccc-3333-4ccc-8ccc-cccccccccccc",
+            "libraryItemId": "li_book000001",
+            "episodeId": null,
+            "mediaItemType": "book",
+            "duration": 36000.0,
+            "progress": 0.5,
+            "currentTime": 18000.0,
+            "isFinished": false,
+            "hideFromContinueListening": false,
+            "lastUpdate": 1700000300000,
+            "startedAt": 1700000200000,
+            "finishedAt": null
+          },
+          {
+            "id": "mp_book000005",
+            "userId": "cccccccc-3333-4ccc-8ccc-cccccccccccc",
+            "libraryItemId": "li_book000005",
+            "episodeId": null,
+            "mediaItemType": "book",
+            "duration": 36000.0,
+            "progress": 0.5,
+            "currentTime": 18000.0,
+            "isFinished": false,
+            "hideFromContinueListening": false,
+            "lastUpdate": 1700000310000,
+            "startedAt": 1700000210000,
+            "finishedAt": null
+          }
+        ]
+      },
+      {
+        "id": "dddddddd-4444-4ddd-8ddd-dddddddddddd",
+        "username": "member-d",
+        "type": "user",
+        "isActive": true,
+        "isLocked": false,
+        "permissions": {
+          "download": true,
+          "update": false,
+          "delete": false,
+          "upload": false,
+          "accessAllLibraries": true,
+          "accessAllTags": true,
+          "accessExplicitContent": true,
+          "selectedTagsNotAccessible": false
+        },
+        "librariesAccessible": [],
+        "itemTagsSelected": [],
+        "mediaProgress": []
+      },
+      {
+        "id": "eeeeeeee-5555-4eee-8eee-eeeeeeeeeeee",
+        "username": "member-e",
+        "type": "user",
+        "isActive": false,
+        "isLocked": false,
+        "permissions": {
+          "download": true,
+          "update": false,
+          "delete": false,
+          "upload": false,
+          "accessAllLibraries": true,
+          "accessAllTags": true,
+          "accessExplicitContent": true,
+          "selectedTagsNotAccessible": false
+        },
+        "librariesAccessible": [],
+        "itemTagsSelected": [],
+        "mediaProgress": []
+      }
+    ]
+  }
+}
