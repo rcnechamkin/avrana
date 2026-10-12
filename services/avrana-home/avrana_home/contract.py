@@ -34,7 +34,8 @@ from typing import Any, Callable, Optional, Tuple
 from .cache import MemberCache
 from .principal import MemberPrincipal, is_minted_principal
 from .resilience import (REQUEST_BUDGET, CallBudget, CircuitBreaker, SystemClock, UpstreamNotFound,
-                         coerce, counts_toward_breaker, log_failure)
+                         UpstreamTimeout, UpstreamUnreachable, coerce, counts_toward_breaker,
+                         log_failure)
 
 DEFAULT_LIMIT = 12
 MAX_LIMIT = 50
@@ -217,6 +218,23 @@ class ForbiddenRequest(Exception):
     """An adapter tried a request outside its read-only allow-list. Raised BEFORE any I/O."""
 
 
+class _SharedFailure(Exception):
+    """A follower saw the failure its single-flight leader already reported and counted."""
+
+    def __init__(self, err: Exception):
+        super().__init__(type(err).__name__)
+        self.err = err
+
+
+class _Flight:
+    __slots__ = ("event", "result", "exc")
+
+    def __init__(self):
+        self.event = threading.Event()
+        self.result = None
+        self.exc = None
+
+
 class _Ctx:
     """Per-call facts the breaker accounting needs."""
     __slots__ = ("upstream", "fresh_mapping")
@@ -252,6 +270,7 @@ class MediaAdapter:
         self._request_timeout = request_timeout
         self._in_flight = 0
         self._by_member: dict = {}
+        self._flights: dict = {}                      # member -> in-progress mapping lookup
         self._flight_lock = threading.Lock()
         self._local = threading.local()
 
@@ -396,6 +415,35 @@ class MediaAdapter:
             if kind == "ambiguous":
                 raise AmbiguousMappingError()
             raise MappingFailed(payload)
+        member = principal.username
+        with self._flight_lock:
+            flight = self._flights.get(member)
+            leader = flight is None
+            if leader:
+                flight = self._flights[member] = _Flight()
+        if not leader:
+            # Single-flight: a concurrent section of the same page is already asking the upstream
+            # for this member; share its answer (and its one counted failure) instead of repeating.
+            if not flight.event.wait(self._request_timeout + 1.0):
+                raise _SharedFailure(UpstreamTimeout())
+            if isinstance(flight.exc, (MappingFailed, AmbiguousMappingError)):
+                raise flight.exc
+            if flight.exc is not None:
+                raise _SharedFailure(coerce(flight.exc) or UpstreamUnreachable())
+            return flight.result
+        try:
+            user = self._lead_mapping(scope, principal, token, ctx)
+            flight.result = user
+            return user
+        except BaseException as exc:
+            flight.exc = exc
+            raise
+        finally:
+            with self._flight_lock:
+                self._flights.pop(member, None)
+            flight.event.set()
+
+    def _lead_mapping(self, scope, principal: MemberPrincipal, token: int, ctx: "_Ctx") -> UpstreamUser:
         ctx.upstream = ctx.fresh_mapping = True      # from here on the upstream is being asked
         try:
             user = self._resolve_user(principal)
@@ -436,6 +484,10 @@ class MediaAdapter:
                 stage = "work"
                 ctx.upstream = ctx.upstream or reaches_upstream
                 value = work(user)
+            except _SharedFailure as shared:
+                # The leader of this mapping lookup already counted the failure: not twice.
+                self.breaker.neutral(token)
+                return _Outcome("unavailable", reason=type(shared.err).__name__)
             except (MappingFailed, AmbiguousMappingError) as exc:
                 self._report_ok(token, ctx)
                 reason = exc.reason if isinstance(exc, MappingFailed) else "ambiguous"

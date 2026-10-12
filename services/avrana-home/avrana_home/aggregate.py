@@ -90,5 +90,5 @@ def health_summary(adapters: Sequence[MediaAdapter]) -> dict:
     """Per-adapter state for a future /healthz. No member data, no upstream calls: the state is
     what the request path last observed (unknown until the first call)."""
     rows = [a.health().to_dict() for a in adapters]
-    degraded = any(r["state"] == "cooling_off" for r in rows)
+    degraded = any(r["state"] in ("cooling_off", "failing") for r in rows)
     return {"home": "ok", "libraries": "degraded" if degraded else "ok", "adapters": rows}

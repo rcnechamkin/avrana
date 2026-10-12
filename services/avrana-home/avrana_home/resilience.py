@@ -217,14 +217,20 @@ class CallBudget:
 @dataclass(frozen=True)
 class AdapterHealth:
     service: str
-    state: str                       # "unknown" | "ok" | "cooling_off"
+    # "unknown"     never heard from, or a cool-off ended and the trial call has not reported
+    # "ok"          closed, no failure in the current run
+    # "failing"     closed, but 1..threshold-1 CONSECUTIVE counted failures so far (early outage)
+    # "cooling_off" open: no upstream traffic until retry_in_seconds has passed
+    state: str
     last_error_class: Optional[str] = None
     retry_in_seconds: Optional[int] = None
+    consecutive_failures: int = 0
 
     def to_dict(self) -> dict:
         return {"service": self.service, "state": self.state,
                 "last_error_class": self.last_error_class,
-                "retry_in_seconds": self.retry_in_seconds}
+                "retry_in_seconds": self.retry_in_seconds,
+                "consecutive_failures": self.consecutive_failures}
 
 
 class CircuitBreaker:
@@ -324,5 +330,8 @@ class CircuitBreaker:
                 return AdapterHealth(service, "cooling_off", self._last_error,
                                      int(self._open_until - now) + 1)
             # after a cool-off with no success yet the state is unknown until the trial call
-            state = "ok" if self._seen and not self._opened else "unknown"
-            return AdapterHealth(service, state, self._last_error, None)
+            if self._opened or not self._seen:
+                return AdapterHealth(service, "unknown", self._last_error, None, 0)
+            if self._failures > 0:
+                return AdapterHealth(service, "failing", self._last_error, None, self._failures)
+            return AdapterHealth(service, "ok", self._last_error, None, 0)

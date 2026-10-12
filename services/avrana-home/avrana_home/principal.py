@@ -204,7 +204,10 @@ def _optional(headers: HeaderInput, name: str) -> Optional[str]:
         value = _single(headers, name, required=False)
     except PrincipalError:
         return None
-    if value is None or value == "" or len(value) > MAX_OPTIONAL_LEN or _bad_chars(value):
+    if value is None:
+        return None
+    value = value.strip()
+    if value == "" or len(value) > MAX_OPTIONAL_LEN or _bad_chars(value):
         return None
     return value
 
