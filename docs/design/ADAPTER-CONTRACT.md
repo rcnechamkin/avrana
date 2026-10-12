@@ -127,7 +127,7 @@ Each public method runs these steps, in this order, in the shared base class
 | `title` | string | Always present, plain text, at most 200 characters, never empty (`"Untitled"` if the upstream gave none) |
 | `subtitle` | string or null | For example `"S1 E3: Synthetic Pilot"` |
 | `series` | string or null | |
-| `progress` | object or null | `fraction` (0 to 1), `percent` (integer), `position_seconds`, `duration_seconds` (either may be null). Only for in-progress items. |
+| `progress` | object or null | `fraction` (0 to 1), `percent` (integer), `position_seconds`, `duration_seconds`; any of the four may be null when the upstream did not say (then show the position or no bar, never a guess). Only for in-progress items. |
 | `artwork` | object or null | `ref` (opaque) and `alt` (text alternative) |
 | `handoff_url` | string | `https://` URL on a fixed Avrana hostname |
 

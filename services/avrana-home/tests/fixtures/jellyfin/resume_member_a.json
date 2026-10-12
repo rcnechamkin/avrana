@@ -1,0 +1,28 @@
+{
+  "_synthetic": "Hand-written SYNTHETIC fixture. Not recorded from any server. Invented titles and ids.",
+  "_schema": "Shaped like the public Jellyfin 10.10/10.11 OpenAPI response for GET /UserItems/Resume (BaseItemDtoQueryResult) for member-a. Includes deliberately bad entries: invalid id, not in progress, wrong type, missing title. Unverified against a real server.",
+  "response": {
+    "Items": [
+      {"Id": "aaaa0000000000000000000000000001", "Name": "Synthetic Film One", "Type": "Movie",
+       "ProductionYear": 2001, "RunTimeTicks": 72000000000,
+       "UserData": {"PlaybackPositionTicks": 30240000000, "PlayedPercentage": 42.0, "Played": false,
+                    "ItemId": "aaaa0000000000000000000000000001", "Key": "synthetic-key-1"},
+       "ImageTags": {"Primary": "synthtag1"}},
+      {"Id": "aaaa0000-0000-0000-0000-000000000002", "Name": "Synthetic Pilot", "Type": "Episode",
+       "SeriesName": "Synthetic Series Alpha", "ParentIndexNumber": 1, "IndexNumber": 3,
+       "RunTimeTicks": 27000000000,
+       "UserData": {"PlaybackPositionTicks": 6750000000, "PlayedPercentage": 25.0, "Played": false},
+       "ImageTags": {"Primary": "synthtag2"}},
+      {"Id": "aaaa0000000000000000000000000003", "Type": "Movie", "RunTimeTicks": 36000000000,
+       "UserData": {"PlaybackPositionTicks": 3600000000, "Played": false}},
+      {"Id": "../../Users/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Name": "Synthetic Bad Id", "Type": "Movie",
+       "UserData": {"PlaybackPositionTicks": 100000000}},
+      {"Id": "aaaa0000000000000000000000000004", "Name": "Synthetic Not Started", "Type": "Movie",
+       "RunTimeTicks": 36000000000, "UserData": {"PlaybackPositionTicks": 0, "Played": false}},
+      {"Id": "aaaa0000000000000000000000000005", "Name": "Synthetic Track", "Type": "Audio",
+       "UserData": {"PlaybackPositionTicks": 100000000}}
+    ],
+    "TotalRecordCount": 6,
+    "StartIndex": 0
+  }
+}

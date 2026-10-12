@@ -150,9 +150,10 @@ class MediaItem:
 
     def to_dict(self) -> dict:
         progress = None
-        if self.progress_fraction is not None:
-            progress = {"fraction": round(self.progress_fraction, 4),
-                        "percent": int(round(self.progress_fraction * 100)),
+        if self.progress_fraction is not None or self.position_seconds is not None:
+            frac = self.progress_fraction
+            progress = {"fraction": None if frac is None else round(frac, 4),
+                        "percent": None if frac is None else int(round(frac * 100)),
                         "position_seconds": self.position_seconds,
                         "duration_seconds": self.duration_seconds}
         return {"id": self.id, "service": self.service.value, "kind": self.kind.value,
