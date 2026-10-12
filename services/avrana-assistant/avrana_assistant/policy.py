@@ -28,7 +28,8 @@ _OTHER_MEMBER = re.compile(
     r"|\bwhat\s+(?:is|are|was|were)\s+\w+\s+(?:watching|listening|reading|requesting)\b"
     r"|\b(?:list|show|give me|tell me)\b[^.\n]{0,25}\b(?:all\s+)?(?:members|users|accounts|usernames)\b"
     r"|\bwho\s+(?:else\s+)?(?:has|have)\s+access\b|\bwho\s+(?:is|are)\s+(?:watching|using|signed in)\b"
-    r"|\b(?:watch|viewing|playback|listening|reading)\s+history\s+of\b|\bdoes\s+\w+\s+have\s+(?:access|the)\b", _I)
+    r"|\b(?:watch|viewing|playback|listening|reading)\s+history\s+of\b|\bdoes\s+(?:\w+\s+){1,3}have\s+(?:access|the)\b"
+    r"|\b(?:my|his|her)\s+(?:brother|sister|friend|wife|husband|partner|mom|mum|dad|kid|son|daughter|roommate|neighbou?r|colleague|boss)\b[^.\n]{0,40}\b(?:watch(?:ed|ing)?|history|account|password|access|login|log\s*in|listening|reading)\b", _I)
 _ADMIN_CLAIM = re.compile(
     r"\bi\s*(?:am|'m)\s+(?:the\s+|an?\s+|your\s+)?(?:admin|administrator|owner|operator|developer|root|staff|cody)\b"
     r"|\bas\s+(?:the\s+|an?\s+)?(?:admin|administrator|owner)\b|\b(?:admin|administrator|owner)\s+(?:here|speaking|override|mode)\b"
@@ -41,21 +42,23 @@ _OPERATOR = re.compile(
 _DIRECT_PASSWORD = re.compile(
     r"\b(?:reset|change|set|update|send)\b[^.\n]{0,25}\bpassword\b|\bpassword\b[^.\n]{0,25}\b(?:reset|changed|for me)\b|"
     r"\bforgot(?:ten)?\b[^.\n]{0,25}\b(?:password|login|username)\b|\blocked\s+out\b|\bcan'?t\s+(?:log|sign)\s*in\b"
-    r"|\bpassword\b[^.\n]{0,30}\b(?:not\s+working|doesn'?t\s+work|wrong|rejected)\b|\b(?:lost|forgot)\s+my\s+login\b", _I)
+    r"|\bpassword\b[^.\n]{0,30}\b(?:not\s+working|doesn'?t\s+work|wrong|rejected)\b|\b(?:lost|forgot)\s+my\s+login\b"
+    r"|\bwhat(?:'?s|\s+is)\s+my\s+(?:current\s+|old\s+)?password\b|\b(?:tell|show|give)\s+me\s+my\s+password\b", _I)
 _GRANT = re.compile(
     r"\b(?:give|grant|add|enable|unlock|upgrade|activate)\b[^.\n]{0,30}\b(?:me|my\s+account|access|permission|group)\b"
     r"|\bmake\s+me\s+(?:an?\s+)?(?:admin|member|contributor)\b|\bput\s+me\s+in\b|\bmove\s+me\s+to\b", _I)
 _STATUS = re.compile(
     r"\b(?:is|are)\s+(?:the\s+)?[\w.\- ]{0,30}?\b(?:down|up|offline|online|broken|working|running|available)\b"
-    r"|\b(?:outage|status\s+page|any\s+(?:issues|problems)|service\s+status|maintenance)\b"
+    r"|\b(?:outages?|status\s+page|any\s+(?:issues|problems)|service\s+status|maintenance)\b"
     r"|\bnot\s+(?:loading|connecting|responding)\s+(?:right\s+now|today)\b|\bright\s+now\b[^.\n]{0,40}\b(?:down|working|up)\b", _I)
 _MISSING_LIBRARY = re.compile(
     r"\b(?:can'?t|cannot|can\s+not|don'?t|do\s+not|doesn'?t|not\s+able\s+to|unable\s+to)\s+(?:i\s+)?(?:see|find|view|get\s+to|open)\b[^.\n]{0,40}\b(?:librar(?:y|ies)|section|tile|service|collection)\b"
     r"|\b(?:librar(?:y|ies)|section|tile|service)\b[^.\n]{0,30}\b(?:missing|not\s+(?:showing|there|visible|listed)|isn'?t\s+(?:there|showing|visible))\b"
-    r"|\b(?:no|without)\s+access\s+to\b|\bwhy\s+(?:don'?t|can'?t|do\s+i\s+not)\s+i\s+have\b", _I)
+    r"|\bcan'?t\s+see\s+it\b|\b(?:no|without)\s+access\s+to\b|\bwhy\s+(?:don'?t|can'?t|do\s+i\s+not)\s+i\s+have\b", _I)
 _CONTACT = re.compile(
     r"\b(?:contact|reach|email|e-mail|message|talk\s+to|speak\s+(?:to|with)|ask)\b[^.\n]{0,30}\b(?:support|admin|administrator|human|person|someone|owner|help\s*desk|you)\b"
-    r"|\bsupport\s+(?:email|address|number|ticket|form)\b|\bhuman\b|\bopen\s+a\s+ticket\b|\bfile\s+a\s+(?:ticket|complaint)\b|\bwho\s+do\s+i\s+(?:ask|contact|talk)\b", _I)
+    r"|\bsupport\s+(?:email|address|number|ticket|form)\b|\bwhat\s+(?:email|address|number)\b[^.\n]{0,40}\b(?:help|support)\b"
+    r"|\b(?:open|create|file|raise|submit)\s+(?:a\s+|an\s+)?(?:support\s+)?(?:ticket|case)\b|\bhuman\b|\bopen\s+a\s+ticket\b|\bfile\s+a\s+(?:ticket|complaint)\b|\bwho\s+do\s+i\s+(?:ask|contact|talk)\b", _I)
 
 
 def classify(question: str) -> Decision:

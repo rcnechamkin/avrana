@@ -33,7 +33,7 @@ def detect_injection(text: str) -> list[str]:
 _CITE = re.compile(r"\[doc:([a-z0-9][a-z0-9-]*)\]")
 _NEGATION = re.compile(r"\b(?:cannot|can't|can not|won't|will not|do not|don't|never|not|unable|no)\b", re.I)
 _STATUS = re.compile(
-    r"\b(?:is|are|was|were|has been|have been)\s+(?:currently\s+|now\s+|still\s+|fully\s+)?"
+    r"\b(?:is|are|was|were|has been|have been)\s+(?:(?:currently|now|still|fully|always|really|just|completely|\w+ly)\s+)?"
     r"(?:up|down|online|offline|working|operational|running|unavailable|fixed|restored|healthy)\b"
     r"|\ball systems (?:are )?(?:operational|normal|up)\b|\bno (?:known )?(?:issues|outages|incidents)\b"
     r"|\b(?:outage|maintenance window)\b", re.I)
@@ -73,13 +73,19 @@ def validate_output(response: CompletionResponse, allowed_ids: set[str], passage
         reasons.append("injection_shape_in_output")
     ground = set(tokens(passage_text))
     for sent in _sentences(text):
-        neg = bool(_NEGATION.search(sent))
-        if not neg and _STATUS.search(sent):
-            reasons.append("status_claim")
-        if _ACTION_CLAIM.search(sent) and not re.search(r"\b(?:cannot|can't|unable)\b", sent, re.I):
-            reasons.append("invented_action")
-        if not neg and _ASK_SECRET.search(sent):
-            reasons.append("solicits_secret")
+        # A negation counts only if it comes BEFORE the claim ("I cannot tell you it is up"), not after.
+        for m in _STATUS.finditer(sent):
+            if not _NEGATION.search(sent[:m.start()]):
+                reasons.append("status_claim")
+                break
+        for m in _ACTION_CLAIM.finditer(sent):
+            if not re.search(r"\b(?:cannot|can't|unable|not)\b", sent[:m.start()], re.I):
+                reasons.append("invented_action")
+                break
+        for m in _ASK_SECRET.finditer(sent):
+            if not _NEGATION.search(sent[:m.start()]):
+                reasons.append("solicits_secret")
+                break
         terms = tokens(sent)
         if len(terms) >= 4:
             hit = sum(1 for t in terms if t in ground) / len(terms)

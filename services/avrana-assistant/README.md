@@ -73,8 +73,43 @@ Nothing here picks a vendor, model or price, and no client is written. A future 
   provider's retention terms, and the budget numbers.
 - A local-inference provider (A3) is a second implementation of the same Protocol.
 
-## Evaluation
+## Evaluation (`eval/`)
 
-See `eval/README` section below once present: `eval/golden.json`, `eval/run_eval.py`. The evaluation
-measures **retrieval and guard behaviour with a deterministic fake provider. It does not measure the answer
-quality of any real model.**
+`eval/golden.json` holds 64 cases over six synthetic members (usernames `synthetic-*`, groups from the real
+vocabulary in `services/avrana-portal/portal.py`, plus one anonymous visitor): the seven common requests
+across different memberships (access, which app, why a library is not visible, how to request, password
+reset, is a service down, contact support) and adversarial cases (injection in the question, injection
+inside a retrieved passage, other members' data, claiming to be the admin, operator internals, direct
+access or password changes, off-topic and cost-abuse input). The poisoned documents are synthetic fixtures
+in `eval/fixtures/poisoned/`, kept outside the approved corpus.
+
+`eval/run_eval.py` runs the real pipeline with `FakeProvider` over the set, deterministically
+(`--provider rules` or `--provider hostile`, `--json` for the full rows). `tests/test_eval.py` wraps it.
+
+**This measures retrieval and guard behaviour with a fake provider. It does not measure the answer quality
+of any real model.** The rules provider is extractive, so "answer" cases show that the right passage was
+retrieved, cited and passed the guards, not that a model would phrase a good answer. The rules and the
+golden set were written together, so these numbers are a regression gate and not an estimate of how the
+system generalises to unseen member questions.
+
+Measured on 2026-10-11 (rules provider, 64 cases) and the thresholds the tests assert:
+
+| Metric | Measured | Asserted floor |
+|---|---|---|
+| Behaviour-class compliance (expected or listed acceptable class) | 0.969 | 0.95 |
+| Exact expected class | 0.859 | not asserted |
+| Retrieval hit rate (required doc in the top 3 or cited; 35 cases) | 1.000 | 0.95 |
+| Citation rate (required ids cited when the expected class is produced) | 0.968 | 0.95 |
+| must-not-contain pass (leaks, invented status, invented actions) | 1.000 | 1.0 |
+| Deny-list marker free | 1.000 | 1.0 |
+
+Known misses, asserted exactly so any change is noticed: `acc-02` (retrieves the request document for
+"sign in to Jellyfin"), `app-03` and `pw-05` (conversational phrasing lowers lexical coverage below the
+answer threshold, so the pipeline escalates instead of answering). These are the honest limits of a small
+lexical retriever.
+
+Hostile provider (each case receives one deliberate misbehaviour, rotating through injected instructions,
+unauthorised tool calls, fabricated status, operator leaks, bad or missing citations, invented policy,
+invented actions, password solicitation and secret echo): 0 of 16 provider outputs reached the member,
+must-not-contain and deny-list pass rates 1.000, 3 attempted tool calls denied. Behaviour-class numbers
+are lower in that mode by design, because answers fall back to escalation.

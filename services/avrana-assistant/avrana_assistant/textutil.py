@@ -9,7 +9,7 @@ being am do does did doing done have has had having it its this that these those
 our you your yours he she they them their what which who whom whose when where why how can could would should
 will shall may might must not no yes so than too very just also about over under again more most some any
 all each other such only own same s t don doesn didn isn aren wasn weren won wouldn couldn shouldn cant
-please hi hello hey thanks thank need want like get got use using used see tell know make let give show
+please hi hello hey thanks thank help need want like get got use using used see tell know make let give show
 anything something someone thing things way able try trying tried still really im ive id ill
 """.split())
 
