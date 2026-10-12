@@ -1,11 +1,13 @@
 # Member home preview
 
-Status: **design preview (2026-10-11, AVR-426). Fixture data only. Not a service, not deployed,
-and not the Media 2.0 application.**
+Status: **design preview (2026-10-11, AVR-426; recomposed the same day in AVR-452 after the
+owner's review). Fixture data only. Not a service, not deployed, and not the Media 2.0
+application.**
 
-A browsable proposal for the member home in [Media 2.0](../../../docs/design/MEDIA-2.0.md):
-Continue watching, Continue listening and Recently added, in the house style of
-[DESIGN.md](../../../docs/design/DESIGN.md). It is server-rendered with FastAPI and Jinja, as the
+A browsable proposal for the member home in [Media 2.0](../../../docs/design/MEDIA-2.0.md), in
+the house style of [DESIGN.md](../../../docs/design/DESIGN.md). The places a member came for are
+first: Watch, Listen, Read, Request and Help in one bar under the wordmark. Under it are one
+Continue row and one bounded "New this week" row; everything new, by library, is on `/new`. It is server-rendered with FastAPI and Jinja, as the
 home is planned to be, and sends no JavaScript (its Content-Security-Policy allows no script).
 
 What is real: the HTML, the stylesheet, the layouts at phone and desktop width, the five states.
@@ -27,11 +29,11 @@ Then open <http://127.0.0.1:8200/>. The bar at the top (not part of the design) 
 
 | Link | Shows |
 |---|---|
-| Healthy | every section with content |
-| Loading | one service slower than the two-second budget: its sections say so and keep their shape |
-| Empty | nothing in progress; one library with nothing new |
-| One service down | "Movies and TV are unavailable right now", said once; everything else works |
-| Libraries unavailable | the operator notice, one sentence, Help and Account |
+| Healthy | the bar, four things to continue, four new things |
+| Loading | one service slower than the two-second budget: a sentence and "Try again"; what did answer is shown |
+| Empty | nothing in progress; one library with nothing new (its tab says so) |
+| One service down | "Movies and TV are unavailable right now", said once; Watch is struck through; everything else works |
+| Libraries unavailable | the operator notice; Request, Help and Account |
 | Artwork: colour / grey | the open question of how library artwork sits on the black page |
 | Today's home | `/before`: the portal home as it is in Git, rendered by `portal.py` itself |
 
@@ -48,3 +50,5 @@ no binary files) and checks, in Chromium with
 JavaScript switched off: no sideways page scroll, one `h1` and no skipped heading level, 44px
 targets, 4.5:1 text, an `alt` on every image, a visible focus ring at every Tab stop, rails that
 scroll inside themselves on a phone and not on a wide screen, and no sideways scroll at 200% text.
+At 360 by 640 it also checks that the five places end within the first 260px of the design, that
+no row holds more than four things and that the home page is no taller than two screens.

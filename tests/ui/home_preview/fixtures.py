@@ -47,10 +47,11 @@ RECENT = [
         ("yellow-kid", "The Yellow Kid", "1895"), ("mutt-and-jeff", "Mutt and Jeff", "1907"),
         ("gasoline-alley", "Gasoline Alley", "1918")]},
 ]
-TILES = [
-    ("Watch", "Movies & TV", "video"), ("Listen", "Audiobooks", "audio"), ("Read", "Comics & ebooks", "books"),
-    ("Request", "Ask for something that’s missing", "requests"), ("Help", "Apps & setup guides", "help"),
-]
+# The bar of places under the wordmark: (label, the library whose service it needs or None).
+PLACES = [("Watch", "video"), ("Listen", "audio"), ("Read", "books"), ("Request", None), ("Help", None)]
+LIBRARY_NAMES = {"video": "Movies and TV", "audio": "Audiobooks", "books": "Books", "comics": "Comics"}
+CONTINUE_MOST = 4       # Home's Continue row, whatever library each item is from
+NEW_MOST = 4            # Home's "New this week" row; the rest is on /new
 # The sentence a member reads when a library's service does not answer (MEDIA-2.0, degradation).
 GONE = {"video": "Movies and TV are unavailable right now.", "audio": "Audiobooks are unavailable right now.",
         "books": "Books are unavailable right now.", "comics": "Comics are unavailable right now."}
@@ -69,8 +70,13 @@ def _titles() -> dict[str, tuple[str, str]]:
 TITLES = _titles()
 
 
-def page(state: str) -> dict:
-    """What the home page shows in one preview state. `status` per library: ok, slow, gone, none."""
+def _lower(name: str) -> str:
+    """A library's name inside a sentence: "audiobooks", "movies and TV"."""
+    return name[0].lower() + name[1:]
+
+
+def _state(state: str):
+    """One preview state: each library's status (ok, slow, gone), the notice, and what there is."""
     status = {"video": "ok", "audio": "ok", "books": "ok", "comics": "ok"}
     notice = None
     watching, listening = CONTINUE_WATCHING, CONTINUE_LISTENING
@@ -82,12 +88,82 @@ def page(state: str) -> dict:
         recent = [dict(shelf, items=[]) if shelf["key"] == "audio" else shelf for shelf in RECENT]
     elif state == "degraded":
         status["video"] = "gone"
+        notice = f"{GONE['video']} Everything else works."
     elif state == "unavailable":
         status = dict.fromkeys(status, "gone")
-        notice = "The libraries are offline this evening for maintenance."
-    return {"status": status, "notice": notice, "watching": watching, "listening": listening, "recent": recent,
-            "all_gone": all(v == "gone" for v in status.values()),
-            "tiles": [t for t in TILES if t[2] in ("help", "requests") or status.get(t[2]) != "gone"]}
+        notice = "The libraries are offline this evening for maintenance. Help and your account still work."
+    return status, notice, watching, listening, recent
+
+
+def _nav(status: dict) -> list[tuple[str, str | None, bool]]:
+    """The bar of places. Read needs books or comics; Request and Help need no library."""
+    up = {"video": status["video"] != "gone", "audio": status["audio"] != "gone",
+          "books": status["books"] != "gone" or status["comics"] != "gone"}
+    return [(label, key, True if key is None else up[key]) for label, key in PLACES]
+
+
+def _new(shelf: dict, slug: str, title: str, line: str, all_tab: bool) -> dict:
+    # under "All" the second line says which library; under a library's own tab, the item's own line
+    return {"slug": slug, "title": title, "line": shelf["name"] if all_tab else line, "shape": shelf["shape"]}
+
+
+def page(state: str, tab: str = "all") -> dict:
+    """What Home shows in one preview state: the places, one Continue row, one bounded New row."""
+    status, notice, watching, listening, recent = _state(state)
+    all_gone = all(v == "gone" for v in status.values())
+    # Continue: video and audio mixed, the most recent of each first, never more than CONTINUE_MOST.
+    mixed = []
+    for i in range(max(len(watching), len(listening))):
+        if i < len(watching) and status["video"] == "ok":
+            mixed.append(dict(watching[i], shape="still", verb="watched", line=watching[i]["left"]))
+        if i < len(listening) and status["audio"] == "ok":
+            mixed.append(dict(listening[i], shape="square", verb="heard", line=listening[i]["left"].split(", ")[-1]))
+    slow = [SLOW[key] for key in ("video", "audio") if status[key] == "slow"]
+    # New this week: a tab for each library whose service answers at all; "All" is the newest of each.
+    shelves = [shelf for shelf in recent if status[shelf["key"]] != "gone"]
+    tabs = [("all", "All")] + [(shelf["key"], shelf["name"]) for shelf in shelves]
+    if tab not in dict(tabs):
+        tab = "all"
+    said, wait, items = "", False, []
+    if tab == "all":
+        items = [_new(shelf, *shelf["items"][0], True) for shelf in shelves if status[shelf["key"]] == "ok" and shelf["items"]]
+        waiting = [shelf for shelf in shelves if status[shelf["key"]] == "slow"]
+        if waiting:
+            said, wait = SLOW[waiting[0]["key"]], True
+        elif not items:
+            said = "Nothing new this week."
+        more = "Everything new this week"
+    else:
+        shelf = next(shelf for shelf in shelves if shelf["key"] == tab)
+        if status[tab] == "slow":
+            said, wait = SLOW[tab], True
+        elif not shelf["items"]:
+            said = f"Nothing new in {_lower(shelf['name'])} this week."
+        else:
+            items = [_new(shelf, *item, False) for item in shelf["items"][:NEW_MOST]]
+        more = f"Everything new in {_lower(shelf['name'])}"
+    return {"status": status, "notice": notice, "all_gone": all_gone, "nav": _nav(status),
+            "continue_items": mixed[:CONTINUE_MOST], "continue_slow": slow,
+            "new_tabs": tabs, "new_tab": tab, "new_items": items[:NEW_MOST], "new_said": said, "new_wait": wait,
+            "new_more": more}
+
+
+def new_page(state: str, lib: str = "") -> dict:
+    """The New page: everything new in one library at a time. No "All" here: this is the long list."""
+    status, notice, _, _, recent = _state(state)
+    shelves = [shelf for shelf in recent if status[shelf["key"]] != "gone"]
+    tabs = [(shelf["key"], shelf["name"]) for shelf in shelves]
+    base = {"status": status, "notice": notice, "nav": _nav(status), "tabs": tabs, "lib": "", "items": [],
+            "said": "", "wait": False, "all": ""}
+    if not shelves:
+        return dict(base, said="Movies and TV, audiobooks, books and comics are unavailable right now.")
+    shelf = next((shelf for shelf in shelves if shelf["key"] == lib), shelves[0])
+    base.update(lib=shelf["key"], all=shelf["all"])
+    if status[shelf["key"]] == "slow":
+        return dict(base, said=SLOW[shelf["key"]], wait=True)
+    if not shelf["items"]:
+        return dict(base, said="Nothing new here this week.")
+    return dict(base, items=[_new(shelf, *item, False) for item in shelf["items"]])
 
 
 def _lines(text: str, width: int) -> list[str]:

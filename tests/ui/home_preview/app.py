@@ -1,4 +1,4 @@
-"""Member home preview (AVR-426): a design preview, not a service.
+"""Member home preview (AVR-426, recomposed in AVR-452): a design preview, not a service.
 
     python -m uvicorn tests.ui.home_preview.app:app --host 127.0.0.1 --port 8200
 
@@ -43,13 +43,22 @@ async def headers(request: Request, call_next):
 
 
 @app.get("/", response_class=HTMLResponse)
-def home(request: Request, state: str = "healthy", art: str = "colour"):
+def home(request: Request, state: str = "healthy", art: str = "colour", new: str = "all"):
     if state not in fixtures.STATES:
         raise HTTPException(404)
     art = "mono" if art == "mono" else "colour"
     return templates.TemplateResponse(request, "home.html", {
-        "state": state, "states": fixtures.STATES, "art": art, "gone": fixtures.GONE, "slow": fixtures.SLOW,
-        **fixtures.page(state)})
+        "state": state, "states": fixtures.STATES, "art": art, **fixtures.page(state, new)})
+
+
+@app.get("/new", response_class=HTMLResponse)
+def new(request: Request, state: str = "healthy", art: str = "colour", lib: str = ""):
+    """Everything new, one library at a time: browsing has a page of its own, off the home page."""
+    if state not in fixtures.STATES:
+        raise HTTPException(404)
+    art = "mono" if art == "mono" else "colour"
+    return templates.TemplateResponse(request, "new.html", {
+        "state": state, "states": fixtures.STATES, "art": art, **fixtures.new_page(state, lib)})
 
 
 @app.get("/art/{shape}/{slug}.svg")

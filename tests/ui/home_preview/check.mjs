@@ -29,7 +29,7 @@ const inspect = () => {
   const lum = (c) => { const [r, g, b] = c.match(/[\d.]+/g).slice(0, 3).map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
   const ground = (el) => { for (let n = el; n; n = n.parentElement) { const bg = getComputedStyle(n).backgroundColor; if (!/rgba\(.*, 0\)|transparent/.test(bg)) return bg; } return 'rgb(0,0,0)'; };
   const out = { sideways: document.documentElement.scrollWidth > innerWidth + 1, scripts: document.scripts.length, small: [], faint: [], noAlt: [], headings: [], h1: document.querySelectorAll('h1').length };
-  for (const el of document.querySelectorAll('main a, footer a, .mast a, .preview a')) {
+  for (const el of document.querySelectorAll('main a, footer a, .mast a, .places a, .preview a')) {
     const r = el.getBoundingClientRect();
     if (r.width && (r.height < 43.5 || r.width < 43.5)) out.small.push(`${el.textContent.trim().slice(0, 30)} ${Math.round(r.width)}x${Math.round(r.height)}`);
   }
@@ -45,6 +45,12 @@ const inspect = () => {
   out.headings = [...document.querySelectorAll('h1,h2,h3,h4')].map((h) => Number(h.tagName[1]));
   out.rails = [...document.querySelectorAll('ul.rail:not(.waiting)')].map((r) => r.scrollWidth > r.clientWidth + 1);
   out.broken = [...document.images].filter((i) => i.complete && !i.naturalWidth).length;
+  // the places come first: where the bar of libraries, Request and Help ends, measured from the
+  // top of the design (the preview's own bar is not part of it)
+  const top = document.querySelector('.preview').getBoundingClientRect().bottom + scrollY;
+  out.places = [...document.querySelectorAll('.places > *')].map((el) => [el.textContent.trim().split(',')[0], Math.round(el.getBoundingClientRect().bottom + scrollY - top)]);
+  out.height = Math.round(document.documentElement.scrollHeight - top);
+  out.cards = [...document.querySelectorAll('ul.rail')].map((r) => r.children.length);
   return out;
 };
 
@@ -80,10 +86,44 @@ try {
       }
       console.log(`checked ${where}: ${stops} links`);
     }
+    // the New page: everything new in one library, one page per state
+    for (const state of STATES) {
+      const where = `new, ${state} ${tag}`;
+      await page.goto(`/new?state=${state}`);
+      await page.evaluate(() => Promise.all([...document.images].map((i) => { i.loading = 'eager'; return i.decode().catch(() => {}); })));
+      await page.screenshot({ path: path.join(outdir, `after-new-${state}-${tag}.png`), fullPage: true });
+      const seen = await page.evaluate(inspect);
+      if (seen.sideways) fail(where, 'the page scrolls sideways');
+      if (seen.scripts) fail(where, `${seen.scripts} script element(s)`);
+      if (seen.h1 !== 1) fail(where, `${seen.h1} h1 elements`);
+      if (seen.broken) fail(where, `${seen.broken} image(s) did not load`);
+      for (const s of seen.small) fail(where, `target under 44px: ${s}`);
+      for (const s of seen.faint) fail(where, `text under 4.5:1: ${s}`);
+      console.log(`checked ${where}`);
+    }
+    await page.goto('/?state=healthy&new=audio');
+    await page.screenshot({ path: path.join(outdir, `after-healthy-new-audiobooks-${tag}.png`), fullPage: true });
     await page.goto('/?state=healthy&art=mono');
     await page.screenshot({ path: path.join(outdir, `after-healthy-grey-art-${tag}.png`), fullPage: true });
     await page.goto('/before');
     await page.screenshot({ path: path.join(outdir, `before-${tag}.png`), fullPage: true });
+    await context.close();
+  }
+  // A small phone, 360 by 640: the five places are on the first screen, the rows are bounded and
+  // the whole home page is no more than two screens.
+  {
+    const context = await browser.newContext({ viewport: { width: 360, height: 640 }, deviceScaleFactor: 2, baseURL: base, javaScriptEnabled: false });
+    const page = await context.newPage();
+    await page.goto('/?state=healthy');
+    await page.screenshot({ path: path.join(outdir, 'after-healthy-small-phone.png'), fullPage: true });
+    const seen = await page.evaluate(inspect);
+    const names = seen.places.map(([name]) => name);
+    if (names.join(' ') !== 'Watch Listen Read Request Help') fail('healthy small phone', `the places are ${names.join(', ')}`);
+    for (const [name, bottom] of seen.places) if (bottom > 260) fail('healthy small phone', `${name} ends at ${bottom}px, below 260`);
+    if (seen.height > 1280) fail('healthy small phone', `the page is ${seen.height}px, more than two screens`);
+    if (seen.cards.some((n) => n > 4)) fail('healthy small phone', `a row has more than four things: ${seen.cards}`);
+    if (seen.sideways) fail('healthy small phone', 'the page scrolls sideways');
+    console.log(`checked healthy small phone: places end at ${Math.max(...seen.places.map(([, y]) => y))}px, page ${seen.height}px, rows of ${seen.cards.join(' and ')}`);
     await context.close();
   }
   // 200% text: the root size doubled, at phone width

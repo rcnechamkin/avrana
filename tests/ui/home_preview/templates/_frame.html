@@ -1,0 +1,35 @@
+{# What home.html and new.html share: the preview's own bar, the wordmark, and the bar of places.
+   The preview bar is not part of the design. It labels the fixture data and switches states. #}
+{% macro preview(states, state, art, here) %}
+<aside class="preview" aria-label="Preview controls">
+  <p><strong>Preview, fixture data.</strong> Invented member, public-domain titles, drawn covers. Nothing is contacted; every link stops at a note.</p>
+  <ul>
+    {% for key, name in states.items() %}
+    <li><a href="{{ here }}?state={{ key }}{% if art == 'mono' %}&amp;art=mono{% endif %}"{% if key == state %} aria-current="true"{% endif %}>{{ name }}</a></li>
+    {% endfor %}
+    <li class="gap"><a href="{{ here }}?state={{ state }}{% if art != 'mono' %}&amp;art=mono{% endif %}">Artwork: {{ 'grey' if art == 'mono' else 'colour' }}</a></li>
+    <li><a href="/before">Today&rsquo;s home</a></li>
+  </ul>
+</aside>
+{% endmacro %}
+
+{# Where a member can go, said before anything else on the page. A library whose service does not
+   answer keeps its place and is struck through; the notice under the bar says why, once. #}
+{% macro places(nav) %}
+<nav class="places" aria-label="Avrana">
+  {% for label, key, up in nav %}
+  {% if up %}<a href="/stop?to={{ label | urlencode }}">{{ label }}</a>
+  {% else %}<span class="off"><s>{{ label }}</s><span class="sr">, unavailable</span></span>
+  {% endif %}
+  {% endfor %}
+</nav>
+{% endmacro %}
+
+{% macro card(item, state) %}
+<li class="w-{{ item.shape }}"><a class="card" href="/stop?to={{ item.title | urlencode }}">
+  <img class="art" src="/art/{{ item.shape }}/{{ item.slug }}.svg" alt="" loading="lazy">
+  {% if item.done is defined %}<progress max="100" value="{{ item.done }}" aria-label="{{ item.done }} percent {{ item.verb }}"></progress>{% endif %}
+  <span class="t">{{ item.title }}</span>
+  <span class="d">{{ item.line }}</span>
+</a></li>
+{% endmacro %}

@@ -9,132 +9,57 @@
 <link rel="stylesheet" href="/static/home.css">
 </head>
 <body class="art-{{ art }}">
-{# The preview bar is not part of the design. It labels the fixture data and switches states. #}
-<aside class="preview" aria-label="Preview controls">
-  <p><strong>Preview, fixture data.</strong> An invented member, public-domain titles and drawn covers. No library or service is contacted, and every link stops at a note.</p>
-  <ul>
-    {% for key, name in states.items() %}
-    <li><a href="/?state={{ key }}{% if art == 'mono' %}&amp;art=mono{% endif %}"{% if key == state %} aria-current="true"{% endif %}>{{ name }}</a></li>
-    {% endfor %}
-    <li class="gap"><a href="/?state={{ state }}{% if art != 'mono' %}&amp;art=mono{% endif %}">Artwork: {{ 'grey' if art == 'mono' else 'colour' }}</a></li>
-    <li><a href="/before">Today&rsquo;s home</a></li>
-  </ul>
-</aside>
+{% import "_frame.html" as frame %}
+{{ frame.preview(states, state, art, '/') }}
 
-<a class="skip" href="#content">Skip to the libraries</a>
+<a class="skip" href="#content">Skip to what you left</a>
 <header class="mast">
   <h1><a href="/?state={{ state }}">AVRANA</a></h1>
   <div class="rule"></div>
 </header>
+{# The places a member came for are first: the libraries, Request and Help. #}
+{{ frame.places(nav) }}
 
 <main id="content">
   {% if notice %}
   <p class="banner" role="status">{{ notice }}</p>
   {% endif %}
 
-  {% macro unavailable(key) %}<p class="said" role="status">{{ gone[key] }}</p>{% endmacro %}
-  {% macro waiting(key, shape, count) %}
-  <p class="said" role="status">{{ slow[key] }} <a class="link" href="/?state={{ state }}">Try again</a></p>
-  <ul class="rail {{ shape }} waiting" aria-hidden="true">{% for _ in range(count) %}<li><span class="art"></span><span class="bar"></span></li>{% endfor %}</ul>
-  {% endmacro %}
-
-  {% if all_gone %}
-  <section class="shelf" aria-labelledby="h-gone">
-    <h2 id="h-gone">Libraries</h2>
-    <p class="said" role="status">Movies and TV, audiobooks, books and comics are unavailable right now. Help and your account still work.</p>
-  </section>
-  {% else %}
-
-  {# ---- Continue ---------------------------------------------------------------------------- #}
-  {% if not watching and not listening and status.video == 'ok' and status.audio == 'ok' %}
+  {# ---- Continue: one row, whatever it was left in ----------------------------------------- #}
+  {% if not all_gone %}
   <section class="shelf" aria-labelledby="h-continue">
     <h2 id="h-continue">Continue</h2>
+    {% for line in continue_slow %}<p class="said" role="status">{{ line }} <a class="link" href="/?state={{ state }}">Try again</a></p>{% endfor %}
+    {% if continue_items %}
+    <ul class="rail">
+      {% for item in continue_items %}{{ frame.card(item, state) }}{% endfor %}
+    </ul>
+    {% elif not continue_slow %}
     <p class="said">Nothing in progress. Whatever you start in a library appears here, ready to pick up where you stopped.</p>
-  </section>
-  {% else %}
-  <section class="shelf" aria-labelledby="h-watching">
-    <div class="shelf-head"><h2 id="h-watching">Continue watching</h2></div>
-    {% if status.video == 'gone' %}{{ unavailable('video') }}
-    {% elif status.video == 'slow' %}{{ waiting('video', 'still', 2) }}
-    {% else %}
-    <ul class="rail still">
-      {% for item in watching %}
-      <li><a class="card" href="/stop?to={{ item.title | urlencode }}">
-        <img class="art" src="/art/still/{{ item.slug }}.svg" alt="" width="320" height="180" loading="lazy">
-        <progress max="100" value="{{ item.done }}" aria-label="{{ item.done }} percent watched"></progress>
-        <span class="t">{{ item.title }}</span>
-        <span class="d">{{ item.line }}</span>
-        <span class="d">{{ item.left }}</span>
-      </a></li>
-      {% endfor %}
-    </ul>
     {% endif %}
   </section>
 
-  <section class="shelf" aria-labelledby="h-listening">
-    <div class="shelf-head"><h2 id="h-listening">Continue listening</h2></div>
-    {% if status.audio == 'gone' %}{{ unavailable('audio') }}
-    {% elif status.audio == 'slow' %}
-    <p class="said" role="status">{{ slow.audio }} <a class="link" href="/?state={{ state }}">Try again</a></p>
-    <ul class="rows waiting" aria-hidden="true"><li><span class="art"></span><span class="bar"></span></li><li><span class="art"></span><span class="bar"></span></li></ul>
-    {% else %}
-    <ul class="rows">
-      {% for item in listening %}
-      <li><a class="row" href="/stop?to={{ item.title | urlencode }}">
-        <img class="art" src="/art/square/{{ item.slug }}.svg" alt="" width="300" height="300" loading="lazy">
-        <span class="meta">
-          <span class="t">{{ item.title }}</span>
-          <span class="d">{{ item.line }}</span>
-          <progress max="100" value="{{ item.done }}" aria-label="{{ item.done }} percent heard"></progress>
-          <span class="d">{{ item.left }}</span>
-        </span>
-      </a></li>
+  {# ---- New this week: one bounded row; a tab is a link, and the rest is on its own page ---- #}
+  <section class="shelf" aria-labelledby="h-new">
+    <h2 id="h-new">New this week</h2>
+    <nav class="tabs" aria-label="New, by library">
+      {% for key, name in new_tabs %}
+      <a href="/?state={{ state }}{% if key != 'all' %}&amp;new={{ key }}{% endif %}#h-new"{% if key == new_tab %} aria-current="true"{% endif %}>{{ name }}</a>
       {% endfor %}
+    </nav>
+    {% if new_said %}<p class="said"{% if new_wait %} role="status"{% endif %}>{{ new_said }}{% if new_wait %} <a class="link" href="/?state={{ state }}&amp;new={{ new_tab }}#h-new">Try again</a>{% endif %}</p>{% endif %}
+    {% if new_items %}
+    <ul class="rail tall">
+      {% for item in new_items %}{{ frame.card(item, state) }}{% endfor %}
     </ul>
+    <p class="more"><a class="link" href="/new?state={{ state }}{% if new_tab != 'all' %}&amp;lib={{ new_tab }}{% endif %}">{{ new_more }}</a></p>
     {% endif %}
   </section>
   {% endif %}
-
-  {# ---- Recently added, one shelf per library the member can use ----------------------------- #}
-  <section class="group" aria-labelledby="h-recent">
-    <h2 id="h-recent" class="group-h">Recently added</h2>
-    {% for shelf in recent %}
-    {# A service that is down already said so once above; it is not said again here. #}
-    {% if not (status[shelf.key] == 'gone' and shelf.key in ('video', 'audio')) %}
-    <section class="shelf" aria-labelledby="h-{{ shelf.key }}">
-      <div class="shelf-head">
-        <h3 id="h-{{ shelf.key }}">{{ shelf.name }}</h3>
-        {% if status[shelf.key] == 'ok' and shelf['items'] %}<a class="link" href="/stop?to={{ shelf.all | urlencode }}">{{ shelf.all }}</a>{% endif %}
-      </div>
-      {% if status[shelf.key] == 'gone' %}{{ unavailable(shelf.key) }}
-      {% elif status[shelf.key] == 'slow' %}{{ waiting(shelf.key, shelf.shape, 4) }}
-      {% elif not shelf['items'] %}<p class="said">Nothing new in the last 30 days.</p>
-      {% else %}
-      <ul class="rail {{ shelf.shape }}">
-        {% for slug, title, line in shelf['items'] %}
-        <li><a class="card" href="/stop?to={{ title | urlencode }}">
-          <img class="art" src="/art/{{ shelf.shape }}/{{ slug }}.svg" alt="" loading="lazy">
-          <span class="t">{{ title }}</span>
-          <span class="d">{{ line }}</span>
-        </a></li>
-        {% endfor %}
-      </ul>
-      {% endif %}
-    </section>
-    {% endif %}
-    {% endfor %}
-  </section>
-  {% endif %}
-
-  <nav class="tiles" aria-label="Your Avrana services">
-    {% for label, desc, key in tiles %}
-    <a class="tile" href="/stop?to={{ label | urlencode }}"><span class="label">{{ label }}</span><span class="desc">{{ desc }}</span></a>
-    {% endfor %}
-  </nav>
 </main>
 
 <footer>
-  <a class="link" href="/stop?to=Account">Account &amp; sign&#8209;in</a>
+  <a class="link" href="/stop?to=Account">Account and sign&#8209;in</a>
 </footer>
 </body>
 </html>
