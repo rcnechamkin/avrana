@@ -33,6 +33,7 @@ import re
 import sqlite3
 import sys
 import threading
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -340,8 +341,13 @@ class Handler(BaseHTTPRequestHandler):
     # HTTP/1.0 (the stdlib default): every response closes the connection. Replies that are sent
     # without reading the request body (404, 400, 413) rely on that; do not switch to keep-alive.
     protocol_version = "HTTP/1.0"
-    # Per-connection socket timeout: a client that trickles or stalls cannot pin a thread.
+    # Idle limit per socket read: a connection that goes quiet for 15 s is dropped. It is NOT a total
+    # limit: a client sending one byte every few seconds resets it each time. The body therefore has
+    # its own total deadline below; a slow trickle of the request line and headers (before any
+    # identity is known) is bounded only by the upstream outpost, which stdlib http.server cannot
+    # enforce cleanly here.
     timeout = 15
+    body_deadline = 15  # seconds, in total, for the whole POST body to arrive
 
     def _send(self, code, body, ctype="text/html; charset=utf-8", location=None):
         data = body.encode()
@@ -362,6 +368,26 @@ class Handler(BaseHTTPRequestHandler):
 
     def _identity(self):
         return self._hdr(USERNAME_HEADER), self._hdr(EMAIL_HEADER), parse_groups(self._hdr(GROUPS_HEADER))
+
+    def _read_body(self, length):
+        """The POST body, or None if it did not arrive within `body_deadline` seconds in total (or the
+        socket failed). Never the unbounded rfile.read(length): that restarts the idle timeout on
+        every byte, so a trickling client could hold the thread indefinitely."""
+        deadline = time.monotonic() + self.body_deadline
+        buf = b""
+        try:
+            while len(buf) < length:
+                left = deadline - time.monotonic()
+                if left <= 0:
+                    return None
+                self.connection.settimeout(min(left, self.timeout))
+                chunk = self.rfile.read1(length - len(buf))
+                if not chunk:  # client closed early: use what arrived, like read() would
+                    break
+                buf += chunk
+        except OSError:  # includes the socket timeout
+            return None
+        return buf
 
     def _member(self):
         """Library username of a permitted member, or None. Anything else is a 404.
@@ -449,9 +475,8 @@ class Handler(BaseHTTPRequestHandler):
         length = int(raw_len)
         if length > MAX_BODY:
             return self._send(413, "request too large", "text/plain; charset=utf-8")
-        try:
-            data = self.rfile.read(length)
-        except OSError:  # includes the socket timeout: the client stalled or trickled the body
+        data = self._read_body(length)
+        if data is None:
             return self._send(408, "request timeout", "text/plain; charset=utf-8")
         form = urllib.parse.parse_qs(data.decode("utf-8", "replace"))
         address = (form.get("address", [""])[0] or "").strip()

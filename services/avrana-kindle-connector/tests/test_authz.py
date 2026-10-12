@@ -14,6 +14,7 @@ import importlib.util
 import json
 import os
 import pathlib
+import select
 import socket
 import sqlite3
 import sys
@@ -1116,6 +1117,7 @@ class WriteFailures(Base):
 
 class Hardening(Base):
     handler_timeout = 0.4
+    handler_attrs = {"body_deadline": 0.6}
 
     def test_stalled_body_times_out_with_408_instead_of_pinning_a_thread(self):
         before = self.state()
@@ -1124,6 +1126,31 @@ class Hardening(Base):
         self.assertFalse(r.timed_out)
         self.assertEqual(r.status, 408)
         self.assertLess(time.time() - t0, 3)
+        self.assertNoWrites(before)
+
+    def test_trickled_body_hits_a_total_deadline_not_just_a_per_read_timeout(self):
+        # one byte every 0.15 s never trips the 0.4 s per-read timeout; only a total deadline stops it
+        before = self.state()
+        head = (b"POST /save HTTP/1.1\r\nHost: x\r\nContent-Length: 60\r\n" +
+                b"".join(f"{k}: {v}\r\n".encode() for k, v in hdr()) + b"\r\n")
+        s = socket.create_connection(("127.0.0.1", self.port), timeout=5)
+        t0 = time.time()
+        try:
+            s.sendall(head)
+            sent, data = 0, b""
+            while sent < 60 and time.time() - t0 < 4 and not data:
+                s.sendall(b"a")
+                sent += 1
+                if select.select([s], [], [], 0.15)[0]:  # the server answered: stop sending
+                    data = s.recv(65536)
+            if not data:
+                s.settimeout(2)
+                data = s.recv(65536)
+        finally:
+            s.close()
+        self.assertTrue(data.startswith(b"HTTP/1.0 408"), data[:40])
+        self.assertLess(time.time() - t0, 3, "the server kept reading a trickled body")
+        self.assertLess(sent, 60)
         self.assertNoWrites(before)
 
     def test_timeout_default_and_protocol(self):
