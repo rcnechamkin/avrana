@@ -54,12 +54,11 @@ Layout (`services/avrana-home/`):
 There is exactly one path from a request to a member: `identity.get_viewer` reads the raw ASGI
 header list, keeps only the four headers the principal parser knows (`X-authentik-username`,
 `-groups`, `-email`, `-name`), and passes them with their duplicates to
-`principal.principal_from_headers`. Everything downstream takes a `MemberPrincipal`.
+`principal.principal_from_raw_headers` as raw `(bytes, bytes)` pairs. Everything downstream takes a `MemberPrincipal`.
 
 How headers really arrive (verified over a real uvicorn server, not assumed): uvicorn lowercases
 names and delivers every repeated header as its own pair, so duplicates in any case combination
-are visible; Starlette's `request.headers` would merge them, so it is not used. Values are decoded
-as UTF-8 with surrogate escapes, so invalid bytes become characters the parser rejects. Look-alike
+are visible; Starlette's `request.headers` would merge them, so it is not used. The route layer does no decoding of its own; the adapter layer's parser works on the raw bytes. Look-alike
 names (`X_authentik_username`, `X-Forwarded-User`, `Remote-User`) never reach the parser and
 confer nothing. A source-level test (`test_route_layer_source`) fails if any module other than
 `identity.py` reads the query string, a cookie, a path parameter, a body, a form or a header, calls
@@ -82,10 +81,10 @@ behaviour, applied to the stricter parser.
 | I-2 | Groups header but **no username header** | Grants by groups: full tiles | No principal: Help tile only | **Keep strict.** The outpost always sets both; a missing username means the request did not come through it. No behaviour change in production traffic. |
 | I-3 | Username with leading/trailing space, `\|`, `,`, control or format characters, not NFC, or over 150 characters; groups header over 4096 characters, over 64 groups or a group over 128 characters | Grants by groups | No principal | **Keep.** Authentik cannot produce these. |
 | I-4 | **Duplicate username** header | Uses the first value | No principal | **Keep.** Same reasoning as the existing duplicate-groups rule. |
-| I-5 | Non-UTF-8 header bytes | Latin-1 decoded and shown | No principal | **Keep.** Authentik sends UTF-8; mojibake usernames would map to the wrong account. |
+| I-5 | Non-ASCII username (UTF-8, latin-1 or mojibake) | Latin-1 decoded and shown | No principal (adapter layer: `principal_from_raw_headers` refuses any non-ASCII username) | **Keep (owner decision).** Non-ASCII usernames get no principal, so a mojibake name can never map to another account. A non-ASCII display name is shown only if it is valid UTF-8. Tested over a real socket. |
 | I-6 | Display name or e-mail that is duplicated, over 254 characters or contains control characters | Shown, whitespace-stripped | Omitted from `/account` | **Keep.** Display-only values never decide anything. |
 | I-7 | Method other than GET and HEAD | 501 from `http.server`, before routing, body echoes the method | 501 from the middleware, before routing and identity, fixed body that does **not** echo the method | **Chosen: 501, not 405.** 501 is what members' clients see today; FastAPI's native 405 would differ per path and add an `Allow` header. Identical for every identity and path; same hygiene headers. |
-| I-8 | Every response | Cache-Control, Referrer-Policy, X-Content-Type-Options | Those three **plus** `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'` (no script source) | **Keep.** Inline `<style>` is how the portal is built today; dropping it needs a stylesheet route and the design team's agreement. |
+| I-8 | Every response | Cache-Control, Referrer-Policy, X-Content-Type-Options (`nosniff`, asserted on every response) | Those three **plus** `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'` (no script source) | **Keep.** Inline `<style>` is how the portal is built today; dropping it needs a stylesheet route and the design team's agreement. |
 | I-9 | Protocol-level problems (malformed request line, unknown HTTP version, oversized headers) | Python `http.server` replies (400/505) with the three headers | uvicorn/h11 replies **before the application runs**: 400/431 with no application headers; `HTTP/9.9` is accepted | **Accept.** These replies carry no application data. Documented, tested to contain no page. |
 | I-10 | Connection reuse | HTTP/1.0, one request per connection (pinned by the portal tests so a connection never carries two identities) | uvicorn keeps connections alive | **Accept.** Identity is read per request and no state is per connection; pipelined and reused connections are tested with different identities. |
 | I-11 | `/readyz`, `/home.json`, `/_dev/*` | 404 | `/readyz`: loopback peer only, else 404. `/home.json`: only with `HOME_SECTIONS` on and a valid principal, else 404. `/_dev/*`: 404 (the shim is not part of the app) | **Keep.** Unchanged for anyone who is not an operator on the host or a member with the flag on. |
@@ -97,8 +96,8 @@ handling, case sensitivity, no percent-decoding, `//` collapsing, HEAD, and the 
 ## 3. Resilience
 
 Sections are gathered with the adapter layer's own bounds (about 2 s per call, no retries, a
-shared circuit that opens after 3 consecutive service-wide failures and cools off for 60 s, a hard
-3 s wall-clock cap, 4 in-flight calls per adapter). One adapter down, slow, returning 500,
+shared circuit that opens after 3 consecutive service-wide failures and cools off for 60 s,
+one shared 2 s deadline per page, at most 2 in-flight calls per member and 8 per service, single-flight so one cold page makes one `/Users` call; excess work is shown with the reasons `member_busy` or `queued`). One adapter down, slow, returning 500,
 returning malformed JSON, or returning another member's data costs **its own section only**; the
 navigation, Help, Account and every other route are unaffected. Each mode is tested through the
 HTTP layer against the mock (stopped, slow, down, 500, malformed, wrong-user).
@@ -130,8 +129,8 @@ Two behaviours worth knowing:
 
 - `GET /healthz` is **liveness only**: always 200 `ok`, no identity read, no upstream call, no
   member data. HEAD and trailing slash behave as in the portal.
-- `GET /readyz` is **the detail view**: the adapter layer's `health_summary` (per-adapter state,
-  last error class, seconds until retry; no member data), as JSON. It is served **only to a peer
+- `GET /readyz` is **the detail view**: the adapter layer's `health_summary` (per-adapter state `ok`, `failing`, `cooling_off` or `unknown`, `consecutive_failures`,
+  last error class, seconds until retry; no member data; `libraries` is `degraded` on `failing` or `cooling_off`), as JSON. It is served **only to a peer
   on the loopback interface that carries no identity or forwarding header**, so a member arriving
   through the outpost (whose TCP peer is the Authentik container) gets the standard 404, and the
   container's own health check or `docker exec` can read it. Setting `HOME_HEALTH_DETAIL=off`
@@ -281,9 +280,8 @@ client-supplied identity headers are never trusted, with or without a selection.
 
 ## 9. Recovery, cut-over and rollback (described, not performed)
 
-**Recovery.** The app is stateless; the cache is in-memory and disposable (a restart costs one slow
-page. MEDIA-2.0 section 3 describes a SQLite cache; the adapter contract proposes in-memory
-instead and this app inherits that unchanged, pending the separate change that reconciles it). Rebuild the
+**Recovery.** The app is stateless; the cache is SQLite on `:memory:` and disposable (a restart costs one slow
+page). It is constructed once per process, exposes **no file-path setting**, and is closed on shutdown. `purge_member` is the offboarding hook and is wired to nothing here (owner decision). Rebuild the
 image from Git, restore its environment/secret file from 1Password, start. There is no volume to
 back up; its env file joins the completeness gate when it exists.
 
@@ -364,7 +362,7 @@ then reload as a member whose cache is cold (the cache keeps a warm member's pag
 | U-1 | Copy for `unavailable` | The charter's sentence (implemented) |
 | S-1 | The portal's `STYLE` is copied into `templates/style.css` and the CSP allows inline styles | Keep until design phase 2 (one shared stylesheet) |
 | C-1 | At cut-over, move the tables into the app and retire the by-path load | After the a11y branch merges |
-| P-1 | `uvicorn[standard]` is pinned as the Audible connector does, but the app is run with `--http h11` | Keep; one HTTP implementation under test |
+| P-1 | Plain `uvicorn==0.34.0` (no `[standard]`: no uvloop, httptools, websockets, watchfiles) run with `--http h11`; `requirements.lock` pins everything with hashes for Linux x86_64 cp312 | Keep; one HTTP implementation under test. The lock is UNTESTED on Linux |
 | L-1 | Serving artwork needs a member-scoped route | Separate slice (M3.3) |
 
 ## 13. Known gaps
@@ -379,5 +377,4 @@ then reload as a member whose cache is cold (the cache keeps a warm member's pag
 - Responses to malformed requests are produced by uvicorn (item I-9).
 - Synchronous logging to stderr can stall requests if the log consumer stalls (as with any
   stderr logger); under Docker's json-file driver this is not a concern.
-- The adapter health state reports `ok` after one or two failures below the circuit threshold
-  (`resilience.py`, `CircuitBreaker.snapshot`): see the report to the contract owner.
+- `contract.py` replaces an injected cache that is empty (`cache or MemberCache(...)`, since the cache defines `__len__`); `create_app` assigns `adapter.cache` after construction as a workaround. Reported to the contract owner.

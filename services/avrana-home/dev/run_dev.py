@@ -27,7 +27,7 @@ if str(HOME) not in sys.path:
 
 
 def build_stack(host: str, app_port: int, mock_port: int, enabled: bool, mode: str = "ok",
-                slow_seconds: float = 5.0, start_mock: bool = True):
+                slow_seconds: float = 5.0, start_mock: bool = True, sections: str = "on"):
     """Return (mock, asgi_app, settings). Raises DevIdentityRefused BEFORE anything is started."""
     from avrana_home.app.main import create_app
     from avrana_home.app.settings import Settings
@@ -35,7 +35,7 @@ def build_stack(host: str, app_port: int, mock_port: int, enabled: bool, mode: s
     from dev.mock_jellyfin import MockJellyfin
 
     settings = Settings.from_mapping({
-        "HOME_SECTIONS": "on", "HOME_UPSTREAM_MODE": "mock",
+        "HOME_SECTIONS": sections, "HOME_UPSTREAM_MODE": "mock",
         "JELLYFIN_BASE_URL": f"http://127.0.0.1:{mock_port}", "HOME_HOST": host,
         "HOME_PORT": str(app_port), "HOME_TIMEOUT": "2.0"})
     checked = check_startup(enabled=enabled, host=host, settings=settings)   # refuse first
@@ -55,12 +55,14 @@ def main(argv=None) -> int:
     ap.add_argument("--mock-port", type=int, default=18096)
     ap.add_argument("--mode", default="ok")
     ap.add_argument("--slow-seconds", type=float, default=5.0)
+    ap.add_argument("--sections", choices=("on", "off"), default="on",
+                    help="HOME_SECTIONS for this run (off = today's portal pages only)")
     args = ap.parse_args(argv)
 
     from dev.dev_identity import DevIdentityRefused
     try:
         mock, app, settings = build_stack(args.host, args.port, args.mock_port, args.dev_identity,
-                                          args.mode, args.slow_seconds)
+                                          args.mode, args.slow_seconds, sections=args.sections)
     except DevIdentityRefused as exc:
         print(f"refusing to start: {exc}", file=sys.stderr)
         return 2

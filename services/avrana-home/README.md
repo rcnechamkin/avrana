@@ -23,7 +23,9 @@ Part of [Avrana Media 2.0](../../docs/design/MEDIA-2.0.md). Read these first:
 | `dev/` | `mock_jellyfin.py`, `dev_identity.py`, `run_dev.py`: development only, never part of an image |
 | `tests/` | The 137 adapter tests (no sockets allowed) and `run_web_tests.py` |
 | `webtests/` | Web application tests, Tier A and Tier B (loopback sockets only) |
-| `requirements.txt` | Pins for the web application (same as the Audible connector's) |
+| `requirements.txt` | Direct pins for the web application (plain `uvicorn`, no `[standard]`) |
+| `requirements.lock` | Every pin with sha256 hashes for Linux x86_64 / CPython 3.12 (UNTESTED on Linux) |
+| `dev/README-DEMO.md` | Commands, synthetic identities and states for the UI/UX team |
 
 ## Run it locally (development only)
 
@@ -50,16 +52,21 @@ From the repository root.
 #   SKIP avrana-home web suite: fastapi not installed (run with the pinned requirements)
 python -B tests/run_offline.py
 
-# Tier A + B: the interpreter that has the pinned requirements. Fails (never skips) if the
-# framework is missing or any test is skipped; this is the command for a CI job.
-<venv python> -B services/avrana-home/tests/run_web_tests.py
+# Tier A + B: the interpreter that has the pinned requirements. Runs the adapter tests and the
+# web suite and prints `adapter tests: ran=N ...` and `web tests: ran=N skipped=0 failed=0`.
+# With AVRANA_REQUIRE_DEPS=1 (the CI command) a missing dependency (exit 2) or any skipped test
+# (exit 3; one POSIX-only adapter test may skip on Windows) is a failure.
+python -m pip install --require-hashes --only-binary=:all: -r services/avrana-home/requirements.lock
+AVRANA_REQUIRE_DEPS=1 python -B services/avrana-home/tests/run_web_tests.py
 
 # Just the web tests, either interpreter (Tier B modules skip without the framework):
 python -B -m unittest discover -s services/avrana-home/webtests -t services/avrana-home -p "test_*.py"
 ```
 
 The web tests open loopback sockets only (the mock upstream, and a real uvicorn server on an
-ephemeral port for the header and wire tests); any other destination fails the run. Run suites
+ephemeral port for the header and wire tests); any other destination, any non-loopback bind and
+any name resolution fails the run, so they work in a namespace with only loopback and no DNS
+(guards tested; a real empty network namespace was not available on the Windows build machine). Run suites
 one at a time. If you see loopback connection errors check `netstat -an | grep -c TIME_WAIT`: a
 very high count means another process is running socket-heavy suites; wait and rerun.
 
@@ -78,11 +85,11 @@ environment or a file the environment names, as `docs/SECRETS.md` describes; nev
 If you run uvicorn directly use `--http h11 --no-access-log` and **never** `--proxy-headers`
 or `--forwarded-allow-ips='*'` (the loopback-only `/readyz` trusts the real TCP peer). A future
 Dockerfile should follow the Audible connector's (digest-pinned `python:3.12-slim`, non-root,
-`pip install -r requirements.txt`, read-only filesystem, Authentik private network only, no
+`pip install --require-hashes -r requirements.lock`, read-only filesystem, Authentik private network only, no
 published port).
 
 ## Recovery and rollback
 
-Stateless apart from a disposable in-memory cache. Recover by rebuilding from Git and restoring
+Stateless apart from a disposable in-memory SQLite cache (`:memory:`, no file setting; closed on shutdown; `MemberCache.purge_member` is the offboarding hook and is deliberately wired to nothing yet). Recover by rebuilding from Git and restoring
 the environment file from 1Password. Cut-over and rollback are a proxy-provider upstream switch
 between the new app and the still-deployed portal (MEDIA-2.0 section 5); see HOME-APP.md section 9.
