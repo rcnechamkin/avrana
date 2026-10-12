@@ -53,6 +53,7 @@ kindle.urllib.request.urlopen = _no_network
 
 SENDER = "sender@example.test"
 GROUPS_OK = "avrana-users|avrana-books"
+GROUPS_ALL = "avrana-users|avrana-books|avrana-audiobooks"  # a member who may see Audiobookshelf named
 
 ADDR = {"a": "member_a_old@kindle.com", "b": "member_b_x1@kindle.com",
         "c": "admin_c_x1@kindle.com", "shared": "shared_x9@kindle.com"}
@@ -286,7 +287,7 @@ class PermittedMember(Base):
         self.assertIn(ADDR["a"], r.text)
         self.assertIn("amazon.com/hz/mycd/myx", r.text)
         self.assertIn(SENDER, r.text)
-        self.assertIn("Save to both libraries", r.text)
+        self.assertIn("Save address", r.text)
         self.assertIn('formaction="/remove"', r.text)  # something is set, so Remove is offered
         self.assertNoAddressLeak(r.text, allowed=(ADDR["a"],))
         self.assertNoWrites(before)
@@ -323,7 +324,7 @@ class PermittedMember(Base):
         self.assertNoWrites(before)
 
     def test_no_account_shows_plain_message(self):
-        r = self.get(headers=hdr(user="member-z", email="z@example.test"))
+        r = self.get(headers=hdr(user="member-z", email="z@example.test", groups=GROUPS_ALL))
         self.assertEqual(r.status, 200)
         self.assertIn("No Calibre-Web or Audiobookshelf account found", r.text)
         self.assertNoAddressLeak(r.text)
@@ -335,7 +336,7 @@ class PermittedMember(Base):
 
     def test_username_case_and_padding_resolve_to_the_same_member(self):
         before_b = self.rows()[1]
-        r = self.post("/save", NEW_A, headers=hdr(user="  MEMBER-A  ", email=None))
+        r = self.post("/save", NEW_A, headers=hdr(user="  MEMBER-A  ", email=None, groups=GROUPS_ALL))
         self.assertEqual(r.status, 200)
         self.assertIn("Saved to Calibre-Web and Audiobookshelf", r.text)
         self.assertEqual(self.rows()[0][3], NEW_A)
@@ -345,7 +346,7 @@ class PermittedMember(Base):
         self.assertEqual(mine[0]["email"], NEW_A)
 
     def test_save_roundtrip_pinned(self):
-        r = self.post("/save", "  " + NEW_A + "  ")
+        r = self.post("/save", "  " + NEW_A + "  ", headers=hdr(groups=GROUPS_ALL))
         self.assertEqual(r.status, 200)
         self.assertIn("Saved to Calibre-Web and Audiobookshelf. Remember to approve " + SENDER, r.text)
         self.assertIn(NEW_A, r.text)
@@ -356,7 +357,7 @@ class PermittedMember(Base):
         self.assertEqual(len([d for d in self.abs.devices if d["users"] == ["abs-u-a"]]), 1)
 
     def test_remove_roundtrip_pinned(self):
-        r = self.post("/remove", body=b"")
+        r = self.post("/remove", body=b"", headers=hdr(groups=GROUPS_ALL))
         self.assertEqual(r.status, 200)
         self.assertIn("Removed from Calibre-Web and Audiobookshelf.", r.text)
         self.assertIsNone(self.rows()[0][3])
@@ -386,7 +387,7 @@ class PermittedMember(Base):
         before = self.state()
         r = self.post("/save", NEW_A, headers=hdr(user="member-z", email="z@example.test"))
         self.assertEqual(r.status, 200)
-        self.assertIn("No library account found for this login.", r.text)
+        self.assertIn("No library account was found for this sign-in.", r.text)
         self.assertNoWrites(before)
 
     def test_null_device_array_is_handled(self):
@@ -526,7 +527,7 @@ class MalformedIdentity(Base):
         before = self.state()
         r = self.post("/save", NEW_A, headers=hdr(user="m" * 8000, email=None))
         self.assertEqual(r.status, 200)
-        self.assertIn("No library account found", r.text)
+        self.assertIn("No library account was found", r.text)
         self.assertNoAddressLeak(r.text)
         self.assertNoWrites(before)
 
@@ -795,7 +796,7 @@ class IdentityResolution(Base):
         before = self.state()
         for e in ("b@example.test", "B@EXAMPLE.TEST", "c@example.test"):
             r = self.post("/save", NEW_B, headers=hdr(user="renamed-b", email=e))
-            self.assertIn("No library account found", r.text)
+            self.assertIn("No library account was found", r.text)
             self.assertNoAddressLeak(r.text)
             self.assertNotIn("Removed", self.post("/remove", headers=hdr(user="renamed-b", email=e), body=b"").text)
         self.assertNoWrites(before)
@@ -837,7 +838,7 @@ class IdentityResolution(Base):
         self.abs.users.append(abs_user("abs-u-d", "member-d", "b@example.test"))
         before = self.state()
         r = self.post("/save", NEW_A, headers=hdr(user="renamed", email="b@example.test"))
-        self.assertIn("No library account found", r.text)
+        self.assertIn("No library account was found", r.text)
         self.assertNoAddressLeak(r.text)
         self.assertNoWrites(before)
 
@@ -955,7 +956,7 @@ class AliasedLogin(Base):
         self.addCleanup(lambda: setattr(kindle, "ALIASES", saved))
 
     def test_alias_resolves_in_both_libraries_and_only_touches_the_target(self):
-        h = hdr(user="akadmin", email="whatever@example.test")
+        h = hdr(user="akadmin", email="whatever@example.test", groups=GROUPS_ALL)
         r = self.get(headers=h)
         self.assertIn(ADDR["c"], r.text)
         self.assertNoAddressLeak(r.text, allowed=(ADDR["c"],))
@@ -980,7 +981,7 @@ class AliasedLogin(Base):
     def test_alias_needs_an_exact_source_and_never_chains(self):
         before = self.state()
         r = self.post("/save", NEW_A, headers=hdr(user="akadmin2"))
-        self.assertIn("No library account found", r.text)
+        self.assertIn("No library account was found", r.text)
         self.assertNoWrites(before)
 
     def test_case_variants_of_a_source_or_target_resolve_to_nobody(self):
@@ -1001,7 +1002,7 @@ class AliasedLogin(Base):
         kindle.ALIASES = {"akadmin": "nobody-here"}
         before = self.state()
         r = self.post("/save", NEW_A, headers=hdr(user="akadmin"))
-        self.assertIn("No library account found", r.text)
+        self.assertIn("No library account was found", r.text)
         self.assertNoWrites(before)
 
     def test_unaliased_members_are_unaffected(self):
@@ -1020,7 +1021,7 @@ class WriteFailures(Base):
     def test_save_with_abs_patch_failure_reports_it_and_leaves_others_alone(self):
         self.abs.fail_patch = True
         dev0 = copy.deepcopy(self.abs.devices)
-        r = self.post("/save", NEW_A)
+        r = self.post("/save", NEW_A, headers=hdr(groups=GROUPS_ALL))
         self.assertEqual(r.status, 200)
         self.assertIn("Saved to Calibre-Web; failed for Audiobookshelf.", r.text)
         self.assertEqual(self.abs.devices, dev0)
@@ -1031,7 +1032,7 @@ class WriteFailures(Base):
 
     def test_save_with_cwa_failure_reports_it_and_leaves_others_alone(self):
         self.block_cwa_updates()
-        r = self.post("/save", NEW_A)
+        r = self.post("/save", NEW_A, headers=hdr(groups=GROUPS_ALL))
         self.assertEqual(r.status, 200)
         self.assertIn("Saved to Audiobookshelf; failed for Calibre-Web.", r.text)
         self.assertEqual(self.rows(), CWA_ROWS)
@@ -1041,14 +1042,14 @@ class WriteFailures(Base):
     def test_save_when_abs_goes_down_after_the_failed_write_still_answers(self):
         self.abs.fail_patch = True
         self.abs.dead_after_failed_patch = True
-        r = self.post("/save", NEW_A)
+        r = self.post("/save", NEW_A, headers=hdr(groups=GROUPS_ALL))
         self.assertEqual(r.status, 200, "connection dropped after Calibre-Web was already written")
         self.assertIn("failed for Audiobookshelf", r.text)
         self.assertEqual(self.server.errors, [])
 
     def test_remove_with_abs_patch_failure_reports_it(self):
         self.abs.fail_patch = True
-        r = self.post("/remove", body=b"")
+        r = self.post("/remove", body=b"", headers=hdr(groups=GROUPS_ALL))
         self.assertEqual(r.status, 200, "no response: /remove has no error handling")
         self.assertIn("failed for Audiobookshelf", r.text)
         self.assertEqual(self.server.errors, [])
@@ -1056,7 +1057,7 @@ class WriteFailures(Base):
 
     def test_remove_with_cwa_failure_still_removes_from_abs_and_reports(self):
         self.block_cwa_updates()
-        r = self.post("/remove", body=b"")
+        r = self.post("/remove", body=b"", headers=hdr(groups=GROUPS_ALL))
         self.assertEqual(r.status, 200, "no response: /remove has no error handling")
         self.assertIn("failed for Calibre-Web", r.text)
         self.assertEqual(self.server.errors, [])
@@ -1194,7 +1195,7 @@ class Boundaries(Base):
     def test_a_shared_device_listing_the_member_is_not_their_device(self):
         fam = "family_x1@kindle.com"
         self.abs.devices = [abs_device("Family reader", fam, ["abs-u-a", "abs-u-b"])]
-        r = self.get()
+        r = self.get(headers=hdr(groups=GROUPS_ALL))  # the Audiobookshelf row is only shown to such a member
         self.assertNotIn(fam, r.text)
         self.assertIn("<dt>Audiobookshelf</dt><dd>not set</dd>", r.text)
         self.assertIn(ADDR["a"], r.text)  # Calibre-Web is still shown
@@ -1223,7 +1224,7 @@ class StoredValues(Base):
         con.commit()
         con.close()
         self.abs.devices[0]["email"] = '<img src=x onerror=alert(2)>@kindle.com'
-        r = self.get()
+        r = self.get(headers=hdr(groups=GROUPS_ALL))
         self.assertNotIn("<script>alert(1)", r.text)
         self.assertNotIn("<img src=x", r.text)
         self.assertIn("&lt;script&gt;alert(1)&lt;/script&gt;", r.text)

@@ -232,7 +232,10 @@ STYLE = """
   body{background:var(--ink);color:var(--paper);
     font-family:"Times New Roman",Times,"Liberation Serif",Tinos,"Noto Serif",serif;
     min-height:100vh;display:flex;justify-content:center;-webkit-font-smoothing:antialiased}
-  main{width:100%;max-width:640px;padding:10vh 24px 8vh;display:flex;flex-direction:column;gap:36px}
+  .page{width:100%;max-width:640px;padding:10vh 24px 8vh;display:flex;flex-direction:column;gap:36px}
+  main{display:flex;flex-direction:column;gap:36px}
+  .sr{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;
+    clip:rect(0,0,0,0);white-space:nowrap;border:0}
   header{text-align:center;display:flex;flex-direction:column;gap:14px;align-items:center}
   h1{margin:0;font-weight:400;font-size:clamp(2rem,7vw,3rem);letter-spacing:.28em;text-indent:.28em;line-height:1;
     overflow-wrap:anywhere}
@@ -256,7 +259,7 @@ STYLE = """
   .row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
   .actions{margin-top:14px}
   a{color:var(--paper)}
-  a.plain{display:inline-flex;align-items:center;min-height:44px;text-decoration:underline;
+  a.plain{position:relative;display:inline-flex;align-items:center;min-height:44px;text-decoration:underline;
     text-decoration-color:var(--rule-strong);text-decoration-thickness:1px;text-underline-offset:2px}
   a.plain:hover{text-decoration-color:var(--paper)}
   dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:10px 24px;align-items:baseline}
@@ -267,7 +270,7 @@ STYLE = """
   .banner.ok{border-color:var(--ok);color:var(--ok)}
   ol{margin:0;padding-left:1.3rem;color:var(--ash)}ol li{margin:.45rem 0}
   footer{display:flex;justify-content:center;gap:0 24px;flex-wrap:wrap}
-  @media(max-width:560px){main{padding:8vh 20px 6vh;gap:28px}dl{grid-template-columns:1fr;gap:2px}
+  @media(max-width:560px){.page{padding:8vh 20px 6vh;gap:28px}main{gap:28px}dl{grid-template-columns:1fr;gap:2px}
     dd{margin-bottom:12px}dd:last-child{margin-bottom:0}}
   @media(prefers-reduced-motion:reduce){button{transition:none}}
 """
@@ -277,8 +280,9 @@ PAGE = """<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark">
 <meta name="robots" content="noindex, nofollow">
-<title>Kindle · Avrana</title><style>{style}</style></head><body><main>
+<title>Kindle · Avrana</title><style>{style}</style></head><body><div class="page">
 <header><h1><a href="https://avrana.net">AVRANA</a></h1><div class="rule"></div></header>
+<main>
 {banner}
 <section>
   <h2>Your Kindle address</h2>
@@ -293,7 +297,7 @@ PAGE = """<!doctype html>
     <p class="note hint" id="address-hint">It must end in <strong>@kindle.com</strong>. Amazon discards books sent to an
       address that does not exist, without telling anyone, so this is checked before saving.</p>
     <div class="row actions">
-      <button type="submit">Save to both libraries</button>
+      <button type="submit">Save address</button>
       {remove}
     </div>
   </form>
@@ -308,13 +312,14 @@ PAGE = """<!doctype html>
         <strong>{sender}</strong>. Without this, books are silently dropped.</li>
   </ol>
   <p><a class="plain" href="{amazon}" target="_blank" rel="noopener noreferrer">
-     Open Amazon Personal Document Settings</a></p>
+     Open Amazon Personal Document Settings<span class="sr"> (opens in a new tab)</span></a></p>
 </section>
+</main>
 <footer>
   <a class="plain" href="https://books.avrana.net">Calibre&#8209;Web</a>
   {audiobooks}<a class="plain" href="https://avrana.net">Back to Avrana</a>
 </footer>
-</main></body></html>
+</div></body></html>
 """
 
 AUDIOBOOKSHELF_LINK = '<a class="plain" href="https://listen.avrana.net">Audiobookshelf</a>\n  '
@@ -322,11 +327,13 @@ AUDIOBOOKSHELF_LINK = '<a class="plain" href="https://listen.avrana.net">Audiobo
 
 def render(current_cwa, current_abs, value="", banner=None, can_remove=False, invalid=False, audiobooks=False):
     """`invalid`: the value in the field was just rejected (aria-invalid, tied to the banner).
-    `audiobooks`: the member also holds AUDIOBOOKS_GROUP, so the Audiobookshelf link may be shown. This
-    changes only what is shown; which libraries get written is decided by the accounts found."""
+    `audiobooks`: the member also holds AUDIOBOOKS_GROUP, so Audiobookshelf may be named on the page
+    (its row and link). This changes only what is shown; which libraries get written is decided by the
+    accounts found, as before."""
     rows = []
     rows.append(f"<dt>Calibre-Web</dt><dd>{html.escape(current_cwa or 'not set')}</dd>")
-    rows.append(f"<dt>Audiobookshelf</dt><dd>{html.escape(current_abs or 'not set')}</dd>")
+    if audiobooks:  # a books-only member is never shown a second library, even if one holds an account
+        rows.append(f"<dt>Audiobookshelf</dt><dd>{html.escape(current_abs or 'not set')}</dd>")
     cur = f'<dl>{"".join(rows)}</dl>'
     b, describedby = "", "address-hint"
     if banner:
@@ -343,6 +350,34 @@ def render(current_cwa, current_abs, value="", banner=None, can_remove=False, in
                        audiobooks=AUDIOBOOKSHELF_LINK if audiobooks else "")
 
 
+# The 404 carries its own tiny stylesheet: the full one has selectors for fields, buttons and banners, which
+# would hint at a form page to anyone who views the source. Same tokens, same look for what it shows.
+NOT_FOUND_STYLE = """
+  :root{color-scheme:dark;--ink:#000000;--paper:#ffffff;--ash:#9a9a9a;--rule-quiet:#474747;
+        --rule-control:#6e6e6e;--rule-strong:#999999;--ok:#8fe3a6;--err:#ff8b8b;
+        --ring:0 0 0 2px #000000,0 0 0 4px #ffffff}
+  *{box-sizing:border-box}html,body{margin:0;padding:0}
+  body{background:var(--ink);color:var(--paper);
+    font-family:"Times New Roman",Times,"Liberation Serif",Tinos,"Noto Serif",serif;
+    min-height:100vh;display:flex;justify-content:center;-webkit-font-smoothing:antialiased}
+  .page{width:100%;max-width:640px;padding:10vh 24px 8vh;display:flex;flex-direction:column;gap:36px}
+  main{display:flex;flex-direction:column;gap:36px}
+  header{text-align:center;display:flex;flex-direction:column;gap:14px;align-items:center}
+  h1{margin:0;font-weight:400;font-size:clamp(2rem,7vw,3rem);letter-spacing:.28em;text-indent:.28em;line-height:1;
+    overflow-wrap:anywhere}
+  h1 a{color:inherit;text-decoration:none}
+  .rule{width:64px;height:1px;background:var(--rule-strong)}
+  section{display:flex;flex-direction:column;gap:14px}
+  p{margin:0;line-height:1.55}p.note{color:var(--ash);font-size:.97rem}
+  a{color:var(--paper)}
+  a:focus-visible{box-shadow:var(--ring);outline:2px solid transparent}
+  a.plain{display:inline-flex;align-items:center;min-height:44px;text-decoration:underline;
+    text-decoration-color:var(--rule-strong);text-decoration-thickness:1px;text-underline-offset:2px}
+  a.plain:hover{text-decoration-color:var(--paper)}
+  footer{display:flex;justify-content:center;gap:0 24px;flex-wrap:wrap}
+  @media(max-width:560px){.page{padding:8vh 20px 6vh;gap:28px}main{gap:28px}}
+"""
+
 # The 404 is its own minimal document, not a cut-down PAGE: PAGE's <title> says "Kindle", which would
 # tell a non-member what lives here. The title is the portal's, character for character.
 NOT_FOUND = """<!doctype html>
@@ -350,11 +385,11 @@ NOT_FOUND = """<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark">
 <meta name="robots" content="noindex, nofollow">
-<title>Not found · Avrana</title><style>{style}</style></head><body><main>
+<title>Not found · Avrana</title><style>{style}</style></head><body><div class="page">
 <header><h1><a href="https://avrana.net">AVRANA</a></h1><div class="rule"></div></header>
-<section><p class="note">That page does not exist.</p></section>
+<main><section><p class="note">That page does not exist.</p></section></main>
 <footer><a class="plain" href="https://avrana.net">Back to Avrana</a></footer>
-</main></body></html>
+</div></body></html>
 """
 
 
@@ -362,7 +397,7 @@ def render_not_found():
     """The 404 for everyone who is not a member (and for every unknown route): nothing about Kindle,
     Amazon, the libraries or the sender address. 404 rather than 403 so that the existence of this
     tool is not disclosed (audit finding A5, same rule as the portal)."""
-    return NOT_FOUND.format(style=STYLE)
+    return NOT_FOUND.format(style=NOT_FOUND_STYLE)
 
 
 # ---------------------------------------------------------------- server
@@ -435,6 +470,11 @@ class Handler(BaseHTTPRequestHandler):
             return None
         return library_name(username)
 
+    def _shown(self, names):
+        """The libraries a member may see named: Audiobookshelf only with AUDIOBOOKS_GROUP. Writes still go
+        to every library where the login has an account (see do_POST); only the wording is filtered."""
+        return [n for n in names if n != "Audiobookshelf" or self._audiobooks()]
+
     def _audiobooks(self):
         """True when the member also holds the audiobooks group (display only, see AUDIOBOOKS_GROUP)."""
         return AUDIOBOOKS_GROUP in self._identity()[2]
@@ -490,7 +530,8 @@ class Handler(BaseHTTPRequestHandler):
         cwa, absu, cwa_val, abs_val = state
         banner = None
         if not cwa and not absu:
-            banner = ("err", "No Calibre-Web or Audiobookshelf account found for this login.")
+            banner = ("err", "No Calibre-Web or Audiobookshelf account found for this login."
+                      if self._audiobooks() else "No library account was found for this sign-in.")
         return self._send(200, render(cwa_val, abs_val, cwa_val or abs_val or "",
                                       banner, bool(cwa_val or abs_val), audiobooks=self._audiobooks()))
 
@@ -538,11 +579,13 @@ class Handler(BaseHTTPRequestHandler):
             if state is None:
                 return self._unavailable()
             cwa, absu, cwa_val, abs_val = state
+            sw, sf = self._shown(written), self._shown(failed)
             if failed:
-                msg = ("err", "Removed from " + (" and ".join(written) or "nothing") +
-                       "; failed for " + " and ".join(failed) + ".")
+                msg = ("err", "Removed from " + (" and ".join(sw) or "nothing") +
+                       "; failed for " + " and ".join(sf) + "." if sf
+                       else "Something went wrong while removing. Try again.")
             elif written:
-                msg = ("ok", "Removed from " + " and ".join(written) + ".")
+                msg = ("ok", "Removed from " + " and ".join(sw) + "." if sw else "Removed.")
             else:
                 msg = ("err", "Nothing to remove.")
             return self._send(200, render(cwa_val, abs_val, "", msg, bool(cwa_val or abs_val),
@@ -570,14 +613,16 @@ class Handler(BaseHTTPRequestHandler):
         if state is None:
             return self._unavailable()
         cwa, absu, cwa_val, abs_val = state
+        sw, sf = self._shown(written), self._shown(failed)
         if failed:
-            msg = ("err", "Saved to " + (" and ".join(written) or "nothing") +
-                   "; failed for " + " and ".join(failed) + ".")
+            msg = ("err", "Saved to " + (" and ".join(sw) or "nothing") +
+                   "; failed for " + " and ".join(sf) + "." if sf
+                   else "Something went wrong while saving. Try again.")
         elif written:
-            msg = ("ok", "Saved to " + " and ".join(written) +
+            msg = ("ok", ("Saved to " + " and ".join(sw) if sw else "Saved") +
                    ". Remember to approve " + SENDER + " on Amazon.")
         else:
-            msg = ("err", "No library account found for this login.")
+            msg = ("err", "No library account was found for this sign-in.")
         return self._send(200, render(cwa_val, abs_val, address, msg, bool(cwa_val or abs_val),
                                       audiobooks=self._audiobooks()))
 

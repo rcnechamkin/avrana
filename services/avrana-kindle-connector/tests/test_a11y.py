@@ -12,6 +12,7 @@ speech need a real browser and are listed as gaps in the pull request.
 Run: python -B -m unittest discover -s services/avrana-kindle-connector/tests -p test_a11y.py
 """
 import html.parser
+import sqlite3
 import os
 import re
 import sys
@@ -41,6 +42,13 @@ class El:
         while e is not None:
             out.append(e)
             e = e.parent
+        return out
+
+    def all_descendants(self):
+        out = []
+        for c in self.children:
+            out.append(c)
+            out.extend(c.all_descendants())
         return out
 
     @property
@@ -331,19 +339,27 @@ def states():
         both = dict(audiobooks=True)
         return {
             "form, empty": MEMBER(None, None),
-            "form, existing values": MEMBER(ADDR_OK, ADDR_OK, ADDR_OK, None, True),
-            "form, existing values, books only": MEMBER(ADDR_OK, None, ADDR_OK, None, True),
+            "form, empty, audiobooks": MEMBER(None, None, **both),
+            "form, existing values": MEMBER(ADDR_OK, None, ADDR_OK, None, True),
             "form, existing values, books and audiobooks": MEMBER(ADDR_OK, ADDR_OK, ADDR_OK, None, True, **both),
-            "success": MEMBER(ADDR_OK, ADDR_OK, ADDR_OK,
-                              ("ok", "Saved to Calibre-Web and Audiobookshelf. Remember to approve " + SENDER +
-                               " on Amazon."), True),
-            "removed": MEMBER(None, None, "", ("ok", "Removed from Calibre-Web and Audiobookshelf."), False),
-            "error, rejected value": MEMBER(ADDR_OK, ADDR_OK, "someone@gmail.com",
+            "success": MEMBER(ADDR_OK, None, ADDR_OK,
+                              ("ok", "Saved to Calibre-Web. Remember to approve " + SENDER + " on Amazon."), True),
+            "success, audiobooks": MEMBER(ADDR_OK, ADDR_OK, ADDR_OK,
+                                          ("ok", "Saved to Calibre-Web and Audiobookshelf. Remember to approve " +
+                                           SENDER + " on Amazon."), True, **both),
+            "removed": MEMBER(None, None, "", ("ok", "Removed from Calibre-Web."), False),
+            "error, rejected value": MEMBER(ADDR_OK, None, "someone@gmail.com",
                                             ("err", "That is not a @kindle.com address."), True, invalid=True),
             "partial failure": MEMBER(ADDR_OK, None, ADDR_OK,
-                                      ("err", "Saved to Calibre-Web; failed for Audiobookshelf."), True),
+                                      ("err", "Something went wrong while saving. Try again."), True),
+            "partial failure, audiobooks": MEMBER(ADDR_OK, None, ADDR_OK,
+                                                  ("err", "Saved to Calibre-Web; failed for Audiobookshelf."), True,
+                                                  **both),
             "no account": MEMBER(None, None, "",
-                                 ("err", "No Calibre-Web or Audiobookshelf account found for this login."), False),
+                                 ("err", "No library account was found for this sign-in."), False),
+            "no account, audiobooks": MEMBER(None, None, "",
+                                             ("err", "No Calibre-Web or Audiobookshelf account found for this login."),
+                                             False, **both),
             "404": kindle.render_not_found(),
         }
     finally:
@@ -485,6 +501,68 @@ class Pages(unittest.TestCase):
         self.assertEqual([(f.attrs["method"], f.attrs["action"]) for f in forms], [("post", "/save")])
         formactions = [b.attrs.get("formaction") for b in d.find("button")]
         self.assertEqual(sorted(x for x in formactions if x), ["/remove"])
+        for n, other in self.pages.items():
+            for b in other.find("button") + other.find("input") + other.find("a"):
+                for bad in ("formmethod", "formtarget", "formenctype"):
+                    self.assertNotIn(bad, b.attrs, f"{n}: {bad} on {b.tag}")
+                if b.tag == "button":
+                    self.assertIn(b.attrs.get("formaction"), (None, "/remove"), n)
+                    self.assertEqual(b.attrs.get("type"), "submit", n)
+            for f in other.find("form"):
+                self.assertEqual((f.attrs["method"], f.attrs["action"]), ("post", "/save"), n)
+                self.assertNotIn("formmethod", f.attrs)
+                self.assertNotIn("target", f.attrs)
+
+    def test_landmarks_header_main_footer_are_siblings(self):
+        for n, d in self.each():
+            with self.subTest(n):
+                page = [e for e in d.all if "page" in e.classes]
+                self.assertEqual(len(page), 1)
+                self.assertEqual([c.tag for c in page[0].children], ["header", "main", "footer"])
+                for tag in ("header", "footer"):
+                    el = d.find(tag)[0]
+                    inside = [a.tag for a in el.chain()[1:] if a.tag in ("main", "section", "article", "aside", "nav")]
+                    self.assertEqual(inside, [], f"<{tag}> inside {inside} would not be a landmark")
+                self.assertEqual(len(d.find("header")), 1)
+                self.assertEqual(len(d.find("footer")), 1)
+
+    def test_new_tab_link_says_so_with_a_properly_hidden_phrase(self):
+        d = self.pages["form, existing values"]
+        s = Sheet(d.css)
+        links = [a for a in d.find("a") if a.attrs.get("target") == "_blank"]
+        self.assertEqual(len(links), 1)
+        hidden = [c for c in links[0].all_descendants() if "sr" in c.classes]
+        self.assertEqual(len(hidden), 1, "the phrase must sit inside the link")
+        self.assertIn("(opens in a new tab)", hidden[0].all_text)
+        # the technique: out of flow and clipped to nothing, never display:none or visibility:hidden
+        for prop, want in (("position", "absolute"), ("width", "1px"), ("height", "1px"), ("overflow", "hidden"),
+                           ("clip", "rect(0,0,0,0)"), ("white-space", "nowrap")):
+            self.assertEqual((s.declared(hidden[0], prop) or "").replace(" ", ""), want, prop)
+        self.assertNotIn(s.declared(hidden[0], "display"), ("none",))
+        self.assertNotIn(s.declared(hidden[0], "visibility"), ("hidden", "collapse"))
+        for r in s.rules:
+            if "sr" in r.selector.split("."):
+                self.assertNotIn(r.decls.get("display"), ("none",))
+        # every non-new-tab page has no such phrase
+        for n, other in self.pages.items():
+            if not other.find("a", target="_blank"):
+                self.assertNotIn("opens in a new tab", other.visible_text)
+
+    def test_404_has_its_own_stylesheet_with_nothing_form_shaped_in_it(self):
+        d = self.pages["404"]
+        css = d.css
+        self.assertNotEqual(css, self.pages["form, empty"].css)
+        self.assertLess(len(css), len(self.pages["form, empty"].css) // 2)
+        forbidden = ("input", "button", "label", "select", "textarea", "form", "banner", "placeholder", "dl", "dt",
+                     "dd", "ol", "li", "h2", ".row", ".actions", ".hint", ".err", ".ok", ".ghost", "aria-", "email")
+        for r in parse_css(css):
+            for part in re.split(r"[\s>+~,:.\[\]=#]+", r.selector):
+                self.assertNotIn(part, forbidden, f"selector `{r.selector}`")
+            for decl in r.decls:
+                self.assertNotIn(decl, ("accent-color", "caret-color"))
+        self.assertIsNone(re.search(r"(?i)kindle|amazon|calibre|audiobook|sender|submit", css))
+        # still a correct page: the shared design checks run on it in the Style tests, and it is a real 404 body
+        self.assertEqual(d.find("h1")[0].all_text, "AVRANA")
 
     def test_404_is_still_non_revealing(self):
         text = states()["404"]
@@ -524,6 +602,14 @@ class Style(unittest.TestCase):
                 self.assertIsNotNone(edge, "interactive control without a declared edge")
                 c = composite(parse_color(edge), page)
                 self.assertGreaterEqual(contrast(c, page), 3.0, f"edge {edge}")
+
+    def test_plain_links_are_underlined(self):
+        for n, d in self.pages.items():
+            s = self.sheet[n]
+            for a in d.find("a"):
+                if "plain" in a.classes:
+                    self.assertEqual(s.declared(a, "text-decoration"), "underline", f"{n}: {a.all_text}")
+                    self.assertEqual(s.declared(a, "text-decoration-thickness"), "1px")
 
     def test_dividers_keep_the_quiet_rule_colour(self):
         s = Sheet(self.pages["form, empty"].css)
@@ -597,8 +683,8 @@ class Style(unittest.TestCase):
         for n, s in self.sheet.items():
             self.assertEqual(s.vars.get("--ink"), "#000000")
             for r in s.rules:
-                if r.selector == ".rule":
-                    continue  # the 64px by 1px decorative rule under the wordmark
+                if r.selector in (".rule", ".sr"):
+                    continue  # the decorative 64px rule; the 1px clipped screen-reader-only phrase
                 for prop in ("width", "min-width"):
                     v = px(r.decls.get(prop))
                     self.assertFalse(v is not None and v > 320, f"{n}: `{r.selector}` {prop}:{v}px can overflow 390px")
@@ -606,8 +692,8 @@ class Style(unittest.TestCase):
                     self.assertIsNone(px(r.decls.get(prop)), f"{n}: `{r.selector}` fixes {prop}; text could clip at 200%")
                 self.assertNotIn("hidden", r.decls.get("overflow", ""), f"{n}: `{r.selector}` clips overflow")
             self.assertTrue(any(r.selector == "*" and r.decls.get("box-sizing") == "border-box" for r in s.rules))
-            main = self.pages[n].find("main")[0]
-            self.assertEqual(s.declared(main, "max-width"), "640px")
+            page = [e for e in self.pages[n].all if "page" in e.classes][0]
+            self.assertEqual(s.declared(page, "max-width"), "640px")
             self.assertTrue(any(r.media and "max-width:560px" in r.media.replace(" ", "") for r in s.rules))
         d = self.pages["form, existing values"]
         s = self.sheet["form, existing values"]
@@ -651,13 +737,17 @@ class OverHttp(T.Base):
 
     def test_remove_and_partial_failure_banners_over_http(self):
         self.abs.fail_patch = True
-        d = Doc(self.post("/save", T.NEW_A).text)
+        d = Doc(self.post("/save", T.NEW_A, headers=T.hdr(groups=BOTH)).text)
         self.assertIn("failed for Audiobookshelf", d.find("main")[0].all_text)
         self.assertEqual([b.attrs["role"] for b in d.all if "banner" in b.classes], ["alert"])
         self.assertNotIn("aria-invalid", d.find("input")[0].attrs)
         self.abs.fail_patch = False
         d = Doc(self.post("/remove", body=b"").text)
         self.assertEqual([b.attrs["role"] for b in d.all if "banner" in b.classes], ["status"])
+        self.abs.fail_patch = True
+        d = Doc(self.post("/save", T.NEW_A).text)  # books only: the failure is reported without naming it
+        self.assertEqual([b.all_text for b in d.all if "banner" in b.classes],
+                         ["Something went wrong while saving. Try again."])
 
     def test_503_stays_a_plain_text_reply(self):
         self.abs._dead = True
@@ -706,13 +796,14 @@ class _WritesMixin:
     """The same literal expectations run for a books-only member and a books+audiobooks member: the
     group changes the footer link only, never which libraries are written or what is written."""
     groups = None
+    saved = removed = None
 
     def test_save_then_remove_write_exactly_the_same_things(self):
         h = T.hdr(groups=self.groups)
         rows0, devices0 = self.rows(), self.abs.devices
         r = self.post("/save", T.NEW_A, headers=h)
         self.assertEqual(r.status, 200)
-        self.assertIn("Saved to Calibre-Web and Audiobookshelf. Remember to approve " + T.SENDER, r.text)
+        self.assertIn(self.saved + ". Remember to approve " + T.SENDER, r.text)
         self.assertEqual(self.rows()[0], (1, "member-a", "a@example.test", T.NEW_A))
         self.assertEqual(self.rows()[1:], rows0[1:])
         self.assertEqual(len(self.abs.patches), 1)
@@ -721,7 +812,7 @@ class _WritesMixin:
         self.assertEqual([d for d in self.abs.devices if d["name"] != "Kindle (member-a)"],
                          [d for d in devices0 if d["name"] != "Kindle (member-a)"])
         r = self.post("/remove", headers=h, body=b"")
-        self.assertIn("Removed from Calibre-Web and Audiobookshelf.", r.text)
+        self.assertIn(self.removed, r.text)
         self.assertEqual(self.rows()[0][3], None)
         self.assertEqual([d["name"] for d in self.abs.devices if d["users"] == ["abs-u-a"]], [])
         self.assertEqual(len(self.abs.patches), 2)
@@ -736,10 +827,118 @@ class _WritesMixin:
 
 class WritesBooksOnly(_WritesMixin, T.Base):
     groups = BOOKS
+    saved, removed = "Saved to Calibre-Web", "Removed from Calibre-Web."
 
 
 class WritesBooksAndAudiobooks(_WritesMixin, T.Base):
     groups = BOTH
+    saved, removed = "Saved to Calibre-Web and Audiobookshelf", "Removed from Calibre-Web and Audiobookshelf."
+
+
+BANNED = ("audiobookshelf", "audiobook", "listen.", "both libraries")
+
+
+class BooksOnlyWholePage(T.Base):
+    """A member without AUDIOBOOKS_GROUP is never told another library exists, in any state, even though
+    the connector still writes to an Audiobookshelf account of the same name when one exists (see README)."""
+
+    def block_cwa(self):
+        con = sqlite3.connect(self.db)
+        con.execute("CREATE TRIGGER no_update BEFORE UPDATE ON user BEGIN SELECT RAISE(ABORT,'blocked'); END")
+        con.commit()
+        con.close()
+
+    def collect(self, groups):
+        """label -> response, for every state a member can reach, as an identity holding `groups`."""
+        h = T.hdr(groups=groups)
+        out = {}
+        out["values"] = self.get(headers=h)
+        out["bad address"] = self.post("/save", "someone@gmail.com", headers=h)
+        out["both-failed"] = None
+        self.abs.fail_patch = True
+        out["partial failure, save"] = self.post("/save", T.NEW_A, headers=h)
+        out["partial failure, remove"] = self.post("/remove", body=b"", headers=h)
+        self.block_cwa()
+        out["both failed, save"] = self.post("/save", T.NEW_A, headers=h)
+        out["both failed, remove"] = self.post("/remove", body=b"", headers=h)
+        self.abs.fail_patch = False
+        out["calibre-web failed, save"] = self.post("/save", T.NEW_A, headers=h)
+        con = sqlite3.connect(self.db)
+        con.execute("DROP TRIGGER no_update")
+        con.commit()
+        con.close()
+        out["saved"] = self.post("/save", T.NEW_A, headers=h)
+        out["removed"] = self.post("/remove", body=b"", headers=h)
+        out["empty"] = self.get(headers=h)
+        out["nothing to remove"] = self.post("/remove", body=b"", headers=h)
+        hz = T.hdr(user="member-z", email="z@example.test", groups=groups)
+        out["no account"] = self.get(headers=hz)
+        out["no account, save"] = self.post("/save", T.NEW_A, headers=hz)
+        out["non-member 404"] = self.get(headers=T.hdr(groups="avrana-users"))
+        out["unknown path 404"] = self.get("/anything", headers=h)
+        self.abs._dead = True
+        out["503"] = self.get(headers=h)
+        out["503, save"] = self.post("/save", T.NEW_A, headers=h)
+        del out["both-failed"]
+        return out
+
+    def test_books_only_member_never_sees_the_second_library_in_any_state(self):
+        pages = self.collect(BOOKS)
+        self.assertEqual(pages["503"].status, 503)
+        self.assertEqual(pages["values"].status, 200)
+        for label, r in pages.items():
+            blob = (r.text + "\n" + "\n".join(f"{k}: {v}" for k, v in r.headers.items())).lower()
+            for word in BANNED:
+                self.assertNotIn(word, blob, f"{label}: {word!r} shown to a books-only member")
+        # the neutral wording that replaced it
+        self.assertIn("No library account was found for this sign-in.", pages["no account"].text)
+        self.assertIn("Saved to Calibre-Web. Remember", pages["saved"].text)
+        self.assertIn("Removed from Calibre-Web.", pages["removed"].text)
+        self.assertIn("Something went wrong while saving. Try again.", pages["partial failure, save"].text)
+        self.assertIn("Something went wrong while removing. Try again.", pages["partial failure, remove"].text)
+        self.assertIn("Saved to nothing; failed for Calibre-Web.", pages["both failed, save"].text)
+        self.assertIn("Save address", pages["values"].text)
+        self.assertEqual(Doc(pages["values"].text).find("dt")[0].all_text, "Calibre-Web")
+        self.assertEqual(len(Doc(pages["values"].text).find("dt")), 1)
+
+    def test_member_with_the_audiobooks_group_still_sees_the_wording(self):
+        pages = self.collect(BOTH)
+        values = Doc(pages["values"].text)
+        self.assertEqual([d.all_text for d in values.find("dt")], ["Calibre-Web", "Audiobookshelf"])
+        self.assertIn("listen.avrana.net", pages["values"].text)
+        self.assertIn("Saved to Calibre-Web and Audiobookshelf. Remember", pages["saved"].text)
+        self.assertIn("Removed from Calibre-Web and Audiobookshelf.", pages["removed"].text)
+        self.assertIn("Saved to Calibre-Web; failed for Audiobookshelf.", pages["partial failure, save"].text)
+        self.assertIn("Removed from Calibre-Web; failed for Audiobookshelf.", pages["partial failure, remove"].text)
+        self.assertIn("No Calibre-Web or Audiobookshelf account found for this login.", pages["no account"].text)
+        self.assertIn("Save address", pages["values"].text)
+        for label in ("non-member 404", "unknown path 404"):
+            self.assertNotIn("audiobook", pages[label].text.lower())
+
+    def test_books_only_member_with_only_an_audiobookshelf_account_is_still_not_told(self):
+        con = sqlite3.connect(self.db)
+        con.execute("DELETE FROM user WHERE name='member-a'")
+        con.commit()
+        con.close()
+        h = T.hdr(groups=BOOKS)
+        for r in (self.get(headers=h), self.post("/save", T.NEW_A, headers=h), self.post("/remove", body=b"", headers=h)):
+            blob = (r.text + "\n" + "\n".join(r.headers.values())).lower()
+            for word in BANNED:
+                self.assertNotIn(word, blob)
+        # ... and what is written is unchanged: the Audiobookshelf device was written
+        self.assertEqual(len(self.abs.patches), 2)
+
+    def test_404_is_byte_identical_for_members_at_unknown_paths_and_for_non_members(self):
+        docs = {
+            self.get("/anything", headers=T.hdr(groups=BOOKS)).raw,
+            self.get(headers=T.hdr(groups="avrana-users")).raw,
+            self.get(headers=[]).raw,
+            self.get("/save", headers=T.hdr(groups=BOTH)).raw,
+            self.post("/unknown", T.NEW_A, headers=T.hdr(groups=BOOKS)).raw,
+            self.post("/save", T.NEW_A, headers=T.hdr(groups="avrana-users")).raw,
+        }
+        self.assertEqual(len(docs), 1)
+        self.assertEqual(docs.pop(), kindle.render_not_found().encode())
 
 
 if __name__ == "__main__":

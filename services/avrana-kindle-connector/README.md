@@ -185,10 +185,22 @@ The page follows `docs/design/DESIGN.md`: interactive edges use the Control Rule
 dividers keep `#474747`, one focus ring on every link, field and button, `color-scheme: dark`, 44px targets.
 The 404 is a separate minimal document and stays free of any word that names this tool.
 
-The footer links to Audiobookshelf only when the member also holds `AUDIOBOOKS_GROUP` (default
-`avrana-audiobooks`, the group the portal uses for Audiobookshelf), so a books-only member is not pointed at a
-service they may not have. This is display only: access is still `REQUIRED_GROUP`, and the libraries written
-are still the ones where the login has an account.
+The page is `header`, `main` and `footer` as siblings (banner, main and contentinfo landmarks). The Amazon link
+opens a new tab and says so in a visually hidden phrase (absolute position and clip, never `display:none`). The
+404 carries its own tiny stylesheet with no field, button or banner selectors.
+
+**What a member is told about libraries.** Audiobookshelf is named on the page (its address row, the footer link
+and the banners) only when the member also holds `AUDIOBOOKS_GROUP` (default `avrana-audiobooks`, the group the
+portal uses for Audiobookshelf). A books-only member sees "Save address", one address row, and banners that name
+Calibre-Web at most ("Saved to Calibre-Web.", "No library account was found for this sign-in.", "Something went
+wrong while saving. Try again."). Access is still `REQUIRED_GROUP` only.
+
+**Known behaviour, owner decision.** What is written does not depend on that group. The connector looks the
+login up by username in both libraries and writes to every library where an account exists
+(`do_POST`, the `if absu:` branches that call `abs_set`). A books-only member who nevertheless has an
+Audiobookshelf account with the same name therefore still gets an Audiobookshelf device written, scoped to them,
+and removed again by Remove; the page just never says so. Options for the owner: leave it, or make the writes
+conditional on the group too (a behaviour change that needs its own tests).
 
 ## Tests
 
