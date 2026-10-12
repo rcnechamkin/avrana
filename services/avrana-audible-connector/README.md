@@ -196,10 +196,23 @@ It is not a browser: layout, 200% text zoom and screen reader speech still need 
 
 The page no longer reloads itself. It shows the current status in a `role="status"` line ("2 of 5 imported,
 1 failed, 2 still in progress.") and a plain **Refresh** link to the same page: a `GET`, no JavaScript, no
-form. Opening the page has always checked on running jobs, dispatched queued ones and, in one-time mode,
-finished the import and disconnected once every selected book is in; the Refresh link does exactly that and
-nothing more. After a one-time import has finished the page shows the result and no Refresh link, because
-the next visit goes to the connect page. In-place polling is deferred to Media 2.0 M3.
+form. In-place polling is deferred to Media 2.0 M3. After a one-time import has finished the page shows the
+result (as the page's single status region) and no Refresh link, because the next visit goes to the connect page.
+
+**The Refresh link is an idempotent `GET`, not a side-effect-free one.** Opening `/contribute/audible/progress`
+runs the same work the old meta refresh ran: it dispatches queued jobs, polls running ones and, in one-time
+mode, finalises the import, which can revoke the stored Audible authorization and write an audit row.
+Repeating it changes nothing further (the tests follow it twice and compare every connection, book and job row
+and the audit count), and it never starts a download twice, but it is not a pure read. This was already true of
+the page and is unchanged.
+
+**Known behaviour, owner decision (not changed here).**
+1. Refresh, and any other visit to the progress page, can disconnect the account: in one-time mode, once no
+   selected book remains unfinished the page revokes the authorization (`sync.finalize_once_mode`).
+2. Opening the progress page with nothing selected in one-time mode (the default mode) also disconnects the
+   account: books already in the library count as done, so the "all selected done" test passes with nothing
+   selected. The test fixtures choose "ask" mode first to avoid it. Options for the owner: leave it, require at
+   least one selected book, or make the finalise step a `POST`.
 
 ### Credential-free UI walkthrough (mock companion)
 ```bash

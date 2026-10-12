@@ -402,3 +402,62 @@ def test_library_rows_and_checkbox_are_usable_at_390px(docs, sheet):
     assert s.declared(book, "grid-template-columns", mobile=True) == "48px 1fr auto"
     meta = [e for e in d.all if "meta" in e.classes][0]
     assert s.declared(meta, "min-width") == "0" and s.declared(meta, "overflow-wrap") == "anywhere"
+
+
+# ---------------------------------------------------------------- review follow-ups
+def test_one_status_region_per_page(docs):
+    for name, d in docs.items():
+        regions = [e for e in d.all if e.attrs.get("role") == "status"]
+        assert len(regions) <= 1, f"{name}: {len(regions)} role=status regions at load"
+        if name.startswith("progress"):
+            assert len(regions) == 1, name
+
+
+def test_nothing_queued_is_said_once_and_there_is_no_empty_list(docs):
+    d = docs["progress, nothing queued"]
+    assert d.visible_text.count("Nothing") == 1
+    assert d.find("ul") == []
+    assert [e for e in d.all if "progress" in e.classes] == []
+
+
+def test_links_that_open_a_new_tab_are_safe_and_described(docs):
+    seen = 0
+    for name, d in docs.items():
+        ids = {e.attrs["id"]: e for e in d.all if "id" in e.attrs}
+        for a in d.find("a"):
+            if a.attrs.get("target") == "_blank":
+                seen += 1
+                assert {"noopener", "noreferrer"} <= set(a.attrs.get("rel", "").split()), (name, a.attrs.get("rel"))
+                ref = a.attrs.get("aria-describedby", "")
+                assert ref in ids and "new tab" in ids[ref].all_text, f"{name}: new-tab link not described"
+    assert seen == 1
+
+
+def test_alert_roles_are_exact_for_error_and_notice(site):
+    env = site[1].state.templates.env
+    html = env.get_template("connect.html").render(csrf_token="t", marketplaces=[("us", "United States")],
+                                                    error="Something failed.", notice="Heads up.")
+    d = A.Doc(html)
+    roles = {tuple(sorted(e.classes)): e.attrs.get("role") for e in d.all if "alert" in e.classes}
+    assert roles == {("alert", "error"): "alert", ("alert", "notice"): "status"}
+
+
+def test_the_not_updating_hint_goes_with_the_refresh_link(docs):
+    for name, d in docs.items():
+        if not name.startswith("progress"):
+            continue
+        has_link = any(a.all_text.strip() == "Refresh" for a in d.find("a"))
+        hint = [e for e in d.all if "hint" in e.classes and "does not update by itself" in e.all_text]
+        assert bool(hint) == has_link, f"{name}: Refresh link and its explanation must appear together"
+        if hint:
+            assert "Refresh" in hint[0].all_text
+
+
+def test_base_text_is_in_rem_and_the_topbar_wraps_at_320px(docs, sheet):
+    s, _css = sheet
+    d = docs["connect, empty"]
+    body = d.find("body")[0]
+    assert re.match(r"^1\.0625rem/1\.55 ", s.declared(body, "font") or ""), s.declared(body, "font")
+    assert "px" not in (s.declared(body, "font") or "").split(" ")[0]
+    top = [e for e in d.all if "topbar" in e.classes][0]
+    assert s.declared(top, "display") == "flex" and s.declared(top, "flex-wrap") == "wrap"

@@ -6,9 +6,10 @@
 {% if login_url %}
 <div class="card">
   <p><strong>Step 1.</strong> Open your secure Amazon login page:</p>
-  <a class="primary as-button" href="{{ login_url }}" target="_blank" rel="noopener noreferrer">
+  <a class="primary as-button" href="{{ login_url }}" target="_blank" rel="noopener noreferrer"
+     aria-describedby="amazon-hint">
     Open Amazon sign-in</a>
-  <p class="hint">It opens in a new tab. Sign in as you normally would, including any texted code
+  <p class="hint" id="amazon-hint">It opens in a new tab. Sign in as you normally would, including any texted code
     or CAPTCHA. {{ brand }} does not see any of that.</p>
 </div>
 {% endif %}
