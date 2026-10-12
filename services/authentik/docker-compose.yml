@@ -139,8 +139,8 @@ networks:
   # Explicit names, so the Docker network names do not depend on the Compose project name; each
   # backend's compose file joins its network as external. Not internal: the backends keep their
   # outbound access (the Kindle connector and OliveTin reach Audiobookshelf and Jellyfin by LAN IP).
-  # Never run `docker compose down` here: it removes these networks, and the backends keep a stale
-  # network ID until they are recreated.
+  # Never run `docker compose down` here: it would try to remove these networks while the backends
+  # are attached; the outcome was not verified, so do not find out on production.
   portal: {name: authentik_portal}
   kindle: {name: authentik_kindle}
   olivetin: {name: authentik_olivetin}

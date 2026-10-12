@@ -6,10 +6,13 @@ Docker, no network, no production access. The static compose tests need PyYAML a
 """
 import importlib.util
 import json
+import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 import unittest
 
 try:
@@ -103,6 +106,61 @@ class DecisionTests(unittest.TestCase):
         networks = [n for n in load("post_apply_ok") if n["Name"] != "authentik_frontend"]
         self.assertIn("FAIL", levels(iso.evaluate(networks)))
 
+    def test_applied_marker_turns_not_applied_into_a_fail(self):
+        results = iso.evaluate(load("pre_apply"), applied=True)
+        self.assertEqual(levels(results), ["FAIL"])
+        self.assertIn("marked applied", text(results))
+
+    def test_applied_marker_does_not_change_a_healthy_or_drifted_result(self):
+        self.assertEqual(levels(iso.evaluate(load("post_apply_ok"), applied=True)), ["OK"])
+        self.assertIn("FAIL", levels(iso.evaluate(load("stray_third_container"), applied=True)))
+
+    def test_server_absent_from_a_private_network_fails(self):
+        networks = load("post_apply_ok")
+        olivetin = next(n for n in networks if n["Name"] == "authentik_olivetin")
+        olivetin["Containers"] = {k: v for k, v in olivetin["Containers"].items() if v["Name"] != "authentik-server"}
+        self.assertIn("absent authentik-server", text(iso.evaluate(networks)))
+
+    def test_backend_on_frontend_fails_even_when_private_networks_are_correct(self):
+        networks = load("post_apply_ok")
+        next(n for n in networks if n["Name"] == "authentik_frontend")["Containers"]["b" * 64] = {"Name": "avrana-portal"}
+        results = iso.evaluate(networks)
+        self.assertIn("avrana-portal is attached to authentik_frontend", text(results))
+        self.assertNotIn("OK", levels(results))
+
+    def test_two_of_three_private_networks_is_a_fail(self):
+        networks = [n for n in load("post_apply_ok") if n["Name"] != "authentik_kindle"]
+        self.assertIn("missing: authentik_kindle", text(iso.evaluate(networks)))
+
+    def test_pre_apply_with_backends_off_frontend_still_only_warns(self):
+        networks = load("pre_apply")
+        frontend = next(n for n in networks if n["Name"] == "authentik_frontend")
+        frontend["Containers"] = {k: v for k, v in frontend["Containers"].items() if v["Name"] == "authentik-server"}
+        self.assertEqual(levels(iso.evaluate(networks)), ["WARN"])
+
+    def test_duplicate_network_names_fail(self):
+        networks = load("post_apply_ok")
+        networks.append(json.loads(json.dumps(next(n for n in networks if n["Name"] == "authentik_portal"))))
+        self.assertEqual(levels(iso.evaluate(networks)), ["FAIL"])
+        self.assertIn("duplicate network name", text(iso.evaluate(networks)))
+
+    def test_odd_shapes_fail_and_never_raise(self):
+        base = load("post_apply_ok")
+        odd_containers = (["x"], 5, "s", {"c": "not-a-dict"}, {"c": {"Name": None}}, {"c": {"Name": 7}},
+                          {"c": {"Name": ["olivetin"]}}, {"c": {}})
+        for value in odd_containers:
+            for target in ("authentik_portal", "komga_default"):
+                networks = json.loads(json.dumps(base))
+                next(n for n in networks if n["Name"] == target)["Containers"] = value
+                self.assertIn("FAIL", levels(iso.evaluate(networks)), f"{target} {value!r}")
+        for bad_name in (None, 5, ["authentik_frontend"], "", {"a": 1}):
+            networks = json.loads(json.dumps(base))
+            networks[0]["Name"] = bad_name
+            self.assertEqual(levels(iso.evaluate(networks)), ["FAIL"], repr(bad_name))
+        for bad_data in (None, {}, "x", 3):
+            self.assertEqual(levels(iso.evaluate(bad_data)), ["FAIL"], repr(bad_data))
+        self.assertEqual(levels(iso.evaluate([None])), ["FAIL"])
+
     def test_parse_rejects_malformed_and_empty_input(self):
         for bad in ((FIXTURES / "malformed.json").read_text(encoding="utf-8"), "", "[]", "3", '["x"]'):
             with self.assertRaises(ValueError, msg=repr(bad)):
@@ -134,10 +192,137 @@ class CommandLineTests(unittest.TestCase):
     def test_missing_file_fails(self):
         self.assertEqual(self.run_script(str(FIXTURES / "does-not-exist.json")).returncode, 1)
 
-    def test_health_script_calls_the_checker(self):
-        health = (ROOT / "scripts/services-health.sh").read_text(encoding="utf-8")
-        self.assertIn("check-network-isolation.py", health)
-        self.assertIn("failures=$((failures + 1))", health.split("check-network-isolation.py", 1)[1])
+    def test_main_never_tracebacks_on_odd_json(self):
+        shapes = ['[{"Name": ["a"], "Containers": []}]', '[{"Name": "authentik_portal", "Containers": [1]}]',
+                  '[1, 2]', '{"Name": 5}', 'null']
+        for shape in shapes:
+            run = self.run_script(stdin=shape)
+            self.assertEqual(run.returncode, 1, shape)
+            self.assertNotIn("Traceback", run.stderr, shape)
+            self.assertTrue(run.stderr.startswith("FAIL "), shape)
+
+    def test_cli_applied_flag_in_either_position(self):
+        pre = str(FIXTURES / "pre_apply.json")
+        for args in (("--applied", pre), (pre, "--applied")):
+            run = self.run_script(*args)
+            self.assertEqual((run.returncode, run.stderr.startswith("FAIL ")), (1, True), args)
+
+
+def find_bash():
+    candidates = []
+    if sys.platform == "win32":
+        candidates += ["C:/Program Files/Git/bin/bash.exe", "C:/Program Files/Git/usr/bin/bash.exe"]
+    found = shutil.which("bash")
+    if found and not (sys.platform == "win32" and "system32" in found.lower()):
+        candidates.append(found)
+    for candidate in candidates:
+        if Path(candidate).is_file():
+            return candidate
+    return None
+
+
+BASH = find_bash()
+HEALTH = (ROOT / "scripts/services-health.sh").read_text(encoding="utf-8")
+HOOK = HEALTH.split("# BEGIN g1-isolation-hook\n", 1)[1].split("# END g1-isolation-hook", 1)[0]
+
+
+@unittest.skipIf(BASH is None, "bash not available: hook execution tests skipped")
+class HealthHookTests(unittest.TestCase):
+    """Runs the real hook block from scripts/services-health.sh under bash, with stub docker and
+    python3 on PATH and the real checker beside it. No Docker, no network."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        root = Path(self.tmp.name)
+        self.scripts = root / "scripts"
+        self.bin = root / "bin"
+        self.state = root / "state"
+        for directory in (self.scripts, self.bin, self.state, root / "home"):
+            directory.mkdir()
+        shutil.copy(SCRIPT, self.scripts / "check-network-isolation.py")
+        self.wrapper = self.scripts / "wrap.sh"
+        self.wrapper.write_text("failures=0\n" + HOOK + 'echo "failures=$failures"\n', encoding="utf-8", newline="\n")
+        self.write_stub("python3", 'exec "' + Path(sys.executable).as_posix() + '" "$@"\n')
+
+    def write_stub(self, name, body):
+        (self.bin / name).write_text("#!/bin/sh\n" + body, encoding="utf-8", newline="\n")
+        (self.bin / name).chmod(0o755)
+
+    def docker_stub(self, fixture):
+        if fixture is None:   # docker present but unreadable: no output, non-zero exit
+            self.write_stub("docker", "exit 1\n")
+            return
+        path = (FIXTURES / f"{fixture}.json").as_posix()
+        self.write_stub("docker", 'case "$1 $2" in\n  "network ls") echo aaa; echo bbb ;;\n'
+                                  '  "network inspect") cat "' + path + '" ;;\n  *) exit 1 ;;\nesac\n')
+
+    def run_hook(self, fixture, marker=False, env=None):
+        self.docker_stub(fixture)
+        if marker:
+            (self.state / "g1-applied").write_text("", encoding="utf-8")
+        environ = {k: v for k, v in os.environ.items() if not k.startswith("AVRANA_")}
+        environ.update({"PATH": self.bin.as_posix() + os.pathsep + os.environ["PATH"],
+                        "HOME": (Path(self.tmp.name) / "home").as_posix(),
+                        "AVRANA_STATE_DIR": self.state.as_posix()})
+        environ.update(env or {})
+        run = subprocess.run([BASH, self.wrapper.as_posix()], capture_output=True, text=True, env=environ, timeout=60)
+        failures = re.search(r"^failures=(\d+)$", run.stdout, re.M)
+        self.assertIsNotNone(failures, run.stdout + run.stderr)
+        return int(failures.group(1)), run.stdout, run.stderr
+
+    def test_pre_apply_warns_and_counts_no_failure(self):
+        failures, out, err = self.run_hook("pre_apply")
+        self.assertEqual(failures, 0)
+        self.assertIn("WARN network isolation (G1): not applied", err)
+        self.assertNotIn("FAIL", err)
+
+    def test_applied_state_is_ok(self):
+        failures, out, err = self.run_hook("post_apply_ok")
+        self.assertEqual((failures, err), (0, ""))
+        self.assertIn("OK   network isolation (G1)", out)
+        self.assertEqual(self.run_hook("post_apply_ok", marker=True)[0], 0)
+
+    def test_drift_counts_one_failure(self):
+        for fixture in ("backend_rejoined_frontend", "stray_third_container", "missing_network"):
+            failures, out, err = self.run_hook(fixture)
+            self.assertEqual(failures, 1, fixture)
+            self.assertIn("FAIL network isolation (G1)", err)
+
+    def test_marker_turns_not_applied_into_a_failure(self):
+        failures, out, err = self.run_hook("pre_apply", marker=True)
+        self.assertEqual(failures, 1)
+        self.assertIn("marked applied", err)
+
+    def test_environment_variable_works_like_the_marker(self):
+        self.assertEqual(self.run_hook("pre_apply", env={"AVRANA_G1_APPLIED": "1"})[0], 1)
+        self.assertEqual(self.run_hook("pre_apply", env={"AVRANA_G1_APPLIED": "0"})[0], 0)
+
+    def test_unreadable_docker_warns_before_and_fails_after_sign_off(self):
+        failures, out, err = self.run_hook(None)
+        self.assertEqual(failures, 0)
+        self.assertIn("WARN network isolation (G1): could not read docker network data", err)
+        failures, out, err = self.run_hook(None, marker=True)
+        self.assertEqual(failures, 1)
+        self.assertIn("FAIL network isolation (G1): could not read docker network data", err)
+
+    def test_missing_python_warns_before_and_fails_after_sign_off(self):
+        env = {"AVRANA_PYTHON": "python-that-does-not-exist"}
+        failures, out, err = self.run_hook("post_apply_ok", env=env)
+        self.assertEqual(failures, 0)
+        self.assertIn("WARN network isolation (G1): python-that-does-not-exist not found", err)
+        failures, out, err = self.run_hook("post_apply_ok", marker=True, env=env)
+        self.assertEqual(failures, 1)
+        self.assertIn("FAIL network isolation (G1)", err)
+
+    def test_missing_checker_script_is_a_failure(self):
+        (self.scripts / "check-network-isolation.py").unlink()
+        self.assertEqual(self.run_hook("post_apply_ok")[0], 1)
+
+    def test_whole_script_syntax(self):
+        run = subprocess.run([BASH, "-n", (ROOT / "scripts/services-health.sh").as_posix()],
+                             capture_output=True, text=True, timeout=60)
+        self.assertEqual(run.returncode, 0, run.stderr)
 
 
 @unittest.skipIf(yaml is None, "PyYAML not installed: compose declaration tests skipped")
@@ -184,6 +369,26 @@ class ComposeDeclarationTests(unittest.TestCase):
         for key, (_, private, _, _) in zip(("portal", "kindle", "olivetin"), BACKENDS.values()):
             self.assertEqual(self.resolved(compose, key), private)
             self.assertFalse(compose["networks"][key].get("external"))
+
+    def test_private_networks_are_not_internal_or_attachable(self):
+        networks = self.compose("authentik")["networks"]
+        for key in ("portal", "kindle", "olivetin"):
+            definition = networks[key]
+            self.assertFalse(definition.get("internal"), f"{key}: backends need outbound access")
+            self.assertFalse(definition.get("attachable"), f"{key}: must not be attachable")
+            self.assertFalse(definition.get("external"), key)
+        self.assertEqual(networks["backend"], {"internal": True})  # unchanged from before G1
+
+    def test_authentik_server_networks_are_exactly_the_expected_set(self):
+        networks = self.compose("authentik")["services"]["server"]["networks"]
+        self.assertEqual(sorted(networks), sorted(["frontend", "backend", "portal", "kindle", "olivetin"]))
+        self.assertEqual(len(networks), len(set(networks)))
+
+    def test_worker_ldap_and_postgresql_networks_are_unchanged(self):
+        services = self.compose("authentik")["services"]
+        self.assertEqual(sorted(services["worker"]["networks"]), ["backend", "frontend"])
+        self.assertEqual(sorted(services["ldap"]["networks"]), ["avrana-ldap", "frontend"])
+        self.assertEqual(services["postgresql"]["networks"], ["backend"])
 
     def test_no_other_compose_file_joins_an_authentik_network(self):
         allowed = {"authentik", *BACKENDS}

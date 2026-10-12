@@ -11,11 +11,11 @@
 `authentik_frontend` with `authentik-worker` and `authentik-ldap`, so a sibling can send them forged
 headers. After the change each sits on its own network with `authentik-server` (the embedded outpost) only:
 
-| Network | Members (exactly) | Outpost `internal_host` |
-|---|---|---|
-| `authentik_portal` | `authentik-server`, `avrana-portal` | `http://avrana-portal:8095` |
-| `authentik_kindle` | `authentik-server`, `avrana-kindle-connector` | `http://avrana-kindle-connector:8096` |
-| `authentik_olivetin` | `authentik-server`, `olivetin` | `http://olivetin:1337` |
+| Network | Members (exactly) | Outpost `internal_host` | Port |
+|---|---|---|---|
+| `authentik_portal` | `authentik-server`, `avrana-portal` | `http://avrana-portal:8095` | 8095 |
+| `authentik_kindle` | `authentik-server`, `avrana-kindle-connector` | `http://avrana-kindle-connector:8096` | 8096 |
+| `authentik_olivetin` | `authentik-server`, `olivetin` | `http://olivetin:1337` | 1337 |
 
 The `internal_host` values do not change; the names resolve through Docker DNS on the shared private
 network. Files: `services/authentik`, `avrana-portal`, `avrana-kindle-connector`, `olivetin` compose files.
@@ -41,6 +41,43 @@ the host routes to every bridge IP, and ufw is off. See "D-3" below.
    `scripts/services-health.sh`, each with its SHA-256 (`sha256sum`), and the state record below.
 4. Last backup clean (`LAST_RUN.json` status ok, under 26 h) and off-host sync clean.
 5. No other Authentik work in flight (worker blueprint runs, enrolments).
+6. Address-pool headroom (below) shows room for three more bridge networks.
+
+## Address-pool headroom (read-only, before anything)
+
+Creating three bridges can fail on this host. `services/omnibus/docker-compose.yml` (comment above its
+`networks:` block) records that the host reached Docker's default address-pool limit (32 networks, `daemon.json`
+sets only `data-root`) and that a further subnet failed with "all predefined address pools have been fully
+subnetted". The August address-pool work caused a day of outages
+([incident 2026-08-29](../incidents/2026-08-29-docker-address-pools.md)): **do not touch `daemon.json` or
+the pools, and do not prune networks, to make room.**
+
+```sh
+docker network ls | tail -n +2 | wc -l                                   # current count
+docker network inspect $(docker network ls -q) --format '{{.Name}} {{range .IPAM.Config}}{{.Subnet}} {{end}}' | sort > $B/subnets-before.txt
+docker info 2>/dev/null | grep -i -A4 'address pool'                      # pools, if this Docker prints them
+cat /etc/docker/daemon.json                                               # expect data-root only
+```
+Stop if the count plus 3 exceeds what the pools allow (the omnibus comment says 32). If it does not fit,
+the change cannot be applied as written; the owner decides between giving the three networks explicit
+`ipam` subnets from a free range (BOOTSTRAP uses `10.220.25.0/24` for `avrana-ldap`; the incident moved
+`avrana-imax-verify_default` to `10.220.28.0/24`; pick only subnets absent from `subnets-before.txt`) and
+freeing networks that nothing uses, each its own approved change. The dry run below does not prove the
+allocator will succeed; the real `up` is where "fully subnetted" appears. Compose creates networks before
+it recreates the container, so the server should be left running if it fails (check that
+`docker inspect authentik-server --format '{{.State.StartedAt}}'` is unchanged) - expected, not verified.
+
+## Health timer during the window
+
+`scripts/services-health.sh` runs from the user timer `services-health.timer` (every 15 minutes,
+`deploy/systemd/services-health.timer`, service `services-health.service`, user units per
+`deploy/systemd/README.md`). A half-applied state would FAIL it and, after two consecutive failures, send
+alert mail. Stop it for the window and run the script by hand without alerts:
+
+- **[CHANGES PRODUCTION]** `systemctl --user stop services-health.timer` before step 0.
+- Manual runs: `AVRANA_HEALTH_NO_ALERT=1 scripts/services-health.sh`.
+- **[CHANGES PRODUCTION]** `systemctl --user start services-health.timer` after sign-off or after rollback;
+  confirm with `systemctl --user list-timers services-health.timer`.
 
 ## Record the state first (read-only)
 
@@ -55,12 +92,12 @@ for c in authentik-server avrana-portal avrana-kindle-connector olivetin; do
   docker inspect "$c" --format '{{.Name}} nets={{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}} health={{.State.Health.Status}} started={{.State.StartedAt}}'
 done                                                                      > $B/containers-before.txt
 python3 scripts/drift-check.py --quiet                                    > $B/drift-before.txt
-scripts/services-health.sh                                                > $B/health-before.txt   # expect WARN "G1 not applied" once the new script is deployed
+AVRANA_HEALTH_NO_ALERT=1 scripts/services-health.sh                       > $B/health-before.txt
 for u in avrana.net kindle.avrana.net ops.avrana.net; do curl -s -o /dev/null -m 10 -w "$u %{http_code}\n" https://$u/; done  # expect 302 to auth.avrana.net
 ```
 
-Expected before: `authentik_frontend` lists the three apps plus `authentik-server`, `authentik-worker`,
-`authentik-ldap`; the three private networks do not exist.
+Expected before: `authentik_frontend` lists the three apps plus `authentik-server`, `authentik-worker` and
+`authentik-ldap` (any order); the three private networks do not exist.
 
 ## Dry run (read-only)
 
@@ -76,9 +113,12 @@ differs from the file, which is why the dry run comes first.
 
 ## Apply
 
+Keep a note of how far you got; rollback branches on it.
+
 0. **[CHANGES PRODUCTION]** Deploy `scripts/check-network-isolation.py` (mode 755) and the new
-   `scripts/services-health.sh` (755); save the old one first. Run `scripts/services-health.sh`: expect
-   `WARN network isolation (G1): not applied`, exit 0 (all else as before).
+   `scripts/services-health.sh` (755); save the old one first. Run `AVRANA_HEALTH_NO_ALERT=1 scripts/services-health.sh`:
+   expect this line on stderr, exit status unchanged from `$B/health-before.txt`:
+   `WARN network isolation (G1): not applied, none of authentik_portal, authentik_kindle, authentik_olivetin exists; the backends still share authentik_frontend (docs/runbooks/g1-network-isolation.md)`
 1. **[CHANGES PRODUCTION]** Copy the four compose files from the export, keep modes. `docker compose config -q`
    in each directory.
 2. **[CHANGES PRODUCTION]** `cd services/authentik && docker compose up -d --no-deps server`. Wait until
@@ -90,16 +130,23 @@ differs from the file, which is why the dry run comes first.
    `cd services/avrana-portal && docker compose up -d` then `services/avrana-kindle-connector`, then
    `services/olivetin`. After each: container `healthy`, its private network has exactly two members, the
    public hostname answers through the outpost (below). Do not start the next on any failure.
+4. Verify and run the forgery check (below). Only when all pass:
+5. **[CHANGES PRODUCTION: small state file]** Sign off, so that "not applied" and "cannot check" become
+   failures from now on: `mkdir -p ~/.local/state/avrana && touch ~/.local/state/avrana/g1-applied`
+   (the health script also honours `AVRANA_G1_APPLIED=1`, but the timer's unit has no environment file, so use
+   the marker). Run `AVRANA_HEALTH_NO_ALERT=1 scripts/services-health.sh`: expect
+   `OK   network isolation (G1): 3 private networks, two members each; no backend on authentik_frontend`.
+   Then restart the timer (see "Health timer").
 
-Do not run `docker compose down` in `services/authentik` at any point (removes the networks; the apps keep a
-stale network ID).
+Do not run `docker compose down` in `services/authentik` at any point: it would try to remove these networks
+while the backends are attached, and what happens then was not verified.
 
 ## Verify
 
-Network membership (read-only):
+Network membership (read-only; member order is whatever Docker prints):
 ```sh
 docker network inspect authentik_frontend --format '{{range .Containers}}{{.Name}} {{end}}'
-# expect: authentik-server authentik-worker authentik-ldap  (none of the three apps)
+# expect authentik-server, authentik-worker, authentik-ldap and none of the three apps
 for n in portal kindle olivetin; do docker network inspect authentik_$n --format '{{.Name}}: {{range .Containers}}{{.Name}} {{end}}'; done
 # expect exactly two names each, per the table above
 for c in avrana-portal avrana-kindle-connector olivetin; do docker inspect $c --format '{{.Name}} {{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}'; done
@@ -115,69 +162,117 @@ Through the outpost, as a **member** (in `avrana-users`; `avrana-books` for Kind
 - Kindle connector still reaches Audiobookshelf (`ABS_URL` is the LAN IP `10.0.0.218:13378`): the form loads
   the saved address (no save needed). OliveTin's status action reads Jellyfin/Audiobookshelf the same way.
 
-Health script: `AVRANA_HEALTH_NO_ALERT=1 scripts/services-health.sh`. Expect
-`OK   network isolation (G1): 3 private networks, two members each; no backend on authentik_frontend` and no
-new FAIL. Then `python3 scripts/drift-check.py --quiet` and record the result in the batch ledger.
+Health script: `AVRANA_HEALTH_NO_ALERT=1 scripts/services-health.sh`, no new FAIL. Then
+`python3 scripts/drift-check.py --quiet` and record the result in the batch ledger.
 
 ## Forgery check
 
 Goal: a container on `authentik_frontend` cannot reach any backend, by name or IP, even with forged headers.
-Uses an image already on the host (the OliveTin image is Fedora-based and ships `curl`), so nothing is
-pulled. The container joins `authentik_frontend` only for the test and is removed (`--rm`).
+A failure to connect only means something if the same strings are shown to work from a container that does
+share the backend's network, and if the test container itself has working DNS and outbound routing. So
+the check has three parts: positive controls on each private network (A), the negative test (B), and a
+routing control for the test container (C). A negative result with a failed control is void, not a pass.
 
+**Strings under test.** Define them once and use these exact variables everywhere. Take IPs from the
+container, which prints no `/NN` suffix; `docker network inspect ... {{.IPv4Address}}` prints `172.x.y.z/16`
+and the suffix must be stripped (a leftover `/16` makes every request fail and fakes a pass).
 ```sh
-IMG=$(docker inspect olivetin --format '{{.Image}}')            # read-only: image ID of the running olivetin
+ip_of() { docker inspect "$1" --format "{{(index .NetworkSettings.Networks \"$2\").IPAddress}}"; }
+PORTAL=avrana-portal:8095;           PORTAL_IP=$(ip_of avrana-portal authentik_portal):8095
+KINDLE=avrana-kindle-connector:8096; KINDLE_IP=$(ip_of avrana-kindle-connector authentik_kindle):8096
+OLIVE=olivetin:1337;                 OLIVE_IP=$(ip_of olivetin authentik_olivetin):1337
+echo "$PORTAL_IP $KINDLE_IP $OLIVE_IP"          # each must look like 172.20.0.3:8095, no slash, no empty IP
+```
+
+**A. Positive control: the names, IPs and ports are right and reachable from the proper side.** The prober
+must share each private network with its backend. Preferred: run it inside `authentik-server`, which is on all
+three, so no membership changes. First find out what that image has (read-only):
+```sh
+docker exec authentik-server sh -c 'command -v curl wget python3 python'
+```
+Use whichever it prints; the image's contents are not recorded in this repository and are unverified.
+```sh
+# with curl:   A() { docker exec authentik-server curl -sS -m 5 -o /dev/null -w '%{http_code}\n' "$1"; }
+# with python: A() { docker exec authentik-server python3 -c 'import sys,urllib.request as u; print(u.urlopen(sys.argv[1],timeout=5).status)' "$1"; }
+for t in $PORTAL $PORTAL_IP $KINDLE $KINDLE_IP $OLIVE $OLIVE_IP; do echo "$t $(A http://$t/healthz)"; done
+```
+Expect `200` for all six (`/healthz` is each backend's own healthcheck path and needs no headers). Any
+other result: stop, the strings are wrong or a backend is down; do not proceed to B.
+If the server image has none of curl, wget or python: use a throwaway container on the private network
+instead (`docker run --rm --network authentik_portal ...` with the OliveTin image as in B, once per network).
+That makes the network briefly three members, so the timer must be stopped (it is) and the container removed
+before anything else; **[CHANGES PRODUCTION]**.
+
+**B. Negative test from `authentik_frontend`.** Uses an image already on the host: the OliveTin image ships
+`curl` (its compose healthcheck uses it), so nothing is pulled.
+```sh
+IMG=$(docker inspect olivetin --format '{{.Image}}')
 probe() {
   docker run --rm --network authentik_frontend --read-only --cap-drop ALL --entrypoint curl "$IMG" \
-    -sS -m 5 -o /dev/null -w '%{http_code}\n' "$@"
+    -sS -m 5 -o /dev/null -w 'http=%{http_code}\n' "$@"; echo "curl_rc=$?"
 }
 forge() { probe -H 'X-authentik-username: forged' -H 'X-authentik-groups: authentik Admins' "$@"; }
+for t in $PORTAL $PORTAL_IP $KINDLE $KINDLE_IP $OLIVE $OLIVE_IP; do echo "== $t"; forge http://$t/; done
 ```
-Every `probe`/`forge` call below **[CHANGES PRODUCTION: starts and removes a throwaway container]**.
+Every `probe`/`forge` call **[CHANGES PRODUCTION: starts and removes a throwaway container]**.
+Expect for every target `http=000`, with `curl_rc=6` (could not resolve host) for the names and `curl_rc=7` or
+`28` (refused / timed out) for the IPs. Any other `http=` value is a **G1 failure**: stop and roll back. A
+`curl_rc` of 6 on an IP, or any other code, means the test itself is malformed: fix and rerun.
 
-1. **Positive control (the test container works and sees the network):**
-   `probe http://authentik-server:9000/-/health/live/` expect `200` or `204`. This proves the container
-   starts, has DNS and routes on `authentik_frontend`.
-2. **By name**, three times: `forge http://avrana-portal:8095/`
-   (and `http://avrana-kindle-connector:8096/`, `http://olivetin:1337/`). Expect `curl: (6) Could not resolve host`
-   and code `000`. A `200`/`403`/`302` from any backend is a **G1 failure**.
-3. **By IP.** Read each backend's private-network IP (read-only):
-   `docker network inspect authentik_portal --format '{{range .Containers}}{{.Name}} {{.IPv4Address}}{{"\n"}}{{end}}'`
-   (and `_kindle`, `_olivetin`). Repeat step 2 with `forge http://<ip>:<port>/`. Expect timeout or
-   `curl: (7)`/`(28)`, code `000`. Any HTTP status is a **G1 failure**.
-4. **Positive control for IP routing:** `probe http://<authentik-server frontend IP>:9000/-/health/live/`
-   (IP from `docker network inspect authentik_frontend`), expect `200`/`204`. This shows an IP request from that container does work where a path exists, so the
-   failures in step 3 mean isolation and not a broken test.
-5. **Expected non-failure (host):** `curl -m 5 http://<backend IP>:<port>/` from the host shell **will**
-   succeed (host reaches all bridge IPs). Record it as the residual risk, not a failure.
+**C. Control for the test container.** From the same container, `probe http://authentik-server:9000/-/health/live/`
+expect `http=200` or `204` (DNS and routing on `authentik_frontend` work); and
+`probe http://10.0.0.218:13378/healthcheck` expect `http=200` (outbound to the LAN works, as the health
+script's Audiobookshelf check does). Run C before B's verdict is accepted.
+
+**D. Expected non-failure (host).** `curl -m 5 http://<backend IP>/healthz` from the host shell **will**
+succeed (the host reaches all bridge IPs). Record it as the residual risk, not a failure.
 
 ## Rollback
 
-Trigger: any stop condition below. Production rollback is the saved copy, order matters (apps first, so the
-outpost never loses a backend):
+Trigger: any stop condition below. First, if set, remove the marker so the health script does not FAIL
+during rollback: **[CHANGES PRODUCTION: state file]** `rm -f ~/.local/state/avrana/g1-applied`. Keep the
+health timer stopped until the end. Then choose the branch by how far the apply got
+(`docker inspect <app> --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}'` for each app):
 
-1. **[CHANGES PRODUCTION]** Restore from `$B/rollback/`: the three app compose files; verify SHA-256.
-   For each app in turn: `docker compose config -q && docker compose up -d` (rejoins `authentik_frontend`);
-   container healthy, hostname answers.
+**Branch 1: the apps were never recreated** (failure at or before step 2: address-pool error, dry run
+surprise, `authentik-server` unhealthy, SSO down). Every app is still on `authentik_frontend`; do not
+recreate them and do not wait for the three hostnames, which cannot answer while the server is down.
+1. **[CHANGES PRODUCTION]** Restore `services/authentik/docker-compose.yml` from `$B/rollback/`; verify the
+   SHA-256. Restore the three app compose files too if step 1 copied them (files only; no `up`).
+2. **[CHANGES PRODUCTION]** `cd services/authentik && docker compose up -d --no-deps server`
+   (if the server was never recreated, this is a no-op). Wait for `healthy`.
+3. Only now check `https://avrana.net`, `kindle.`, `ops.`.
+4. **[CHANGES PRODUCTION]** Remove the now empty private networks if they were created:
+   `docker network rm authentik_portal authentik_kindle authentik_olivetin` (owner approval; fails safely if
+   anything is still attached). The health check FAILs on a partly present set.
+
+**Branch 2: one or more apps were recreated** (failure at step 3 or later). Apps first, so the outpost never
+loses a backend:
+1. **[CHANGES PRODUCTION]** Restore the three app compose files from `$B/rollback/`; verify SHA-256.
+   For each app that is on its private network, in turn: `docker compose config -q && docker compose up -d`
+   (rejoins `authentik_frontend`); container healthy, hostname answers.
 2. **[CHANGES PRODUCTION]** Restore `services/authentik/docker-compose.yml`;
    `docker compose up -d --no-deps server`; wait healthy (about a minute of SSO downtime again).
-3. **[CHANGES PRODUCTION]** The private networks are now empty and still exist; the health check FAILs on that
-   (a partly present state). Remove them once empty: `docker network rm authentik_portal authentik_kindle authentik_olivetin`
-   (owner approval; fails safely if any container is still attached).
-4. Restore the old `scripts/services-health.sh` only if the new one itself misbehaves.
-5. Verify: `docker network inspect authentik_frontend` lists the three apps again; three hostnames answer;
-   `drift-check.py --quiet` equals `$B/drift-before.txt`. Note: Git (`main`) then differs from production
-   until the owner decides; record that in the ledger.
+3. **[CHANGES PRODUCTION]** `docker network rm authentik_portal authentik_kindle authentik_olivetin` once empty.
+
+Both branches, at the end: restore the old `scripts/services-health.sh` only if the new one itself
+misbehaves; verify `docker network inspect authentik_frontend` lists the three apps again, the three hostnames
+answer, `drift-check.py --quiet` equals `$B/drift-before.txt`; **[CHANGES PRODUCTION]**
+`systemctl --user start services-health.timer`. Git (`main`) then differs from production until the owner
+decides; record that in the ledger.
 
 ## Stop conditions
 
 Stop, do not improvise, and roll back or hold as stated:
+- Address-pool check shows no room, or `docker compose up` reports "fully subnetted" / any allocator error
+  (Branch 1; server untouched).
 - Dry run shows any container other than the one intended being recreated.
-- `authentik-server` not healthy within 3 minutes, or an Authentik hostname not answering after step 2.
-- Any app not `healthy` or its hostname not answering after its step: roll that app back first (step 1).
+- `authentik-server` not healthy within 3 minutes, or an Authentik hostname not answering after step 2
+  (Branch 1).
+- Any app not `healthy` or its hostname not answering after its step: roll that app back first (Branch 2).
 - A private network with any member other than the expected two, or an app on two networks.
-- Forgery check: any HTTP status from a backend through `authentik_frontend`; or the positive controls fail
-  (the test is then void, not passed).
+- Forgery check: any HTTP status from a backend through `authentik_frontend`; or any positive control (A, C)
+  fails (the test is then void, not passed).
 - The health script prints any new FAIL.
 - Anything not in this document.
 
@@ -205,7 +300,6 @@ covers the host namespace.
 
 ## After applying
 
-Record the result in `docs/DECISIONS.md` (D-2), update the ROADMAP line on D4, and
-`docs/services/avrana-portal.md` (it still says the portal is on `frontend`). The live gating tests in
+Record the result in `docs/DECISIONS.md` (D-2). The live gating tests in
 `services/avrana-kindle-connector/tests/test_kindle.py` run containers on `authentik_frontend` and address
 `avrana-kindle-connector:8096` by name; they cannot work after this change and need a different probe.
