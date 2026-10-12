@@ -39,6 +39,11 @@ class ParityTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.client = make_client()
+        cls.client.__enter__()          # one portal/event loop for the whole class (speed only)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.client.__exit__(None, None, None)
 
     def app_get(self, ident, route, method="GET"):
         headers = ident_headers(ident, "member-a")

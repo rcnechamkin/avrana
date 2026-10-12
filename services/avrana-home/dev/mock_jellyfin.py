@@ -24,6 +24,7 @@ import argparse
 import copy
 import json
 import socket
+import socketserver
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -81,6 +82,10 @@ class MockJellyfin:
             daemon_threads = True
             request_queue_size = 64
             address_family = socket.AF_INET6 if host == "::1" else socket.AF_INET
+
+            def server_bind(self):           # no reverse DNS (HTTPServer would call getfqdn)
+                socketserver.TCPServer.server_bind(self)
+                self.server_name, self.server_port = host, self.server_address[1]
 
         self.httpd = Server((host, port), Handler)
         self.host, self.port = host, self.httpd.server_address[1]

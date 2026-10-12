@@ -20,6 +20,7 @@ if FRAMEWORK_MISSING:
 _LOOPBACK = ("127.0.0.1", "::1", "localhost")
 _real_connect, _real_connect_ex = socket.socket.connect, socket.socket.connect_ex
 _real_getaddrinfo = socket.getaddrinfo
+_real_bind = socket.socket.bind
 
 
 def _check(address):
@@ -44,6 +45,17 @@ def _getaddrinfo(host, *args, **kwargs):
     return _real_getaddrinfo(host, *args, **kwargs)
 
 
+def _bind(self, address):
+    _check(address)                  # nothing may listen on a non-loopback interface
+    return _real_bind(self, address)
+
+
+def _no_name_lookup(*args, **kwargs):
+    raise RuntimeError("avrana-home web tests do not resolve host names (no DNS)")
+
+
+socket.socket.bind = _bind
+socket.gethostbyname = socket.gethostbyname_ex = socket.gethostbyaddr = socket.getfqdn = _no_name_lookup
 socket.socket.connect = _connect
 socket.socket.connect_ex = _connect_ex
 socket.getaddrinfo = _getaddrinfo

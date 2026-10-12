@@ -1,7 +1,9 @@
 # Pins for the Avrana home web application. NOT built or deployed. These are the same pins as
-# services/avrana-audible-connector/connector/requirements.txt (the subset this app uses).
+# services/avrana-audible-connector/connector/requirements.txt (the subset this app uses), except that
+# uvicorn is plain, without the [standard] extras (no uvloop, httptools, watchfiles or websockets: the
+# app runs with --http h11). requirements.lock is the fully pinned, hash-checked form for CI.
 # The adapter layer (everything outside avrana_home/app) needs only the standard library.
 fastapi==0.115.6
-uvicorn[standard]==0.34.0
+uvicorn==0.34.0
 jinja2==3.1.5
 httpx==0.28.1
