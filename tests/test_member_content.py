@@ -462,11 +462,11 @@ class MemberContent(unittest.TestCase):
     def test_register_d14_states_both_gating_options(self):
         text = read(REGISTER)
         section = text.split('### D-14', 1)[1].split('\n### ', 1)[0]
-        self.assertIn('on `main`', section)
-        self.assertIn('PR #4', section)
-        self.assertIn('avrana-requests', section)
-        self.assertIn('avrana-videos', section)
-        self.assertRegex(section, r'(?i)not decided|owner has not decided')
+        flat = re.sub(r'\s+', ' ', section)
+        # One statement per state, each naming its own group, so dropping either state fails.
+        self.assertRegex(flat, r'on `main`, the Requests help topic is gated on `avrana-requests`')
+        self.assertRegex(flat, r'PR #4 \([^)]*\)[^.]*gates the topic on `avrana-videos`')
+        self.assertRegex(flat, r'(?i)owner has not decided')
 
     def test_help_requests_block_follows_the_pinned_group(self):
         """The Requests help block and the portal on main agree today; the pin makes any change deliberate."""
@@ -702,6 +702,8 @@ class MemberContent(unittest.TestCase):
         self.assertIn('prints no disabled or active flag', flat)
         self.assertIn('UNMATCHED', verify)
         self.assertIn('PASS  authentik/<user> no longer exists', verify)
+        self.assertRegex(flat, r'Do not believe the Authentik PASS on its own')
+        self.assertRegex(flat, r'even though nothing was checked')
         self.assertRegex(flat, r'(?i)Authentik admin UI')
         for service in ('Jellyfin dashboard', 'Audiobookshelf, Settings, Users', 'Seerr, Users'):
             self.assertIn(service, verify)
@@ -741,8 +743,9 @@ class MemberContent(unittest.TestCase):
         item4 = re.search(r'(?s)\n4\. (.*?)\n5\. ', principles).group(1)
         self.assertIn('Step 4 item 6', item4)
         self.assertRegex(item4, r'(?i)production change')
+        self.assertRegex(item4, r"(?i)needs the owner's specific approval")
         self.assertIn('irreversible', item4.lower())
-        self.assertIn('exception', item4.lower())
+        self.assertRegex(item4, r'(?i)one\s+exception')
         self.assertIn('profiles/<profile_id>', item4)
 
     def test_runbook_warns_about_seerr_sessions(self):
