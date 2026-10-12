@@ -528,12 +528,12 @@ class HeaderFailClosedTests(unittest.TestCase):
         routes = routes or self.SPOT
         replies = [request(rt, headers) for rt in routes]
         for route, r in zip(routes, replies):
-            if r is None or r.status in extra_ok_statuses:
+            if r.status in extra_ok_statuses:
                 continue
             self.assertEqual(404, r.status, f"{label}: {route}")
             self.assertIsNone(r.location, f"{label}: {route}")
         home = request("/", headers)
-        if home is not None and home.status == 200:
+        if home.status == 200:
             self.assertEqual(["help"], tile_paths(home.text), label)
             self.assertEqual([], tile_paths(request("/help", headers).text), label)
             acct = request("/account", headers).text
@@ -1156,6 +1156,91 @@ class AccountTests(unittest.TestCase):
                     self.assertEqual(want, tile_paths(text))
 
 
+class NearMissGroupTests(unittest.TestCase):
+    """Group names are matched exactly. Near misses of EVERY real group (including each member of
+    the tuple-gated Shelfarr entry) open nothing and 404 exactly like a path that never existed."""
+
+    REAL = {VIDEOS, AUDIOBOOKS, COMICS, BOOKS, CONTRIBUTORS, ADMIN}
+
+    @classmethod
+    def near_misses(cls):
+        out = []
+        for g in sorted(cls.REAL):
+            out += ["x" + g, g + "-x", g + "x", g + "s", g[:-1], g[1:], g.upper(), g.title(),
+                    g.swapcase(), " ".join(g.split("-")), g.replace("-", "_")]
+        out += ["xavrana-books", "avrana-books-x", "avrana-audiobooks-x", "avrana-book",
+                "avrana-audiobook", "xavrana-audiobooks", "avrana-books-avrana-audiobooks"]
+        return sorted(set(out) - cls.REAL)
+
+    def unknown_body(self, headers):
+        r = request("/definitely-not-a-route", headers)
+        self.assertEqual(404, r.status)
+        return r.body
+
+    def test_near_misses_do_not_open_request_a_book_or_the_choosers(self):
+        values = self.near_misses() + ["|".join(self.near_misses())]
+        for v in values:
+            h = with_groups(v)
+            want = self.unknown_body(h)
+            for route in ("/requestabook", "/request", "/read", "/kindle", "/books"):
+                with self.subTest(value=v[:40], route=route):
+                    r = request(route, h)
+                    self.assertEqual(404, r.status)
+                    self.assertIsNone(r.location)
+                    self.assertEqual(want, r.body)
+            with self.subTest(value=v[:40], page="home"):
+                self.assertEqual(["help"], tile_paths(request("/", h).text))
+
+    def test_each_tuple_member_alone_opens_request_a_book_but_not_its_near_misses(self):
+        for good in (BOOKS, AUDIOBOOKS):
+            self.assertEqual(307, request("/requestabook", with_groups(good)).status)
+            for bad in (BOOKS, AUDIOBOOKS):
+                for miss in ("x" + bad, bad + "-x", bad.upper(), bad[:-1]):
+                    with self.subTest(good=good, miss=miss):
+                        self.assertEqual(307, request("/requestabook", with_groups(good + "|" + miss)).status)
+                        self.assertEqual(404, request("/requestabook", with_groups(miss)).status)
+
+    def test_near_misses_and_wrong_case_do_not_open_help_topics(self):
+        for v in self.near_misses():
+            h = with_groups(v)
+            want = self.unknown_body(h)
+            for slug in PIN_HELP:
+                with self.subTest(value=v[:40], slug=slug):
+                    r = request("/help/" + slug, h)
+                    self.assertEqual(404, r.status)
+                    self.assertEqual(want, r.body)
+            with self.subTest(value=v[:40], page="help index"):
+                self.assertEqual([], tile_paths(request("/help", h).text))
+
+    def test_exact_help_groups_still_open_exactly_their_topic(self):
+        for slug, group in PIN_HELP.items():
+            h = with_groups(group)
+            self.assertEqual(200, request("/help/" + slug, h).status)
+            self.assertIn("help/" + slug, tile_paths(request("/help", h).text))
+            self.assertEqual(404, request("/help/" + slug, with_groups(group.upper())).status)
+
+
+class HealthzExactnessTests(unittest.TestCase):
+    NOT_HEALTH = ["/healthzz", "/health", "/healthz/x", "/healthz.json", "/HEALTHZ", "/Healthz",
+                  "/healthz%2f", "/healthz;x", "/xhealthz", "/healthz/../healthz", "/_healthz",
+                  "/health/z"]
+    ANSWERS_OK = ["/healthz", "/healthz/", "/healthz?x=1", "/healthz/?x=1", "/healthz//", "/healthz#f"]
+
+    def test_only_the_exact_path_answers_ok(self):
+        for ident in IDENTITIES:
+            want = fetch(ident, "/definitely-not-a-route")
+            for target in self.NOT_HEALTH:
+                with self.subTest(ident=ident, target=target):
+                    r = fetch(ident, target)
+                    self.assertEqual(404, r.status)
+                    self.assertEqual(want.body, r.body)
+                    self.assertNotEqual(b"ok", r.body)
+            for target in self.ANSWERS_OK:
+                with self.subTest(ident=ident, target=target):
+                    r = fetch(ident, target)
+                    self.assertEqual((200, b"ok"), (r.status, r.body))
+
+
 class LiveServerTests(unittest.TestCase):
     """End to end over real loopback connections: a representative route from every route class
     against every identity class (~200 connections; the bulk of the suite runs the same Handler
@@ -1211,7 +1296,9 @@ class LiveServerTests(unittest.TestCase):
                 self.assertNotIn(b"member-b", data)
 
     def test_handler_has_a_socket_timeout(self):
-        """A half-sent request must not pin a handler thread forever."""
+        """A half-sent request must not pin a handler thread forever. The 15 s timeout applies to
+        each socket read (an idle or stalled connection is dropped); it is not a total request
+        deadline, so a slow header trickle is bounded only by the outpost in front."""
         self.assertIsNotNone(portal.Handler.timeout)
         self.assertLessEqual(portal.Handler.timeout, 60)
 
@@ -1337,8 +1424,7 @@ class HygieneTests(unittest.TestCase):
 
     def test_method_name_is_escaped_in_error_page(self):
         r = request("/", method="X<script>alert(1)</script>")
-        if r is not None:
-            self.assertNotIn("<script>alert", r.text)
+        self.assertNotIn("<script>alert", r.text)
 
     def test_malformed_and_oversized_requests_are_refused(self):
         for wire in (b"GARBAGE\r\n\r\n", b"GET\r\n\r\n", b"GET / HTTP/9.9\r\n\r\n",
@@ -1346,9 +1432,8 @@ class HygieneTests(unittest.TestCase):
                      b"GET /" + b"a" * 70000 + b" HTTP/1.1\r\nHost: x\r\n\r\n"):
             with self.subTest(prefix=wire[:20]):
                 r = send_raw(wire)
-                if r is not None:
-                    self.assertIn(r.status, (0, 400, 414, 431, 505))   # 0 = HTTP/0.9-style reply
-                    self.assertNotIn("tile", r.text)
+                self.assertIn(r.status, (0, 400, 414, 431, 505))   # 0 = HTTP/0.9-style reply
+                self.assertNotIn("tile", r.text)
 
     def test_error_responses_carry_hygiene_headers(self):
         """http.server's own send_error() replies (here 501) bypass Handler._send, so the three
