@@ -153,6 +153,17 @@ Known and left for an owner decision: a group whose name contains `,` is split b
 and could count as `avrana-books` (needs an admin-created group; `expectedFailure` test in
 `tests/test_authz.py`).
 
+## Page design and what it shows
+
+The page follows `docs/design/DESIGN.md`: interactive edges use the Control Rule colour (`#6e6e6e`),
+dividers keep `#474747`, one focus ring on every link, field and button, `color-scheme: dark`, 44px targets.
+The 404 is a separate minimal document and stays free of any word that names this tool.
+
+The footer links to Audiobookshelf only when the member also holds `AUDIOBOOKS_GROUP` (default
+`avrana-audiobooks`, the group the portal uses for Audiobookshelf), so a books-only member is not pointed at a
+service they may not have. This is display only: access is still `REQUIRED_GROUP`, and the libraries written
+are still the ones where the login has an account.
+
 ## Tests
 
 `tests/test_authz.py` (G2) is offline and standard library only. It drives the real `Handler` over a
@@ -164,6 +175,20 @@ mid-write. Run it with the rest of the offline suite:
 
 ```bash
 python3 tests/run_offline.py
+```
+
+`tests/test_a11y.py` (S1-4 / AVR-358) is also offline and standard library only. It renders every page state
+(empty form, existing values, success, rejected value, partial failure, no account, 404) and checks, from the
+stylesheet inside the page: one `h1` and no skipped heading level, a real `<label>` for the field,
+`aria-describedby` and `aria-invalid` wiring, `role="alert"` for errors and `role="status"` for success,
+WCAG contrast (text 4.5:1, control edges 3:1, computed with a small cascade), the same two-ring focus mark on
+every link, field and button, 44px targets, `color-scheme: dark`, `lang` and viewport, no em or en dash and no
+first person in member-visible text. Over HTTP it pins the footer rule below and that what is written does not
+depend on the extra group. It is not a browser: layout, 200% text zoom and screen reader speech still need a
+manual pass.
+
+```bash
+python3 -B -m unittest discover -s services/avrana-kindle-connector/tests -p test_a11y.py
 ```
 
 `tests/test_kindle.py` holds the original pure-logic tests plus live gating checks that need the

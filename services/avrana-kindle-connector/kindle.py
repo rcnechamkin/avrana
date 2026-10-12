@@ -42,6 +42,8 @@ CWA_DB = os.environ.get("CWA_DB", "/cwa/app.db")
 ABS_URL = os.environ.get("ABS_URL", "http://10.0.0.218:13378")
 ABS_KEY = os.environ.get("ABS_API_KEY", "")
 REQUIRED_GROUP = os.environ.get("REQUIRED_GROUP", "avrana-books")
+# Only decides whether the page may link to Audiobookshelf. It never gates access and never decides what is written.
+AUDIOBOOKS_GROUP = os.environ.get("AUDIOBOOKS_GROUP", "avrana-audiobooks")
 SENDER = os.environ.get("SENDER_ADDRESS", "cody@avrana.net")
 
 USERNAME_HEADER = "X-authentik-username"
@@ -200,46 +202,62 @@ def abs_set(abs_user, address: str | None, label: str):
 
 
 # ---------------------------------------------------------------- view
+# Tokens are the names and values in docs/design/DESIGN.md. Interactive edges use --rule-control (4.1:1 on
+# --ink, WCAG 1.4.11); --rule-quiet is for dividers only. Every interactive element shows the same
+# two-ring focus mark on :focus-visible, kept apart from the hover inversion. tests/test_a11y.py
+# computes contrast, focus and target size from this sheet.
 STYLE = """
-  :root{--bg:#000;--fg:#fff;--dim:#9a9a9a;--line:rgba(255,255,255,.28);--strong:rgba(255,255,255,.6);
-        --err:#ff8b8b;--ok:#8fe3a6;}
+  :root{color-scheme:dark;--ink:#000000;--paper:#ffffff;--ash:#9a9a9a;--rule-quiet:#474747;
+        --rule-control:#6e6e6e;--rule-strong:#999999;--ok:#8fe3a6;--err:#ff8b8b;
+        --ring:0 0 0 2px #000000,0 0 0 4px #ffffff}
   *{box-sizing:border-box}html,body{margin:0;padding:0}
-  body{background:var(--bg);color:var(--fg);font-family:"Times New Roman",Times,serif;
+  body{background:var(--ink);color:var(--paper);
+    font-family:"Times New Roman",Times,"Liberation Serif",Tinos,"Noto Serif",serif;
     min-height:100vh;display:flex;justify-content:center;-webkit-font-smoothing:antialiased}
   main{width:100%;max-width:640px;padding:10vh 24px 8vh;display:flex;flex-direction:column;gap:36px}
   header{text-align:center;display:flex;flex-direction:column;gap:14px;align-items:center}
-  h1{margin:0;font-weight:400;font-size:clamp(2rem,7vw,3rem);letter-spacing:.28em;text-indent:.28em;line-height:1}
+  h1{margin:0;font-weight:400;font-size:clamp(2rem,7vw,3rem);letter-spacing:.28em;text-indent:.28em;line-height:1;
+    overflow-wrap:anywhere}
   h1 a{color:inherit;text-decoration:none}
-  .rule{width:64px;height:1px;background:var(--strong)}
-  h2{margin:0;font-weight:400;font-size:1rem;letter-spacing:.22em;text-transform:uppercase;color:var(--dim)}
+  .rule{width:64px;height:1px;background:var(--rule-strong)}
+  h2{margin:0;font-weight:400;font-size:1rem;letter-spacing:.22em;text-transform:uppercase;color:var(--ash)}
   section{display:flex;flex-direction:column;gap:14px}
-  p{margin:0;line-height:1.55}p.note{color:var(--dim);font-size:.97rem}
-  input[type=email]{width:100%;padding:12px 14px;background:transparent;color:var(--fg);
-    border:1px solid var(--line);border-radius:0;font:inherit}
-  input[type=email]:focus{outline:none;border-color:var(--fg)}
-  button{font:inherit;padding:12px 20px;border-radius:0;cursor:pointer;letter-spacing:.06em;
-    background:var(--fg);color:var(--bg);border:1px solid var(--fg);transition:background .16s,color .16s}
-  button:hover,button:focus-visible{background:transparent;color:var(--fg);outline:none}
-  button.ghost{background:transparent;color:var(--fg);border-color:var(--line)}
-  button.ghost:hover{background:var(--fg);color:var(--bg)}
+  p{margin:0;line-height:1.55}p.note{color:var(--ash);font-size:.97rem}
+  p.hint{margin-top:8px}
+  label{display:block;margin-bottom:8px}
+  input[type=email]{width:100%;min-height:48px;padding:12px 14px;background:transparent;color:var(--paper);
+    border:1px solid var(--rule-control);border-radius:0;font:inherit}
+  input[type=email]::placeholder{color:var(--ash);opacity:1}
+  input[type=email]:focus{border-color:var(--paper)}
+  button{font:inherit;min-height:44px;padding:12px 20px;border-radius:0;cursor:pointer;letter-spacing:.06em;
+    background:var(--paper);color:var(--ink);border:1px solid var(--paper);transition:background .16s,color .16s}
+  button:hover,button:focus-visible{background:transparent;color:var(--paper)}
+  button.ghost{background:transparent;color:var(--paper);border-color:var(--rule-control)}
+  button.ghost:hover,button.ghost:focus-visible{background:var(--paper);color:var(--ink)}
+  a:focus-visible,button:focus-visible,input:focus-visible{box-shadow:var(--ring);outline:2px solid transparent}
   .row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
-  a{color:var(--fg)}
-  a.plain{text-decoration:none;border-bottom:1px solid var(--strong);padding-bottom:2px}
-  a.plain:hover{border-color:var(--fg)}
+  .actions{margin-top:14px}
+  a{color:var(--paper)}
+  a.plain{display:inline-flex;align-items:center;min-height:44px;text-decoration:underline;
+    text-decoration-color:var(--rule-strong);text-decoration-thickness:1px;text-underline-offset:2px}
+  a.plain:hover{text-decoration-color:var(--paper)}
   dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:10px 24px;align-items:baseline}
-  dt{color:var(--dim);font-size:.85rem;letter-spacing:.08em;text-transform:uppercase}
+  dt{color:var(--ash);font-size:.92rem}
   dd{margin:0;overflow-wrap:anywhere}
-  .banner{border:1px solid var(--line);padding:12px 16px}
+  .banner{border:1px solid var(--rule-quiet);padding:12px 16px}
   .banner.err{border-color:var(--err);color:var(--err)}
   .banner.ok{border-color:var(--ok);color:var(--ok)}
-  ol{margin:0;padding-left:1.3rem;color:var(--dim)}ol li{margin:.45rem 0}
-  footer{display:flex;justify-content:center;gap:24px;flex-wrap:wrap}
-  @media(max-width:560px){main{padding:8vh 20px 6vh;gap:28px}dl{grid-template-columns:1fr;gap:2px}}
+  ol{margin:0;padding-left:1.3rem;color:var(--ash)}ol li{margin:.45rem 0}
+  footer{display:flex;justify-content:center;gap:0 24px;flex-wrap:wrap}
+  @media(max-width:560px){main{padding:8vh 20px 6vh;gap:28px}dl{grid-template-columns:1fr;gap:2px}
+    dd{margin-bottom:12px}dd:last-child{margin-bottom:0}}
+  @media(prefers-reduced-motion:reduce){button{transition:none}}
 """
 
 PAGE = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
 <meta name="robots" content="noindex, nofollow">
 <title>Kindle · Avrana</title><style>{style}</style></head><body><main>
 <header><h1><a href="https://avrana.net">AVRANA</a></h1><div class="rule"></div></header>
@@ -248,13 +266,15 @@ PAGE = """<!doctype html>
   <h2>Your Kindle address</h2>
   {current}
   <form method="post" action="/save">
-    <div class="row">
-      <input type="email" name="address" placeholder="yourname_abc123@kindle.com"
-             value="{value}" aria-label="Send-to-Kindle address" required>
+    <div>
+      <label for="address">Send-to-Kindle address</label>
+      <input type="email" id="address" name="address" placeholder="yourname_abc123@kindle.com"
+             value="{value}" autocomplete="off" inputmode="email" autocapitalize="none" spellcheck="false"
+             aria-describedby="{describedby}"{invalid} required>
     </div>
-    <p class="note">It must end in <strong>@kindle.com</strong>. Amazon discards books sent to an
+    <p class="note hint" id="address-hint">It must end in <strong>@kindle.com</strong>. Amazon discards books sent to an
       address that does not exist, without telling anyone, so this is checked before saving.</p>
-    <div class="row" style="margin-top:14px">
+    <div class="row actions">
       <button type="submit">Save to both libraries</button>
       {remove}
     </div>
@@ -274,26 +294,35 @@ PAGE = """<!doctype html>
 </section>
 <footer>
   <a class="plain" href="https://books.avrana.net">Calibre&#8209;Web</a>
-  <a class="plain" href="https://listen.avrana.net">Audiobookshelf</a>
-  <a class="plain" href="https://avrana.net">Back to Avrana</a>
+  {audiobooks}<a class="plain" href="https://avrana.net">Back to Avrana</a>
 </footer>
 </main></body></html>
 """
 
+AUDIOBOOKSHELF_LINK = '<a class="plain" href="https://listen.avrana.net">Audiobookshelf</a>\n  '
 
-def render(current_cwa, current_abs, value="", banner=None, can_remove=False):
+
+def render(current_cwa, current_abs, value="", banner=None, can_remove=False, invalid=False, audiobooks=False):
+    """`invalid`: the value in the field was just rejected (aria-invalid, tied to the banner).
+    `audiobooks`: the member also holds AUDIOBOOKS_GROUP, so the Audiobookshelf link may be shown. This
+    changes only what is shown; which libraries get written is decided by the accounts found."""
     rows = []
     rows.append(f"<dt>Calibre-Web</dt><dd>{html.escape(current_cwa or 'not set')}</dd>")
     rows.append(f"<dt>Audiobookshelf</dt><dd>{html.escape(current_abs or 'not set')}</dd>")
     cur = f'<dl>{"".join(rows)}</dl>'
-    b = ""
+    b, describedby = "", "address-hint"
     if banner:
         kind, msg = banner
-        b = f'<div class="banner {kind}">{html.escape(msg)}</div>'
+        role = "alert" if kind == "err" else "status"
+        b = f'<div class="banner {kind}" id="notice" role="{role}">{html.escape(msg)}</div>'
+        if invalid:
+            describedby = "notice address-hint"
     rm = ('<button class="ghost" type="submit" formaction="/remove" formnovalidate>Remove</button>'
           if can_remove else "")
     return PAGE.format(style=STYLE, banner=b, current=cur, value=html.escape(value),
-                       remove=rm, amazon=AMAZON_PDOC, sender=html.escape(SENDER))
+                       remove=rm, amazon=AMAZON_PDOC, sender=html.escape(SENDER),
+                       describedby=describedby, invalid=' aria-invalid="true"' if invalid else "",
+                       audiobooks=AUDIOBOOKSHELF_LINK if audiobooks else "")
 
 
 # The 404 is its own minimal document, not a cut-down PAGE: PAGE's <title> says "Kindle", which would
@@ -301,6 +330,7 @@ def render(current_cwa, current_abs, value="", banner=None, can_remove=False):
 NOT_FOUND = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
 <meta name="robots" content="noindex, nofollow">
 <title>Not found · Avrana</title><style>{style}</style></head><body><main>
 <header><h1><a href="https://avrana.net">AVRANA</a></h1><div class="rule"></div></header>
@@ -362,6 +392,10 @@ class Handler(BaseHTTPRequestHandler):
             return None
         return library_name(username)
 
+    def _audiobooks(self):
+        """True when the member also holds the audiobooks group (display only, see AUDIOBOOKS_GROUP)."""
+        return AUDIOBOOKS_GROUP in self._identity()[2]
+
     def _state(self, username):
         cwa = cwa_find(username)
         absu = abs_find(username)
@@ -415,7 +449,7 @@ class Handler(BaseHTTPRequestHandler):
         if not cwa and not absu:
             banner = ("err", "No Calibre-Web or Audiobookshelf account found for this login.")
         return self._send(200, render(cwa_val, abs_val, cwa_val or abs_val or "",
-                                      banner, bool(cwa_val or abs_val)))
+                                      banner, bool(cwa_val or abs_val), audiobooks=self._audiobooks()))
 
     def do_POST(self):
         route = self.path.split("?", 1)[0].rstrip("/") or "/"
@@ -469,12 +503,14 @@ class Handler(BaseHTTPRequestHandler):
                 msg = ("ok", "Removed from " + " and ".join(written) + ".")
             else:
                 msg = ("err", "Nothing to remove.")
-            return self._send(200, render(cwa_val, abs_val, "", msg, bool(cwa_val or abs_val)))
+            return self._send(200, render(cwa_val, abs_val, "", msg, bool(cwa_val or abs_val),
+                                          audiobooks=self._audiobooks()))
 
         if len(address) > MAX_ADDRESS or not KINDLE_RE.match(address):
             return self._send(200, render(cwa_val, abs_val, address,
                                           ("err", "That is not a @kindle.com address."),
-                                          bool(cwa_val or abs_val)))
+                                          bool(cwa_val or abs_val), invalid=True,
+                                          audiobooks=self._audiobooks()))
 
         written, failed = [], []
         if cwa:
@@ -500,7 +536,8 @@ class Handler(BaseHTTPRequestHandler):
                    ". Remember to approve " + SENDER + " on Amazon.")
         else:
             msg = ("err", "No library account found for this login.")
-        return self._send(200, render(cwa_val, abs_val, address, msg, bool(cwa_val or abs_val)))
+        return self._send(200, render(cwa_val, abs_val, address, msg, bool(cwa_val or abs_val),
+                                      audiobooks=self._audiobooks()))
 
     do_HEAD = do_GET
 
