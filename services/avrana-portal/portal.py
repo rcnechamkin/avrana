@@ -689,6 +689,12 @@ def render_404() -> str:
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "avrana-portal/1"
+    # HTTP/1.0: one request per connection, closed after each reply. Isolation between members
+    # relies on that (a connection never carries two identities); do not switch protocol_version
+    # without revisiting it. tests/test_portal_authz.py pins this.
+    protocol_version = "HTTP/1.0"
+    # Drop a client that stalls mid-request instead of pinning a handler thread forever.
+    timeout = 15
 
     def _headers(self, code, length, ctype="text/html; charset=utf-8", location=None):
         self.send_response(code)

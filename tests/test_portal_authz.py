@@ -1056,7 +1056,6 @@ class LiveServerTests(unittest.TestCase):
                 self.assertEqual(1, data.count(b"HTTP/1."))
                 self.assertNotIn(b"member-b", data)
 
-    @unittest.expectedFailure  # AVR-352 follow-up; remove with the Handler.timeout fix
     def test_handler_has_a_socket_timeout(self):
         """A half-sent request must not pin a handler thread forever."""
         self.assertIsNotNone(portal.Handler.timeout)
