@@ -70,7 +70,7 @@ files if you prefer to download.
 **Requests.** iPhone and iPad: Pocket for Seerr. Android has no recommended app yet; use a browser and
 add it to the home screen.
 [OWNER DECISION D-14: which group shows the Requests help topic. On main the topic is gated on avrana-requests; PR #4 proposes avrana-videos. This block follows main until the owner decides]
-<!-- src: services/avrana-portal/portal.py:272-295 (topic gated on avrana-requests on main) versus :56 (tile gated on avrana-videos); PR #4 branch avr-357-430-portal-a11y re-gates the topic on avrana-videos -->
+<!-- src: services/avrana-portal/portal.py:272-295 (topic gated on avrana-requests on main) versus :56 (tile gated on avrana-videos); PR #4 branch avr-352-portal-authz-suite re-gates the topic on avrana-videos -->
 <!-- endif -->
 
 ## Why signing in is not the same everywhere

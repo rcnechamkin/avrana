@@ -70,7 +70,7 @@ and AVR-346 are named where they own the blocker.
 - **State of the code:** on `main`, the Requests help topic is gated on `avrana-requests`
   (`services/avrana-portal/portal.py:272`, `:600`) while the Request tile is gated on `avrana-videos`
   (`:56`), so a member with videos but not `avrana-requests` sees the tile and gets no help page. PR #4 (the
-  portal accessibility change, local branch `avr-357-430-portal-a11y`, not merged; its `portal.py:293`) gates
+  portal authorization suite, branch `avr-352-portal-authz-suite`, not merged; its `portal.py:272`) gates
   the topic on `avrana-videos`. The owner has not decided; this register does not resolve it.
 - **Other evidence:** the Authentik doc says `avrana-requests` is reserved and gates nothing
   (`docs/services/authentik.md:48`); the admin guide treats it as a real group granted together with videos
