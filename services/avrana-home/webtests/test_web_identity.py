@@ -198,10 +198,12 @@ class RawScopeTests(unittest.TestCase):
                 self.assertEqual(404, self.call(headers, "/watch")[0], name)
                 self.assertEqual([], self.mock.paths())
 
-    def test_valid_utf8_nfc_is_accepted_and_invalid_is_not(self):
+    def test_ascii_is_accepted_and_non_ascii_is_not(self):
         ok = [(b"X-authentik-username", ("m" + chr(0xe9) + "mber").encode()), (b"X-authentik-groups", b"avrana-users")]
         status, body = self.call(ok, "/account")
-        self.assertIn("<dt>Username</dt><dd>m" + chr(0xe9) + "mber</dd>", body)
+        self.assertNotIn("<dt>Username</dt>", body)         # non-ASCII username: no principal (I-5)
+        ascii_ok = [(b"X-authentik-username", b"member-a"), (b"X-authentik-groups", b"avrana-users")]
+        self.assertIn("<dt>Username</dt><dd>member-a</dd>", self.call(ascii_ok, "/account")[1])
 
 
 class RealServerHeaderTests(unittest.TestCase):
@@ -282,12 +284,30 @@ class RealServerHeaderTests(unittest.TestCase):
                b"X-authentik-username: member-\xff\r\nX-authentik-groups: avrana-users|avrana-videos\r\n\r\n")
         self.assertEqual(404, self.server.exchange(raw).status)
 
-    def test_utf8_username_is_accepted_when_it_is_valid_nfc(self):
-        raw = (b"GET /account HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n"
-               b"X-authentik-username: m\xc3\xa9mber\r\nX-authentik-groups: avrana-users\r\n\r\n")
-        r = self.server.exchange(raw)
-        self.assertEqual(200, r.status)
-        self.assertIn("<dt>Username</dt><dd>m" + chr(0xe9) + "mber</dd>", r.text)
+    def test_non_ascii_usernames_get_no_principal_over_real_http(self):
+        """Owner decision (HOME-APP.md I-5): identity headers must be pure ASCII. Valid UTF-8, the
+        latin-1 mojibake a lenient decoder would produce, and raw latin-1 are all refused."""
+        utf8 = ("m" + chr(0xe9) + "mber").encode("utf-8")
+        mojibake = utf8.decode("latin-1").encode("utf-8")
+        latin1 = ("m" + chr(0xe9) + "mber").encode("latin-1")
+        for label, raw_name in (("utf8", utf8), ("mojibake", mojibake), ("latin1", latin1)):
+            headers = [(b"X-authentik-username", raw_name),
+                       (b"X-authentik-groups", b"avrana-users|avrana-videos")]
+            r = self.server.get("/account", headers)
+            self.assertEqual(200, r.status, label)
+            self.assertIn("<dt>Signed in</dt>", r.text, label)
+            self.assertNotIn("<dt>Username</dt>", r.text, label)
+            self.assertEqual(404, self.server.get("/watch", headers).status, label)
+        self.assertEqual([], self.mock.paths())
+
+    def test_non_ascii_display_name_is_shown_only_when_valid_utf8(self):
+        base = [(USER, "member-a"), (GROUPS, "avrana-users")]
+        good = self.server.get("/account", base + [(b"X-authentik-name", b"M" + chr(0xe9).encode("utf-8"))])
+        self.assertIn("<dt>Name</dt><dd>M" + chr(0xe9) + "</dd>", good.text)
+        bad = self.server.get("/account", base + [(b"X-authentik-name", b"M\xe9")])
+        self.assertEqual(200, bad.status)
+        self.assertIn("<dd>member-a</dd>", bad.text)
+        self.assertNotIn("<dt>Name</dt>", bad.text)
 
     def test_oversized_header_block_is_refused_by_the_server_without_a_page(self):
         raw = (b"GET / HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\nX-authentik-groups: "

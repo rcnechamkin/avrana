@@ -52,7 +52,7 @@ class RouteLayerTests(unittest.TestCase):
 
     def test_identity_py_reads_only_trusted_headers_through_the_one_parser(self):
         text = sources()["identity.py"]
-        self.assertEqual(1, len(re.findall(r"principal_or_none\(", code(text))))
+        self.assertEqual(1, len(re.findall(r"principal_from_raw_headers\(", code(text))))
         body = code(text)
         self.assertNotIn("query", body.lower().replace("query_string", ""))
         self.assertNotIn("cookie", body.lower())
@@ -65,6 +65,7 @@ class RouteLayerTests(unittest.TestCase):
             if name != "identity.py":
                 self.assertNotIn("principal_from_headers", body, name)
                 self.assertNotIn("principal_or_none", body, name)
+                self.assertNotIn("principal_from_raw_headers", body, name)
 
     def test_routes_never_call_an_adapter_directly(self):
         """Mapping goes through the adapters' own resolve_user, reached only via aggregate.gather."""

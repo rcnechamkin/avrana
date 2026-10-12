@@ -150,12 +150,70 @@ class SectionRenderingTests(Fixture):
         self.assertIn("a&amp;b&#39;c@example.test", r.text)
 
 
+class NavigationAndCallPatternTests(Fixture):
+    NAV = '<nav aria-label="Your Avrana services">'
+
+    def test_navigation_landmark_is_present_once_and_after_the_sections_in_every_state(self):
+        """Watch/Request/Help/Account stay reachable whatever the sections do; the app never moves
+        navigation, it only inserts plain sections above it."""
+        scenarios = [("flag off", self.off, A), ("ok", self.on, A), ("not_linked", self.on, D),
+                     ("not_permitted", self.on, NOLIB), ("no principal", self.on, [])]
+        failing = self.fresh()
+        self.mock.set_mode("500")
+        scenarios.append(("unavailable", failing, A))
+        for label, client, headers in scenarios:
+            with self.subTest(state=label):
+                text = client.get("/", headers=headers).text
+                self.assertEqual(1, text.count(self.NAV))
+                before, after = text.split(self.NAV)
+                self.assertNotIn("<nav", before)
+                self.assertIn('href="/help"', after)
+                self.assertIn('href="/account"', text.split("</nav>")[1])
+                self.assertEqual(1, text.count("<footer>"))
+                if headers is A or label == "ok":
+                    self.assertIn('href="/watch"', after)
+                    self.assertIn('href="/request"', after)
+        self.mock.set_mode("ok")
+
+    def test_one_cold_page_makes_one_mapping_call(self):
+        client = self.fresh()
+        self.mock.reset()
+        client.get("/", headers=A)
+        paths = self.mock.paths()
+        self.assertEqual(1, paths.count("/Users"), paths)
+        self.assertEqual(1, paths.count("/UserItems/Resume"))
+        self.assertEqual(1, paths.count("/Items/Latest"))
+        self.mock.reset()
+        client.get("/", headers=A)
+        self.assertEqual([], self.mock.paths())            # warm: no upstream call at all
+
+    def test_concurrent_cold_requests_from_one_member_all_get_a_page(self):
+        self.mock.set_mode("slow")
+        client = self.fresh(timeout=0.4)
+        with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
+            replies = list(pool.map(lambda _i: client.get("/", headers=A), range(6)))
+        self.assertEqual({200}, {r.status_code for r in replies})
+        for r in replies:
+            self.assertEqual(1, r.text.count(self.NAV))
+            self.assertIn("unavailable right now", r.text)
+        self.mock.set_mode("ok")
+
+    def test_cache_is_one_per_process_in_memory_and_closed_on_shutdown(self):
+        client = make_client(make_settings(home_sections=True, jellyfin_base_url=self.mock.url))
+        app = client.fastapi_app
+        self.assertIs(app.state.cache, app.state.adapters[0].cache)
+        with client:
+            client.get("/", headers=A)
+        self.assertTrue(app.state.cache._closed)
+
+
 class JsonViewTests(Fixture):
     def test_json_is_exactly_the_member_view_contract(self):
         r = self.on.get("/home.json", headers=A)
         self.assertEqual(200, r.status_code)
         self.assertTrue(r.headers["content-type"].startswith("application/json"))
         self.assertEqual("no-store", r.headers["cache-control"])
+        self.assertEqual("nosniff", r.headers["x-content-type-options"])
         doc = r.json()
         self.assertEqual({"sections"}, set(doc))
         self.assertEqual([("jellyfin", "continue", "ok"), ("jellyfin", "recent", "ok")],

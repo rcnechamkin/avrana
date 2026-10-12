@@ -92,6 +92,11 @@ class SettingsTests(unittest.TestCase):
         self.assertIn("HOME_TIMEOUT", str(cm.exception))
         self.assertIn("LOG_LEVEL", str(cm.exception))
 
+    def test_no_setting_enables_a_cache_file(self):
+        """The cache is in-memory only until the owner decides otherwise (HOME-APP.md)."""
+        s = Settings.from_mapping({"HOME_CACHE_PATH": "/tmp/x.db", "CACHE_PATH": "/tmp/y.db"})
+        self.assertFalse([f for f in vars(s) if "cache" in f])
+
     def test_dev_identity_is_not_a_setting(self):
         """The default app has no dev switch to ignore: Settings does not even read it."""
         s = Settings.from_mapping({"HOME_DEV_IDENTITY": "on", "AVRANA_DEV_IDENTITY": "on"})

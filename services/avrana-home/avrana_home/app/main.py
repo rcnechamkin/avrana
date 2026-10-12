@@ -10,6 +10,7 @@ does the same. Every request reaches the route through the single identity depen
 """
 from __future__ import annotations
 
+import contextlib
 import logging
 from pathlib import Path
 from typing import Optional, Sequence
@@ -25,7 +26,8 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from ..adapters.jellyfin import JellyfinAdapter
 from ..aggregate import gather, health_summary
 from ..contract import MediaAdapter
-from ..resilience import UrllibTransport
+from ..cache import MemberCache
+from ..resilience import SystemClock, UrllibTransport
 from . import catalogue as catalogue_mod
 from .catalogue import Trusted
 from .identity import Viewer, get_viewer, has_identity_headers
@@ -55,14 +57,19 @@ def make_environment() -> Environment:
     return env
 
 
-def build_adapters(settings: Settings) -> list:
+def build_adapters(settings: Settings, cache: MemberCache) -> list:
     """Real transports are built ONLY when sections are on. Mock mode (the default) can only
-    point at a loopback address with a fixed fake key (see settings.py)."""
+    point at a loopback address with a fixed fake key (see settings.py). All adapters share the
+    one per-process cache (in-memory SQLite; there is deliberately no setting for a file path)."""
     if not settings.home_sections:
         return []
     transport = UrllibTransport(settings.jellyfin_base_url,
                                 {"Authorization": f'MediaBrowser Token="{settings.jellyfin_api_key}"'})
-    return [JellyfinAdapter(transport, timeout=settings.timeout)]
+    adapter = JellyfinAdapter(transport, timeout=settings.timeout, cache=cache)
+    # contract.py:271 does `cache or MemberCache(...)`, and an EMPTY cache is falsy (__len__), so a
+    # freshly injected cache is silently replaced. Re-assert the shared one (reported upstream).
+    adapter.cache = cache
+    return [adapter]
 
 
 def _is_loopback_peer(request: Request) -> bool:
@@ -75,9 +82,22 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
     silence_uvicorn_access()      # whoever serves this app, uvicorn must not log raw query strings
     cat = catalogue_mod.load(settings.catalogue_path)
     env = make_environment()
-    adapter_list = list(adapters) if adapters is not None else build_adapters(settings)
+    # One disposable cache per process, default in-memory database, closed on shutdown. (Offboarding
+    # hook for later: MemberCache.purge_member(principal); wired into nothing yet. A file-backed
+    # cache is an owner decision, see HOME-APP.md, and has no setting.)
+    cache = MemberCache(SystemClock())
+    adapter_list = list(adapters) if adapters is not None else build_adapters(settings, cache)
 
-    app = FastAPI(title="Avrana home", docs_url=None, redoc_url=None, openapi_url=None)
+    @contextlib.asynccontextmanager
+    async def lifespan(_app):
+        try:
+            yield
+        finally:
+            cache.close()
+
+    app = FastAPI(title="Avrana home", docs_url=None, redoc_url=None, openapi_url=None,
+                  lifespan=lifespan)
+    app.state.cache = cache
     app.router.redirect_slashes = False
     app.state.settings = settings
     app.state.catalogue = cat

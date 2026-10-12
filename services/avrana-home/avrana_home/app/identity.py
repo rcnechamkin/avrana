@@ -4,14 +4,13 @@ This is the only module in the application that reads request headers. The test
 `test_route_layer_reads_no_identity_input` fails if any other module in this package touches the
 query string, a cookie, a path parameter, a body, a form or `request.headers`.
 
-How headers reach us (verified over a real uvicorn server, see the web tests):
-  * `scope["headers"]` is the raw list of (name, value) byte pairs. uvicorn lowercases names and
-    keeps every repeated header as its own pair, so duplicates (any case) are visible. Starlette's
-    `request.headers` would merge them, which is why it is NOT used here.
-  * Values are decoded as UTF-8 with surrogate escapes: invalid bytes become lone surrogates, which
-    the principal parser rejects as malformed (fail closed). Authentik sends UTF-8.
-  * Only the four headers the principal parser knows are passed on; look-alikes such as
-    `X_authentik_username` or `X-Forwarded-User` never reach it and confer nothing.
+How headers reach us (verified over a real uvicorn server): `scope["headers"]` is the raw list of
+(name, value) byte pairs. uvicorn lowercases names and keeps every repeated header as its own pair,
+so duplicates in any case are visible; Starlette's `request.headers` would merge them, so it is not
+used. We pass only the four trusted header names, still as raw bytes, to
+`principal_from_raw_headers`, which does the strict decoding: identity headers must be pure ASCII,
+so any non-ASCII value (UTF-8 or latin-1 mojibake) is no principal. Look-alike names
+(`X_authentik_username`, `X-Forwarded-User`) never reach it and confer nothing.
 
 No principal (missing, empty, duplicated, malformed, oversized): the request is served as the
 portal serves a request with NO groups. See docs/design/HOME-APP.md, "Identity".
@@ -24,7 +23,7 @@ from typing import Optional
 from fastapi import Request
 
 from ..principal import (EMAIL_HEADER, GROUPS_HEADER, NAME_HEADER, USERNAME_HEADER,
-                         MemberPrincipal, principal_or_none)
+                         MemberPrincipal, PrincipalError, principal_from_raw_headers)
 
 _TRUSTED_NAMES = frozenset(h.lower() for h in (USERNAME_HEADER, GROUPS_HEADER, EMAIL_HEADER, NAME_HEADER))
 _EMPTY = frozenset()
@@ -42,16 +41,16 @@ class Viewer:
 
 
 def trusted_pairs(scope) -> list:
-    pairs = []
-    for raw_name, raw_value in scope.get("headers", ()):
-        name = raw_name.decode("latin-1").lower()
-        if name in _TRUSTED_NAMES:
-            pairs.append((name, raw_value.decode("utf-8", "surrogateescape")))
-    return pairs
+    """The raw (bytes, bytes) pairs of the trusted headers only, duplicates kept, names lowercased."""
+    return [(bytes(n).lower(), bytes(v)) for n, v in scope.get("headers", ())
+            if bytes(n).decode("latin-1").lower() in _TRUSTED_NAMES]
 
 
 def viewer_from_scope(scope) -> Viewer:
-    return Viewer(principal_or_none(trusted_pairs(scope)))
+    try:
+        return Viewer(principal_from_raw_headers(trusted_pairs(scope)))
+    except PrincipalError:
+        return Viewer(None)
 
 
 async def get_viewer(request: Request) -> Viewer:

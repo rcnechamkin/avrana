@@ -73,14 +73,22 @@ class HealthTests(unittest.TestCase):
         mock = MockJellyfin(mode="500").start()
         client = make_client(make_settings(home_sections=True, jellyfin_base_url=mock.url, timeout=0.5),
                              peer=("127.0.0.1", 40000))
-        self.assertEqual("unknown", client.get("/readyz").json()["adapters"][0]["state"])
-        for _ in range(3):
+        row0 = client.get("/readyz").json()["adapters"][0]
+        self.assertEqual(("unknown", 0), (row0["state"], row0["consecutive_failures"]))
+        client.get("/", headers=A)                       # one cold page = one failed mapping call
+        doc = client.get("/readyz").json()
+        row = doc["adapters"][0]
+        self.assertEqual("failing", row["state"])        # an early outage is visible at once
+        self.assertEqual(1, row["consecutive_failures"])
+        self.assertEqual("degraded", doc["libraries"])
+        for _ in range(2):
             client.get("/", headers=A)
         doc = client.get("/readyz").json()
         self.assertEqual({"home", "libraries", "adapters"}, set(doc))
         self.assertEqual("degraded", doc["libraries"])
         row = doc["adapters"][0]
-        self.assertEqual({"service", "state", "last_error_class", "retry_in_seconds"}, set(row))
+        self.assertEqual({"service", "state", "last_error_class", "retry_in_seconds",
+                          "consecutive_failures"}, set(row))
         self.assertEqual(("jellyfin", "cooling_off"), (row["service"], row["state"]))
         text = client.get("/readyz").text
         for forbidden in ("member-a", "Synthetic", "127.0.0.1", "mock-api-key"):
