@@ -117,9 +117,16 @@ Two rules for any future copy here:
 2. **Never name a service the viewer might not reach.** The gating model is 404-not-403; a
    subtitle listing media types undermines it.
 
-A structural fix — deriving subtitles from `chooser_members()` so they can never drift from
-permissions — was offered and **declined**: comics and ebooks always share an access level, so
-`Read`'s "Comics & ebooks" is not a leak in this deployment.
+**AVR-430 (2026-10-11): the structural fix was made after all.** The earlier decision rested on
+comics and ebooks always sharing an access level, which is not true of the groups (`avrana-comics`
+and `avrana-books` are separate). Copy that depends on the viewer is now computed from what they
+may open: `chooser_subtitle()` builds the Read subtitle from `chooser_members()` ("Comics",
+"Ebooks", or "Comics & ebooks"), and `service_copy()` picks the Request Books label and subtitle
+by which of its two groups the viewer holds ("Books / Ask for an ebook", "Audiobooks / Ask for an
+audiobook", or the full "Ask for an ebook or audiobook" for both). The account note no longer
+lists "playback, reading position". `tests/test_portal_authz.py` (`LibraryVocabularyTests`) checks
+every page for every identity against a word list per library, written out independently of
+`portal.py`.
 
 ## SSO experience across services
 

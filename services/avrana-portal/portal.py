@@ -86,6 +86,9 @@ SSO_INIT = {
 # "Read" covers two libraries that are one idea to a reader, so the grid shows one tile and the
 # split happens on the next page. Rendered by the same shell, so it inherits the identical look.
 CHOOSERS = [
+    # The subtitle here is only the FULL form, shown to a viewer who may open every member. What a
+    # viewer actually sees is built by chooser_subtitle() from the members they may open, so a
+    # books-only member is never told a comics library exists, nor the reverse (AVR-430).
     ("Read", "Comics &amp; ebooks", "read", ["comics", "books", "kindle"]),
     # Note the path is "request" (singular) while Seerr's long-standing direct route stays
     # "requests" (plural) so existing links keep working. They are distinct paths.
@@ -97,6 +100,24 @@ CHOOSERS = [
     ("Request", "Ask for something that&rsquo;s missing", "request",
      ["requests", "requestabook", "requestacomic"]),
 ]
+
+# Copy that depends on WHICH of a shared service's groups the viewer holds (AVR-430).
+# Request Books is open to ebook readers and audiobook listeners alike, so one static label and
+# subtitle ("Books" / "Ask for an ebook or audiobook") told each of them about the other
+# library. Key: the gating groups the viewer holds, in the order SERVICES lists them. Holding
+# all of them falls back to the table's own (full) wording.
+SERVICE_VARIANTS = {
+    "requestabook": {
+        ("avrana-books",): ("Books", "Ask for an ebook"),
+        ("avrana-audiobooks",): ("Audiobooks", "Ask for an audiobook"),
+    },
+}
+
+# What each chooser member contributes to the chooser tile's subtitle, as a lowercase noun.
+# Members absent here (the Kindle address page belongs to Books) add nothing.
+CHOOSER_PARTS = {
+    "read": {"comics": "comics", "books": "ebooks"},
+}
 
 # Grid order for the home page. Entries are service paths or chooser paths.
 HOME_ORDER = ["watch", "listen", "read", "request", "contribute", "ops", "help"]
@@ -487,6 +508,32 @@ def chooser_members(chooser, groups: set[str]):
     return out
 
 
+def service_copy(svc, groups: set[str]):
+    """(label, description) of a service as THIS viewer should read it."""
+    variants = SERVICE_VARIANTS.get(svc[3])
+    if variants and isinstance(svc[0], (tuple, list)):
+        held = tuple(g for g in svc[0] if g in groups)
+        if held in variants:
+            return variants[held]
+    return svc[1], svc[2]
+
+
+def chooser_subtitle(chooser, groups: set[str]) -> str:
+    """The chooser tile's subtitle, built only from the members this viewer may open."""
+    parts = CHOOSER_PARTS.get(chooser[2])
+    if parts is None:
+        return chooser[1]
+    words = []
+    for svc in chooser_members(chooser, groups):
+        word = parts.get(svc[3])
+        if word and word not in words:
+            words.append(word)
+    if not words:
+        return chooser[1]
+    text = " &amp; ".join(words)
+    return text[0].upper() + text[1:]
+
+
 def render_home(groups: set[str]) -> str:
     parts = []
     for path in HOME_ORDER:
@@ -495,7 +542,8 @@ def render_home(groups: set[str]) -> str:
             # A chooser appears if the user can reach ANY of its members. Someone with only
             # comics still sees one "Read" tile, which looks complete rather than reduced.
             if chooser_members(ch, groups):
-                parts.append(TILE.format(label=ch[0], desc=ch[1], path=ch[2], host="avrana.net"))
+                parts.append(TILE.format(label=ch[0], desc=chooser_subtitle(ch, groups),
+                                         path=ch[2], host="avrana.net"))
             continue
         if path == "help":
             # Shown to everyone who can see the portal at all. The landing page lists only the
@@ -505,7 +553,8 @@ def render_home(groups: set[str]) -> str:
             continue
         svc = by_path(path)
         if svc and allows(svc[0], groups):
-            parts.append(TILE.format(label=svc[1], desc=svc[2], path=svc[3], host=svc[4]))
+            label, desc = service_copy(svc, groups)
+            parts.append(TILE.format(label=label, desc=desc, path=svc[3], host=svc[4]))
     return SHELL.format(
         title="Avrana",
         style=STYLE,
@@ -515,12 +564,13 @@ def render_home(groups: set[str]) -> str:
     )
 
 
-def render_chooser(chooser, members) -> str:
+def render_chooser(chooser, members, groups=frozenset()) -> str:
     """A sub-page in the identical shell: same type, same rules, one level down."""
-    tiles = "\n".join(
-        TILE.format(label=label, desc=desc, path=path, host=host)
-        for _grp, label, desc, path, host in members
-    )
+    rows = []
+    for svc in members:
+        label, desc = service_copy(svc, groups)
+        rows.append(TILE.format(label=label, desc=desc, path=svc[3], host=svc[4]))
+    tiles = "\n".join(rows)
     return SHELL.format(
         title=f"{chooser[0]} · Avrana",
         style=STYLE,
@@ -546,7 +596,7 @@ def render_account(groups: set[str], name: str, username: str, email: str) -> st
 
     # Only what the user HAS — never a list of what they don't, same principle as the grid.
     mine = permitted(groups)
-    access_html = "\n".join(f"        <li>{label}</li>" for _g, label, _d, _p, _h in mine)
+    access_html = "\n".join(f"        <li>{service_copy(svc, groups)[0]}</li>" for svc in mine)
     if mine:
         access_block = (
             '    <section class="block">\n'
@@ -572,8 +622,8 @@ def render_account(groups: set[str], name: str, username: str, email: str) -> st
         '  <section class="block">\n'
         "    <h2>Preferences</h2>\n"
         '    <p class="note">Your password, two&#8209;factor devices and active sessions are '
-        "managed in your Avrana account. Per&#8209;service settings — playback, reading position, "
-        "notifications — live inside each service.</p>\n"
+        "managed in your Avrana account. Per&#8209;service settings, such as notifications, "
+        "live inside each service.</p>\n"
         "  </section>"
     )
     footer = (
@@ -762,7 +812,7 @@ class Handler(BaseHTTPRequestHandler):
             members = chooser_members(ch, groups)
             if not members:
                 return self._send(404, render_404())
-            return self._send(200, render_chooser(ch, members))
+            return self._send(200, render_chooser(ch, members, groups))
 
         for svc in SERVICES:
             grp, _label, _desc, path, host = svc
