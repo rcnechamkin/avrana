@@ -20,6 +20,8 @@ python3 -B tests/run_offline.py
 
 Passed: five staged-content-gate unit tests, two Audible schema tests using SQLite `:memory:` only, 16 synthetic IMAX classification cases, and four offline Kindle checks (27 total). No live API, credentials, production database, media file or container was used by these tests. Python source was also parsed without importing applications.
 
+The portal authorization suite (`tests/test_portal_authz.py`, 72 tests, one documented `expectedFailure`) serves the real `services/avrana-portal/portal.py` handler on a loopback port inside the test process and checks the route matrix, leaks, malformed and duplicated `X-authentik-groups` headers, fixed redirect targets, `/account` escaping and response headers against synthetic identities in `tests/fixtures/identities.py`. It makes no network call beyond 127.0.0.1 and uses no real member data. The count above predates it.
+
 The original Kindle live tests were omitted and its personal fixture replaced. Audible application/end-to-end tests were not imported because their shared fixture initializes application state; only the isolated in-memory schema invariants are tested here. CWA integration tests require its upstream package and were not executed. These boundaries are deliberate; passing local checks is not deployment validation.
 
 The day-to-day local workflow, fixture rules and how to add a suite are in [DEVELOPMENT.md](DEVELOPMENT.md).
