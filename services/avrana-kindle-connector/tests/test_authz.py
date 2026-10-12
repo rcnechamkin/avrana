@@ -708,7 +708,6 @@ class Isolation(Base):
 
 # ---------------------------------------------------------------- cross-member identity defects
 class IdentityResolution(Base):
-    @unittest.expectedFailure
     def test_email_match_on_an_earlier_abs_user_does_not_beat_the_exact_username(self):
         # Member A's e-mail header equals B's address (Authentik lets users edit their own e-mail by
         # default), and B is listed before A in Audiobookshelf. abs_find returns the first user matching
@@ -726,7 +725,6 @@ class IdentityResolution(Base):
         self.assertEqual([d["email"] for d in a_dev], [NEW_A])
         self.assertEqual(rows1[1], CWA_ROWS[1])
 
-    @unittest.expectedFailure
     def test_remove_with_a_colliding_email_does_not_remove_the_victim(self):
         self.abs.users = [ABS_USERS[1], ABS_USERS[0], ABS_USERS[2]]
         self.post("/remove", headers=hdr(user="member-a", email="b@example.test"), body=b"")
@@ -757,7 +755,6 @@ class IdentityResolution(Base):
         self.assertEqual([d["email"] for d in self.abs.devices if d["users"] == ["abs-u-b"]], [NEW_B])
         self.assertEqual(self.rows()[0], CWA_ROWS[0])
 
-    @unittest.expectedFailure
     def test_ambiguous_email_fallback_matches_nobody(self):
         con = sqlite3.connect(self.db)
         con.execute("INSERT INTO user VALUES (4,'member-d','b@example.test','member_d_x1@kindle.com')")
@@ -770,7 +767,6 @@ class IdentityResolution(Base):
         self.assertNoAddressLeak(r.text)
         self.assertNoWrites(before)
 
-    @unittest.expectedFailure
     def test_cwa_names_differing_only_by_case_resolve_exactly(self):
         con = sqlite3.connect(self.db)
         con.execute("INSERT INTO user VALUES (4,'Member-X','x1@example.test','upper_x1@kindle.com')")
@@ -784,7 +780,6 @@ class IdentityResolution(Base):
         self.assertEqual(self.rows()[3][3], "upper_x1@kindle.com", "the other case's row was overwritten")
         self.assertEqual(self.rows()[4][3], NEW_A)
 
-    @unittest.expectedFailure
     def test_cwa_ambiguous_case_insensitive_match_fails_closed(self):
         con = sqlite3.connect(self.db)
         con.execute("INSERT INTO user VALUES (4,'Member-X','x1@example.test','upper_x1@kindle.com')")
@@ -796,7 +791,6 @@ class IdentityResolution(Base):
         self.assertNotIn("x1@kindle", r.text)
         self.assertNoWrites(before)
 
-    @unittest.expectedFailure
     def test_abs_users_differing_only_by_case_resolve_exactly(self):
         self.abs.users = self.abs.users + [abs_user("abs-u-x1", "Member-X", ""),
                                            abs_user("abs-u-x2", "member-x", "")]
@@ -806,7 +800,6 @@ class IdentityResolution(Base):
         self.assertIn("lower_x2@kindle.com", r.text)
         self.assertNotIn("upper_x1@kindle.com", r.text)
 
-    @unittest.expectedFailure
     def test_abs_user_record_without_username_does_not_crash(self):
         self.abs.users = [{"id": "abs-u-ghost"}] + self.abs.users
         r = self.get()

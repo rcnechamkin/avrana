@@ -74,17 +74,40 @@ def abs_call(path: str, method: str = "GET", body=None):
     return json.loads(raw) if raw else {}
 
 
+def _pick(rows, name_of, wanted: str):
+    """Resolve `wanted` to ONE row. Returns (row_or_None, any_candidate).
+
+    The match is case-insensitive (Authentik and the libraries do not agree on case) but exact case
+    wins, and two candidates that cannot be told apart resolve to nobody rather than to whichever
+    was listed first - the first match is not necessarily the right person.
+    """
+    folded = [r for r in rows if name_of(r).lower() == wanted.lower()]
+    exact = [r for r in folded if name_of(r) == wanted]
+    if len(exact) == 1:
+        return exact[0], True
+    if exact:
+        return None, True
+    return (folded[0] if len(folded) == 1 else None), bool(folded)
+
+
 def cwa_find(username: str, email: str):
     """Calibre-Web accounts are LDAP-provisioned, so the username matches Authentik; email is a
-    fallback for anyone created before that."""
+    fallback for anyone created before that. The fallback is only used when NO account has this
+    username, and only when exactly one account has this e-mail."""
+    if not username:
+        return None
     con = sqlite3.connect(f"file:{CWA_DB}?mode=ro", uri=True)
     try:
-        row = con.execute("SELECT id, name, kindle_mail FROM user WHERE lower(name)=lower(?)",
-                          (username,)).fetchone()
-        if row is None and email:
-            row = con.execute("SELECT id, name, kindle_mail FROM user WHERE lower(email)=lower(?)",
-                              (email,)).fetchone()
-        return row
+        rows = con.execute("SELECT id, name, kindle_mail FROM user WHERE lower(name)=lower(?) ORDER BY id",
+                           (username,)).fetchall()
+        row, seen = _pick(rows, lambda r: r[1] or "", username)
+        if seen:
+            return row
+        if email:
+            rows = con.execute("SELECT id, name, kindle_mail FROM user WHERE lower(email)=lower(?) ORDER BY id",
+                               (email,)).fetchall()
+            return rows[0] if len(rows) == 1 else None
+        return None
     finally:
         con.close()
 
@@ -99,11 +122,17 @@ def cwa_set(user_id: int, address: str | None):
 
 
 def abs_find(username: str, email: str):
-    for u in abs_call("/api/users").get("users", []):
-        if u["username"].lower() == username.lower():
-            return u
-        if email and (u.get("email") or "").lower() == email.lower():
-            return u
+    """Same rule as cwa_find: the username decides; e-mail is only a fallback when no account has
+    this username, and only when exactly one account has this e-mail."""
+    if not username:
+        return None
+    users = abs_call("/api/users").get("users", [])
+    user, seen = _pick(users, lambda u: u.get("username") or "", username)
+    if seen:
+        return user
+    if email:
+        same = [u for u in users if (u.get("email") or "").lower() == email.lower()]
+        return same[0] if len(same) == 1 else None
     return None
 
 
