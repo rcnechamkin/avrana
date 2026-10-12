@@ -133,7 +133,9 @@ def _occurrences(headers: HeaderInput, wanted: str) -> list:
         if not isinstance(pair, (list, tuple)) or len(pair) != 2:
             raise PrincipalError("malformed_input")
         name, value = pair
-        if not isinstance(name, str) or name.lower() != wanted:
+        if not isinstance(name, str):
+            raise PrincipalError("malformed_input")     # a header with a non-text name is never skipped
+        if name.lower() != wanted:
             continue
         if isinstance(value, (list, tuple)):
             found.extend(value)
@@ -202,7 +204,10 @@ def _optional(headers: HeaderInput, name: str) -> Optional[str]:
         value = _single(headers, name, required=False)
     except PrincipalError:
         return None
-    if value is None or value == "" or len(value) > MAX_OPTIONAL_LEN or _bad_chars(value):
+    if value is None:
+        return None
+    value = value.strip()
+    if value == "" or len(value) > MAX_OPTIONAL_LEN or _bad_chars(value):
         return None
     return value
 
@@ -221,3 +226,40 @@ def principal_or_none(headers) -> Optional[MemberPrincipal]:
         return principal_from_headers(headers)
     except PrincipalError:
         return None
+
+
+def principal_from_raw_headers(raw_headers) -> MemberPrincipal:
+    """Build the principal from the RAW header list of the server (a list of `(bytes, bytes)`
+    pairs, as ASGI provides), so duplicates stay visible and nothing is decoded loosely.
+
+    Decoding is strict: header names must be ASCII; the identity headers (`X-authentik-username`,
+    `X-authentik-groups`) must be pure ASCII, so any non-ASCII or non-UTF-8 value, including the
+    latin-1 mojibake a lenient decoder would produce, yields no principal. The display-only headers
+    are decoded as strict UTF-8 and silently dropped if they are not. Raises PrincipalError."""
+    if not isinstance(raw_headers, (list, tuple)):
+        raise PrincipalError("malformed_input")
+    identity = {USERNAME_HEADER.lower().encode("ascii"), GROUPS_HEADER.lower().encode("ascii")}
+    display = {EMAIL_HEADER.lower().encode("ascii"), NAME_HEADER.lower().encode("ascii")}
+    pairs = []
+    for pair in raw_headers:
+        if not isinstance(pair, (list, tuple)) or len(pair) != 2:
+            raise PrincipalError("malformed_input")
+        name, value = pair
+        if not isinstance(name, (bytes, bytearray)) or not isinstance(value, (bytes, bytearray)):
+            raise PrincipalError("malformed_input")
+        try:
+            lname = bytes(name).decode("ascii").lower()
+        except UnicodeDecodeError:
+            raise PrincipalError("malformed_input") from None
+        key = lname.encode("ascii")
+        if key in identity:
+            try:
+                pairs.append((lname, bytes(value).decode("ascii")))
+            except UnicodeDecodeError:
+                raise PrincipalError("malformed_header") from None
+        elif key in display:
+            try:
+                pairs.append((lname, bytes(value).decode("utf-8")))
+            except UnicodeDecodeError:
+                pairs.append((lname, "\x00"))          # dropped by the display-only cleaner
+    return principal_from_headers(pairs)

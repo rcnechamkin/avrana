@@ -1,4 +1,9 @@
 """Hung adapters: bounded concurrency, and a late result cannot change breaker or cache state."""
+import os as _os
+import sys as _sys
+
+_sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+from tests import _netguard  # noqa: E402,F401  (installs the network guard, also when run directly)
 import threading
 import time
 import unittest

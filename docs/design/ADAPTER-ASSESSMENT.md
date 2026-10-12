@@ -97,10 +97,11 @@ Risk this creates, stated plainly:
 4. **Sessions are rich.** Listening sessions contain device names, IP addresses and timestamps; the
    adapter keeps only position and item id.
 5. **Token lifetime.** JWT access tokens expire and refresh; a long-lived key is preferable for a service
-   credential. Session expiry must map to `UNAVAILABLE`, not a retry loop (the contract forbids retries). A 401 or 403
-   on the service credential counts toward the circuit shared by all members (three in a row open it for 60 s),
-   whereas a 404 for one member's user id is member-specific: `NOT_LINKED`, mapping dropped, circuit untouched
-   (`ADAPTER-CONTRACT.md` section 6).
+   credential. Session expiry must map to `UNAVAILABLE`, not a retry loop (the contract forbids retries). A 401 on the
+   service credential counts toward the circuit shared by all members (three in a row open it for 60 s);
+   a 403 counts only on the user list, not on one member's call; a 404 for a cached mapping is
+   member-specific (`NOT_LINKED`, mapping dropped), but a 404 right after a fresh mapping is route drift and
+   counts (`ADAPTER-CONTRACT.md` section 6). Both auth behaviours are unverified.
 6. **CORS `allowedOrigins`** is empty by default in 2.36 (`docs/services/audiobookshelf.md`). Server-to-server
    calls are unaffected, but do not add the home's origin for convenience.
 
@@ -139,7 +140,8 @@ member has, so what it can see equals what any member can see.
   reuse it. Required: a new dedicated non-admin account (roles `FILE_DOWNLOAD`, `PAGE_STREAMING` at most;
   `PAGE_STREAMING` is not even needed for metadata and thumbnails, **to verify**), created by the owner,
   with its password in the secret store.
-- **Per-member read progress is not obtainable.** Komga has no impersonation. A member's progress is
+- **Per-member read progress is not obtainable.** *(UNVERIFIED: from memory of Komga's public documentation,
+  not checked against the deployed version.)* Komga has no impersonation. A member's progress is
   visible only with that member's own credential, which the home neither has nor should hold (replicated
   passwords are not stored by Avrana). An admin can read user records, not their progress. So
   `continue_items` is **not feasible** and should return `EMPTY` or be omitted for Komga; the home links
@@ -161,7 +163,7 @@ member has, so what it can see equals what any member can see.
    field in the response that is user-specific (read status, read progress, last-read date) belongs to the
    **service account**, not the member. The adapter must whitelist fields and drop all read-progress data,
    otherwise every member would see the service account's (empty or admin-influenced) state.
-2. **Per-user restrictions are silently inherited.** Komga supports per-user library sharing, age
+2. **Per-user restrictions are silently inherited.** *(UNVERIFIED against the deployed Komga.)* Komga supports per-user library sharing, age
    restrictions and label allow or deny lists. Today all libraries are shared by decision and no age or label
    restriction is documented, so a service account equals a member. If the owner later restricts one member,
    the shared catalogue would show that member items Komga itself hides. This is the main future hazard;
@@ -203,10 +205,12 @@ nothing personal anyway.
   is **OPDS** (Atom) plus the web UI. The Kindle connector reads and writes `app.db` directly today; that is
   its own documented exception and is not a precedent for the home.
 - OPDS uses HTTP Basic. The patched image (`avrana-patch`) added a local-password fallback so a **local**
-  non-admin account works in LDAP mode (the Homepage widget is the precedent, **to verify** it covers
-  OPDS). The home would use a dedicated local viewer account with no upload, edit, download-of-others or
+  non-admin account works in LDAP mode (the Homepage widget is the precedent; **UNVERIFIED** that this
+  covers OPDS, and every Calibre-Web OPDS and local-account claim in this section is unverified against
+  the deployed version). The home would use a dedicated local viewer account with no upload, edit, download-of-others or
   admin rights.
-- OPDS exposes per-user views (read books, shelves) only for the authenticated account, and members'
+- OPDS exposes per-user views (read books, shelves) only for the authenticated account *(UNVERIFIED: OPDS
+  read-state behaviour is from memory of the public documentation)*, and members'
   passwords are not available. So **per-member read state is not feasible**; `continue_items` is not
   offered. Reading progress sync (KOReader, Kobo) is per-user over its own credentials and is out of scope.
 

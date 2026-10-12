@@ -21,6 +21,8 @@ from dataclasses import dataclass, field
 from typing import Mapping, Optional, Protocol
 
 DEFAULT_TIMEOUT = 2.0
+REQUEST_BUDGET = DEFAULT_TIMEOUT   # one deadline for a whole request: mapping AND work together
+DEFAULT_TRIAL_LEASE = 30.0
 DEFAULT_COOLOFF = 60.0
 MAX_JSON_BYTES = 1024 * 1024
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
@@ -142,7 +144,9 @@ class UrllibTransport:
             raise classify_status(exc.code) from None
         except TimeoutError:
             raise UpstreamTimeout() from None
-        except (urllib.error.URLError, http.client.HTTPException, OSError):
+        except urllib.error.URLError as exc:
+            raise (UpstreamTimeout() if isinstance(exc.reason, TimeoutError) else UpstreamUnreachable()) from None
+        except (http.client.HTTPException, OSError):
             raise UpstreamUnreachable() from None
         except (ValueError, RecursionError):
             raise UpstreamMalformed() from None
@@ -159,16 +163,18 @@ def classify_status(status: int) -> UpstreamHTTPError:
     return UpstreamHTTPError(status)
 
 
-def counts_toward_breaker(exc: BaseException) -> bool:
+def counts_toward_breaker(exc: BaseException, member_scoped: bool = False) -> bool:
     """Shared-circuit policy. Only SERVICE-WIDE evidence counts: timeouts, connection errors,
-    5xx, 429, unexpected 3xx, 401/403 (the service credential itself is refused), malformed or
-    oversized payloads, and responses that contradict the request scope. A 404 and other 4xx
-    describe one member's or one item's request, so they never open the circuit that every
-    member shares."""
+    5xx, 429, unexpected 3xx, 401 (the service credential is refused), malformed or oversized
+    payloads, and responses that contradict the request scope. A 404 and other 4xx describe one
+    member's or one item's request, so they never open the circuit that every member shares.
+    A 403 counts only when it is not on a member-scoped call (403 on the user list means the
+    service credential lacks rights; 403 on one member's call is about that member). Both auth
+    behaviours are UNVERIFIED against a real Jellyfin."""
     if isinstance(exc, UpstreamNotFound):
         return False
     if isinstance(exc, UpstreamAuthError):
-        return True
+        return not (member_scoped and exc.status == 403)
     if isinstance(exc, UpstreamHTTPError):
         return exc.status >= 500 or exc.status == 429 or 300 <= exc.status < 400
     return isinstance(exc, UpstreamError)
@@ -211,14 +217,20 @@ class CallBudget:
 @dataclass(frozen=True)
 class AdapterHealth:
     service: str
-    state: str                       # "unknown" | "ok" | "cooling_off"
+    # "unknown"     never heard from, or a cool-off ended and the trial call has not reported
+    # "ok"          closed, no failure in the current run
+    # "failing"     closed, but 1..threshold-1 CONSECUTIVE counted failures so far (early outage)
+    # "cooling_off" open: no upstream traffic until retry_in_seconds has passed
+    state: str
     last_error_class: Optional[str] = None
     retry_in_seconds: Optional[int] = None
+    consecutive_failures: int = 0
 
     def to_dict(self) -> dict:
         return {"service": self.service, "state": self.state,
                 "last_error_class": self.last_error_class,
-                "retry_in_seconds": self.retry_in_seconds}
+                "retry_in_seconds": self.retry_in_seconds,
+                "consecutive_failures": self.consecutive_failures}
 
 
 class CircuitBreaker:
@@ -228,14 +240,19 @@ class CircuitBreaker:
       single unlucky request cannot shut the service for everyone; any success resets the run.
     * Open for `cooloff` seconds: `acquire()` refuses with no upstream traffic.
     * Half-open after the cool-off: exactly ONE trial call is admitted at a time; success closes,
-      one failure re-opens for a full cool-off, a neutral result frees the slot.
+      one failure re-opens for a full cool-off, a neutral result frees the slot. The trial holds a
+      lease: if it never reports (a caller vanished), one new trial is admitted after the lease
+      and the lost trial's epoch is invalidated.
     * Every opening bumps an epoch. Results carry the token they were admitted with; a result whose
       token is stale (a hung call finishing late) is ignored and may not populate a cache.
     No retries are ever made inside a request.
     """
 
-    def __init__(self, clock: Clock, cooloff: float = DEFAULT_COOLOFF, threshold: int = 3):
+    def __init__(self, clock: Clock, cooloff: float = DEFAULT_COOLOFF, threshold: int = 3,
+                 trial_lease: float = DEFAULT_TRIAL_LEASE):
         self._clock = clock
+        self._lease = trial_lease
+        self._trial_until = 0.0
         self._cooloff = cooloff
         self._threshold = max(1, threshold)
         self._open_until = 0.0
@@ -252,9 +269,13 @@ class CircuitBreaker:
             if self._clock.now() < self._open_until:
                 return None
             if self._opened:
+                now = self._clock.now()
                 if self._trial:
-                    return None
+                    if now < self._trial_until:
+                        return None
+                    self._epoch += 1             # the lost trial's late result must be ignored
                 self._trial = True
+                self._trial_until = now + self._lease
             return self._epoch
 
     def valid(self, token: Optional[int]) -> bool:
@@ -309,5 +330,8 @@ class CircuitBreaker:
                 return AdapterHealth(service, "cooling_off", self._last_error,
                                      int(self._open_until - now) + 1)
             # after a cool-off with no success yet the state is unknown until the trial call
-            state = "ok" if self._seen and not self._opened else "unknown"
-            return AdapterHealth(service, state, self._last_error, None)
+            if self._opened or not self._seen:
+                return AdapterHealth(service, "unknown", self._last_error, None, 0)
+            if self._failures > 0:
+                return AdapterHealth(service, "failing", self._last_error, None, self._failures)
+            return AdapterHealth(service, "ok", self._last_error, None, 0)

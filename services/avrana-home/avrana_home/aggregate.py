@@ -11,7 +11,7 @@ shared, fixed-size pool (never a pool per request); each adapter allows only a f
 upstream calls, and further requests get UNAVAILABLE ("busy") immediately without starting any
 work. At the hard cap the adapter's circuit is force-opened, which also bumps its epoch: a hung
 call that finishes late can neither close the circuit nor populate a cache. Queued work that has
-not started when the cap hits is cancelled.
+not started when the cap hits is cancelled and touches no circuit.
 """
 from __future__ import annotations
 
@@ -21,11 +21,11 @@ from dataclasses import dataclass
 from typing import Iterable, Sequence, Tuple
 
 from .contract import DEFAULT_LIMIT, MediaAdapter, SectionResult, SectionState
-from .principal import MemberPrincipal
-from .resilience import log_failure
+from .principal import MemberPrincipal, is_minted_principal
+from .resilience import REQUEST_BUDGET, log_failure
 
-DEFAULT_HARD_CAP = 3.0
-POOL_WORKERS = 32          # >= adapters x per-adapter in-flight cap (4 x 4 = 16) with headroom
+DEFAULT_HARD_CAP = REQUEST_BUDGET + 1.0   # always above one request's own deadline
+POOL_WORKERS = 48          # >= adapters x per-adapter in-flight cap (4 x 8 = 32) with headroom
 _pool = None
 _pool_lock = threading.Lock()
 
@@ -54,8 +54,8 @@ class HomeSections:
 def gather(principal: MemberPrincipal, adapters: Sequence[MediaAdapter],
            sections: Iterable[str] = ("continue", "recent"), limit: int = DEFAULT_LIMIT,
            hard_cap: float = DEFAULT_HARD_CAP) -> HomeSections:
-    if not isinstance(principal, MemberPrincipal):
-        raise TypeError("gather takes a MemberPrincipal")
+    if not is_minted_principal(principal):
+        raise TypeError("gather takes a parser-minted MemberPrincipal")
     wanted = [s for s in sections if s in _METHODS]
     jobs = [(a, s) for a in adapters for s in wanted]
     if not jobs:
@@ -63,17 +63,22 @@ def gather(principal: MemberPrincipal, adapters: Sequence[MediaAdapter],
     pool = _shared_pool()
     futures = [pool.submit(getattr(a, _METHODS[s]), principal, limit) for a, s in jobs]
     done, pending = cf.wait(futures, timeout=hard_cap)
-    for fut in pending:
-        fut.cancel()                      # queued-but-unstarted work is dropped; running work is not
+    never_started = {fut for fut in pending if fut.cancel()}   # queued work is dropped; running work is not
     out = []
     for (adapter, section), fut in zip(jobs, futures):
+        if fut in never_started:
+            # It never ran, so it is no evidence about the adapter: no circuit is touched.
+            out.append(SectionResult(adapter.service, section, SectionState.UNAVAILABLE, reason="queued"))
+            continue
         if fut not in done:
             adapter.breaker.force_open("HardCap")
             out.append(SectionResult(adapter.service, section, SectionState.UNAVAILABLE, reason="hard_cap"))
             continue
         try:
             out.append(fut.result())
-        except Exception as exc:  # an adapter bug must cost its own section only
+        except Exception as exc:
+            # A programming error in OUR adapter code (upstream-provoked failures never reach here):
+            # it costs its own section only, is logged by class, and opens that adapter circuit.
             log_failure(adapter.service.value, exc)
             adapter.breaker.force_open(type(exc).__name__)
             out.append(SectionResult(adapter.service, section, SectionState.UNAVAILABLE,
@@ -85,5 +90,5 @@ def health_summary(adapters: Sequence[MediaAdapter]) -> dict:
     """Per-adapter state for a future /healthz. No member data, no upstream calls: the state is
     what the request path last observed (unknown until the first call)."""
     rows = [a.health().to_dict() for a in adapters]
-    degraded = any(r["state"] == "cooling_off" for r in rows)
+    degraded = any(r["state"] in ("cooling_off", "failing") for r in rows)
     return {"home": "ok", "libraries": "degraded" if degraded else "ok", "adapters": rows}
