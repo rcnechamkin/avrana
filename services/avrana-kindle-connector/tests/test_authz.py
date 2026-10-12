@@ -576,7 +576,6 @@ class Bodies(Base):
         self.assertIn("That is not a @kindle.com address.", r.text)
         self.assertNoWrites(before)
 
-    @unittest.expectedFailure
     def test_non_numeric_content_length_is_a_clean_400(self):
         before = self.state()
         for cl in ("abc", "1x", "0x10", "1.5"):
@@ -586,7 +585,6 @@ class Bodies(Base):
         self.assertEqual(self.server.errors, [], "handler raised instead of answering")
         self.assertNoWrites(before)
 
-    @unittest.expectedFailure
     def test_negative_content_length_does_not_hang_the_handler(self):
         before = self.state()
         r = self.request("POST", "/save", hdr(), form(NEW_A), content_length="-1", timeout=1.5)
@@ -594,7 +592,6 @@ class Bodies(Base):
         self.assertEqual(r.status, 400)
         self.assertNoWrites(before)
 
-    @unittest.expectedFailure
     def test_huge_content_length_is_refused_without_waiting(self):
         before = self.state()
         r = self.request("POST", "/save", hdr(), b"address=", content_length="99999999999", timeout=1.5)
@@ -602,7 +599,6 @@ class Bodies(Base):
         self.assertEqual(r.status, 413)
         self.assertNoWrites(before)
 
-    @unittest.expectedFailure
     def test_overlong_but_well_shaped_address_is_rejected(self):
         before = self.state()
         r = self.post("/save", "a" * 300 + "@kindle.com")

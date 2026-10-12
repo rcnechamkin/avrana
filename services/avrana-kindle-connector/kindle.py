@@ -55,6 +55,9 @@ AMAZON_PDOC = "https://www.amazon.com/hz/mycd/myx#/home/settings/pdoc"
 # non-existent @kindle.com without telling anyone.
 KINDLE_RE = re.compile(r"^[A-Za-z0-9._%+-]+@kindle\.com$", re.I)
 
+MAX_BODY = 16384       # bytes; the only field is one address
+MAX_ADDRESS = 254      # RFC 5321 path limit; Kindle addresses are far shorter
+
 _abs_lock = threading.Lock()
 
 
@@ -338,7 +341,15 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(404, render_not_found())
         username, email = member
 
-        length = int(self.headers.get("Content-Length") or 0)
+        # The form is one short field. Refuse anything else up front: a negative length makes
+        # rfile.read() wait for EOF and a huge one waits for bytes that never come, each pinning a
+        # server thread; a non-numeric one used to raise and drop the connection.
+        raw_len = (self.headers.get("Content-Length") or "0").strip()
+        if not re.fullmatch(r"[0-9]{1,12}", raw_len):
+            return self._send(400, "bad request", "text/plain; charset=utf-8")
+        length = int(raw_len)
+        if length > MAX_BODY:
+            return self._send(413, "request too large", "text/plain; charset=utf-8")
         form = urllib.parse.parse_qs(self.rfile.read(length).decode("utf-8", "replace"))
         address = (form.get("address", [""])[0] or "").strip()
 
@@ -355,7 +366,7 @@ class Handler(BaseHTTPRequestHandler):
                                           ("ok", "Removed from " + " and ".join(written) + ".") if written
                                           else ("err", "Nothing to remove."), False))
 
-        if not KINDLE_RE.match(address):
+        if len(address) > MAX_ADDRESS or not KINDLE_RE.match(address):
             return self._send(200, render(cwa_val, abs_val, address,
                                           ("err", "That is not a @kindle.com address."),
                                           bool(cwa_val or abs_val)))
