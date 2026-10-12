@@ -31,7 +31,7 @@ import threading
 from dataclasses import dataclass
 from typing import Any, Callable, Optional, Tuple
 
-from .cache import MemberCache
+from .cache import MemberCache, register_cacheable
 from .principal import MemberPrincipal, is_minted_principal
 from .resilience import (REQUEST_BUDGET, CallBudget, CircuitBreaker, SystemClock, UpstreamNotFound,
                          UpstreamTimeout, UpstreamUnreachable, coerce, counts_toward_breaker,
@@ -202,6 +202,10 @@ class ArtworkResult:
     data: bytes = b""
 
 
+register_cacheable(Service, Kind, SectionState, UpstreamUser, ArtworkRef, MediaItem, SectionResult,
+                   ArtworkResult)
+
+
 class AmbiguousMappingError(Exception):
     """More than one upstream account could be this member. Refuse; never pick one."""
 
@@ -355,7 +359,7 @@ class MediaAdapter:
         result = out.value
         if result.state is SectionState.OK and out.fresh:
             scope.set(self.service.value, "art:" + ref, result, ttl=ARTWORK_TTL,
-                      size=len(result.data) + 256)
+                      size=len(result.data) + 256, data_class="artwork")
         return result
 
     def health(self):
@@ -449,14 +453,17 @@ class MediaAdapter:
             user = self._resolve_user(principal)
         except MappingFailed as exc:
             if self.breaker.valid(token):
-                scope.set(self.service.value, "mapping", ("absent", exc.reason), ttl=MAPPING_TTL_ABSENT, size=128)
+                scope.set(self.service.value, "mapping", ("absent", exc.reason), ttl=MAPPING_TTL_ABSENT, size=128,
+                          data_class="member_mapping")
             raise
         except AmbiguousMappingError:
             if self.breaker.valid(token):
-                scope.set(self.service.value, "mapping", ("ambiguous", None), ttl=MAPPING_TTL_ABSENT, size=128)
+                scope.set(self.service.value, "mapping", ("ambiguous", None), ttl=MAPPING_TTL_ABSENT, size=128,
+                          data_class="member_mapping")
             raise
         if self.breaker.valid(token):
-            scope.set(self.service.value, "mapping", ("user", user), ttl=MAPPING_TTL_FOUND, size=128)
+            scope.set(self.service.value, "mapping", ("user", user), ttl=MAPPING_TTL_FOUND, size=128,
+                      data_class="member_mapping")
         return user
 
     def _call(self, principal: MemberPrincipal, work: Callable[[UpstreamUser], Any],
@@ -539,8 +546,9 @@ class MediaAdapter:
             return SectionResult(self.service, section, SectionState.NOT_LINKED, reason=out.reason)
         result = out.value
         if result.state in (SectionState.OK, SectionState.EMPTY) and out.fresh:
+            # permission-dependent library data is member-scoped, never "catalogue"
             scope.set(self.service.value, cache_name, result, ttl=self.cache_ttl(section),
-                      size=256 + 512 * len(result.items))
+                      size=256 + 512 * len(result.items), data_class="member_progress")
         return result
 
     def cache_ttl(self, section: str) -> float:

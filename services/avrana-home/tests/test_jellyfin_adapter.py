@@ -260,7 +260,7 @@ class IsolationTests(Base):
         self.assertNone(as_json(a1, a2), B_MARKERS)
         self.assertIsNot(a1, b1)
         n = len(self.fake.requests)
-        self.assertIs(self.adapter.continue_items(self.a), a1)         # own cache hit
+        self.assertEqual(self.adapter.continue_items(self.a), a1)    # own cache hit (equal, rebuilt from the store)
         self.assertEqual(len(self.fake.requests), n)
         self.assertEqual(self.adapter.item(self.a, "bbbb0000000000000000000000000001").items, ())
 
