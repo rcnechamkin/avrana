@@ -17,10 +17,12 @@ hint that a withheld service exists.
 import concurrent.futures
 import html
 import importlib.util
+import io
 import re
 import socket
 import sys
 import threading
+import time
 import unittest
 from http.server import ThreadingHTTPServer
 from pathlib import Path
@@ -180,32 +182,80 @@ def _b(v):
     return v if isinstance(v, bytes) else v.encode("latin-1")
 
 
-def send_raw(wire, timeout=10):
-    """Send exact bytes, read until the server closes. None if the connection died first."""
+class PortalUnreachable(AssertionError):
+    """The harness could not get a response at all: a test-environment fault, not a decision."""
+
+
+class _FakeSocket:
+    """Just enough of a socket for StreamRequestHandler: the request bytes in, replies out."""
+
+    def __init__(self, wire):
+        self._in = io.BytesIO(wire)
+        self.sent = io.BytesIO()
+
+    def makefile(self, mode, *_a, **_k):
+        return self._in if "r" in mode else self.sent
+
+    def sendall(self, data):
+        self.sent.write(data)
+
+    def settimeout(self, _t):
+        pass
+
+    def close(self):
+        pass
+
+
+def _exchange_in_process(wire):
+    """Run the REAL Handler over an in-memory connection: no socket, no port, same code path
+    (request parsing, routing, send_error replies, headers). Most of the suite uses this, so it
+    cannot exhaust ephemeral ports or race a server thread."""
+    sock = _FakeSocket(wire)
+    portal.Handler(sock, ("127.0.0.1", 0), None)
+    return sock.sent.getvalue()
+
+
+def _exchange_live(wire, timeout=10):
+    """The same over a real loopback connection to the harness server. One bounded retry, at
+    connect time only, for refused/reset/timeout; nothing is retried once bytes may have been
+    exchanged."""
+    s = None
+    for attempt in (1, 2):
+        try:
+            s = socket.create_connection(("127.0.0.1", PORT), timeout=timeout)
+            break
+        except (ConnectionRefusedError, ConnectionResetError, socket.timeout) as exc:
+            if attempt == 2:
+                raise PortalUnreachable(f"cannot connect to 127.0.0.1:{PORT}: {exc!r}") from exc
+            time.sleep(0.25)
     chunks = []
-    try:
-        with socket.create_connection(("127.0.0.1", PORT), timeout=timeout) as s:
+    with s:
+        try:
+            s.sendall(wire)
+        except OSError:
+            pass  # server may answer and close before reading an oversized request
+        try:
+            s.shutdown(socket.SHUT_WR)
+        except OSError:
+            pass
+        while True:
             try:
-                s.sendall(wire)
-            except OSError:
-                pass  # server may answer and close before reading an oversized request
-            try:
-                s.shutdown(socket.SHUT_WR)
-            except OSError:
-                pass
-            while True:
-                try:
-                    data = s.recv(65536)
-                except OSError:
-                    break
-                if not data:
-                    break
-                chunks.append(data)
-    except OSError:
-        return None
-    data = b"".join(chunks)
+                data = s.recv(65536)
+            except OSError as exc:
+                if not chunks:
+                    raise PortalUnreachable(f"connection died before any reply: {exc!r}") from exc
+                break
+            if not data:
+                break
+            chunks.append(data)
+    return b"".join(chunks)
+
+
+def send_raw(wire, live=False):
+    """Send exact bytes and parse the reply. Raises PortalUnreachable if there is none."""
+    data = _exchange_live(wire) if live else _exchange_in_process(wire)
     if not data:
-        return None
+        raise PortalUnreachable("empty reply")
     head, _sep, body = data.partition(b"\r\n\r\n")
     lines = head.split(b"\r\n")
     if not lines[0].startswith(b"HTTP/"):
@@ -219,7 +269,8 @@ def send_raw(wire, timeout=10):
     return Resp(status, headers, body)
 
 
-def request(target, headers=(), method="GET", host="portal.test", body=b"", version="HTTP/1.1"):
+def request(target, headers=(), method="GET", host="portal.test", body=b"", version="HTTP/1.1",
+            live=False):
     lines = [f"{method} {target} {version}".encode("latin-1")]
     if host is not None:
         lines.append(b"Host: " + _b(host))
@@ -229,7 +280,7 @@ def request(target, headers=(), method="GET", host="portal.test", body=b"", vers
     if body:
         lines.append(b"Content-Length: " + str(len(body)).encode())
     wire = b"\r\n".join(lines) + b"\r\n\r\n" + body
-    return send_raw(wire)
+    return send_raw(wire, live)
 
 
 def ident_headers(name):
@@ -247,17 +298,8 @@ _cache = {}
 def fetch(ident, target, method="GET"):
     key = (ident, target, method)
     if key not in _cache:
-        r = request(target, ident_headers(ident), method=method)
-        assert r is not None, f"no response for {method} {target} as {ident}"
-        _cache[key] = r
+        _cache[key] = request(target, ident_headers(ident), method=method)
     return _cache[key]
-
-
-def warm(idents, targets, methods=("GET",)):
-    """Fetch many (identity, target, method) combinations concurrently into the cache."""
-    todo = [(i, t, m) for i in idents for t in targets for m in methods if (i, t, m) not in _cache]
-    with concurrent.futures.ThreadPoolExecutor(max_workers=16) as pool:
-        list(pool.map(lambda k: fetch(*k), todo))
 
 
 def tile_paths(page):
@@ -317,11 +359,6 @@ class PinTests(unittest.TestCase):
 
 
 class RouteMatrixTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        warm(IDENTITIES, ROUTES + ["/definitely-not-a-route", "/ops/", "/watch/"])
-        warm(IDENTITIES, ROUTES, ("HEAD",))
-
     def test_every_route_for_every_identity(self):
         for ident in IDENTITIES:
             groups = groups_of(ident)
@@ -437,7 +474,6 @@ class VariantTests(unittest.TestCase):
     def test_variants_match_clean_route(self):
         idents = ["no_header", "books", "all_members", "admin_only"]
         routes = [r for r in ROUTES if r not in UNKNOWN_ROUTES[1:]]
-        warm(idents, [v for r in routes for v in self.variants(r)])
         for ident in idents:
             groups = groups_of(ident)
             for route in routes:
@@ -491,8 +527,7 @@ class HeaderFailClosedTests(unittest.TestCase):
         The home grid, help index and account list are each built from the whole parsed group
         set, so together with a spot check of three gated routes they prove the set is empty."""
         routes = routes or self.SPOT
-        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
-            replies = list(pool.map(lambda rt: request(rt, headers), routes))
+        replies = [request(rt, headers) for rt in routes]
         for route, r in zip(routes, replies):
             if r is None or r.status in extra_ok_statuses:
                 continue
@@ -532,17 +567,17 @@ class HeaderFailClosedTests(unittest.TestCase):
 
     def test_unicode_lookalikes_and_hidden_characters(self):
         raw = [
-            "avrаna-videos".encode("utf-8"),             # Cyrillic a
-            "ａvrana-videos".encode("utf-8"),             # fullwidth a
-            "avrana‐videos".encode("utf-8"),             # hyphen U+2010
-            "avrana‑videos".encode("utf-8"),             # non-breaking hyphen
-            "avrana-videos​".encode("utf-8"),            # zero-width space
-            "​avrana-videos".encode("utf-8"),
-            "avrana-videоs".encode("utf-8"),             # Cyrillic o
-            "authentik Аdmins".encode("utf-8"),          # Cyrillic A
-            "authentik Admins".encode("utf-8"),          # NBSP inside the name
-            "authentik Admins ".encode("utf-8"),         # line separator
-            "Kindle".encode("utf-8"),
+            "avr\u0430na-videos".encode("utf-8"),             # Cyrillic a
+            "\uff41vrana-videos".encode("utf-8"),             # fullwidth a
+            "avrana\u2010videos".encode("utf-8"),             # hyphen U+2010
+            "avrana\u2011videos".encode("utf-8"),             # non-breaking hyphen
+            "avrana-videos\u200b".encode("utf-8"),            # zero-width space
+            "\u200bavrana-videos".encode("utf-8"),
+            "avrana-vide\u043es".encode("utf-8"),             # Cyrillic o
+            "authentik \u0410dmins".encode("utf-8"),          # Cyrillic A
+            "authentik\xa0Admins".encode("utf-8"),          # NBSP inside the name
+            "authentik Admins\u2028".encode("utf-8"),         # line separator
+            "\u212aindle".encode("utf-8"),
             b"avrana-videos\xff",                             # invalid byte
             b"\xefavrana-videos",
         ]
@@ -556,9 +591,8 @@ class HeaderFailClosedTests(unittest.TestCase):
         self.assert_no_access(with_groups("x" * 60000), "one 60 KB group")
         # Over http.server's 64 KiB line limit the request is refused outright (431 or a reset).
         r = request("/", with_groups("avrana-videos|" + "x" * 70000))
-        if r is not None:
-            self.assertEqual(431, r.status)
-            self.assertNotIn("tile", r.text)
+        self.assertEqual(431, r.status)
+        self.assertNotIn("tile", r.text)
 
     def test_long_value_with_a_real_group_still_parses(self):
         """Pinned: length alone neither grants nor strips a genuine group."""
@@ -649,7 +683,7 @@ class HeaderFailClosedTests(unittest.TestCase):
     def test_surprising_but_safe_normalisation(self):
         """Pinned, not fixed: str.strip() also removes NBSP and U+0085 from the edges of a name.
         This cannot widen access beyond the exact names already present in the header."""
-        for value in ("avrana-videos ", " avrana-videos", "avrana-videos\u0085"):
+        for value in ("avrana-videos\xa0", "\xa0avrana-videos", "avrana-videos\u0085"):
             with self.subTest(value=value):
                 h = [(GROUPS_HEADER, value.encode("latin-1"))]
                 self.assertEqual(200, request("/watch", h).status)
@@ -936,7 +970,7 @@ class AccountTests(unittest.TestCase):
         for i in range(60):
             m = a if i % 2 == 0 else b
             jobs.append((m, "/account" if i % 3 else "/"))
-        barrier = threading.Barrier(12, timeout=20)
+        barrier = threading.Barrier(6, timeout=20)
 
         def run(job):
             m, route = job
@@ -944,9 +978,9 @@ class AccountTests(unittest.TestCase):
                 barrier.wait(timeout=0.5)
             except threading.BrokenBarrierError:
                 pass
-            return m, route, request(route, hdrs(m))
+            return m, route, request(route, hdrs(m), live=True)
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=12) as pool:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
             results = list(pool.map(run, jobs))
         self.assertEqual(60, len(results))
         for m, route, r in results:
@@ -966,6 +1000,86 @@ class AccountTests(unittest.TestCase):
                 else:
                     want = ["watch", "request", "help"] if m is a else ["read", "request", "help"]
                     self.assertEqual(want, tile_paths(text))
+
+
+class LiveServerTests(unittest.TestCase):
+    """End to end over real loopback connections: a representative route from every route class
+    against every identity class (~200 connections; the bulk of the suite runs the same Handler
+    in memory). Each live reply must equal the in-memory reply and the pinned expectation."""
+
+    LIVE_ROUTES = ["/", "/account", "/help", "/help/books", "/help/requests", "/read", "/request",
+                   "/watch", "/listen", "/comics", "/requestabook", "/ops", "/healthz", "/nope"]
+
+    def test_live_replies_match_in_memory_and_pins(self):
+        for ident in IDENTITIES:
+            groups = groups_of(ident)
+            for route in self.LIVE_ROUTES:
+                with self.subTest(ident=ident, route=route):
+                    live = request(route, ident_headers(ident), live=True)
+                    mem = fetch(ident, route)
+                    self.assertEqual((live.status, live.location, live.body),
+                                     (mem.status, mem.location, mem.body))
+                    self.assertEqual(expected(route, groups), (live.status, live.location))
+                    for k, v in HygieneTests.REQUIRED.items():
+                        self.assertEqual([v], live.all(k))
+
+    def test_live_head_matches_get(self):
+        for ident in ("no_header", "videos", "admin_and_all"):
+            for route in ("/", "/watch", "/ops", "/nope"):
+                with self.subTest(ident=ident, route=route):
+                    g = request(route, ident_headers(ident), live=True)
+                    h = request(route, ident_headers(ident), method="HEAD", live=True)
+                    self.assertEqual((g.status, g.location), (h.status, h.location))
+                    self.assertEqual(b"", h.body)
+
+    def test_live_duplicate_headers_and_unsupported_method(self):
+        r = request("/ops", [(GROUPS_HEADER, ADMIN), (GROUPS_HEADER, ADMIN)], live=True)
+        self.assertEqual(404, r.status)
+        r = request("/ops", ident_headers("admin_only"), method="POST", live=True)
+        self.assertEqual(501, r.status)
+        for k, v in HygieneTests.REQUIRED.items():
+            self.assertEqual([v], r.all(k))
+
+    def test_server_speaks_http_1_0_and_answers_only_the_first_pipelined_request(self):
+        """Isolation between requests on one connection relies on the connection closing after
+        each reply. Two pipelined requests with different identities: only the first is answered
+        and the second identity never receives anything."""
+        self.assertEqual("HTTP/1.0", portal.Handler.protocol_version)
+        first = (b"GET /watch HTTP/1.1\r\nHost: portal.test\r\nX-authentik-groups: avrana-videos\r\n"
+                 b"X-authentik-username: member-a\r\n\r\n")
+        second = (b"GET /account HTTP/1.1\r\nHost: portal.test\r\nX-authentik-groups: authentik Admins\r\n"
+                  b"X-authentik-username: member-b\r\n\r\n")
+        for live in (True, False):
+            data = _exchange_live(first + second) if live else _exchange_in_process(first + second)
+            with self.subTest(live=live):
+                self.assertTrue(data.startswith(b"HTTP/1.0 200"))
+                self.assertEqual(1, data.count(b"HTTP/1."))
+                self.assertNotIn(b"member-b", data)
+
+    @unittest.expectedFailure  # AVR-352 follow-up; remove with the Handler.timeout fix
+    def test_handler_has_a_socket_timeout(self):
+        """A half-sent request must not pin a handler thread forever."""
+        self.assertIsNotNone(portal.Handler.timeout)
+        self.assertLessEqual(portal.Handler.timeout, 60)
+
+    def test_stalled_request_is_dropped_by_the_server(self):
+        class Short(portal.Handler):
+            timeout = 0.5
+
+        srv = _Server(("127.0.0.1", 0), Short)
+        t = threading.Thread(target=srv.serve_forever, kwargs={"poll_interval": 0.05}, daemon=True)
+        t.start()
+        try:
+            started = time.monotonic()
+            with socket.create_connection(("127.0.0.1", srv.server_address[1]), timeout=5) as s:
+                s.sendall(b"GET /watch HTT")        # request line never finished
+                data = s.recv(4096)                  # blocks until the server gives up
+            self.assertEqual(b"", data)
+            self.assertLess(time.monotonic() - started, 4)
+        finally:
+            srv.shutdown()
+            srv.server_close()
+            t.join(timeout=5)
 
 
 class PureFunctionTests(unittest.TestCase):
@@ -1027,7 +1141,6 @@ class HygieneTests(unittest.TestCase):
             self.assertEqual([v], r.all(k), f"{label}: {k}")
 
     def test_hygiene_headers_on_every_matrix_response(self):
-        warm(IDENTITIES, ROUTES, ("GET", "HEAD"))
         for ident in IDENTITIES:
             for route in ROUTES:
                 for method in ("GET", "HEAD"):
