@@ -1,0 +1,23 @@
+{
+ "_comment": "Known token differences between the custom UIs (AVR-362, narrow slice). An entry is (token, service, value): if the service's value changes to anything else it is a NEW divergence and the test fails. Entries may only be removed as AVR-362 converges the services; do not add one to make a run pass. 'reference' is 'any' (seen when comparing services to each other) or 'tokens.json' (seen only when docs/design/foundation/tokens.json exists).",
+ "allow": [
+  {"token": "layout.column", "service": "kindle", "value": "640px", "reference": "any", "issue": "AVR-362",
+   "reason": "Single-form page; DESIGN.md Layout allows 640px for single-form pages while the portal and Audible use 720px. Decide in AVR-362 whether this stays a named variant."},
+  {"token": "wordmark.size", "service": "kindle", "value": "clamp(2rem,7vw,3rem)", "reference": "any", "issue": "AVR-362",
+   "reason": "Audit A2 and DESIGN.md One Wordmark Rule: the wordmark exists in two sizes; Kindle draws a third."},
+  {"token": "wordmark.size", "service": "audible", "value": "1.25rem", "reference": "any", "issue": "AVR-362",
+   "reason": "Audit A2: the Audible topbar is left-aligned at 1.25rem; DESIGN.md replaces it with the shared wordmark header."},
+  {"token": "wordmark.tracking", "service": "kindle", "value": ".28em", "reference": "any", "issue": "AVR-362",
+   "reason": "Audit A2: Kindle tracks the wordmark at 0.28em; the house style is 0.34em."},
+  {"token": "wordmark.tracking", "service": "audible", "value": "0.3em", "reference": "any", "issue": "AVR-362",
+   "reason": "Audit A2: the Audible topbar tracks at 0.3em; the house style is 0.34em."},
+  {"token": "literal.colour", "service": "audible", "value": "#141414", "reference": "any", "issue": "AVR-362",
+   "reason": "rgba(255,255,255,0.08) behind cover placeholders in style.css; not a palette colour in DESIGN.md."},
+  {"token": "font.family", "service": "portal", "value": "times new roman,times,serif", "reference": "tokens.json", "issue": "AVR-362",
+   "reason": "Audit P3 and DESIGN.md Typography: the stack lacks Liberation Serif, Tinos and Noto Serif."},
+  {"token": "font.family", "service": "kindle", "value": "times new roman,times,serif", "reference": "tokens.json", "issue": "AVR-362",
+   "reason": "Audit P3 and DESIGN.md Typography: the stack lacks Liberation Serif, Tinos and Noto Serif."},
+  {"token": "font.family", "service": "audible", "value": "times new roman,times,serif", "reference": "tokens.json", "issue": "AVR-362",
+   "reason": "Audit P3 and DESIGN.md Typography: the stack lacks Liberation Serif, Tinos and Noto Serif."}
+ ]
+}
