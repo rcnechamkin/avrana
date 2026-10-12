@@ -847,19 +847,29 @@ class IdentityResolution(Base):
         self.assertEqual(self.server.errors, [])
         self.assertIn(ADDR["a"], r.text)
 
-    @unittest.expectedFailure
     def test_label_collision_does_not_delete_someone_elses_device(self):
-        # A device that is NOT scoped to A but carries A's label is dropped by abs_set (name match).
-        # The label comes from the username header, so any collision costs another member their device.
+        # A device scoped to someone else that carries A's label used to be dropped by abs_set.
         self.abs.devices = [abs_device("Kindle (member-a)", ADDR["c"], ["abs-u-c"])] + [
             d for d in ABS_DEVICES if d["users"] not in (["abs-u-a"], ["abs-u-c"])]
         victim = json.dumps(self.abs.devices[0])
         self.post("/save", NEW_A)
-        self.assertIn(victim, [json.dumps(d) for d in self.abs.devices])
+        devs = self.abs.devices
+        self.assertIn(victim, [json.dumps(d) for d in devs])
+        mine = [d for d in devs if d["users"] == ["abs-u-a"]]
+        self.assertEqual([d["email"] for d in mine], [NEW_A])
+        names = [d["name"] for d in devs]
+        self.assertEqual(len(names), len(set(names)), "device names must stay unique")
+        self.post("/remove", body=b"")  # and removing A's still leaves the foreign device alone
+        self.assertEqual([d for d in self.abs.devices if json.dumps(d) == victim], [self.abs.devices[0]])
+        self.assertEqual([d for d in self.abs.devices if d["users"] == ["abs-u-a"]], [])
+
+    def test_unscoped_leftover_with_the_members_label_is_replaced(self):
+        self.abs.devices = [{"name": "Kindle (member-a)", "email": ADDR["shared"], "availabilityOption": "adminOrUp",
+                             "users": []}] + [d for d in ABS_DEVICES if d["users"] != ["abs-u-a"]]
+        self.post("/save", NEW_A)
+        self.assertNotIn(ADDR["shared"] + "\"", json.dumps([d for d in self.abs.devices if d["name"] == "Kindle (member-a)"]))
 
 
-
-# ---------------------------------------------------------------- failures mid-write
 class WriteFailures(Base):
     def block_cwa_updates(self):
         con = sqlite3.connect(self.db)

@@ -147,9 +147,13 @@ def abs_devices():
 def abs_set(abs_user, address: str | None, label: str):
     """Replace this user's device entry, leaving everyone else's untouched."""
     with _abs_lock:
+        # Drop only what is this user's: scoped to exactly them, or an unscoped leftover that carries
+        # their label. A device scoped to someone else is never touched, even if its name collides.
         devices = [d for d in abs_devices()
-                   if not (d.get("users") == [abs_user["id"]] or d.get("name") == label)]
+                   if not (d.get("users") == [abs_user["id"]] or (d.get("name") == label and not d.get("users")))]
         if address:
+            if any(d.get("name") == label for d in devices):
+                label = f"{label} #{abs_user['id']}"  # keep names unique without touching the other device
             devices.append({
                 "name": label,
                 "email": address,
