@@ -40,25 +40,32 @@ class FakeAdapter(MediaAdapter):
         self.mode = mode                # ok | timeout | boom | block
         self.calls = 0
         self.release = threading.Event()
+        self.block_users = None         # None: "block" mode blocks everyone; else only these names
+        self.block_ops = None           # None: every operation; else only these ("resolve", "items", "artwork")
+        self.started = threading.Semaphore(0)
 
-    def _enter(self):
+    def _enter(self, op="items", username=None):
         self.calls += 1
         if self.mode == "timeout":
             raise UpstreamTimeout()
         if self.mode == "boom":
             raise RuntimeError("synthetic adapter bug")
-        if self.mode == "block":
+        if self.mode == "block" and (self.block_users is None or username in self.block_users)                 and (self.block_ops is None or op in self.block_ops):
+            self.started.release()
             self.release.wait(5)
 
+    def _name_of(self, user):
+        return next((n for n, uid in self.users.items() if uid == user.upstream_id), None)
+
     def _resolve_user(self, principal):
-        self._enter()
+        self._enter("resolve", principal.username)
         uid = self.users.get(principal.username)
         if uid is None:
             raise MappingFailed("unmapped")
         return UpstreamUser(self.service, uid)
 
     def _items(self, user, section):
-        self._enter()
+        self._enter("items", self._name_of(user))
         n = int(user.upstream_id)
         it = MediaItem(id=f"{self.service.value}:{item_id(self.service, n)}", service=self.service,
                        kind=Kind.MOVIE, title=f"Synthetic Title {n}",
@@ -74,5 +81,5 @@ class FakeAdapter(MediaAdapter):
         return self._items(user, "recent")
 
     def _fetch_artwork(self, user, ref):
-        self._enter()
+        self._enter("artwork", self._name_of(user))
         return ArtworkResult(SectionState.OK, "image/png", b"synthetic")

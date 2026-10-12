@@ -11,8 +11,8 @@ this order:
      calls and without touching the cache;
   3. member-scoped cache lookup (keyed by member, never shared). A hit is served even while the
      circuit is open: it makes no upstream call and is bounded by a short TTL;
-  4. the in-flight cap (`busy`) and the shared circuit (`cooling_off`), both returning UNAVAILABLE
-     with zero upstream calls;
+  4. the in-flight caps (`busy` for the service, `member_busy` for one member) and the shared
+     circuit (`cooling_off`), all returning UNAVAILABLE with zero upstream calls;
   5. the upstream mapping (`resolve_user`): unmapped -> NOT_LINKED, ambiguous -> NOT_LINKED
      (refused), never a fallback to an admin or service view;
   6. only then the subclass hook, which may talk to the upstream.
@@ -33,14 +33,17 @@ from typing import Any, Callable, Optional, Tuple
 
 from .cache import MemberCache
 from .principal import MemberPrincipal, is_minted_principal
-from .resilience import (CircuitBreaker, SystemClock, UpstreamNotFound, coerce,
-                         counts_toward_breaker, log_failure)
+from .resilience import (REQUEST_BUDGET, CallBudget, CircuitBreaker, SystemClock, UpstreamNotFound,
+                         coerce, counts_toward_breaker, log_failure)
 
 DEFAULT_LIMIT = 12
 MAX_LIMIT = 50
 MAX_TITLE_LEN = 200
 ARTWORK_TTL = 300.0   # longest an item hidden from a member can still be served from cache
-DEFAULT_MAX_IN_FLIGHT = 4
+DEFAULT_MAX_IN_FLIGHT = 8             # upstream calls running at once, per adapter
+DEFAULT_MAX_IN_FLIGHT_PER_MEMBER = 2  # ... of which one member may hold at most this many
+MAPPING_TTL_FOUND = 60.0              # bounds how long a renamed or swapped upstream account can linger
+MAPPING_TTL_ABSENT = 60.0
 
 log = logging.getLogger("avrana_home")
 
@@ -214,6 +217,15 @@ class ForbiddenRequest(Exception):
     """An adapter tried a request outside its read-only allow-list. Raised BEFORE any I/O."""
 
 
+class _Ctx:
+    """Per-call facts the breaker accounting needs."""
+    __slots__ = ("upstream", "fresh_mapping")
+
+    def __init__(self):
+        self.upstream = False         # did any request actually reach the upstream?
+        self.fresh_mapping = False    # was the mapping confirmed against the upstream in this call?
+
+
 @dataclass(frozen=True)
 class _Outcome:
     kind: str                       # "ok" | "unavailable" | "not_linked"
@@ -229,13 +241,19 @@ class MediaAdapter:
 
     def __init__(self, breaker: Optional[CircuitBreaker] = None,
                  cache: Optional[MemberCache] = None, clock=None,
-                 max_in_flight: int = DEFAULT_MAX_IN_FLIGHT):
+                 max_in_flight: int = DEFAULT_MAX_IN_FLIGHT,
+                 max_in_flight_per_member: int = DEFAULT_MAX_IN_FLIGHT_PER_MEMBER,
+                 request_timeout: float = REQUEST_BUDGET):
         self.clock = clock or SystemClock()
         self.breaker = breaker or CircuitBreaker(self.clock)
         self.cache = cache or MemberCache(self.clock)
         self._max_in_flight = max_in_flight
+        self._max_per_member = max_in_flight_per_member
+        self._request_timeout = request_timeout
         self._in_flight = 0
+        self._by_member: dict = {}
         self._flight_lock = threading.Lock()
+        self._local = threading.local()
 
     @property
     def required_group(self) -> str:
@@ -274,7 +292,7 @@ class MediaAdapter:
         self._require_principal(principal)
         if not principal.has_group(self.required_group):
             return None
-        out = self._call(principal, lambda user: user)
+        out = self._call(principal, lambda user: user, reaches_upstream=False)
         return out.value if out.kind == "ok" else None
 
     def continue_items(self, principal: MemberPrincipal, limit: int = DEFAULT_LIMIT) -> SectionResult:
@@ -333,25 +351,42 @@ class MediaAdapter:
     def _not_permitted(self, section: str) -> SectionResult:
         return SectionResult(self.service, section, SectionState.NOT_PERMITTED)
 
-    def _acquire_slot(self) -> bool:
+    def current_budget(self) -> CallBudget:
+        """The one deadline of the request in progress on this thread: mapping and work share it,
+        so a request that respects it can never reach the hard cap in `gather`."""
+        budget = getattr(self._local, "budget", None)
+        return budget if budget is not None else CallBudget(self.clock, self._request_timeout)
+
+    def _acquire_slot(self, member: str) -> Optional[str]:
+        """None when admitted, else the refusal reason. Service cap first, then the per-member cap
+        (so one member cannot take every slot)."""
         with self._flight_lock:
             if self._in_flight >= self._max_in_flight:
-                return False
+                return "busy"
+            if self._by_member.get(member, 0) >= self._max_per_member:
+                return "member_busy"
             self._in_flight += 1
-            return True
+            self._by_member[member] = self._by_member.get(member, 0) + 1
+            return None
 
-    def _release_slot(self) -> None:
+    def _release_slot(self, member: str) -> None:
         with self._flight_lock:
             self._in_flight -= 1
+            left = self._by_member.get(member, 0) - 1
+            if left > 0:
+                self._by_member[member] = left
+            else:
+                self._by_member.pop(member, None)
 
-    def _account(self, err: Exception, token: Optional[int]) -> None:
+    def _account(self, err: Exception, token: Optional[int], member_scoped: bool,
+                 force_count: bool = False) -> None:
         log_failure(self.service.value, err)
-        if counts_toward_breaker(err):
+        if force_count or counts_toward_breaker(err, member_scoped=member_scoped):
             self.breaker.failure(type(err).__name__, token)
         else:
             self.breaker.neutral(token)          # a per-request problem: the shared circuit is untouched
 
-    def _mapped(self, scope, principal: MemberPrincipal, token: int) -> UpstreamUser:
+    def _mapped(self, scope, principal: MemberPrincipal, token: int, ctx: "_Ctx") -> UpstreamUser:
         """Mapping with member-scoped caching of the outcome (positive and negative)."""
         hit = scope.get(self.service.value, "mapping")
         if hit is not None:
@@ -361,59 +396,80 @@ class MediaAdapter:
             if kind == "ambiguous":
                 raise AmbiguousMappingError()
             raise MappingFailed(payload)
+        ctx.upstream = ctx.fresh_mapping = True      # from here on the upstream is being asked
         try:
             user = self._resolve_user(principal)
         except MappingFailed as exc:
             if self.breaker.valid(token):
-                scope.set(self.service.value, "mapping", ("absent", exc.reason), ttl=60.0, size=128)
+                scope.set(self.service.value, "mapping", ("absent", exc.reason), ttl=MAPPING_TTL_ABSENT, size=128)
             raise
         except AmbiguousMappingError:
             if self.breaker.valid(token):
-                scope.set(self.service.value, "mapping", ("ambiguous", None), ttl=60.0, size=128)
+                scope.set(self.service.value, "mapping", ("ambiguous", None), ttl=MAPPING_TTL_ABSENT, size=128)
             raise
         if self.breaker.valid(token):
-            scope.set(self.service.value, "mapping", ("user", user), ttl=300.0, size=128)
+            scope.set(self.service.value, "mapping", ("user", user), ttl=MAPPING_TTL_FOUND, size=128)
         return user
 
-    def _call(self, principal: MemberPrincipal, work: Callable[[UpstreamUser], Any]) -> _Outcome:
-        """The one place that touches the upstream: in-flight cap, shared circuit, mapping, then
-        `work`. Every upstream-provoked failure becomes an outcome; nothing raises for it."""
+    def _call(self, principal: MemberPrincipal, work: Callable[[UpstreamUser], Any],
+              reaches_upstream: bool = True) -> _Outcome:
+        """The one place that touches the upstream: in-flight caps, shared circuit, mapping, then
+        `work`. Every upstream-provoked failure becomes an outcome; nothing raises for it.
+
+        The breaker hears only about calls that really reached the upstream: a mapping served from
+        the cache (found, absent or ambiguous) is neutral, so it can neither reset a failure run nor
+        keep a failing service circuit closed."""
         scope = self.cache.for_member(principal)
-        if not self._acquire_slot():
-            return _Outcome("unavailable", reason="busy")
+        member = principal.username
+        refused = self._acquire_slot(member)
+        if refused is not None:
+            return _Outcome("unavailable", reason=refused)
+        self._local.budget = CallBudget(self.clock, self._request_timeout)
         try:
             token = self.breaker.acquire()
             if token is None:
                 return _Outcome("unavailable", reason="cooling_off")
+            ctx = _Ctx()
             stage = "mapping"
             try:
-                user = self._mapped(scope, principal, token)
+                user = self._mapped(scope, principal, token, ctx)
                 stage = "work"
+                ctx.upstream = ctx.upstream or reaches_upstream
                 value = work(user)
-            except MappingFailed as exc:
-                self.breaker.success(token)           # the upstream answered; the member is not linked
-                return _Outcome("not_linked", reason=exc.reason)
-            except AmbiguousMappingError:
-                self.breaker.success(token)
-                return _Outcome("not_linked", reason="ambiguous")
+            except (MappingFailed, AmbiguousMappingError) as exc:
+                self._report_ok(token, ctx)
+                reason = exc.reason if isinstance(exc, MappingFailed) else "ambiguous"
+                return _Outcome("not_linked", reason=reason)
             except Exception as exc:
                 err = coerce(exc)
-                if err is None:                       # a programming error, not upstream input
+                if err is None:                       # a programming error in OUR code: stay visible
                     self.breaker.neutral(token)
                     raise
-                if isinstance(err, UpstreamNotFound) and stage == "work":
-                    # The mapped upstream user (or item) is gone: specific to this member. Forget the
-                    # mapping so it is re-resolved, and do not touch the shared circuit.
-                    scope.delete(self.service.value, "mapping")
-                    log_failure(self.service.value, err)
-                    self.breaker.neutral(token)
-                    return _Outcome("not_linked", reason="upstream_user_not_found")
-                self._account(err, token)
+                if isinstance(err, UpstreamNotFound):
+                    if stage == "work" and not ctx.fresh_mapping:
+                        # A cached mapping points at a user the upstream no longer knows: specific to
+                        # this member. Forget the mapping (re-resolved next time); circuit untouched.
+                        scope.delete(self.service.value, "mapping")
+                        log_failure(self.service.value, err)
+                        self.breaker.neutral(token)
+                        return _Outcome("not_linked", reason="upstream_user_not_found")
+                    # The user list was just read (or is itself missing): the route is gone, which
+                    # is service-wide route drift, so it counts.
+                    self._account(err, token, member_scoped=False, force_count=True)
+                else:
+                    self._account(err, token, member_scoped=(stage == "work"))
                 return _Outcome("unavailable", reason=type(err).__name__)
-            fresh = self.breaker.success(token)
-            return _Outcome("ok", value, fresh=fresh)
+            return _Outcome("ok", value, fresh=self._report_ok(token, ctx))
         finally:
-            self._release_slot()
+            self._local.budget = None
+            self._release_slot(member)
+
+    def _report_ok(self, token: int, ctx: "_Ctx") -> bool:
+        """Success only if the upstream really answered; returns whether the result is still fresh."""
+        if ctx.upstream:
+            return self.breaker.success(token)
+        self.breaker.neutral(token)
+        return self.breaker.valid(token)
 
     def _section(self, principal: MemberPrincipal, section: str, cache_name: str,
                  fetch: Callable[[UpstreamUser], SectionResult]) -> SectionResult:

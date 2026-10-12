@@ -22,8 +22,9 @@ from ..contract import (ArtworkRef, ArtworkResult, AmbiguousMappingError, Forbid
                         MappingFailed, MediaAdapter, MediaItem, SectionResult, SectionState,
                         Service, UpstreamUser, build_handoff_url, clean_text)
 from ..resilience import (MAX_IMAGE_BYTES, MAX_JSON_BYTES, CallBudget, DEFAULT_TIMEOUT,
-                          Transport, TransportResponse, UpstreamMalformed, UpstreamMisbehaved,
-                          UpstreamNotFound, UpstreamTooLarge)
+                          Transport, TransportResponse, UpstreamError, UpstreamMalformed,
+                          UpstreamMisbehaved, UpstreamNotFound, UpstreamTooLarge,
+                          UpstreamUnreachable)
 
 TICKS_PER_SECOND = 10_000_000
 _GUID = re.compile(r"[0-9a-fA-F]{8}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{12}")
@@ -32,6 +33,18 @@ _BOUND_ID = re.compile(_HEX32)
 MAX_INT = 2 ** 63
 _ARTWORK_REF = re.compile(r"jellyfin/primary/(" + _HEX32 + r")")
 _IMAGE_TYPES = ("image/jpeg", "image/png", "image/webp")
+
+
+def _image_magic_ok(ctype: str, body: bytes) -> bool:
+    """The bytes must really be the image type claimed (the serving app must still send
+    X-Content-Type-Options: nosniff, see ADAPTER-CONTRACT.md)."""
+    if ctype == "image/png":
+        return body.startswith(b"\x89PNG\r\n\x1a\n")
+    if ctype == "image/jpeg":
+        return body.startswith(b"\xff\xd8\xff")
+    if ctype == "image/webp":
+        return len(body) >= 12 and body[:4] == b"RIFF" and body[8:12] == b"WEBP"
+    return False
 _ITEM_FIELDS = "PrimaryImageAspectRatio"
 
 
@@ -127,6 +140,7 @@ class JellyfinAdapter(MediaAdapter):
     service = Service.JELLYFIN
 
     def __init__(self, transport: Transport, timeout: float = DEFAULT_TIMEOUT, **kw):
+        kw.setdefault("request_timeout", timeout)
         super().__init__(**kw)
         self._guard = GuardedTransport(transport)
         self._timeout = timeout
@@ -138,7 +152,15 @@ class JellyfinAdapter(MediaAdapter):
     def _get(self, guard: GuardedTransport, budget: CallBudget, path: str,
              query: Optional[Mapping[str, str]], max_bytes: int = MAX_JSON_BYTES) -> TransportResponse:
         timeout = min(budget.remaining(), self._timeout)
-        resp = guard.request("GET", path, query, timeout, max_bytes)
+        try:
+            resp = guard.request("GET", path, query, timeout, max_bytes)
+        except (UpstreamError, ForbiddenRequest):
+            raise                      # classified already, or a bug in OUR allow-list use: stay visible
+        except Exception:
+            # Anything else a transport raises is upstream-side by definition (a surprise exception
+            # class from a client library). It is one failed call, logged by class downstream,
+            # never an escaping exception and never a reason to force-open the circuit.
+            raise UpstreamUnreachable() from None
         budget.remaining()                      # a response that arrives past the budget is too late
         if len(resp.body) > max_bytes:
             raise UpstreamTooLarge()
@@ -152,7 +174,7 @@ class JellyfinAdapter(MediaAdapter):
             raise UpstreamMalformed() from None
 
     def _budget(self) -> CallBudget:
-        return CallBudget(self.clock, self._timeout)
+        return self.current_budget()
 
     # -- mapping -------------------------------------------------------------------------
     def _resolve_user(self, principal) -> UpstreamUser:
@@ -160,6 +182,9 @@ class JellyfinAdapter(MediaAdapter):
         users = self._get_json(guard, self._budget(), "/Users", None)
         if not isinstance(users, list):
             raise UpstreamMalformed()
+        if users and not any(isinstance(u, dict) and isinstance(u.get("Name"), str)
+                             and normalise_guid(u.get("Id")) is not None for u in users):
+            raise UpstreamMalformed()      # a non-empty list nobody can be matched in is drift, not "unlinked"
         wanted_exact = principal.username
         wanted_loose = _norm_name(principal.username)
         exact, loose = {}, {}
@@ -196,6 +221,7 @@ class JellyfinAdapter(MediaAdapter):
         data = raw.get("UserData")
         data = data if isinstance(data, dict) else {}
         # Scope tripwire: a response that names another user, or another item, is hostile or broken.
+        # UserData.UserId may well be absent from real responses (UNVERIFIED); checked only if present.
         if "UserId" in data and normalise_guid(data["UserId"]) != user_id:
             raise UpstreamMisbehaved()
         if "ItemId" in data and normalise_guid(data["ItemId"]) != item_id:
@@ -322,7 +348,7 @@ class JellyfinAdapter(MediaAdapter):
         except UpstreamNotFound:
             return ArtworkResult(SectionState.EMPTY)
         ctype = resp.content_type.split(";")[0].strip().lower()
-        if ctype not in _IMAGE_TYPES or not resp.body:
+        if ctype not in _IMAGE_TYPES or not _image_magic_ok(ctype, resp.body):
             raise UpstreamMalformed()
         return ArtworkResult(SectionState.OK, ctype, resp.body)
 

@@ -1,3 +1,8 @@
+import os as _os
+import sys as _sys
+
+_sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+from tests import _netguard  # noqa: E402,F401  (installs the network guard, also when run directly)
 import unittest
 
 from avrana_home.cache import MemberCache, SharedCache
