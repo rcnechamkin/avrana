@@ -43,9 +43,12 @@ class FakeAdapter(MediaAdapter):
         self.block_users = None         # None: "block" mode blocks everyone; else only these names
         self.block_ops = None           # None: every operation; else only these ("resolve", "items", "artwork")
         self.started = threading.Semaphore(0)
+        self.work_exc = None            # raised by every non-mapping operation (after the call is counted)
 
     def _enter(self, op="items", username=None):
         self.calls += 1
+        if self.work_exc is not None and op != "resolve":
+            raise self.work_exc
         if self.mode == "timeout":
             raise UpstreamTimeout()
         if self.mode == "boom":

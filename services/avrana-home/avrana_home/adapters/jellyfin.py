@@ -21,10 +21,10 @@ from typing import Any, List, Mapping, Optional, Tuple
 from ..contract import (ArtworkRef, ArtworkResult, AmbiguousMappingError, ForbiddenRequest, Kind,
                         MappingFailed, MediaAdapter, MediaItem, SectionResult, SectionState,
                         Service, UpstreamUser, build_handoff_url, clean_text)
-from ..resilience import (MAX_IMAGE_BYTES, MAX_JSON_BYTES, CallBudget, DEFAULT_TIMEOUT,
-                          Transport, TransportResponse, UpstreamError, UpstreamMalformed,
-                          UpstreamMisbehaved, UpstreamNotFound, UpstreamTooLarge,
-                          UpstreamUnreachable)
+from ..resilience import (MAX_IMAGE_BYTES, MAX_JSON_BYTES, CallBudget, DEFAULT_TIMEOUT, ItemGone,
+                          RouteMissing, Transport, TransportResponse, UpstreamError,
+                          UpstreamMalformed, UpstreamMisbehaved, UpstreamNotFound, UpstreamTooLarge,
+                          UpstreamUnreachable, UserGone)
 
 TICKS_PER_SECOND = 10_000_000
 _GUID = re.compile(r"[0-9a-fA-F]{8}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{12}")
@@ -58,16 +58,19 @@ def normalise_guid(value: Any) -> Optional[str]:
 # ---- the read-only allow-list -------------------------------------------------------------
 class Route:
     def __init__(self, name: str, pattern: str, query_keys: Tuple[str, ...], user_scoped: bool,
-                 needs_user: bool = True):
+                 needs_user: bool = True, not_found: type = UserGone):
         self.name = name
         self.pattern = re.compile(pattern)
         self.query_keys = frozenset(query_keys)
         self.user_scoped = user_scoped      # the userId query value must equal the bound user
         self.needs_user = needs_user        # a mapped user must exist before this route is used
+        # What a 404 on THIS route means, declared here and nowhere else: UserGone (the route is
+        # addressed by the bound user), ItemGone (by one item), RouteMissing (a fixed route).
+        self.not_found = not_found
 
 
 ALLOWED_ROUTES = (
-    Route("users", r"/Users", (), user_scoped=False, needs_user=False),
+    Route("users", r"/Users", (), user_scoped=False, needs_user=False, not_found=RouteMissing),
     Route("resume", r"/UserItems/Resume",
           ("userId", "limit", "mediaTypes", "fields", "enableUserData", "enableImageTypes",
            "enableTotalRecordCount"), user_scoped=True),
@@ -79,7 +82,7 @@ ALLOWED_ROUTES = (
     # The image route cannot carry a userId, so ITS member scoping is not enforced here: it rests on
     # the adapter calling `_visible_item` (a userId-scoped lookup) for the same item first.
     Route("image", r"/Items/" + _HEX32 + r"/Images/Primary", ("maxWidth", "quality"),
-          user_scoped=False),
+          user_scoped=False, not_found=ItemGone),
 )
 
 
@@ -124,8 +127,13 @@ class GuardedTransport:
         return GuardedTransport(self._inner, user_id)
 
     def request(self, method, path, query, timeout, max_bytes) -> TransportResponse:
-        check_request(method, path, query, self._bound)
-        return self._inner.request(method, path, query, timeout, max_bytes)
+        route = check_request(method, path, query, self._bound)
+        try:
+            return self._inner.request(method, path, query, timeout, max_bytes)
+        except UpstreamNotFound as exc:
+            if type(exc) is UpstreamNotFound:             # a bare 404: the ROUTE says what it means
+                raise route.not_found(exc.status) from None
+            raise
 
     def __repr__(self) -> str:
         return "GuardedTransport(<redacted>)"
@@ -345,7 +353,7 @@ class JellyfinAdapter(MediaAdapter):
         try:
             resp = self._get(guard, budget, f"/Items/{item_id}/Images/Primary",
                              {"maxWidth": "400", "quality": "80"}, MAX_IMAGE_BYTES)
-        except UpstreamNotFound:
+        except ItemGone:
             return ArtworkResult(SectionState.EMPTY)
         ctype = resp.content_type.split(";")[0].strip().lower()
         if ctype not in _IMAGE_TYPES or not _image_magic_ok(ctype, resp.body):

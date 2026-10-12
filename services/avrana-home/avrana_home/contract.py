@@ -24,6 +24,7 @@ the circuit shared by all members is `resilience.counts_toward_breaker`.
 """
 from __future__ import annotations
 
+import copy
 import enum
 import logging
 import re
@@ -33,9 +34,9 @@ from typing import Any, Callable, Optional, Tuple
 
 from .cache import MemberCache, register_cacheable
 from .principal import MemberPrincipal, is_minted_principal
-from .resilience import (REQUEST_BUDGET, CallBudget, CircuitBreaker, SystemClock, UpstreamNotFound,
-                         UpstreamTimeout, UpstreamUnreachable, coerce, counts_toward_breaker,
-                         log_failure)
+from .resilience import (REQUEST_BUDGET, CallBudget, CircuitBreaker, ItemGone, SystemClock,
+                         UpstreamNotFound, UpstreamTimeout, UpstreamUnreachable, UserGone, coerce,
+                         counts_toward_breaker, log_failure)
 
 DEFAULT_LIMIT = 12
 MAX_LIMIT = 50
@@ -231,12 +232,23 @@ class _SharedFailure(Exception):
 
 
 class _Flight:
-    __slots__ = ("event", "result", "exc")
+    """One in-progress mapping lookup that concurrent sections of the same member share."""
+    __slots__ = ("event", "result", "exc", "started", "finished")
 
-    def __init__(self):
+    def __init__(self, started: float):
         self.event = threading.Event()
         self.result = None
         self.exc = None
+        self.started = started            # when the leader began: an old flight is abandoned
+        self.finished = None              # when the leader reported: a stale answer is not shared
+
+
+def _fresh_copy(err: Exception) -> Exception:
+    """A new exception instance for each follower (a shared instance would share its traceback)."""
+    try:
+        return copy.copy(err)
+    except Exception:
+        return UpstreamUnreachable()
 
 
 class _Ctx:
@@ -250,7 +262,7 @@ class _Ctx:
 
 @dataclass(frozen=True)
 class _Outcome:
-    kind: str                       # "ok" | "unavailable" | "not_linked"
+    kind: str                       # "ok" | "unavailable" | "not_linked" | "gone"
     value: Any = None
     reason: Optional[str] = None
     fresh: bool = False             # False when a hung call finished after the circuit moved on
@@ -266,9 +278,11 @@ class MediaAdapter:
                  max_in_flight: int = DEFAULT_MAX_IN_FLIGHT,
                  max_in_flight_per_member: int = DEFAULT_MAX_IN_FLIGHT_PER_MEMBER,
                  request_timeout: float = REQUEST_BUDGET):
-        self.clock = clock or SystemClock()
-        self.breaker = breaker or CircuitBreaker(self.clock)
-        self.cache = cache or MemberCache(self.clock)
+        # `is not None`, never truthiness: an empty cache is falsy (it has __len__) and must not be
+        # silently replaced by a private one.
+        self.clock = clock if clock is not None else SystemClock()
+        self.breaker = breaker if breaker is not None else CircuitBreaker(self.clock)
+        self.cache = cache if cache is not None else MemberCache(self.clock)
         self._max_in_flight = max_in_flight
         self._max_per_member = max_in_flight_per_member
         self._request_timeout = request_timeout
@@ -277,6 +291,11 @@ class MediaAdapter:
         self._flights: dict = {}                      # member -> in-progress mapping lookup
         self._flight_lock = threading.Lock()
         self._local = threading.local()
+
+    @property
+    def request_timeout(self) -> float:
+        """The one deadline this adapter gives a whole request (mapping and work together)."""
+        return self._request_timeout
 
     @property
     def required_group(self) -> str:
@@ -356,10 +375,11 @@ class MediaAdapter:
             return ArtworkResult(SectionState.UNAVAILABLE)
         if out.kind == "not_linked":
             return ArtworkResult(SectionState.NOT_LINKED)
+        if out.kind == "gone":
+            return ArtworkResult(SectionState.EMPTY)
         result = out.value
         if result.state is SectionState.OK and out.fresh:
-            scope.set(self.service.value, "art:" + ref, result, ttl=ARTWORK_TTL,
-                      size=len(result.data) + 256, data_class="artwork")
+            scope.set(self.service.value, "art:" + ref, result, ttl=ARTWORK_TTL, data_class="artwork")
         return result
 
     def health(self):
@@ -422,18 +442,35 @@ class MediaAdapter:
         member = principal.username
         with self._flight_lock:
             flight = self._flights.get(member)
+            if flight is not None and self.clock.now() - flight.started > self._request_timeout:
+                flight = None                # older than one request budget: its leader is hung or gone
             leader = flight is None
             if leader:
-                flight = self._flights[member] = _Flight()
+                flight = self._flights[member] = _Flight(self.clock.now())
         if not leader:
             # Single-flight: a concurrent section of the same page is already asking the upstream
             # for this member; share its answer (and its one counted failure) instead of repeating.
-            if not flight.event.wait(self._request_timeout + 1.0):
+            # The wait is bounded by what is LEFT of this request's own budget, never by the hard cap.
+            try:
+                left = self.current_budget().remaining()
+            except UpstreamTimeout:
+                raise _SharedFailure(UpstreamTimeout()) from None
+            if not flight.event.wait(left):
+                with self._flight_lock:
+                    if self._flights.get(member) is flight:
+                        del self._flights[member]       # abandon it: the next caller leads afresh
                 raise _SharedFailure(UpstreamTimeout())
-            if isinstance(flight.exc, (MappingFailed, AmbiguousMappingError)):
-                raise flight.exc
+            if flight.finished is not None and self.clock.now() - flight.finished > MAPPING_TTL_FOUND:
+                raise _SharedFailure(UpstreamTimeout())  # an answer older than the mapping TTL is not shared
+            if isinstance(flight.exc, MappingFailed):
+                raise MappingFailed(flight.exc.reason)
+            if isinstance(flight.exc, AmbiguousMappingError):
+                raise AmbiguousMappingError()
             if flight.exc is not None:
-                raise _SharedFailure(coerce(flight.exc) or UpstreamUnreachable())
+                raise _SharedFailure(_fresh_copy(coerce(flight.exc) or UpstreamUnreachable()))
+            if flight.result is None:
+                raise _SharedFailure(UpstreamUnreachable())
+            ctx.fresh_mapping = True         # the leader just confirmed it against the upstream
             return flight.result
         try:
             user = self._lead_mapping(scope, principal, token, ctx)
@@ -443,8 +480,13 @@ class MediaAdapter:
             flight.exc = exc
             raise
         finally:
+            try:
+                flight.finished = self.clock.now()
+            except Exception:
+                flight.finished = None
             with self._flight_lock:
-                self._flights.pop(member, None)
+                if self._flights.get(member) is flight:
+                    del self._flights[member]
             flight.event.set()
 
     def _lead_mapping(self, scope, principal: MemberPrincipal, token: int, ctx: "_Ctx") -> UpstreamUser:
@@ -453,16 +495,16 @@ class MediaAdapter:
             user = self._resolve_user(principal)
         except MappingFailed as exc:
             if self.breaker.valid(token):
-                scope.set(self.service.value, "mapping", ("absent", exc.reason), ttl=MAPPING_TTL_ABSENT, size=128,
+                scope.set(self.service.value, "mapping", ("absent", exc.reason), ttl=MAPPING_TTL_ABSENT,
                           data_class="member_mapping")
             raise
         except AmbiguousMappingError:
             if self.breaker.valid(token):
-                scope.set(self.service.value, "mapping", ("ambiguous", None), ttl=MAPPING_TTL_ABSENT, size=128,
+                scope.set(self.service.value, "mapping", ("ambiguous", None), ttl=MAPPING_TTL_ABSENT,
                           data_class="member_mapping")
             raise
         if self.breaker.valid(token):
-            scope.set(self.service.value, "mapping", ("user", user), ttl=MAPPING_TTL_FOUND, size=128,
+            scope.set(self.service.value, "mapping", ("user", user), ttl=MAPPING_TTL_FOUND,
                       data_class="member_mapping")
         return user
 
@@ -479,8 +521,9 @@ class MediaAdapter:
         refused = self._acquire_slot(member)
         if refused is not None:
             return _Outcome("unavailable", reason=refused)
-        self._local.budget = CallBudget(self.clock, self._request_timeout)
         try:
+            # inside the try: whatever the clock does, the slot is released below
+            self._local.budget = CallBudget(self.clock, self._request_timeout)
             token = self.breaker.acquire()
             if token is None:
                 return _Outcome("unavailable", reason="cooling_off")
@@ -504,7 +547,12 @@ class MediaAdapter:
                 if err is None:                       # a programming error in OUR code: stay visible
                     self.breaker.neutral(token)
                     raise
-                if isinstance(err, UpstreamNotFound):
+                if isinstance(err, ItemGone):
+                    # The route is addressed by one item and that item is absent or hidden: an empty
+                    # result for that item. Says nothing about the service; never counted.
+                    self.breaker.neutral(token)
+                    return _Outcome("gone", reason="item_not_found")
+                if isinstance(err, UserGone):
                     if stage == "work" and not ctx.fresh_mapping:
                         # A cached mapping points at a user the upstream no longer knows: specific to
                         # this member. Forget the mapping (re-resolved next time); circuit untouched.
@@ -512,8 +560,12 @@ class MediaAdapter:
                         log_failure(self.service.value, err)
                         self.breaker.neutral(token)
                         return _Outcome("not_linked", reason="upstream_user_not_found")
-                    # The user list was just read (or is itself missing): the route is gone, which
-                    # is service-wide route drift, so it counts.
+                    # The user was confirmed against the upstream a moment ago (by this call or by the
+                    # single-flight leader it followed) and is now "gone": contradictory, so it is
+                    # drift and counts. The mapping is NOT dropped on that contradiction.
+                    self._account(err, token, member_scoped=False, force_count=True)
+                elif isinstance(err, UpstreamNotFound):
+                    # A fixed route (or one nobody classified) is missing: service-wide drift.
                     self._account(err, token, member_scoped=False, force_count=True)
                 else:
                     self._account(err, token, member_scoped=(stage == "work"))
@@ -544,11 +596,13 @@ class MediaAdapter:
             return SectionResult(self.service, section, SectionState.UNAVAILABLE, reason=out.reason)
         if out.kind == "not_linked":
             return SectionResult(self.service, section, SectionState.NOT_LINKED, reason=out.reason)
+        if out.kind == "gone":
+            return SectionResult(self.service, section, SectionState.EMPTY, reason=out.reason)
         result = out.value
         if result.state in (SectionState.OK, SectionState.EMPTY) and out.fresh:
             # permission-dependent library data is member-scoped, never "catalogue"
             scope.set(self.service.value, cache_name, result, ttl=self.cache_ttl(section),
-                      size=256 + 512 * len(result.items), data_class="member_progress")
+                      data_class="member_progress")
         return result
 
     def cache_ttl(self, section: str) -> float:

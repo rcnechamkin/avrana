@@ -9,7 +9,7 @@ import unittest
 from avrana_home.adapters.jellyfin import JellyfinAdapter
 from avrana_home.contract import SectionState
 from avrana_home.resilience import (CircuitBreaker, FakeClock, UpstreamAuthError, UpstreamHTTPError,
-                                    UpstreamMalformed, UpstreamMisbehaved, UpstreamNotFound,
+                                    ItemGone, RouteMissing, UserGone, UpstreamMalformed, UpstreamMisbehaved, UpstreamNotFound,
                                     UpstreamTimeout, UpstreamTooLarge, UpstreamUnreachable,
                                     counts_toward_breaker)
 from tests.fake_jellyfin import A, B, FakeJellyfin, FakeTransport, load
@@ -23,8 +23,8 @@ class CountingRuleTests(unittest.TestCase):
         counted = [UpstreamTimeout(), UpstreamUnreachable(), UpstreamMalformed(), UpstreamTooLarge(),
                    UpstreamMisbehaved(), UpstreamAuthError(401), UpstreamAuthError(403),
                    UpstreamHTTPError(500), UpstreamHTTPError(503), UpstreamHTTPError(429),
-                   UpstreamHTTPError(302)]
-        not_counted = [UpstreamNotFound(404), UpstreamHTTPError(400), UpstreamHTTPError(410),
+                   UpstreamHTTPError(302), RouteMissing(404), UpstreamNotFound(404)]
+        not_counted = [UserGone(404), ItemGone(404), UpstreamHTTPError(400), UpstreamHTTPError(410),
                        UpstreamHTTPError(422)]
         for e in counted:
             self.assertTrue(counts_toward_breaker(e), repr(e))

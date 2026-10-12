@@ -16,26 +16,77 @@ not started when the cap hits is cancelled and touches no circuit.
 from __future__ import annotations
 
 import concurrent.futures as cf
+import queue
 import threading
 from dataclasses import dataclass
-from typing import Iterable, Sequence, Tuple
+from typing import Iterable, Optional, Sequence, Tuple
 
 from .contract import DEFAULT_LIMIT, MediaAdapter, SectionResult, SectionState
 from .principal import MemberPrincipal, is_minted_principal
 from .resilience import REQUEST_BUDGET, log_failure
 
 DEFAULT_HARD_CAP = REQUEST_BUDGET + 1.0   # always above one request's own deadline
+HARD_CAP_MARGIN = 1.0
 POOL_WORKERS = 48          # >= adapters x per-adapter in-flight cap (4 x 8 = 32) with headroom
+
+
+class _DaemonPool:
+    """A fixed-size pool of DAEMON threads. `concurrent.futures.ThreadPoolExecutor` threads are
+    joined at interpreter exit, so one hung upstream call would keep a shutting-down process alive;
+    these are not. Same `submit` shape, returns a `concurrent.futures.Future` (cancellable while
+    queued)."""
+
+    def __init__(self, workers: int, prefix: str):
+        self._q: "queue.SimpleQueue" = queue.SimpleQueue()
+        self._workers = workers
+        self._prefix = prefix
+        self._threads: list = []
+        self._lock = threading.Lock()
+
+    def submit(self, fn, *args) -> cf.Future:
+        fut: cf.Future = cf.Future()
+        self._q.put((fut, fn, args))
+        with self._lock:
+            if len(self._threads) < self._workers:
+                t = threading.Thread(target=self._run, name=f"{self._prefix}-{len(self._threads)}",
+                                     daemon=True)
+                self._threads.append(t)
+                t.start()
+        return fut
+
+    def _run(self) -> None:
+        while True:
+            fut, fn, args = self._q.get()
+            if not fut.set_running_or_notify_cancel():
+                continue
+            try:
+                fut.set_result(fn(*args))
+            except BaseException as exc:          # delivered through the future, never lost
+                fut.set_exception(exc)
+
+    def shutdown(self, wait: bool = True) -> None:   # pragma: no cover - daemon threads just end
+        pass
+
+
 _pool = None
 _pool_lock = threading.Lock()
 
 
-def _shared_pool() -> cf.ThreadPoolExecutor:
+def _shared_pool():
     global _pool
     with _pool_lock:
         if _pool is None:
-            _pool = cf.ThreadPoolExecutor(max_workers=POOL_WORKERS, thread_name_prefix="avrana-section")
+            _pool = _DaemonPool(POOL_WORKERS, "avrana-section")
         return _pool
+
+
+def derive_hard_cap(adapters: Sequence[MediaAdapter]) -> float:
+    """The wall-clock backstop for a page: the longest request deadline any of these adapters
+    enforces, plus a margin. An adapter built with a larger timeout therefore gets a larger cap
+    instead of being cut off by a constant; with no adapters (or defaults) it is DEFAULT_HARD_CAP."""
+    longest = max((getattr(a, "request_timeout", REQUEST_BUDGET) for a in adapters), default=REQUEST_BUDGET)
+    return longest + HARD_CAP_MARGIN
+
 
 _METHODS = {"continue": "continue_items", "recent": "recent_items"}
 
@@ -53,13 +104,15 @@ class HomeSections:
 
 def gather(principal: MemberPrincipal, adapters: Sequence[MediaAdapter],
            sections: Iterable[str] = ("continue", "recent"), limit: int = DEFAULT_LIMIT,
-           hard_cap: float = DEFAULT_HARD_CAP) -> HomeSections:
+           hard_cap: Optional[float] = None) -> HomeSections:
     if not is_minted_principal(principal):
         raise TypeError("gather takes a parser-minted MemberPrincipal")
     wanted = [s for s in sections if s in _METHODS]
     jobs = [(a, s) for a in adapters for s in wanted]
     if not jobs:
         return HomeSections(())
+    if hard_cap is None:
+        hard_cap = derive_hard_cap(adapters)
     pool = _shared_pool()
     futures = [pool.submit(getattr(a, _METHODS[s]), principal, limit) for a, s in jobs]
     done, pending = cf.wait(futures, timeout=hard_cap)
