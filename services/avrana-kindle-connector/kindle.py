@@ -448,7 +448,7 @@ class Handler(BaseHTTPRequestHandler):
         if route == "/healthz":
             return self._send(200, "ok", "text/plain; charset=utf-8")
         username = self._member()
-        if username is None:
+        if username is None or route != "/":  # the page lives at "/" only; /health, /save etc. are 404
             return self._send(404, render_not_found())
         state = self._read_state(username)
         if state is None:

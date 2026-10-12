@@ -306,11 +306,12 @@ class PermittedMember(Base):
 
     def test_get_with_query_and_trailing_slash_never_writes(self):
         before = self.state()
-        for p in ("/?address=evil_1@kindle.com", "//", "/save", "/remove", "/save?address=x@kindle.com",
-                  "/some/other/path"):
+        for p in ("/?address=evil_1@kindle.com", "//", "/?"):
             r = self.get(p)
             self.assertEqual(r.status, 200, p)
             self.assertNoAddressLeak(r.text, allowed=(ADDR["a"],))
+        for p in ("/save", "/remove", "/save?address=x@kindle.com", "/some/other/path", "/index.html"):
+            self.assertEqual(self.get(p).status, 404, p)  # only "/" is a page; GET never reaches a write route
         self.assertNoWrites(before)
 
     def test_unsupported_methods_do_nothing(self):
@@ -1158,12 +1159,60 @@ class Hardening(Base):
         self.assertEqual(kindle.Handler.protocol_version, "HTTP/1.0")
 
     def test_every_response_is_http_1_0_and_closes_the_connection(self):
-        # early 404/400/413 replies do not read the body; that is only safe if the connection closes
-        for r in (self.get(), self.get(headers=[]), self.post("/save", NEW_A),
-                  self.request("POST", "/save", hdr(), b"x", content_length="abc"),
-                  self.request("POST", "/save", hdr(), b"x", content_length="99999999")):
+        # early 404/400/413 replies do not read the body; that is only safe if the connection closes.
+        # A short timeout makes a keep-alive mutation fail on the version, not by hanging.
+        self.assertEqual(kindle.Handler.protocol_version, "HTTP/1.0")
+        for r in (self.get(timeout=1.5), self.get(headers=[], timeout=1.5), self.post("/save", NEW_A, timeout=1.5),
+                  self.request("POST", "/save", hdr(), b"x", content_length="abc", timeout=1.5),
+                  self.request("POST", "/save", hdr(), b"x", content_length="99999999", timeout=1.5)):
             self.assertEqual(r.version, "HTTP/1.0")
             self.assertFalse(r.timed_out)  # the server closed; we never had to give up waiting
+
+
+class Boundaries(Base):
+    def test_body_size_limit_is_exact(self):
+        before = self.state()
+        r = self.request("POST", "/save", hdr(), b"address=", content_length=str(kindle.MAX_BODY + 1))
+        self.assertEqual(r.status, 413)
+        self.assertNoWrites(before)
+        body = b"address=" + b"a" * (kindle.MAX_BODY - 8)
+        self.assertEqual(len(body), kindle.MAX_BODY)
+        r = self.request("POST", "/save", hdr(), body, timeout=5)
+        self.assertEqual(r.status, 200)  # accepted, then rejected as an address
+        self.assertIn("That is not a @kindle.com address.", r.text)
+        self.assertNoWrites(before)
+
+    def test_hostile_sender_is_escaped_in_the_saved_banner(self):
+        saved = kindle.SENDER
+        kindle.SENDER = "<b>s</b>@example.test"
+        self.addCleanup(lambda: setattr(kindle, "SENDER", saved))
+        r = self.post("/save", NEW_A)
+        self.assertIn("Saved to", r.text)
+        self.assertNotIn("<b>s</b>", r.text)
+        self.assertGreaterEqual(r.text.count("&lt;b&gt;s&lt;/b&gt;@example.test"), 2)  # banner and instructions
+
+    def test_a_shared_device_listing_the_member_is_not_their_device(self):
+        fam = "family_x1@kindle.com"
+        self.abs.devices = [abs_device("Family reader", fam, ["abs-u-a", "abs-u-b"])]
+        r = self.get()
+        self.assertNotIn(fam, r.text)
+        self.assertIn("<dt>Audiobookshelf</dt><dd>not set</dd>", r.text)
+        self.assertIn(ADDR["a"], r.text)  # Calibre-Web is still shown
+
+    def test_only_the_exact_healthz_path_is_open(self):
+        for headers in ([], hdr()):
+            for path in ("/health", "/healthzz", "/healthz/x", "/healthz.html", "/Healthz", "/xhealthz"):
+                with self.subTest(path=path, member=bool(headers)):
+                    r = self.get(path, headers=headers)
+                    self.assertEqual(r.status, 404)
+                    self.assertNotEqual(r.text, "ok")
+        for headers in ([], hdr(groups="avrana-users")):
+            self.assertEqual(self.get("/healthz", headers=headers).text, "ok")
+
+    def test_kindle_regex_rejects_a_trailing_newline(self):
+        for a in ("a@kindle.com\n", "a@kindle.com\r\n", "a@kindle.com\n\n"):
+            self.assertIsNone(kindle.KINDLE_RE.match(a), repr(a))
+        self.assertTrue(kindle.KINDLE_RE.match("a@kindle.com"))
 
 
 class StoredValues(Base):
