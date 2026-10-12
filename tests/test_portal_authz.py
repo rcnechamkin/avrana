@@ -955,8 +955,8 @@ VOCABULARY = {
 # Words that name no single library but imply a kind of media, and the libraries that justify them.
 # Shelfarr is reachable through two libraries; only a member holding neither may not meet it.
 SHARED_VOCABULARY = {
-    "implies-reading": (re.compile(r"reading", re.I), {"books", "comics"}),
-    "implies-playback": (re.compile(r"playback", re.I), {"videos", "audiobooks"}),
+    "implies-reading": (re.compile(r"\breading\b", re.I), {"books", "comics"}),
+    "implies-playback": (re.compile(r"\bplayback\b", re.I), {"videos", "audiobooks"}),
     "request-books": (re.compile(r"requestabook", re.I), {"books", "audiobooks"}),
 }
 SINGLE_LIBRARY = ("videos", "books", "comics", "audiobooks", "contributors")
