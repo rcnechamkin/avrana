@@ -257,14 +257,25 @@ def render(current_cwa, current_abs, value="", banner=None, can_remove=False):
                        remove=rm, amazon=AMAZON_PDOC, sender=html.escape(SENDER))
 
 
+# The 404 is its own minimal document, not a cut-down PAGE: PAGE's <title> says "Kindle", which would
+# tell a non-member what lives here. The title is the portal's, character for character.
+NOT_FOUND = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Not found · Avrana</title><style>{style}</style></head><body><main>
+<header><h1><a href="https://avrana.net">AVRANA</a></h1><div class="rule"></div></header>
+<section><p class="note">That page does not exist.</p></section>
+<footer><a class="plain" href="https://avrana.net">Back to Avrana</a></footer>
+</main></body></html>
+"""
+
+
 def render_not_found():
-    """The 404 for everyone who is not a member (and for every unknown route): the same shell as the
-    page, with nothing about Kindle, Amazon or the sender address. 404 rather than 403 so that
-    the existence of this tool is not disclosed (audit finding A5, same rule as the portal)."""
-    return (PAGE.split("{banner}")[0].format(style=STYLE) +
-            '<section><p class="note">That page does not exist.</p></section>\n'
-            '<footer><a class="plain" href="https://avrana.net">Back to Avrana</a></footer>\n'
-            '</main></body></html>\n')
+    """The 404 for everyone who is not a member (and for every unknown route): nothing about Kindle,
+    Amazon, the libraries or the sender address. 404 rather than 403 so that the existence of this
+    tool is not disclosed (audit finding A5, same rule as the portal)."""
+    return NOT_FOUND.format(style=STYLE)
 
 
 # ---------------------------------------------------------------- server

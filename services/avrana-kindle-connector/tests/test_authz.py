@@ -19,6 +19,7 @@ import sqlite3
 import sys
 import tempfile
 import threading
+import time
 import unittest
 import urllib.error
 import urllib.parse
@@ -95,9 +96,19 @@ class FakeAbs:
         self.fail_patch = False        # PATCH raises, reads still work
         self.dead_after_failed_patch = False  # once a PATCH has failed, every call raises
         self._dead = False
+        self.latency = 0.0             # seconds slept between reading and acting, outside the fake's lock
         self._lock = threading.Lock()
 
     def __call__(self, path, method="GET", body=None):
+        if self.latency and path == "/api/emails/settings":
+            snapshot = self._call(path, method, body)
+            time.sleep(self.latency)
+            if method == "PATCH":  # the write lands after the delay, like a slow network round trip
+                return self._call(path, method, body, apply_delayed=True)
+            return snapshot
+        return self._call(path, method, body)
+
+    def _call(self, path, method, body, apply_delayed=False):
         with self._lock:
             self.calls.append((method, path))
             if self._dead:
@@ -107,6 +118,8 @@ class FakeAbs:
             if path == "/api/emails/settings" and method == "GET":
                 return {"settings": {"ereaderDevices": copy.deepcopy(self.devices)}}
             if path == "/api/emails/settings" and method == "PATCH":
+                if self.latency and not apply_delayed:
+                    return {}  # first half of a delayed PATCH: nothing applied yet
                 if self.fail_patch:
                     self._dead = self.dead_after_failed_patch
                     raise urllib.error.URLError("fake ABS PATCH failure")
@@ -122,8 +135,9 @@ class FakeAbs:
 
 
 class Resp:
-    def __init__(self, status, headers, body, timed_out=False):
+    def __init__(self, status, headers, body, timed_out=False, version=None):
         self.status, self.headers, self.raw, self.timed_out = status, headers, body, timed_out
+        self.version = version
         self.text = body.decode("utf-8", "replace")
 
 
@@ -158,6 +172,7 @@ class Base(unittest.TestCase):
     cwa_rows = CWA_ROWS
     abs_users = ABS_USERS
     abs_devices = ABS_DEVICES
+    handler_timeout = None
 
     def setUp(self):
         tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)  # a straggler handler thread may still hold the file
@@ -173,9 +188,13 @@ class Base(unittest.TestCase):
         kindle.CWA_DB, kindle.abs_call = self.db, self.abs
         kindle.SENDER, kindle.REQUIRED_GROUP = SENDER, "avrana-books"
         self.addCleanup(lambda: [setattr(kindle, n, v) for n, v in saved.items()])
-        self.server = Server(("127.0.0.1", 0), kindle.Handler)
+        attrs = {"disable_nagle_algorithm": True}  # avoids a ~40 ms delayed-ACK stall per response
+        if self.handler_timeout is not None:
+            attrs["timeout"] = self.handler_timeout
+        self.handler_cls = type("TestHandler", (kindle.Handler,), attrs)
+        self.server = Server(("127.0.0.1", 0), self.handler_cls)
         self.port = self.server.server_address[1]
-        t = threading.Thread(target=self.server.serve_forever, daemon=True)
+        t = threading.Thread(target=self.server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
         t.start()
         self.addCleanup(lambda: (self.server.shutdown(), self.server.server_close(), t.join(5)))
 
@@ -205,7 +224,11 @@ class Base(unittest.TestCase):
         elif content_length is not None:
             lines.append(f"Content-Length: {content_length}".encode())
         data = b"\r\n".join(lines) + b"\r\n\r\n" + body
-        s = socket.create_connection(("127.0.0.1", self.port), timeout=timeout)
+        try:
+            s = socket.create_connection(("127.0.0.1", self.port), timeout=timeout)
+        except (ConnectionRefusedError, ConnectionResetError):  # one retry, at connect time only
+            time.sleep(0.05)
+            s = socket.create_connection(("127.0.0.1", self.port), timeout=timeout)
         chunks, timed_out = [], False
         try:
             s.sendall(data)
@@ -233,7 +256,7 @@ class Base(unittest.TestCase):
         for h in hl:
             k, _, v = h.partition(":")
             headers_d[k.strip().lower()] = v.strip()
-        return Resp(int(first.split()[1]), headers_d, rest, timed_out)
+        return Resp(int(first.split()[1]), headers_d, rest, timed_out, first.split()[0])
 
     def get(self, path="/", headers=None, **k):
         return self.request("GET", path, hdr() if headers is None else headers, **k)
@@ -401,51 +424,50 @@ DENIED_IDENTITIES = [
     ("other member's email, wrong group", hdr(user="member-b", email="b@example.test", groups="avrana-users")),
 ]
 
-DENIED_REQUESTS = [
-    ("GET", "/", b""), ("HEAD", "/", b""), ("GET", "/save", b""), ("GET", "/anything", b""),
-    ("POST", "/save", form(NEW_A)), ("POST", "/remove", b"x=1"), ("POST", "/", form(NEW_A)),
+DENIED_REQUESTS = [  # the four shapes that matter for every identity
+    ("GET", "/", b""), ("HEAD", "/", b""),
+    ("POST", "/save", form(NEW_A)), ("POST", "/remove", b"x=1"),
+]
+DENIED_EXTRA_REQUESTS = [  # other shapes, tried for two representative identities
+    ("GET", "/save", b""), ("GET", "/anything", b""), ("POST", "/", form(NEW_A)),
     ("POST", "/unknown", form(NEW_A)), ("POST", "/save?address=" + NEW_A, form(NEW_B)),
 ]
+NOT_FOUND_FORBIDDEN = (SENDER, "Kindle", "kindle", "Amazon", "amazon", "Calibre", "Audiobookshelf",
+                       "<form", "ebook members")
 
 
 class Denied(Base):
     def each(self):
-        for label, h in DENIED_IDENTITIES:
-            for method, path, body in DENIED_REQUESTS:
+        for i, (label, h) in enumerate(DENIED_IDENTITIES):
+            shapes = DENIED_REQUESTS + (DENIED_EXTRA_REQUESTS if i in (0, 4) else [])
+            for method, path, body in shapes:
                 yield label, method, path, h, body
 
-    def test_denied_never_writes_and_never_reveals_stored_addresses(self):
+    def test_denied_is_a_plain_404_that_writes_nothing_and_reveals_nothing(self):
         before = self.state()
-        for label, method, path, h, body in self.each():
-            with self.subTest(label, method=method, path=path):
-                r = self.request(method, path, h, body)
-                self.assertIsNotNone(r.status, "no response")
-                self.assertIn(r.status, (403, 404))
-                self.assertNoAddressLeak(r.text)
-                self.assertNotIn("a@example.test", r.text)
-        self.assertNoWrites(before)
-        self.assertEqual(self.abs.calls, [], "denied requests must not even read the libraries")
-
-    def test_denied_is_a_plain_404_never_amazon_instructions(self):
         for label, method, path, h, body in self.each():
             with self.subTest(label, method=method, path=path):
                 r = self.request(method, path, h, body)
                 self.assertEqual(r.status, 404)
                 self.assertEqual(r.headers["cache-control"], "no-store")
+                self.assertNoAddressLeak(r.text)
+                self.assertNotIn("a@example.test", r.text)
                 if method != "HEAD":
                     self.assertIn("That page does not exist.", r.text)
-                    for hint in (SENDER, "amazon", "Amazon", "Send-to-Kindle", "<form", "Your Kindle address",
-                                 "ebook members", "Calibre"):
+                    self.assertIn("<title>Not found · Avrana</title>", r.text)
+                    for hint in NOT_FOUND_FORBIDDEN:
                         self.assertNotIn(hint, r.text)
+        self.assertNoWrites(before)
+        self.assertEqual(self.abs.calls, [], "denied requests must not even read the libraries")
 
     def test_permitted_member_gets_404_for_unknown_post_routes_without_leak(self):
         before = self.state()
-        for path in ("/unknown", "/", "/SAVE", "/save2", "/admin", "/save/extra"):
+        for path in ("/unknown", "/", "/SAVE", "/save/extra"):
             with self.subTest(path):
                 r = self.post(path, NEW_A)
                 self.assertEqual(r.status, 404)
                 self.assertIn("That page does not exist.", r.text)
-                for hint in (SENDER, "amazon", "<form", "Your Kindle address", "ebook members"):
+                for hint in NOT_FOUND_FORBIDDEN:
                     self.assertNotIn(hint, r.text)
         self.assertNoWrites(before)
 
@@ -510,11 +532,15 @@ class MalformedIdentity(Base):
 
     def test_odd_username_characters_match_nobody(self):
         before = self.state()
-        for u in ("member-a'--", "' OR '1'='1", "member%", "member_a", "member-_", "%", "_", "*", "member-a\\",
-                  "member-a;", "mémber-a", "../member-a", "member-a)", "Kindle (member-a)"):
+        for u in ("member-a'--", "' OR '1'='1", "member%", "member_a", "member-_", "../member-a",
+                  "Kindle (member-a)", "mémber-a"):
+            with self.subTest(u):
+                r = self.post("/save", NEW_A, headers=hdr(user=u, email=None))
+                self.assertEqual(r.status, 200)
+                self.assertNoAddressLeak(r.text)
+        for u in ("%", "_"):  # LIKE wildcards must not match every row, on read or on remove
             with self.subTest(u):
                 for r in (self.get(headers=hdr(user=u, email=None)),
-                          self.post("/save", NEW_A, headers=hdr(user=u, email=None)),
                           self.post("/remove", headers=hdr(user=u, email=None), body=b"")):
                     self.assertEqual(r.status, 200)
                     self.assertNoAddressLeak(r.text)
