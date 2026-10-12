@@ -1,0 +1,520 @@
+{
+  "schema_version": 1,
+  "status": "proposed, not approved, nothing deployed",
+  "description": "Approved-corpus PROPOSAL for the Avrana Assistant (AVR-397). Member-safe content only, derived from files in this repository. Staleness: blob = git blob hash of the source file at extraction; anchor_text must still occur in the source.",
+  "gaps": [
+    {
+      "id": "G-1",
+      "gap": "No live service status source",
+      "owner_decision": "Operator notice banner (MEDIA-2.0 M1) or sanitized status adapter (AVR-411)"
+    },
+    {
+      "id": "G-2",
+      "gap": "Repo is contradictory about whether e-mail password recovery is live",
+      "owner_decision": "SMTP credential rotation and a verified end-to-end recovery test"
+    },
+    {
+      "id": "G-3",
+      "gap": "Welcome guide recommends Wholphin; portal HELP lists plain Jellyfin for the same TVs",
+      "owner_decision": "Choose the recommended TV app and fix the stale source"
+    },
+    {
+      "id": "G-4",
+      "gap": "Home page address: portal and Media 2.0 say avrana.net, welcome guide says auth.avrana.net",
+      "owner_decision": "Confirm the member home address"
+    },
+    {
+      "id": "G-5",
+      "gap": "No member-facing steps or turnaround for the book and comic request services",
+      "owner_decision": "Write member help for requestabook and requestacomic"
+    },
+    {
+      "id": "G-6",
+      "gap": "Send-to-Kindle sender address exists only as a named e-mail in portal.py",
+      "owner_decision": "Decide whether the assistant may state it"
+    },
+    {
+      "id": "G-7",
+      "gap": "Support contact route (decision D-1 in MEDIA-2.0)",
+      "owner_decision": "D-1"
+    }
+  ],
+  "documents": [
+    {
+      "id": "access-overview",
+      "title": "Getting started with your Avrana account",
+      "path": "docs/access-overview.md",
+      "audience": {
+        "kind": "all_members"
+      },
+      "data_class": "member-general",
+      "review_status": "proposed",
+      "doc_sha256": "78e8ac8b059677aa7adda51a070bbeaedf7bb789472b2e4b3e79f14265490413",
+      "sources": [
+        {
+          "path": "docs/onboarding/welcome.md",
+          "anchor": "1. Create your Avrana account",
+          "anchor_text": "invite link",
+          "blob": "adaca9b76a84777ccc0d1d9484f8fa38454cde4a"
+        },
+        {
+          "path": "docs/onboarding/welcome.md",
+          "anchor": "2. Your home page",
+          "anchor_text": "only the services you have access to",
+          "blob": "adaca9b76a84777ccc0d1d9484f8fa38454cde4a"
+        },
+        {
+          "path": "services/avrana-portal/portal.py",
+          "anchor": "module docstring: role-aware front door",
+          "anchor_text": "renders ONLY the tiles the user's groups permit",
+          "blob": "bec580d8e12a863801db047b62b73e1ddae2f80b"
+        },
+        {
+          "path": "services/avrana-portal/portal.py",
+          "anchor": "HELP: per-service help pages",
+          "anchor_text": "HELP = [",
+          "blob": "bec580d8e12a863801db047b62b73e1ddae2f80b"
+        }
+      ],
+      "notes": "Home page address follows portal.py/MEDIA-2.0 (avrana.net); welcome.md names auth.avrana.net (gap G-4)."
+    },
+    {
+      "id": "movies-tv-access",
+      "title": "Movies and TV: how to watch and which app to install",
+      "path": "docs/movies-tv-access.md",
+      "audience": {
+        "kind": "any_of_groups",
+        "groups": [
+          "avrana-videos"
+        ]
+      },
+      "data_class": "member-general",
+      "review_status": "proposed",
+      "doc_sha256": "8ef51880f826375e695faac6b91bc3de282f1132a9cb6ca9678606450c784a97",
+      "sources": [
+        {
+          "path": "services/avrana-portal/portal.py",
+          "anchor": "HELP[avrana-videos]",
+          "anchor_text": "(\"avrana-videos\", \"Movies and TV\", \"watch.avrana.net\", [",
+          "blob": "bec580d8e12a863801db047b62b73e1ddae2f80b"
+        },
+        {
+          "path": "services/avrana-portal/portal.py",
+          "anchor": "HELP[avrana-videos] browser note",
+          "anchor_text": "Playback in a browser is the least reliable option.",
+          "blob": "bec580d8e12a863801db047b62b73e1ddae2f80b"
+        },
+        {
+          "path": "docs/onboarding/welcome.md",
+          "anchor": "3. Movies & TV: Wholphin and Quick Connect",
+          "anchor_text": "Quick Connect",
+          "blob": "adaca9b76a84777ccc0d1d9484f8fa38454cde4a"
+        },
+        {
+          "path": "docs/onboarding/welcome.md",
+          "anchor": "3. Movies & TV: separate password copy",
+          "anchor_text": "separate copy",
+          "blob": "adaca9b76a84777ccc0d1d9484f8fa38454cde4a"
+        }
+      ],
+      "notes": "Welcome guide (Wholphin) and portal HELP (plain Jellyfin on Fire TV and Google TV) differ; both are stated (gap G-3)."
+    },
+    {
+      "id": "audiobooks-access",
+      "title": "Audiobooks: how to listen and which app to install",
+      "path": "docs/audiobooks-access.md",
+      "audience": {
+        "kind": "any_of_groups",
+        "groups": [
+          "avrana-audiobooks"
+        ]
+      },
+      "data_class": "member-general",
+      "review_status": "proposed",
+      "doc_sha256": "336ecdf301930eb7742ac52fc6d0a85e7cce83038e2c26d56331d35d5a723dbe",
+      "sources": [
+        {
+          "path": "services/avrana-portal/portal.py",
+          "anchor": "HELP[avrana-audiobooks]",
+          "anchor_text": "(\"avrana-audiobooks\", \"Audiobooks\", \"listen.avrana.net\", [",
+          "blob": "bec580d8e12a863801db047b62b73e1ddae2f80b"
+        },
+        {
+          "path": "docs/onboarding/welcome.md",
+          "anchor": "3. Audiobooks",
+          "anchor_text": "AudioBooth",
+          "blob": "adaca9b76a84777ccc0d1d9484f8fa38454cde4a"
+        }
+      ],
+      "notes": ""
+    },
+    {
+      "id": "comics-access",
+      "title": "Comics and manga: how to read and which app to install",
+      "path": "docs/comics-access.md",
+      "audience": {
+        "kind": "any_of_groups",
+        "groups": [
+          "avrana-comics"
+        ]
+      },
+      "data_class": "member-general",
+      "review_status": "proposed",
+      "doc_sha256": "21dc0cbf7dfc2b3473458ae1c1a49b462afac0bc3d84bf323104a7fb80886a13",
+      "sources": [
+        {
+          "path": "services/avrana-portal/portal.py",
+          "anchor": "HELP[avrana-comics]",
+          "anchor_text": "(\"avrana-comics\", \"Comics\", \"read.avrana.net\", [",
+          "blob": "bec580d8e12a863801db047b62b73e1ddae2f80b"
+        },
+        {
+          "path": "services/avrana-portal/portal.py",
+          "anchor": "HELP[avrana-comics] OPDS catalogue",
+          "anchor_text": "https://read.avrana.net/opds/v1.2/catalog",
+          "blob": "bec580d8e12a863801db047b62b73e1ddae2f80b"
+        },
+        {
+          "path": "docs/onboarding/welcome.md",
+          "anchor": "3. Comics & manga",
+          "anchor_text": "comic reader apps that support OPDS",
+          "blob": "adaca9b76a84777ccc0d1d9484f8fa38454cde4a"
+        }
+      ],
+      "notes": ""
+    },
+    {
+      "id": "books-access",
+      "title": "Ebooks: how to read, download and send to a Kindle",
+      "path": "docs/books-access.md",
+      "audience": {
+        "kind": "any_of_groups",
+        "groups": [
+          "avrana-books"
+        ]
+      },
+      "data_class": "member-general",
+      "review_status": "proposed",
+      "doc_sha256": "cdc1dd3fd683b7408ed0e9e145e4f77c18b5356419e4f28cf66f4e2247f133b4",
+      "sources": [
+        {
+          "path": "services/avrana-portal/portal.py",
+          "anchor": "HELP[avrana-books]",
+          "anchor_text": "(\"avrana-books\", \"Books\", \"books.avrana.net\", [",
+          "blob": "bec580d8e12a863801db047b62b73e1ddae2f80b"
+        },
+        {
+          "path": "services/avrana-portal/portal.py",
+          "anchor": "HELP[avrana-books] Send to Kindle",
+          "anchor_text": "Set the Kindle address once at https://kindle.avrana.net",
+          "blob": "bec580d8e12a863801db047b62b73e1ddae2f80b"
+        },
+        {
+          "path": "docs/onboarding/welcome.md",
+          "anchor": "3. Books",
+          "anchor_text": "type your **Avrana username and password** directly",
+          "blob": "adaca9b76a84777ccc0d1d9484f8fa38454cde4a"
+        }
+      ],
+      "notes": "The Amazon approved-sender address is a named e-mail in portal.py and is deliberately not copied; the doc points to the Books help page (gap G-6)."
+    },
+    {
+      "id": "request-overview",
+      "title": "How to ask for something that is missing",
+      "path": "docs/request-overview.md",
+      "audience": {
+        "kind": "all_members"
+      },
+      "data_class": "member-general",
+      "review_status": "proposed",
+      "doc_sha256": "b73a165584e5abe3d3c700f2e64103fd062cf66292be79e29fe222c475b2ef53",
+      "sources": [
+        {
+          "path": "services/avrana-portal/portal.py",
+          "anchor": "CHOOSERS: Request chooser",
+          "anchor_text": "Ask for something that",
+          "blob": "bec580d8e12a863801db047b62b73e1ddae2f80b"
+        },
+        {
+          "path": "docs/onboarding/welcome.md",
+          "anchor": "3. Requesting new movies & shows",
+          "anchor_text": "it'll appear in Movies & TV once it's added",
+          "blob": "adaca9b76a84777ccc0d1d9484f8fa38454cde4a"
+        }
+      ],
+      "notes": "Request turnaround is not documented (gap G-5)."
+    },
+    {
+      "id": "request-movies-tv",
+      "title": "Requesting a film or show",
+      "path": "docs/request-movies-tv.md",
+      "audience": {
+        "kind": "any_of_groups",
+        "groups": [
+          "avrana-videos",
+          "avrana-requests"
+        ]
+      },
+      "data_class": "member-general",
+      "review_status": "proposed",
+      "doc_sha256": "9250c5aecc7e5ced1acd195b538fc38df0f222052f90e4313e307d811603ed38",
+      "sources": [
+        {
+          "path": "services/avrana-portal/portal.py",
+          "anchor": "SERVICES: request.avrana.net",
+          "anchor_text": "Ask for a film or show",
+          "blob": "bec580d8e12a863801db047b62b73e1ddae2f80b"
+        },
+        {
+          "path": "services/avrana-portal/portal.py",
+          "anchor": "HELP[avrana-requests]",
+          "anchor_text": "(\"avrana-requests\", \"Requests\", \"request.avrana.net\", [",
+          "blob": "bec580d8e12a863801db047b62b73e1ddae2f80b"
+        },
+        {
+          "path": "docs/onboarding/welcome.md",
+          "anchor": "3. Requesting new movies & shows",
+          "anchor_text": "Sign in with Jellyfin",
+          "blob": "adaca9b76a84777ccc0d1d9484f8fa38454cde4a"
+        }
+      ],
+      "notes": ""
+    },
+    {
+      "id": "request-books",
+      "title": "Requesting an ebook or audiobook",
+      "path": "docs/request-books.md",
+      "audience": {
+        "kind": "any_of_groups",
+        "groups": [
+          "avrana-books",
+          "avrana-audiobooks"
+        ]
+      },
+      "data_class": "member-general",
+      "review_status": "proposed",
+      "doc_sha256": "f95ccaefa5a9b0671b8f789ff1e917249f0f0772e140ae1ba0ce808c879b8d64",
+      "sources": [
+        {
+          "path": "services/avrana-portal/portal.py",
+          "anchor": "SERVICES: requestabook.avrana.net",
+          "anchor_text": "Ask for an ebook or audiobook",
+          "blob": "bec580d8e12a863801db047b62b73e1ddae2f80b"
+        }
+      ],
+      "notes": "No member-facing form steps exist in the repo (gap G-5)."
+    },
+    {
+      "id": "request-comics",
+      "title": "Requesting a comic or manga",
+      "path": "docs/request-comics.md",
+      "audience": {
+        "kind": "any_of_groups",
+        "groups": [
+          "avrana-comics"
+        ]
+      },
+      "data_class": "member-general",
+      "review_status": "proposed",
+      "doc_sha256": "c1a732b6c4a1b2b781d8fee24439fd32d93e10a328f21d38c52b7cc29d47b0da",
+      "sources": [
+        {
+          "path": "services/avrana-portal/portal.py",
+          "anchor": "SERVICES: requestacomic.avrana.net",
+          "anchor_text": "Ask for a comic or manga",
+          "blob": "bec580d8e12a863801db047b62b73e1ddae2f80b"
+        }
+      ],
+      "notes": "No member-facing form steps exist in the repo (gap G-5)."
+    },
+    {
+      "id": "contribute-audible",
+      "title": "Adding your own audiobooks (contributors)",
+      "path": "docs/contribute-audible.md",
+      "audience": {
+        "kind": "any_of_groups",
+        "groups": [
+          "library-contributors"
+        ]
+      },
+      "data_class": "member-general",
+      "review_status": "proposed",
+      "doc_sha256": "919ed6d5f05a3a8acd68a504f6c70aee261bdc2f0fd0a66d7466e9f31aba3488",
+      "sources": [
+        {
+          "path": "services/avrana-portal/portal.py",
+          "anchor": "SERVICES: contribute.avrana.net",
+          "anchor_text": "Add your Audible books",
+          "blob": "bec580d8e12a863801db047b62b73e1ddae2f80b"
+        },
+        {
+          "path": "docs/onboarding/welcome.md",
+          "anchor": "3. Contributing your own audiobooks",
+          "anchor_text": "Avrana never sees your Amazon password",
+          "blob": "adaca9b76a84777ccc0d1d9484f8fa38454cde4a"
+        }
+      ],
+      "notes": ""
+    },
+    {
+      "id": "missing-library",
+      "title": "Why can't I see a library or service?",
+      "path": "docs/missing-library.md",
+      "audience": {
+        "kind": "all_members"
+      },
+      "data_class": "member-general",
+      "review_status": "proposed",
+      "doc_sha256": "54d278065e4aa61788b5ed2f1be93662d2b0eabc0155f63ec5852a85375e989a",
+      "sources": [
+        {
+          "path": "services/avrana-portal/portal.py",
+          "anchor": "module docstring: 404-not-403 rule",
+          "anchor_text": "A user who lacks the group for a route gets a plain 404, not a 403",
+          "blob": "bec580d8e12a863801db047b62b73e1ddae2f80b"
+        },
+        {
+          "path": "services/avrana-portal/portal.py",
+          "anchor": "render_account: only what the user has",
+          "anchor_text": "Only what the user HAS",
+          "blob": "bec580d8e12a863801db047b62b73e1ddae2f80b"
+        },
+        {
+          "path": "docs/onboarding/welcome.md",
+          "anchor": "Getting help",
+          "anchor_text": "you're not sure what you should have access to",
+          "blob": "adaca9b76a84777ccc0d1d9484f8fa38454cde4a"
+        }
+      ],
+      "notes": "Answer policy (never confirm or deny services outside the member's own groups) is written in the doc and in DATA-CLASSIFICATION.md; it extends the portal's existing rule."
+    },
+    {
+      "id": "password-reset",
+      "title": "Forgot your password",
+      "path": "docs/password-reset.md",
+      "audience": {
+        "kind": "public"
+      },
+      "data_class": "public-help",
+      "review_status": "proposed",
+      "doc_sha256": "491661524a422bfa08a0d4345f74855b8ace55a3fff6585f064137996ab743e1",
+      "sources": [
+        {
+          "path": "services/authentik/blueprints/avrana-recovery.yaml",
+          "anchor": "recovery flow title",
+          "anchor_text": "subject: Reset your Avrana password",
+          "blob": "5028b168dc0f93f298fcadc464e51d4806703a6f"
+        },
+        {
+          "path": "services/authentik/blueprints/avrana-recovery.yaml",
+          "anchor": "recovery link expiry",
+          "anchor_text": "token_expiry: minutes=30",
+          "blob": "5028b168dc0f93f298fcadc464e51d4806703a6f"
+        },
+        {
+          "path": "services/authentik/blueprints/avrana-recovery.yaml",
+          "anchor": "reset does not propagate",
+          "anchor_text": "a reset here does NOT propagate to Jellyfin",
+          "blob": "5028b168dc0f93f298fcadc464e51d4806703a6f"
+        },
+        {
+          "path": "docs/onboarding/welcome.md",
+          "anchor": "4. Forgot your password?",
+          "anchor_text": "Self-service password reset by email",
+          "blob": "adaca9b76a84777ccc0d1d9484f8fa38454cde4a"
+        },
+        {
+          "path": "docs/SECURITY.md",
+          "anchor": "SMTP credential pending",
+          "anchor_text": "the SMTP2GO password awaits",
+          "blob": "36c6b0a8ca63d710514e79d44d8e4be773d7586c"
+        }
+      ],
+      "notes": "Whether e-mail recovery is live is unknown/contradictory in the repo (gap G-2)."
+    },
+    {
+      "id": "service-down",
+      "title": "A service seems down or is not working",
+      "path": "docs/service-down.md",
+      "audience": {
+        "kind": "public"
+      },
+      "data_class": "public-help",
+      "review_status": "proposed",
+      "doc_sha256": "de5d61b0ca24e31daed7cf33997a97d4e775e6b1dfeb651515645619e72c037c",
+      "sources": [
+        {
+          "path": "docs/design/MEDIA-2.0.md",
+          "anchor": "Status crosses the boundary in member language",
+          "anchor_text": "Status crosses the boundary in one direction only",
+          "blob": "4837ab0677a4811af370f83f6e6d43d2b8599883"
+        },
+        {
+          "path": "services/avrana-portal/portal.py",
+          "anchor": "HELP: browser playback least reliable",
+          "anchor_text": "Playback in a browser is the least reliable option.",
+          "blob": "bec580d8e12a863801db047b62b73e1ddae2f80b"
+        },
+        {
+          "path": "docs/onboarding/welcome.md",
+          "anchor": "Getting help",
+          "anchor_text": "Please include which service",
+          "blob": "adaca9b76a84777ccc0d1d9484f8fa38454cde4a"
+        }
+      ],
+      "notes": "No live status source exists in A0 (gap G-1). The operator notice banner in MEDIA-2.0 is planned, not built, so the doc does not mention it."
+    },
+    {
+      "id": "contact-support",
+      "title": "How to contact support",
+      "path": "docs/contact-support.md",
+      "audience": {
+        "kind": "public"
+      },
+      "data_class": "public-help",
+      "review_status": "proposed",
+      "doc_sha256": "0b5a7b5060b4f8547e9d7940e8ccb23b3d1cf2a633c32a7bde5ee4ca97c12435",
+      "sources": [
+        {
+          "path": "docs/onboarding/welcome.md",
+          "anchor": "Getting help",
+          "anchor_text": "Message the admin who invited you",
+          "blob": "adaca9b76a84777ccc0d1d9484f8fa38454cde4a"
+        },
+        {
+          "path": "docs/design/MEDIA-2.0.md",
+          "anchor": "Decision D-1 contact route",
+          "anchor_text": "Contact route: an address, or a form",
+          "blob": "4837ab0677a4811af370f83f6e6d43d2b8599883"
+        }
+      ],
+      "notes": "Decision D-1 is undecided: no address or form is stated (gap G-7)."
+    },
+    {
+      "id": "account-settings",
+      "title": "Your account page and settings",
+      "path": "docs/account-settings.md",
+      "audience": {
+        "kind": "all_members"
+      },
+      "data_class": "member-general",
+      "review_status": "proposed",
+      "doc_sha256": "4ce478957e561fd38bd3ff2ec89b2bdbf7dff925d89d4ae64dbad25c54f829d7",
+      "sources": [
+        {
+          "path": "services/avrana-portal/portal.py",
+          "anchor": "render_account",
+          "anchor_text": "Manage account",
+          "blob": "bec580d8e12a863801db047b62b73e1ddae2f80b"
+        },
+        {
+          "path": "services/avrana-portal/portal.py",
+          "anchor": "render_account: preferences note",
+          "anchor_text": "live inside each service",
+          "blob": "bec580d8e12a863801db047b62b73e1ddae2f80b"
+        }
+      ],
+      "notes": ""
+    }
+  ]
+}
