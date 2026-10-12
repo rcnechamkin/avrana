@@ -362,83 +362,88 @@ class Pages(unittest.TestCase):
         cls.pages = {n: Doc(h) for n, h in states().items()}
 
     def each(self):
-        for n, d in self.pages.items():
-            with self.subTest(n):
-                yield n, d
+        return list(self.pages.items())
 
     def test_document_basics(self):
         for n, d in self.each():
-            self.assertTrue(d.doctype, "doctype")
-            self.assertEqual(d.find("html")[0].attrs.get("lang"), "en")
-            vp = [m for m in d.find("meta") if m.attrs.get("name") == "viewport"]
-            self.assertTrue(vp and "width=device-width" in vp[0].attrs["content"])
-            self.assertNotIn("user-scalable=no", vp[0].attrs["content"])
-            self.assertNotIn("maximum-scale", vp[0].attrs["content"])
-            self.assertTrue(d.find("title")[0].own_text)
-            self.assertEqual(len(d.find("main")), 1)
+            with self.subTest(n):
+                self.assertTrue(d.doctype, "doctype")
+                self.assertEqual(d.find("html")[0].attrs.get("lang"), "en")
+                vp = [m for m in d.find("meta") if m.attrs.get("name") == "viewport"]
+                self.assertTrue(vp and "width=device-width" in vp[0].attrs["content"])
+                self.assertNotIn("user-scalable=no", vp[0].attrs["content"])
+                self.assertNotIn("maximum-scale", vp[0].attrs["content"])
+                self.assertTrue(d.find("title")[0].own_text)
+                self.assertEqual(len(d.find("main")), 1)
 
     def test_color_scheme_dark_in_css_and_meta(self):
         for n, d in self.each():
-            self.assertEqual(Sheet(d.css).declared(d.find("html")[0], "color-scheme"), "dark")
-            metas = [m for m in d.find("meta") if m.attrs.get("name") == "color-scheme"]
-            self.assertTrue(metas and metas[0].attrs["content"] == "dark")
+            with self.subTest(n):
+                self.assertEqual(Sheet(d.css).declared(d.find("html")[0], "color-scheme"), "dark")
+                metas = [m for m in d.find("meta") if m.attrs.get("name") == "color-scheme"]
+                self.assertTrue(metas and metas[0].attrs["content"] == "dark")
 
     def test_exactly_one_h1_and_no_skipped_heading_levels(self):
         for n, d in self.each():
-            levels = [int(e.tag[1]) for e in d.all if re.fullmatch(r"h[1-6]", e.tag)]
-            self.assertEqual(levels.count(1), 1, levels)
-            self.assertEqual(levels[0], 1)
-            for prev, cur in zip(levels, levels[1:]):
-                self.assertLessEqual(cur, prev + 1, f"heading level jumps from {prev} to {cur}: {levels}")
-            for h in (e for e in d.all if re.fullmatch(r"h[1-6]", e.tag)):
-                self.assertTrue(h.all_text, "empty heading")
+            with self.subTest(n):
+                levels = [int(e.tag[1]) for e in d.all if re.fullmatch(r"h[1-6]", e.tag)]
+                self.assertEqual(levels.count(1), 1, levels)
+                self.assertEqual(levels[0], 1)
+                for prev, cur in zip(levels, levels[1:]):
+                    self.assertLessEqual(cur, prev + 1, f"heading level jumps from {prev} to {cur}: {levels}")
+                for h in (e for e in d.all if re.fullmatch(r"h[1-6]", e.tag)):
+                    self.assertTrue(h.all_text, "empty heading")
 
     def test_every_form_control_has_a_programmatic_label(self):
         for n, d in self.each():
-            labels = {l.attrs.get("for"): l for l in d.find("label")}
-            for inp in d.find("input"):
-                if inp.attrs.get("type") in ("hidden", "submit", "button"):
-                    continue
-                iid = inp.attrs.get("id")
-                self.assertTrue(iid, "a visible control needs an id for its label")
-                self.assertIn(iid, labels, f"no <label for={iid}>")
-                self.assertTrue(labels[iid].all_text.strip(), "label has no text")
-                self.assertEqual(len([i for i in d.all if i.attrs.get("id") == iid]), 1, "duplicate id")
-            for b in d.find("button"):
-                self.assertTrue(b.all_text or b.attrs.get("aria-label"), "button without a name")
-            for a in d.find("a"):
-                self.assertTrue(a.all_text or a.attrs.get("aria-label"), "link without a name")
+            with self.subTest(n):
+                labels = {l.attrs.get("for"): l for l in d.find("label")}
+                for inp in d.find("input"):
+                    if inp.attrs.get("type") in ("hidden", "submit", "button"):
+                        continue
+                    iid = inp.attrs.get("id")
+                    self.assertTrue(iid, "a visible control needs an id for its label")
+                    self.assertIn(iid, labels, f"no <label for={iid}>")
+                    self.assertTrue(labels[iid].all_text.strip(), "label has no text")
+                    self.assertEqual(len([i for i in d.all if i.attrs.get("id") == iid]), 1, "duplicate id")
+                for b in d.find("button"):
+                    self.assertTrue(b.all_text or b.attrs.get("aria-label"), "button without a name")
+                for a in d.find("a"):
+                    self.assertTrue(a.all_text or a.attrs.get("aria-label"), "link without a name")
 
     def test_address_field_is_an_email_field_with_input_hints(self):
         for n, d in self.each():
-            for inp in d.find("input"):
-                self.assertEqual(inp.attrs.get("type"), "email")
-                self.assertEqual(inp.attrs.get("inputmode"), "email")
-                self.assertEqual(inp.attrs.get("autocomplete"), "off",
-                                 "this is the Kindle address, not the member's own e-mail: do not offer to fill it")
-                self.assertEqual(inp.attrs.get("autocapitalize"), "none")
-                self.assertEqual(inp.attrs.get("spellcheck"), "false")
-                self.assertIn("required", inp.attrs)
+            with self.subTest(n):
+                for inp in d.find("input"):
+                    self.assertEqual(inp.attrs.get("type"), "email")
+                    self.assertEqual(inp.attrs.get("inputmode"), "email")
+                    self.assertEqual(inp.attrs.get("autocomplete"), "off",
+                                     "this is the Kindle address, not the member's own e-mail: do not offer to fill it")
+                    self.assertEqual(inp.attrs.get("autocapitalize"), "none")
+                    self.assertEqual(inp.attrs.get("spellcheck"), "false")
+                    self.assertIn("required", inp.attrs)
 
     def test_describedby_ids_all_resolve_and_hint_is_wired(self):
         for n, d in self.each():
-            ids = {e.attrs["id"]: e for e in d.all if "id" in e.attrs}
-            for e in d.all:
-                for attr in ("aria-describedby", "aria-labelledby"):
-                    for ref in (e.attrs.get(attr) or "").split():
-                        self.assertIn(ref, ids, f"{attr}={ref} points at nothing")
-            for inp in d.find("input"):
-                ref = (inp.attrs.get("aria-describedby") or "").split()
-                self.assertIn("address-hint", ref)
-                self.assertIn("@kindle.com", ids["address-hint"].all_text)
+            with self.subTest(n):
+                ids = {e.attrs["id"]: e for e in d.all if "id" in e.attrs}
+                for e in d.all:
+                    for attr in ("aria-describedby", "aria-labelledby"):
+                        for ref in (e.attrs.get(attr) or "").split():
+                            self.assertIn(ref, ids, f"{attr}={ref} points at nothing")
+                for inp in d.find("input"):
+                    ref = (inp.attrs.get("aria-describedby") or "").split()
+                    self.assertIn("address-hint", ref)
+                    self.assertIn("@kindle.com", ids["address-hint"].all_text)
 
     def test_banners_are_announced_with_the_right_role(self):
         for n, d in self.each():
-            for b in (e for e in d.all if "banner" in e.classes):
-                expected = "alert" if "err" in b.classes else "status"
-                self.assertEqual(b.attrs.get("role"), expected, f"banner {sorted(b.classes)}")
-                self.assertTrue(b.all_text)
-                self.assertTrue(b.attrs.get("id"))
+            with self.subTest(n):
+                for b in (e for e in d.all if "banner" in e.classes):
+                    expected = "alert" if "err" in b.classes else "status"
+                    self.assertEqual(b.attrs.get("role"), expected, f"banner {sorted(b.classes)}")
+                    self.assertTrue(b.all_text)
+                    self.assertTrue(b.attrs.get("id"))
         d = self.pages["success"]
         self.assertEqual([b.attrs["role"] for b in d.all if "banner" in b.classes], ["status"])
         d = self.pages["partial failure"]
@@ -459,18 +464,20 @@ class Pages(unittest.TestCase):
     def test_no_em_or_en_dashes_and_no_first_person_in_member_visible_text(self):
         first = re.compile(r"\b(?:we|we're|we'll|we've|our|ours|us|my|mine|me|let's)\b", re.I)
         for n, d in self.each():
-            text = d.visible_text
-            self.assertNotRegex(text, "[‒–—―−]", "dash character in visible copy")
-            self.assertIsNone(first.search(text), first.search(text))
-            self.assertIsNone(re.search(r"\bI(?:'m|'ll|'ve)?\b", text), "first person singular")
+            with self.subTest(n):
+                text = d.visible_text
+                self.assertNotRegex(text, "[‒–—―−]", "dash character in visible copy")
+                self.assertIsNone(first.search(text), first.search(text))
+                self.assertIsNone(re.search(r"\bI(?:'m|'ll|'ve)?\b", text), "first person singular")
         self.assertNotRegex(" ".join(states().values()), "&[mn]dash;|&#8212;|&#8211;|&#x2014;|&#x2013;")
 
     def test_links_that_leave_the_site_are_safe_and_nothing_scripts(self):
         for n, d in self.each():
-            self.assertEqual(d.find("script"), [])
-            for a in d.find("a"):
-                if a.attrs.get("target") == "_blank":
-                    self.assertIn("noopener", a.attrs.get("rel", ""))
+            with self.subTest(n):
+                self.assertEqual(d.find("script"), [])
+                for a in d.find("a"):
+                    if a.attrs.get("target") == "_blank":
+                        self.assertIn("noopener", a.attrs.get("rel", ""))
 
     def test_state_changing_forms_stay_post(self):
         d = self.pages["form, existing values"]
@@ -499,11 +506,8 @@ class Style(unittest.TestCase):
         cls.sheet = {n: Sheet(d.css) for n, d in cls.pages.items()}
 
     def each_interactive(self):
-        for n, d in self.pages.items():
-            for e in d.all:
-                if e.tag in INTERACTIVE and e.attrs.get("type") not in ("hidden",):
-                    with self.subTest(page=n, el=f"{e.tag}.{'.'.join(sorted(e.classes))}"):
-                        yield n, d, self.sheet[n], e
+        return [(n, d, self.sheet[n], e) for n, d in self.pages.items() for e in d.all
+                if e.tag in INTERACTIVE and e.attrs.get("type") not in ("hidden",)]
 
     def test_tokens_match_the_design_system(self):
         for n, s in self.sheet.items():
@@ -512,13 +516,14 @@ class Style(unittest.TestCase):
 
     def test_control_edges_meet_3_to_1_against_the_page(self):
         for n, d, s, e in self.each_interactive():
-            if e.tag == "a":
-                continue
-            page = s.background(d.find("body")[0])
-            edge = s.declared(e, "border-color")
-            self.assertIsNotNone(edge, "interactive control without a declared edge")
-            c = composite(parse_color(edge), page)
-            self.assertGreaterEqual(contrast(c, page), 3.0, f"edge {edge}")
+            with self.subTest(page=n, el=f"{e.tag}.{'.'.join(sorted(e.classes))}"):
+                if e.tag == "a":
+                    continue
+                page = s.background(d.find("body")[0])
+                edge = s.declared(e, "border-color")
+                self.assertIsNotNone(edge, "interactive control without a declared edge")
+                c = composite(parse_color(edge), page)
+                self.assertGreaterEqual(contrast(c, page), 3.0, f"edge {edge}")
 
     def test_dividers_keep_the_quiet_rule_colour(self):
         s = Sheet(self.pages["form, empty"].css)
@@ -553,13 +558,14 @@ class Style(unittest.TestCase):
             return re.sub(r"\s*,\s*", ",", (v or "").lower()).replace("#000000", "#000").replace("#ffffff", "#fff")
 
         for n, d, s, e in self.each_interactive():
-            shadow = s.declared(e, "box-shadow", ("focus-visible", "focus"))
-            self.assertEqual(norm(shadow), "0 0 0 2px #000,0 0 0 4px #fff",
-                             "focused element has no (or a different) focus ring")
-            outline = s.declared(e, "outline", ("focus-visible", "focus")) or ""
-            self.assertNotIn("none", outline, "outline must stay (transparent) so forced-colours mode draws one")
-            self.assertIn("transparent", outline)
-            self.assertNotEqual(shadow, s.declared(e, "box-shadow", ()), "ring should not show at rest")
+            with self.subTest(page=n, el=f"{e.tag}.{'.'.join(sorted(e.classes))}"):
+                shadow = s.declared(e, "box-shadow", ("focus-visible", "focus"))
+                self.assertEqual(norm(shadow), "0 0 0 2px #000,0 0 0 4px #fff",
+                                 "focused element has no (or a different) focus ring")
+                outline = s.declared(e, "outline", ("focus-visible", "focus")) or ""
+                self.assertNotIn("none", outline, "outline must stay (transparent) so forced-colours mode draws one")
+                self.assertIn("transparent", outline)
+                self.assertNotEqual(shadow, s.declared(e, "box-shadow", ()), "ring should not show at rest")
 
     def test_no_outline_none_without_the_ring_for_that_selector(self):
         for n, s in self.sheet.items():
@@ -577,14 +583,15 @@ class Style(unittest.TestCase):
 
     def test_target_size_declared_44px_for_buttons_fields_and_links(self):
         for n, d, s, e in self.each_interactive():
-            if e.tag == "a" and e.parent.tag == "h1":
-                continue  # the wordmark: a 32 to 48px line of display type, above the 24px minimum
-            m = px(s.declared(e, "min-height"))
-            self.assertIsNotNone(m, "no min-height")
-            self.assertGreaterEqual(m, 44.0)
-            if e.tag in ("a",):
-                self.assertIn(s.declared(e, "display"), ("inline-flex", "inline-block", "flex", "block"),
-                              "min-height is ignored on a plain inline link")
+            with self.subTest(page=n, el=f"{e.tag}.{'.'.join(sorted(e.classes))}"):
+                if e.tag == "a" and e.parent.tag == "h1":
+                    continue  # the wordmark: a 32 to 48px line of display type, above the 24px minimum
+                m = px(s.declared(e, "min-height"))
+                self.assertIsNotNone(m, "no min-height")
+                self.assertGreaterEqual(m, 44.0)
+                if e.tag in ("a",):
+                    self.assertIn(s.declared(e, "display"), ("inline-flex", "inline-block", "flex", "block"),
+                                  "min-height is ignored on a plain inline link")
 
     def test_phone_layout_cannot_overflow_and_text_can_grow(self):
         for n, s in self.sheet.items():
