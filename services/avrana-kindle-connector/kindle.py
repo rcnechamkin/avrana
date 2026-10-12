@@ -63,15 +63,28 @@ MAX_ADDRESS = 254      # RFC 5321 path limit; Kindle addresses are far shorter
 _abs_lock = threading.Lock()
 
 
+def _fold(name: str) -> str:
+    """ASCII-only case fold. Python's str.lower() is Unicode-aware (U+212A Kelvin sign becomes k)
+    while SQLite's lower() is not, so the two libraries would disagree on look-alike names."""
+    return name.encode("utf-8").lower().decode("utf-8")
+
+
 def load_aliases(raw: str) -> dict[str, str]:
-    """Parse KINDLE_USERNAME_ALIASES: comma- or space-separated `authentik_username=library_username`.
+    """Parse KINDLE_USERNAME_ALIASES.
+
+    Grammar: tokens separated by commas, newlines or other whitespace; every token is exactly
+    `authentik_username=library_username` - both sides non-empty, no further `=`. Names containing
+    spaces (or commas) are therefore NOT supported: they would split into fragments, and a fragment
+    like `Smith` must never become an alias of its own.
 
     The ONLY way a login whose Authentik username differs from its library username (the admin is
     `akadmin` in Authentik and `Cody` in the libraries) is matched. Set by the owner, empty by
     default, never derived from request data. Exact match on the Authentik username; the target is
-    then looked up in both libraries like any other username. Malformed entries are ignored; a map
-    that is ambiguous (a target that is also a source, two sources sharing a target, one source
-    given two targets) is refused whole. Only counts are logged, never names.
+    then looked up in both libraries like any other username.
+
+    Fails closed: ANY malformed token, or an ambiguous map (a target that is also a source, two
+    sources sharing a target, one source with two targets), refuses the whole map - no aliases at
+    all, one stderr line, counts only, never names.
     """
     pairs, bad, conflict = {}, 0, False
     for tok in re.split(r"[,\s]+", raw or ""):
@@ -84,13 +97,12 @@ def load_aliases(raw: str) -> dict[str, str]:
             conflict = True
         else:
             pairs[src] = dst
-    targets = [t.lower() for t in pairs.values()]
-    if conflict or len(set(targets)) != len(targets) or any(t in {k.lower() for k in pairs} for t in targets):
-        print(f"kindle: username alias map refused ({len(pairs)} usable entries); no aliases in effect",
-              file=sys.stderr)
+    targets = [_fold(t) for t in pairs.values()]
+    if (bad or conflict or len(set(targets)) != len(targets)
+            or any(t in {_fold(k) for k in pairs} for t in targets)):
+        print(f"kindle: username alias map refused ({bad} malformed, {len(pairs)} usable entries); "
+              "no aliases in effect", file=sys.stderr)
         return {}
-    if bad:
-        print(f"kindle: ignored {bad} malformed username alias entries", file=sys.stderr)
     return pairs
 
 
@@ -100,13 +112,14 @@ ALIASES = load_aliases(os.environ.get("KINDLE_USERNAME_ALIASES", ""))
 def library_name(username: str):
     """The name to look up in Calibre-Web and Audiobookshelf for this Authentik username, or None.
 
-    None (fail closed) when the username is the target of an alias but is not that alias's source:
-    otherwise a second Authentik user literally named like the aliased library account would share
-    it. The e-mail header plays no part in resolution - it is user-editable and not unique.
+    None (fail closed) when the username equals, ignoring case, an alias source or target without
+    being that exact source: otherwise a second Authentik user named like the aliased library
+    account (or a case variant of the source, which the case-insensitive library lookup would
+    resolve to it) would share it. The e-mail header plays no part in resolution - it is user-editable and not unique.
     """
     if username in ALIASES:
         return ALIASES[username]
-    if username.lower() in {t.lower() for t in ALIASES.values()}:
+    if _fold(username) in {_fold(n) for n in (*ALIASES, *ALIASES.values())}:
         return None
     return username
 

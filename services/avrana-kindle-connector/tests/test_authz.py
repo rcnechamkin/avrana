@@ -175,6 +175,7 @@ class Base(unittest.TestCase):
     abs_users = ABS_USERS
     abs_devices = ABS_DEVICES
     handler_timeout = None
+    handler_attrs = {}
 
     def setUp(self):
         tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)  # a straggler handler thread may still hold the file
@@ -191,6 +192,7 @@ class Base(unittest.TestCase):
         kindle.SENDER, kindle.REQUIRED_GROUP = SENDER, "avrana-books"
         self.addCleanup(lambda: [setattr(kindle, n, v) for n, v in saved.items()])
         attrs = {"disable_nagle_algorithm": True}  # avoids a ~40 ms delayed-ACK stall per response
+        attrs.update(self.handler_attrs)
         if self.handler_timeout is not None:
             attrs["timeout"] = self.handler_timeout
         self.handler_cls = type("TestHandler", (kindle.Handler,), attrs)
@@ -916,12 +918,17 @@ class AliasMap(unittest.TestCase):
         self.assertEqual(self.parse("a=b, c=d\ne=f  g=h")[0], {"a": "b", "c": "d", "e": "f", "g": "h"})
         self.assertEqual(self.parse("a=b,a=b")[0], {"a": "b"})  # an exact repeat is harmless
 
-    def test_malformed_entries_are_ignored_and_only_counted(self):
-        got, log = self.parse("novalue =x y= a=b=c ok=fine")
-        self.assertEqual(got, {"ok": "fine"})
-        self.assertIn("ignored 4 malformed", log)
-        for name in ("novalue", "ok", "fine"):
-            self.assertNotIn(name, log)
+    def test_any_malformed_token_refuses_the_whole_map(self):
+        # names with spaces are not supported: "John Smith=Cody" must not become {"Smith": "Cody"}
+        for raw in ("John Smith=Cody", "akadmin=Cody Smith", "ok=fine novalue", "ok=fine =x", "ok=fine y=",
+                    "ok=fine a=b=c", "ok=fine,junk", "novalue"):
+            with self.subTest(raw):
+                got, log = self.parse(raw)
+                self.assertEqual(got, {})
+                self.assertEqual(log.count("\n"), 1)
+                self.assertIn("refused", log)
+                for name in ("John", "Smith", "Cody", "ok", "fine", "novalue", "akadmin"):
+                    self.assertNotIn(name, log)
 
     def test_ambiguous_maps_are_refused_whole_with_a_count_only_log(self):
         for raw in ("a=b,b=c", "a=x,b=x", "a=x,b=X", "a=x,a=y", "a=A", "a=b,fine=ok,B=z"):
@@ -970,11 +977,23 @@ class AliasedLogin(Base):
 
     def test_alias_needs_an_exact_source_and_never_chains(self):
         before = self.state()
-        for u in ("AKADMIN", "Akadmin", "akadmin2"):
-            with self.subTest(u):
-                r = self.post("/save", NEW_A, headers=hdr(user=u))
-                self.assertIn("No library account found", r.text)
+        r = self.post("/save", NEW_A, headers=hdr(user="akadmin2"))
+        self.assertIn("No library account found", r.text)
         self.assertNoWrites(before)
+
+    def test_case_variants_of_a_source_or_target_resolve_to_nobody(self):
+        # a library account named like the source in another case must not be reachable by that variant
+        con = sqlite3.connect(self.db)
+        con.execute("INSERT INTO user VALUES (4,'AkAdmin','x@example.test','akadmin_x1@kindle.com')")
+        con.commit()
+        con.close()
+        before = self.state()
+        for u in ("AKADMIN", "Akadmin", "AkAdmin", "ADMIN-C", "Admin-C"):
+            with self.subTest(u):
+                self.assertEqual(self.get(headers=hdr(user=u)).status, 404)
+                self.assertEqual(self.post("/save", NEW_A, headers=hdr(user=u)).status, 404)
+        self.assertNoWrites(before)
+        self.assertIn(ADDR["c"], self.get(headers=hdr(user="akadmin")).text)  # the exact source still works
 
     def test_alias_to_a_name_that_does_not_exist_resolves_nobody(self):
         kindle.ALIASES = {"akadmin": "nobody-here"}
