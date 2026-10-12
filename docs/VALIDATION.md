@@ -22,6 +22,8 @@ Passed: five staged-content-gate unit tests, two Audible schema tests using SQLi
 
 The original Kindle live tests were omitted and its personal fixture replaced. Audible application/end-to-end tests were not imported because their shared fixture initializes application state; only the isolated in-memory schema invariants are tested here. CWA integration tests require its upstream package and were not executed. These boundaries are deliberate; passing local checks is not deployment validation.
 
+The day-to-day local workflow, fixture rules and how to add a suite are in [DEVELOPMENT.md](DEVELOPMENT.md).
+
 ## Commit gates
 
 Stage exact reviewed paths, then run:
