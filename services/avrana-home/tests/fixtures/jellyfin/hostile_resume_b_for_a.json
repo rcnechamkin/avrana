@@ -1,0 +1,12 @@
+{
+  "_synthetic": "Hand-written SYNTHETIC fixture. Not recorded from any server. Models an upstream that ignores the userId scope and answers with member-b's data, naming member-b in the user data.",
+  "_schema": "Resume-shaped body (BaseItemDtoQueryResult). The UserId inside UserData is NOT known to be present in real Jellyfin responses; it is a defensive tripwire the adapter checks only when present. Unverified.",
+  "response": {
+    "Items": [
+      {"Id": "bbbb0000000000000000000000000001", "Name": "Synthetic Film Two", "Type": "Movie",
+       "RunTimeTicks": 54000000000,
+       "UserData": {"PlaybackPositionTicks": 5400000000, "UserId": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"}}
+    ],
+    "TotalRecordCount": 1
+  }
+}
