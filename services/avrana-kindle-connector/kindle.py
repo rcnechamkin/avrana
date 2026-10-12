@@ -319,6 +319,18 @@ class Handler(BaseHTTPRequestHandler):
                     break
         return cwa, absu, cwa_val, abs_val
 
+    def _refresh(self, username, email, before, failed):
+        """Re-read state after a write. If a write already failed and the read does too (the library
+        that failed is probably down), answer from Calibre-Web plus the pre-write Audiobookshelf
+        state rather than dropping the connection after the other library was already changed."""
+        try:
+            return self._state(username, email)
+        except Exception:
+            if not failed:
+                raise
+            cwa = cwa_find(username, email)
+            return cwa, before[1], (cwa[2] if cwa else None) or None, before[3]
+
     def do_GET(self):
         route = self.path.split("?", 1)[0].rstrip("/") or "/"
         if route == "/healthz":
@@ -355,16 +367,29 @@ class Handler(BaseHTTPRequestHandler):
 
         cwa, absu, cwa_val, abs_val = self._state(username, email)
 
+        before = (cwa, absu, cwa_val, abs_val)
+
         if route == "/remove":
-            written = []
+            written, failed = [], []
             if cwa:
-                cwa_set(cwa[0], None); written.append("Calibre-Web")
+                try:
+                    cwa_set(cwa[0], None); written.append("Calibre-Web")
+                except Exception:
+                    failed.append("Calibre-Web")
             if absu:
-                abs_set(absu, None, f"Kindle ({username})"); written.append("Audiobookshelf")
-            cwa, absu, cwa_val, abs_val = self._state(username, email)
-            return self._send(200, render(cwa_val, abs_val, "",
-                                          ("ok", "Removed from " + " and ".join(written) + ".") if written
-                                          else ("err", "Nothing to remove."), False))
+                try:
+                    abs_set(absu, None, f"Kindle ({username})"); written.append("Audiobookshelf")
+                except Exception:
+                    failed.append("Audiobookshelf")
+            cwa, absu, cwa_val, abs_val = self._refresh(username, email, before, failed)
+            if failed:
+                msg = ("err", "Removed from " + (" and ".join(written) or "nothing") +
+                       "; failed for " + " and ".join(failed) + ".")
+            elif written:
+                msg = ("ok", "Removed from " + " and ".join(written) + ".")
+            else:
+                msg = ("err", "Nothing to remove.")
+            return self._send(200, render(cwa_val, abs_val, "", msg, bool(cwa_val or abs_val)))
 
         if len(address) > MAX_ADDRESS or not KINDLE_RE.match(address):
             return self._send(200, render(cwa_val, abs_val, address,
@@ -383,7 +408,7 @@ class Handler(BaseHTTPRequestHandler):
             except Exception:
                 failed.append("Audiobookshelf")
 
-        cwa, absu, cwa_val, abs_val = self._state(username, email)
+        cwa, absu, cwa_val, abs_val = self._refresh(username, email, before, failed)
         if failed:
             msg = ("err", "Saved to " + (" and ".join(written) or "nothing") +
                    "; failed for " + " and ".join(failed) + ".")

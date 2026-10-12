@@ -844,7 +844,6 @@ class WriteFailures(Base):
         self.assertEqual([d["email"] for d in self.abs.devices if d["users"] == ["abs-u-a"]], [NEW_A])
         self.assertEqual(self.server.errors, [])
 
-    @unittest.expectedFailure
     def test_save_when_abs_goes_down_after_the_failed_write_still_answers(self):
         self.abs.fail_patch = True
         self.abs.dead_after_failed_patch = True
@@ -853,7 +852,6 @@ class WriteFailures(Base):
         self.assertIn("failed for Audiobookshelf", r.text)
         self.assertEqual(self.server.errors, [])
 
-    @unittest.expectedFailure
     def test_remove_with_abs_patch_failure_reports_it(self):
         self.abs.fail_patch = True
         r = self.post("/remove", body=b"")
@@ -862,7 +860,6 @@ class WriteFailures(Base):
         self.assertEqual(self.server.errors, [])
         self.assertEqual(self.rows()[1:], CWA_ROWS[1:])
 
-    @unittest.expectedFailure
     def test_remove_with_cwa_failure_still_removes_from_abs_and_reports(self):
         self.block_cwa_updates()
         r = self.post("/remove", body=b"")
