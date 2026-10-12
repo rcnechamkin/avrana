@@ -35,8 +35,10 @@ to type and the steps. Open Help from your home page and choose a topic. Only yo
 
 ## Which app on which device
 
-Each topic page marks one app as recommended for each device. The list below is the short version.
-For the steps, open the topic page.
+On a topic page, a device that has more than one app lists them with the first marked Recommended and
+the others marked Alternative. A device that has only one app lists it without a tag. The list below is
+the short version. For the steps, open the topic page.
+<!-- src: services/avrana-portal/portal.py:627 (tag is added only when a device has more than one client) -->
 
 <!-- if: avrana-videos -->
 **Movies and TV.** iPhone and iPad: Swiftfin. Android: Jellyfin. Roku: Jellyfin. Apple TV: Swiftfin.
@@ -67,14 +69,15 @@ files if you prefer to download.
 <!-- if: avrana-requests -->
 **Requests.** iPhone and iPad: Pocket for Seerr. Android has no recommended app yet; use a browser and
 add it to the home screen.
-[OWNER DECISION D-14: which group shows the Requests help topic; the portal checks one group for the tile and a different group for the topic]
-<!-- src: services/avrana-portal/portal.py:272-295 (topic gated on avrana-requests) versus :56 (tile gated on avrana-videos) -->
+[OWNER DECISION D-14: which group shows the Requests help topic. On main the topic is gated on avrana-requests; PR #4 proposes avrana-videos. This block follows main until the owner decides]
+<!-- src: services/avrana-portal/portal.py:272-295 (topic gated on avrana-requests on main) versus :56 (tile gated on avrana-videos); PR #4 branch avr-357-430-portal-a11y re-gates the topic on avrana-videos -->
 <!-- endif -->
 
 ## Why signing in is not the same everywhere
 
-Avrana is one account, but each service checks it in its own way. That is why one service shows an
-Avrana button and another shows a username and password form. It is expected, not a fault.
+Avrana is one account. What a sign-in screen looks like depends on where you sign in, and the notes
+below describe what to expect for what you can use. A sign-in screen that looks unfamiliar is expected,
+not a fault.
 <!-- src: docs/services/sso-architecture.md:14-36; services/avrana-portal/portal.py:108-114 -->
 
 <!-- if: avrana-audiobooks -->
@@ -127,10 +130,18 @@ Avrana button and another shows a username and password form. It is expected, no
 
 [OWNER DECISION D-13: today's route, either an e-mail reset link that is confirmed working, or contacting the owner, who sets a new password by hand]
 
-When a new password is set for your Avrana account, it applies to the services that check your Avrana
-account directly. Any service that holds its own copy of the password keeps the old one until it is
-changed there too.
-<!-- src: docs/onboarding/admin-onboarding.md:74-75 (manual reset); services/authentik/blueprints/avrana-recovery.yaml:6-8, :37 (reset flow exists, link expires after 30 minutes); docs/ROADMAP.md:31-33 (mail credential rotation pending); docs/services/authentik.md:21 -->
+<!-- src: docs/onboarding/admin-onboarding.md:74-75 (manual reset); services/authentik/blueprints/avrana-recovery.yaml:6-8, :37 (reset flow exists, link expires after 30 minutes); docs/ROADMAP.md:31-33 (mail credential rotation pending) -->
+
+<!-- if: avrana-videos -->
+**Movies and TV.** After a new Avrana password is set, the Movies and TV password stays as it was until
+it is changed there too.
+<!-- src: docs/services/authentik.md:21; services/authentik/blueprints/avrana-recovery.yaml:6-8 -->
+<!-- endif -->
+
+<!-- if: avrana-comics -->
+**Comics.** After a new Avrana password is set, the password used in a comic reader app stays as it was.
+<!-- src: docs/services/komga.md:19-31; services/authentik/blueprints/avrana-recovery.yaml:6-8 -->
+<!-- endif -->
 
 To change your password while you are signed in, open Account, then Manage account.
 <!-- src: services/avrana-portal/portal.py:574-583 -->
@@ -138,7 +149,7 @@ To change your password while you are signed in, open Account, then Manage accou
 ## Something is missing from your home page
 
 Your home page lists what has been set up for your account. Access is set per account.
-If something you expected is not there, or a page says it does not exist, ask the person who runs Avrana
+If something you expected is not there, or a page says it does not exist, ask an admin
 to check your account. Use the contact route below.
 
 This is the same for everyone. A missing tile does not mean anything is broken, and the answer will only

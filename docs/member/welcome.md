@@ -39,9 +39,11 @@ Staying signed in: a normal sign-in lasts 30 days. Choose the option to stay sig
 offered and it lasts 180 days.
 <!-- src: docs/services/authentik-sessions-passkeys.md:21-33, :75-83; docs/onboarding/welcome.md:18 -->
 
-On a shared or borrowed device, signing out of an app does not sign you out of Avrana. Sign out from
-the Account page on your home page as well.
-<!-- src: docs/services/sso-architecture.md:142-150; services/avrana-portal/portal.py:580-583 -->
+On a shared or borrowed device, signing out of an app does not sign you out of Avrana. The Account page
+on your home page has a Sign out link and a Manage account link. Avrana's own documentation points to
+the account settings page, opened with Manage account, for signing out of Avrana itself.
+[UNVERIFIED U-19: what the Sign out link on the Account page actually ends]
+<!-- src: docs/services/sso-architecture.md:142-150 (sign out at the Authentik settings page); services/avrana-portal/portal.py:357-358, :580-583 (Manage account links to Authentik; Sign out is an outpost endpoint, not shown to end the Authentik session) -->
 
 ## What you can use
 

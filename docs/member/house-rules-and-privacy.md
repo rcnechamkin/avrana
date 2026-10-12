@@ -27,7 +27,7 @@ Sources (repo paths):
 
 # House rules and privacy
 
-Avrana is run by one person for a small group. This page says how to use it, what it records about you,
+Avrana is a small, private media service. This page says how to use it, what it records about you,
 who can see that, how long it is kept, and how to leave.
 
 ## House rules
@@ -45,10 +45,11 @@ who can see that, how long it is kept, and how to leave.
 
 Good habits that Avrana's own design supports:
 
-- Signing out of one app does not sign you out of Avrana. On a shared or borrowed device, also sign out
-  from the Account page.
-- Use the app that Help recommends for your device. It is also easier on the server.
-<!-- src: docs/services/sso-architecture.md:142-150; services/avrana-portal/portal.py:339-342 (advises the recommended app); docs/services/jellyfin.md:42-46 -->
+- Signing out of one app does not sign you out of Avrana. On a shared or borrowed device, use Manage
+  account on the Account page, which opens the account settings where Avrana documents signing out of
+  Avrana itself. [UNVERIFIED U-19: what the Sign out link on the Account page actually ends]
+- Use the app that Help recommends for your device.
+<!-- src: docs/services/sso-architecture.md:142-150; services/avrana-portal/portal.py:357-358, :580-583 -->
 
 <!-- if: avrana-videos -->
 ### Movies and TV
@@ -92,7 +93,7 @@ and writes no per-visit log.
 
 ### Backups
 
-- **Recorded:** every night a copy is made of each service's data, which includes the account details
+- **Recorded:** every night a copy is made of the data Avrana keeps, which includes the account details
   and the records described on this page. The media files themselves are not part of it.
   <!-- src: services/backups/README.md:12-20 -->
 - **Who can see it:** the owner. A second, encrypted copy is sent to outside storage. File names and
@@ -108,8 +109,8 @@ and writes no per-visit log.
 
 ### Logs
 
-Services keep their own logs, which are limited in size and overwritten as they fill. The home page
-writes no request log. [UNVERIFIED U-14: what each service's log contains about members, and how long entries last]
+Logs are kept, limited in size and overwritten as they fill. The home page
+writes no request log. [UNVERIFIED U-14: what the logs contain about members, and how long entries last]
 <!-- src: services/avrana-portal/portal.py:770-771; services/avrana-portal/docker-compose.yml:31; services/authentik/docker-compose.yml:35; services/avrana-kindle-connector/docker-compose.yml:53 -->
 
 <!-- if: avrana-videos -->
@@ -220,15 +221,10 @@ writes no request log. [UNVERIFIED U-14: what each service's log contains about 
 
 ## Leaving Avrana
 
-Tell the owner by the contact route: [OWNER DECISION D-1: the support contact route]. There are two
-choices.
+To leave, contact an admin by the contact route: [OWNER DECISION D-1: the support contact route].
 
-1. **Step away.** Your accounts are switched off. Nothing is deleted, so your history is kept and the
-   accounts can be switched back on.
-2. **Remove your data.** Your accounts and the records described on this page are deleted from each
-   service. This cannot be undone. Backup copies are not edited and age out as described under Backups.
-   [OWNER DECISION D-17: how quickly a removal request is carried out, and exactly what is removed]
-<!-- src: scripts/offboard.py:21-27 (disable by default, purge deletes), docs/runbooks/offboarding.md -->
+[OWNER DECISION D-17: what leaving does to each account and record, whether accounts are switched off or deleted, how quickly a request is carried out, and exactly what is removed]
 
-Libraries and media are never deleted when an account is removed.
-<!-- src: docs/onboarding/admin-onboarding.md:68-69 -->
+Until that is decided, this page states nothing specific about what happens to accounts or records
+after a request to leave. Backup copies are not edited; see Backups above.
+<!-- src: docs/runbooks/offboarding.md (the tool covers some services, the rest is manual, and some history survives); scripts/offboard.py:21-27; services/backups/OFFHOST.md:18-20 -->

@@ -67,12 +67,17 @@ and AVR-346 are named where they own the blocker.
 
 ### D-14
 - **Question:** which group shows the Requests help topic.
-- **Options:** the portal gates the tile on `avrana-videos` (`portal.py:56`) but the help topic on
-  `avrana-requests` (`portal.py:272`, `:600`); the Authentik doc says `avrana-requests` is reserved and
-  gates nothing (`docs/services/authentik.md:48`); the admin guide treats it as a real group granted
-  together with videos (`docs/onboarding/admin-onboarding.md:14-21, :26`). A member with videos but not
-  `avrana-requests` sees the tile and gets no help page.
-- **Changes:** the group name on one block in help.
+- **State of the code:** on `main`, the Requests help topic is gated on `avrana-requests`
+  (`services/avrana-portal/portal.py:272`, `:600`) while the Request tile is gated on `avrana-videos`
+  (`:56`), so a member with videos but not `avrana-requests` sees the tile and gets no help page. PR #4 (the
+  portal accessibility change, local branch `avr-357-430-portal-a11y`, not merged; its `portal.py:293`) gates
+  the topic on `avrana-videos`. The owner has not decided; this register does not resolve it.
+- **Other evidence:** the Authentik doc says `avrana-requests` is reserved and gates nothing
+  (`docs/services/authentik.md:48`); the admin guide treats it as a real group granted together with videos
+  (`docs/onboarding/admin-onboarding.md:14-21, :26`).
+- **Options:** keep `avrana-requests` (matches `main`), or `avrana-videos` (matches PR #4 and the tile).
+- **Changes:** the group name on one block in help. That block currently follows `main`
+  (`avrana-requests`); `tests/test_member_content.py` pins it so a silent change to either group fails.
 - **Blocked:** help. A portal code change may follow (S1-1 route-matrix tests will expose it).
 
 ### D-15
@@ -100,8 +105,11 @@ and AVR-346 are named where they own the blocker.
   (`services/backups/README.md:31`) and off-host daily copies about 90 plus 30 days (`OFFHOST.md:28-37`).
   Pinned copies and the golden backup are kept indefinitely (`OFFHOST.md:33`, `docs/BACKUPS.md:12`).
   Whether the monitoring tool's history is in scope is open (U-5).
-- **Changes:** the backups paragraph and "Leaving Avrana" in the privacy page; the runbook's section on
-  honouring a removal request.
+- **Changes:** the backups paragraph and "Leaving Avrana" in the privacy page (that section is now only a
+  marked placeholder tied to this decision, with a holding sentence that promises nothing); the runbook's
+  section on honouring a removal request. The runbook and `scripts/offboard.py` show that the tool covers
+  Jellyfin, Seerr, Audiobookshelf and Authentik, that other services are manual, and that some history
+  survives.
 - **Blocked:** privacy page, runbook. Related: D-7; AVR-366.
 
 ## Unverified facts (read-only checks)
@@ -195,6 +203,20 @@ Omnibus. The repo documents none. Check: each admin UI on a disposable account. 
 ### U-18
 Whether deleting a Seerr user removes their request records, and whether Jellyfin activity entries naming a
 deleted user remain. Check: disposable account. Changes: runbook Step 5 and the privacy removal wording.
+
+### U-19
+What the Account page Sign out link actually ends: unverified. The portal links it to the outpost endpoint
+`/outpost.goauthentik.io/sign_out` (`services/avrana-portal/portal.py:358`, `:580-583`). Nothing in the
+repository shows that this ends the Authentik session; `docs/services/sso-architecture.md:146-150` points to
+the Authentik settings page for that. Check: on a disposable account, press Sign out, then open another
+Avrana app and see whether it signs in without a prompt; compare with signing out at the Authentik settings
+page. Changes: the sign-out passages in welcome and the privacy page.
+
+### U-20
+Whether an existing Seerr session outlives a disabled Jellyfin account. REASONED, not observed: Seerr signs
+in with Jellyfin credentials and keeps its own session, and the tool does nothing to Seerr on deactivation
+(`scripts/offboard.py:177-183`). Check: on a disposable account with an open Seerr session, disable the
+Jellyfin account and reload Seerr. Changes: runbook Step 3 and Step 4.
 
 ## Proposed house rules
 
