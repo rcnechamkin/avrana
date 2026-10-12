@@ -713,19 +713,25 @@ class Isolation(Base):
         self.assertIn(ADDR["shared"], [d["email"] for d in self.abs.devices])
 
     def test_concurrent_saves_by_two_members_both_survive(self):
-        out = []
+        # The array is global and written whole. With a slow Audiobookshelf both requests would read
+        # the same snapshot and the second PATCH would erase the first, unless _abs_lock serialises
+        # read-modify-write. (Verified: with the lock removed this test fails.)
+        self.abs.latency = 0.15
+        out, start = [], threading.Barrier(2)
 
         def go(m, addr):
-            out.append(self.post("/save", addr, headers=hdr(user=m["user"], email=m["email"])).status)
+            start.wait(5)
+            out.append(self.post("/save", addr, headers=hdr(user=m["user"], email=m["email"]), timeout=15).status)
         ts = [threading.Thread(target=go, args=(self.MEMBERS["a"], NEW_A)),
               threading.Thread(target=go, args=(self.MEMBERS["b"], NEW_B))]
         [t.start() for t in ts]
-        [t.join(10) for t in ts]
+        [t.join(20) for t in ts]
         self.assertEqual(out, [200, 200])
         by_user = {tuple(d["users"]): d["email"] for d in self.abs.devices if d["users"]}
         self.assertEqual(by_user[("abs-u-a",)], NEW_A)
         self.assertEqual(by_user[("abs-u-b",)], NEW_B)
         self.assertEqual(by_user[("abs-u-c",)], ADDR["c"])
+        self.assertEqual(len(self.abs.devices), 4)
 
 
 # ---------------------------------------------------------------- cross-member identity defects
