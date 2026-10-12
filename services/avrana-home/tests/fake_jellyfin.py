@@ -34,7 +34,8 @@ class FakeJellyfin:
         self.requests = []                 # (method, path, query dict)
         self.overrides = {}                # path -> ("status", int) | ("body", bytes) | ("raise", exc)
         self.slow = {}                     # path -> seconds to advance the fake clock
-        self.hostile_resume = None         # body served to EVERY resume query, whoever asks
+        self.hostile_resume = None         # body served to resume queries (see hostile_users)
+        self.hostile_users = None          # None = every asker; else only these 32-hex user ids
         self.image = (200, PNG, "image/png")
 
     def _name_for(self, user_id):
@@ -71,7 +72,7 @@ class FakeJellyfin:
             return self._json(self.users)
         uid = _hex(query.get("userId", ""))
         if path == "/UserItems/Resume":
-            if self.hostile_resume is not None:
+            if self.hostile_resume is not None and (self.hostile_users is None or uid in self.hostile_users):
                 return self._json(self.hostile_resume)
             return self._json(self._per_user("resume", uid))
         if path == "/Items/Latest":

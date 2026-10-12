@@ -3,7 +3,7 @@ import unittest
 
 from avrana_home.aggregate import gather, health_summary
 from avrana_home.contract import SectionState, Service
-from avrana_home.resilience import FakeClock
+from avrana_home.resilience import CircuitBreaker, FakeClock
 from tests.helpers import FakeAdapter, make_principal
 
 ALL_GROUPS = ("avrana-videos", "avrana-audiobooks", "avrana-comics", "avrana-books")
@@ -14,7 +14,8 @@ class AggregateTests(unittest.TestCase):
     def build(self, modes=None):
         clock = FakeClock()
         modes = modes or {}
-        return [FakeAdapter(s, {"member-a": "1", "member-b": "2"}, clock, mode=modes.get(s, "ok"))
+        return [FakeAdapter(s, {"member-a": "1", "member-b": "2"}, clock, mode=modes.get(s, "ok"),
+                            breaker=CircuitBreaker(clock, threshold=1))
                 for s in SERVICES]
 
     def states(self, result):
@@ -36,7 +37,7 @@ class AggregateTests(unittest.TestCase):
     def test_hung_adapter_is_capped_and_others_return(self):
         adapters = self.build({Service.KOMGA: "block"})
         try:
-            res = gather(make_principal("member-a", ALL_GROUPS), adapters, hard_cap=0.2)
+            res = gather(make_principal("member-a", ALL_GROUPS), adapters, hard_cap=0.05)
             st = self.states(res)
             self.assertIs(st[(Service.KOMGA, "continue")], SectionState.UNAVAILABLE)
             self.assertIs(st[(Service.JELLYFIN, "continue")], SectionState.OK)

@@ -28,6 +28,8 @@ from ..resilience import (MAX_IMAGE_BYTES, MAX_JSON_BYTES, CallBudget, DEFAULT_T
 TICKS_PER_SECOND = 10_000_000
 _GUID = re.compile(r"[0-9a-fA-F]{8}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{12}")
 _HEX32 = r"[0-9a-f]{32}"
+_BOUND_ID = re.compile(_HEX32)
+MAX_INT = 2 ** 63
 _ARTWORK_REF = re.compile(r"jellyfin/primary/(" + _HEX32 + r")")
 _IMAGE_TYPES = ("image/jpeg", "image/png", "image/webp")
 _ITEM_FIELDS = "PrimaryImageAspectRatio"
@@ -61,6 +63,8 @@ ALLOWED_ROUTES = (
            "enableUserData"), user_scoped=True),
     Route("items", r"/Items", ("userId", "ids", "fields", "enableUserData", "enableImageTypes"),
           user_scoped=True),
+    # The image route cannot carry a userId, so ITS member scoping is not enforced here: it rests on
+    # the adapter calling `_visible_item` (a userId-scoped lookup) for the same item first.
     Route("image", r"/Items/" + _HEX32 + r"/Images/Primary", ("maxWidth", "quality"),
           user_scoped=False),
 )
@@ -76,6 +80,9 @@ def check_request(method: Any, path: Any, query: Optional[Mapping[str, str]],
     route = next((r for r in ALLOWED_ROUTES if r.pattern.fullmatch(path)), None)
     if route is None:
         raise ForbiddenRequest("path")
+    if bound_user_id is not None and (not isinstance(bound_user_id, str)
+                                      or _BOUND_ID.fullmatch(bound_user_id) is None):
+        raise ForbiddenRequest("bound user id")
     query = dict(query or {})
     if not all(isinstance(k, str) and isinstance(v, str) for k, v in query.items()):
         raise ForbiddenRequest("query")
@@ -94,6 +101,9 @@ class GuardedTransport:
     """Wraps an inner Transport. Same `request` signature; checks first, then delegates."""
 
     def __init__(self, inner: Transport, bound_user_id: Optional[str] = None):
+        if bound_user_id is not None and (not isinstance(bound_user_id, str)
+                                          or _BOUND_ID.fullmatch(bound_user_id) is None):
+            raise ForbiddenRequest("bound user id")        # defence in depth: never bind a non-GUID
         self._inner = inner
         self._bound = bound_user_id
 
@@ -138,7 +148,7 @@ class JellyfinAdapter(MediaAdapter):
         resp = self._get(guard, budget, path, query)
         try:
             return json.loads(resp.body.decode("utf-8"))
-        except (UnicodeDecodeError, ValueError):
+        except (UnicodeDecodeError, ValueError, RecursionError, MemoryError):
             raise UpstreamMalformed() from None
 
     def _budget(self) -> CallBudget:
@@ -175,12 +185,14 @@ class JellyfinAdapter(MediaAdapter):
 
     # -- item parsing --------------------------------------------------------------------
     def _parse_item(self, raw: Any, user_id: str, kinds: Tuple[str, ...],
-                    want_progress: bool, require_progress: bool) -> Optional[MediaItem]:
+                    want_progress: bool, require_progress: bool) -> Tuple[Optional[MediaItem], str]:
+        """Returns (item, status). status: "ok", "filtered" (a legitimate drop: another type, not
+        in progress) or "bad" (unparsable: wrong shape or invalid id). Only "bad" counts as drift."""
         if not isinstance(raw, dict):
-            return None
+            return None, "bad"
         item_id = normalise_guid(raw.get("Id"))
         if item_id is None:
-            return None
+            return None, "bad"
         data = raw.get("UserData")
         data = data if isinstance(data, dict) else {}
         # Scope tripwire: a response that names another user, or another item, is hostile or broken.
@@ -189,16 +201,18 @@ class JellyfinAdapter(MediaAdapter):
         if "ItemId" in data and normalise_guid(data["ItemId"]) != item_id:
             raise UpstreamMisbehaved()
         jf_type = raw.get("Type")
+        if not isinstance(jf_type, str):
+            return None, "bad"
         if jf_type not in kinds:
-            return None
+            return None, "filtered"
         kind = {"Movie": Kind.MOVIE, "Episode": Kind.EPISODE, "Series": Kind.SERIES}[jf_type]
 
         fraction = position = duration = None
         ticks = _int(data.get("PlaybackPositionTicks"))
         run = _int(raw.get("RunTimeTicks"))
-        if want_progress and ticks and ticks > 0:
+        if want_progress and ticks is not None and ticks > 0:
             position = ticks // TICKS_PER_SECOND
-            if run and run > 0:
+            if run is not None and run > 0:
                 duration = run // TICKS_PER_SECOND
                 fraction = min(1.0, ticks / run)
             else:
@@ -206,7 +220,8 @@ class JellyfinAdapter(MediaAdapter):
                 if isinstance(pct, (int, float)) and not isinstance(pct, bool) and 0 < pct <= 100:
                     fraction = pct / 100.0
         if require_progress and position is None:
-            return None                           # not actually in progress: do not guess
+            # a missing or non-numeric position is drift; zero means "not in progress"
+            return None, ("filtered" if ticks is not None else "bad")
 
         title = clean_text(raw.get("Name")) or "Untitled"
         series = clean_text(raw.get("SeriesName")) if kind is Kind.EPISODE else None
@@ -229,7 +244,8 @@ class JellyfinAdapter(MediaAdapter):
         return MediaItem(id=f"jellyfin:{item_id}", service=Service.JELLYFIN, kind=kind, title=title,
                          handoff_url=build_handoff_url(Service.JELLYFIN, item_id),
                          subtitle=subtitle, series=series, progress_fraction=fraction,
-                         position_seconds=position, duration_seconds=duration, artwork=artwork)
+                         position_seconds=position, duration_seconds=duration,
+                         artwork=artwork), "ok"
 
     def _parse_list(self, raws: Any, user_id: str, limit: int, kinds, want_progress,
                     require_progress) -> Tuple[MediaItem, ...]:
@@ -239,11 +255,15 @@ class JellyfinAdapter(MediaAdapter):
             raise UpstreamMisbehaved()            # limit ignored: possibly an unscoped listing
         out: List[MediaItem] = []
         seen = set()
+        bad = 0
         for raw in raws:
-            item = self._parse_item(raw, user_id, kinds, want_progress, require_progress)
+            item, status = self._parse_item(raw, user_id, kinds, want_progress, require_progress)
+            bad += status == "bad"
             if item is not None and item.id not in seen:
                 seen.add(item.id)
                 out.append(item)
+        if raws and bad == len(raws):
+            raise UpstreamMalformed()             # total schema drift: never cache it as "empty"
         return tuple(out)
 
     # -- hooks ---------------------------------------------------------------------------
@@ -308,9 +328,12 @@ class JellyfinAdapter(MediaAdapter):
 
 
 def _int(value: Any) -> Optional[int]:
+    """A bounded integer from upstream JSON, or None. Hostile magnitudes are rejected here so
+    later arithmetic can neither overflow nor divide by something absurd."""
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
     try:
-        return int(value)
+        number = int(value)
     except (OverflowError, ValueError):
         return None
+    return number if -MAX_INT < number < MAX_INT else None

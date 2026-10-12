@@ -5,10 +5,18 @@ Status: proposed, not deployed. Standard library only.
 One failing, slow or hung adapter yields UNAVAILABLE for its own section only; the others
 still return. Sections run concurrently with a hard wall-clock cap as a backstop to the
 per-call timeouts (a transport that ignores its timeout cannot hold the page).
+
+Hung calls: Python cannot kill a thread, so concurrency is BOUNDED instead. Work runs on one
+shared, fixed-size pool (never a pool per request); each adapter allows only a few in-flight
+upstream calls, and further requests get UNAVAILABLE ("busy") immediately without starting any
+work. At the hard cap the adapter's circuit is force-opened, which also bumps its epoch: a hung
+call that finishes late can neither close the circuit nor populate a cache. Queued work that has
+not started when the cap hits is cancelled.
 """
 from __future__ import annotations
 
 import concurrent.futures as cf
+import threading
 from dataclasses import dataclass
 from typing import Iterable, Sequence, Tuple
 
@@ -17,6 +25,18 @@ from .principal import MemberPrincipal
 from .resilience import log_failure
 
 DEFAULT_HARD_CAP = 3.0
+POOL_WORKERS = 32          # >= adapters x per-adapter in-flight cap (4 x 4 = 16) with headroom
+_pool = None
+_pool_lock = threading.Lock()
+
+
+def _shared_pool() -> cf.ThreadPoolExecutor:
+    global _pool
+    with _pool_lock:
+        if _pool is None:
+            _pool = cf.ThreadPoolExecutor(max_workers=POOL_WORKERS, thread_name_prefix="avrana-section")
+        return _pool
+
 _METHODS = {"continue": "continue_items", "recent": "recent_items"}
 
 
@@ -40,21 +60,22 @@ def gather(principal: MemberPrincipal, adapters: Sequence[MediaAdapter],
     jobs = [(a, s) for a in adapters for s in wanted]
     if not jobs:
         return HomeSections(())
-    pool = cf.ThreadPoolExecutor(max_workers=len(jobs), thread_name_prefix="avrana-section")
+    pool = _shared_pool()
     futures = [pool.submit(getattr(a, _METHODS[s]), principal, limit) for a, s in jobs]
-    done, _ = cf.wait(futures, timeout=hard_cap)
-    pool.shutdown(wait=False, cancel_futures=True)   # a hung call must not hold the response
+    done, pending = cf.wait(futures, timeout=hard_cap)
+    for fut in pending:
+        fut.cancel()                      # queued-but-unstarted work is dropped; running work is not
     out = []
     for (adapter, section), fut in zip(jobs, futures):
         if fut not in done:
-            adapter.breaker.record_failure("HardCap")
+            adapter.breaker.force_open("HardCap")
             out.append(SectionResult(adapter.service, section, SectionState.UNAVAILABLE, reason="hard_cap"))
             continue
         try:
             out.append(fut.result())
         except Exception as exc:  # an adapter bug must cost its own section only
             log_failure(adapter.service.value, exc)
-            adapter.breaker.record_failure(type(exc).__name__)
+            adapter.breaker.force_open(type(exc).__name__)
             out.append(SectionResult(adapter.service, section, SectionState.UNAVAILABLE,
                                      reason=type(exc).__name__))
     return HomeSections(tuple(out))

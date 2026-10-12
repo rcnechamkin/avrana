@@ -88,6 +88,61 @@ class PrincipalTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             MemberPrincipal(username="member-a", groups=frozenset({"avrana-videos"}))
 
+    def test_replace_and_mint_reuse_and_subclassing_cannot_forge(self):
+        import copy
+        import dataclasses
+        import pickle
+        p = principal_from_headers(good())
+        with self.assertRaises(TypeError):
+            dataclasses.replace(p, username="member-b")
+        for kwargs in ({"_mint": getattr(p, "_mint", object())},
+                       {"_mint": getattr(p, "_sealed", object())}, {}):
+            with self.assertRaises(TypeError):
+                MemberPrincipal(username="member-b", groups=frozenset({"avrana-videos"}), **kwargs)
+        with self.assertRaises(TypeError):
+            class Forged(MemberPrincipal):
+                pass
+        with self.assertRaises(Exception):
+            p.username = "member-b"
+        with self.assertRaises(Exception):
+            p.groups = frozenset({"authentik Admins"})
+        with self.assertRaises(TypeError):
+            pickle.loads(pickle.dumps(p))
+        self.assertIs(copy.copy(p), p)              # immutable: a copy is the same object
+        self.assertIs(copy.deepcopy(p), p)
+        self.assertEqual(p, principal_from_headers(good()))
+        self.assertEqual(hash(p), hash(principal_from_headers(good())))
+
+    def test_consumers_reject_anything_that_is_not_an_exact_minted_principal(self):
+        from avrana_home.cache import MemberCache
+        from avrana_home.resilience import FakeClock
+        from avrana_home.contract import MediaAdapter
+        impostor = object.__new__(MemberPrincipal)            # skips the parser entirely
+        with self.assertRaises(TypeError):
+            MemberCache(FakeClock()).for_member(impostor)
+        with self.assertRaises(TypeError):
+            MediaAdapter._require_principal(impostor)
+
+        class Duck:
+            username = "member-a"
+            groups = frozenset({"avrana-videos"})
+        with self.assertRaises(TypeError):
+            MediaAdapter._require_principal(Duck())
+
+    def test_non_mapping_input_fails_closed(self):
+        for bad in (None, 5, "X-authentik-username: a", b"x", object(), [1, 2], [("a",)],
+                    [("a", "b", "c")], iter([(U, "a"), (G, "g")])):
+            self.assertIsNone(principal_or_none(bad), repr(bad))
+            with self.assertRaises(PrincipalError):
+                principal_from_headers(bad)
+
+    def test_unicode_separators_and_nbsp_rejected_in_usernames(self):
+        for bad in ("member a", "member a", "member a", "member a",
+                    "member　a", " member-a", "member-a ", "membera"):
+            self.assertEqual(self.reason(good(**{U: bad})), "malformed_header", repr(bad))
+        principal_from_headers(good(**{U: "member a"}))        # an ordinary space is allowed
+        self.assertEqual(self.reason(good(**{G: "avrana-videos|bad name"})), "malformed_header")
+
     def test_frozen_and_repr_redacted(self):
         p = principal_from_headers(good())
         with self.assertRaises(Exception):

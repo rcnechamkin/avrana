@@ -8,6 +8,14 @@ identity headers raises `PrincipalError` and no principal exists. There is no de
 or anonymous principal. Nothing downstream accepts a username from a query string, request
 body, cookie or model output; adapters take a `MemberPrincipal`, never a string.
 
+Construction guarantee (stated honestly): there is no SUPPORTED construction path other than the
+header parser, and accidental or careless copies with changed fields are rejected: the class is
+not a dataclass (so `dataclasses.replace` fails), cannot be subclassed, cannot be called directly,
+is immutable, and cannot be copied or pickled into a different identity. Consumers check
+`is_minted_principal` (exact type plus the parser's seal). Python cannot stop code that is
+already running in this process from using `object.__new__` and `object.__setattr__`; that is
+out of scope, and such code could equally edit the headers parser itself.
+
 Trust model: the headers are only trustworthy because Gate G1 (private per-backend networks)
 makes the Authentik outpost the only thing that can reach the application. Until G1 is applied
 and verified in production this code must not read real member data.
@@ -19,7 +27,6 @@ stripped, empty fragments are dropped, and matching is exact and case-sensitive.
 from __future__ import annotations
 
 import unicodedata
-from dataclasses import dataclass, field
 from typing import Iterable, Mapping, Optional, Sequence, Union
 
 USERNAME_HEADER = "X-authentik-username"
@@ -47,23 +54,62 @@ class PrincipalError(Exception):
 HeaderInput = Union[Mapping[str, Union[str, Sequence[str]]], Iterable[tuple]]
 
 
-@dataclass(frozen=True)
 class MemberPrincipal:
-    username: str
-    groups: frozenset
-    email: Optional[str] = None
-    name: Optional[str] = None
-    _mint: object = field(default=None, repr=False, compare=False)
+    """Immutable, parser-minted identity. Not constructible, subclassable, copyable or replaceable."""
 
-    def __post_init__(self):
-        if self._mint is not _MINT:
-            raise TypeError("MemberPrincipal can only be built by principal_from_headers")
+    __slots__ = ("username", "groups", "email", "name", "_sealed")
+
+    def __init__(self, *args, **kwargs):
+        raise TypeError("MemberPrincipal can only be built by principal_from_headers")
+
+    def __init_subclass__(cls, **kwargs):
+        raise TypeError("MemberPrincipal cannot be subclassed")
+
+    def __setattr__(self, name, value):
+        raise AttributeError("MemberPrincipal is immutable")
+
+    def __delattr__(self, name):
+        raise AttributeError("MemberPrincipal is immutable")
+
+    def __reduce__(self):
+        raise TypeError("MemberPrincipal cannot be pickled or copied into another identity")
+
+    def __copy__(self):
+        return self
+
+    def __deepcopy__(self, memo):
+        return self
+
+    def __eq__(self, other):
+        return (type(other) is MemberPrincipal and self.username == other.username
+                and self.groups == other.groups)
+
+    def __hash__(self):
+        return hash((self.username, self.groups))
 
     def has_group(self, group: str) -> bool:
         return group in self.groups
 
     def __repr__(self) -> str:  # never put identity in reprs that may reach logs
         return "MemberPrincipal(<redacted>)"
+
+    __str__ = __repr__
+
+
+def _mint_principal(username, groups, email, name) -> MemberPrincipal:
+    p = object.__new__(MemberPrincipal)
+    for attr, value in (("username", username), ("groups", groups), ("email", email),
+                        ("name", name), ("_sealed", _MINT)):
+        object.__setattr__(p, attr, value)
+    return p
+
+
+def is_minted_principal(value) -> bool:
+    """True only for an exact MemberPrincipal that the header parser produced."""
+    try:
+        return type(value) is MemberPrincipal and object.__getattribute__(value, "_sealed") is _MINT
+    except AttributeError:
+        return False
 
 
 def parse_groups(raw: str) -> set:
@@ -76,9 +122,17 @@ def parse_groups(raw: str) -> set:
 def _occurrences(headers: HeaderInput, wanted: str) -> list:
     """All values for a header name, case-insensitive, across repeated entries."""
     wanted = wanted.lower()
-    pairs = headers.items() if isinstance(headers, Mapping) else headers
+    if isinstance(headers, Mapping):
+        pairs = list(headers.items())
+    elif isinstance(headers, (list, tuple)):
+        pairs = headers
+    else:
+        raise PrincipalError("malformed_input")
     found = []
-    for name, value in pairs:
+    for pair in pairs:
+        if not isinstance(pair, (list, tuple)) or len(pair) != 2:
+            raise PrincipalError("malformed_input")
+        name, value = pair
         if not isinstance(name, str) or name.lower() != wanted:
             continue
         if isinstance(value, (list, tuple)):
@@ -103,8 +157,14 @@ def _single(headers: HeaderInput, name: str, required: bool) -> Optional[str]:
 
 
 def _bad_chars(text: str) -> bool:
-    # control, format, surrogate, private-use and unassigned code points are never legitimate
-    return any(unicodedata.category(c)[0] == "C" for c in text)
+    """Control, format, surrogate, private-use and unassigned code points; line and paragraph
+    separators; and every space other than the ordinary ASCII space (NBSP, em space, ideographic
+    space, ...) are never legitimate in an identity."""
+    for c in text:
+        cat = unicodedata.category(c)
+        if cat[0] == "C" or cat in ("Zl", "Zp") or (cat == "Zs" and c != " "):
+            return True
+    return False
 
 
 def _clean_username(raw: str) -> str:
@@ -152,13 +212,11 @@ def principal_from_headers(headers: HeaderInput) -> MemberPrincipal:
     a str or a list of str, or an iterable of (name, value) pairs, so duplicates are visible."""
     username = _clean_username(_single(headers, USERNAME_HEADER, required=True))
     groups = _clean_groups(_single(headers, GROUPS_HEADER, required=True))
-    return MemberPrincipal(
-        username=username, groups=groups,
-        email=_optional(headers, EMAIL_HEADER), name=_optional(headers, NAME_HEADER),
-        _mint=_MINT)
+    return _mint_principal(username, groups, _optional(headers, EMAIL_HEADER),
+                           _optional(headers, NAME_HEADER))
 
 
-def principal_or_none(headers: HeaderInput) -> Optional[MemberPrincipal]:
+def principal_or_none(headers) -> Optional[MemberPrincipal]:
     try:
         return principal_from_headers(headers)
     except PrincipalError:

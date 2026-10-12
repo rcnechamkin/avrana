@@ -52,6 +52,54 @@ class CacheTests(unittest.TestCase):
         self.cache.clear()
         self.assertIsNone(s.get("jellyfin", "x"))
 
+    def test_bounded_by_bytes(self):
+        small = MemberCache(self.clock, max_bytes=1000, member_max_bytes=1000)
+        s = small.for_member(make_principal("member-a"))
+        for i in range(10):
+            s.set("jellyfin", f"k{i}", i, ttl=100, size=300)
+        self.assertLessEqual(small.total_bytes(), 1000)
+        self.assertLessEqual(len(small), 3)
+        s.set("jellyfin", "huge", "v", ttl=100, size=5000)         # larger than any quota: refused
+        self.assertIsNone(s.get("jellyfin", "huge"))
+
+    def test_one_member_cannot_evict_everyone_else(self):
+        cache = MemberCache(self.clock, max_entries=40, member_max_entries=10)
+        a, b = cache.for_member(make_principal("member-a")), cache.for_member(make_principal("member-b"))
+        for i in range(5):
+            b.set("jellyfin", f"k{i}", i, ttl=100)
+        for i in range(500):
+            a.set("jellyfin", f"flood{i}", i, ttl=100)
+        self.assertEqual([b.get("jellyfin", f"k{i}") for i in range(5)], [0, 1, 2, 3, 4])
+        mine = sum(1 for i in range(500) if a.get("jellyfin", f"flood{i}") is not None)
+        self.assertLessEqual(mine, 10)
+
+    def test_global_pressure_evicts_the_heaviest_member_first(self):
+        cache = MemberCache(self.clock, max_entries=12, member_max_entries=10)
+        a, b = cache.for_member(make_principal("member-a")), cache.for_member(make_principal("member-b"))
+        for i in range(3):
+            b.set("jellyfin", f"k{i}", i, ttl=100)
+        for i in range(10):
+            a.set("jellyfin", f"f{i}", i, ttl=100)
+        c = cache.for_member(make_principal("member-c"))
+        for i in range(3):
+            c.set("jellyfin", f"k{i}", i, ttl=100)
+        self.assertEqual([b.get("jellyfin", f"k{i}") for i in range(3)], [0, 1, 2])
+        self.assertEqual([c.get("jellyfin", f"k{i}") for i in range(3)], [0, 1, 2])
+        self.assertLessEqual(len(cache), 12)
+
+    def test_delete_is_member_scoped(self):
+        a, b = (self.cache.for_member(make_principal(n)) for n in ("member-a", "member-b"))
+        a.set("jellyfin", "mapping", 1, 60)
+        b.set("jellyfin", "mapping", 2, 60)
+        a.delete("jellyfin", "mapping")
+        self.assertIsNone(a.get("jellyfin", "mapping"))
+        self.assertEqual(b.get("jellyfin", "mapping"), 2)
+
+    def test_artwork_ttl_and_visibility_window(self):
+        from avrana_home.contract import ARTWORK_TTL, MediaAdapter
+        self.assertEqual(ARTWORK_TTL, 300.0)       # the longest an item hidden from a member can linger
+        self.assertGreater(ARTWORK_TTL, MediaAdapter.cache_ttl(None, "item"))
+
     def test_shared_cache_is_a_separate_store(self):
         shared = SharedCache(self.clock)
         shared.set("public", "k", "v", 10)

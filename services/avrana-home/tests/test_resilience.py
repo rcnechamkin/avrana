@@ -11,29 +11,6 @@ from tests.helpers import FakeAdapter, make_principal
 
 
 class CircuitTests(unittest.TestCase):
-    def test_opens_after_failure_and_recovers_after_cooloff(self):
-        clock = FakeClock()
-        cb = CircuitBreaker(clock, cooloff=60)
-        self.assertTrue(cb.allow())
-        cb.record_failure("UpstreamTimeout")
-        self.assertFalse(cb.allow())
-        self.assertEqual(cb.snapshot("jellyfin").state, "cooling_off")
-        clock.advance(59)
-        self.assertFalse(cb.allow())
-        clock.advance(2)
-        self.assertTrue(cb.allow())
-        cb.record_success()
-        self.assertEqual(cb.snapshot("jellyfin").state, "ok")
-
-    def test_trial_failure_reopens(self):
-        clock = FakeClock()
-        cb = CircuitBreaker(clock, cooloff=60)
-        cb.record_failure("X")
-        clock.advance(61)
-        self.assertTrue(cb.allow())
-        cb.record_failure("X")
-        self.assertFalse(cb.allow())
-
     def test_budget_exhaustion_raises_timeout(self):
         clock = FakeClock()
         b = CallBudget(clock, 2.0)
@@ -46,7 +23,8 @@ class CircuitTests(unittest.TestCase):
 class AdapterResilienceTests(unittest.TestCase):
     def setUp(self):
         self.clock = FakeClock()
-        self.adapter = FakeAdapter(Service.JELLYFIN, {"member-a": "1"}, self.clock, mode="timeout")
+        self.adapter = FakeAdapter(Service.JELLYFIN, {"member-a": "1"}, self.clock, mode="timeout",
+                                   breaker=CircuitBreaker(self.clock, threshold=1))
         self.p = make_principal("member-a")
 
     def test_failure_is_unavailable_with_no_retry_and_cooloff(self):

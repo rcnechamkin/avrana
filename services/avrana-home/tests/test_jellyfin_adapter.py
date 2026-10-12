@@ -6,7 +6,7 @@ from avrana_home.adapters.jellyfin import (ALLOWED_ROUTES, GuardedTransport, Jel
                                            check_request, normalise_guid)
 from avrana_home.contract import ForbiddenRequest, SectionState, Service
 from avrana_home.principal import PrincipalError, principal_from_headers
-from avrana_home.resilience import (FakeClock, UpstreamTimeout, UpstreamUnreachable,
+from avrana_home.resilience import (CircuitBreaker, FakeClock, UpstreamTimeout, UpstreamUnreachable,
                                     UrllibTransport)
 from tests.fake_jellyfin import A, B, FakeJellyfin, FakeOpener, FakeTransport, load
 from tests.helpers import make_principal
@@ -285,6 +285,8 @@ class IsolationTests(Base):
         self.assertIs(r.state, SectionState.EMPTY)
 
     def test_hostile_upstream_naming_another_user_is_discarded(self):
+        self.adapter = JellyfinAdapter(self.transport, clock=self.clock,
+                                       breaker=CircuitBreaker(self.clock, threshold=1))
         self.fake.hostile_resume = load("hostile_resume_b_for_a.json")
         r = self.adapter.continue_items(self.a)
         self.assertIs(r.state, SectionState.UNAVAILABLE)
@@ -323,6 +325,8 @@ class IsolationTests(Base):
 class UpstreamFailureTests(Base):
     def run_with(self, override, path="/UserItems/Resume"):
         self.setUp()
+        self.adapter = JellyfinAdapter(self.transport, clock=self.clock,
+                                       breaker=CircuitBreaker(self.clock, threshold=1))
         self.fake.overrides[path] = override
         with self.assertLogs("avrana_home", "WARNING") as cm:
             r = self.adapter.continue_items(self.a)
@@ -331,7 +335,7 @@ class UpstreamFailureTests(Base):
     def test_every_failure_is_unavailable_never_an_exception(self):
         cases = {
             "401": ("status", 401), "403": ("status", 403), "500": ("status", 500),
-            "404": ("status", 404), "timeout": ("raise", UpstreamTimeout()),
+            "400": ("status", 400), "timeout": ("raise", UpstreamTimeout()),
             "unreachable": ("raise", UpstreamUnreachable()), "not json": ("body", b"not json"),
             "bad utf8": ("body", b"\xff\xfe"), "string": ("body", b'"s"'), "list": ("body", b"[]"),
             "null": ("body", b"null"), "oversized": ("body", b"x" * (2 * 1024 * 1024)),
@@ -343,7 +347,10 @@ class UpstreamFailureTests(Base):
             self.assertNotIn("member-a", logs, label)
             self.assertNotIn("Synthetic", logs, label)
             self.assertIn("service=jellyfin", logs, label)
-            self.assertEqual(self.adapter.health().state, "cooling_off", label)
+            if label == "400":                      # a per-request 4xx never counts toward the circuit
+                self.assertNotEqual(self.adapter.health().state, "cooling_off", label)
+            else:
+                self.assertEqual(self.adapter.health().state, "cooling_off", label)
             self.assertEqual(self.fake.paths().count("/UserItems/Resume"), 1, label)   # no retry
 
     def test_failure_on_user_list(self):
@@ -359,6 +366,8 @@ class UpstreamFailureTests(Base):
         self.assertTrue(all(t <= 2.0 for t in self.transport.timeouts))
 
     def test_recovers_after_cooloff_and_failures_are_not_cached(self):
+        self.adapter = JellyfinAdapter(self.transport, clock=self.clock,
+                                       breaker=CircuitBreaker(self.clock, threshold=1))
         self.fake.overrides["/UserItems/Resume"] = ("status", 500)
         self.assertIs(self.adapter.continue_items(self.a).state, SectionState.UNAVAILABLE)
         del self.fake.overrides["/UserItems/Resume"]

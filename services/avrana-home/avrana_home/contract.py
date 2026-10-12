@@ -6,32 +6,41 @@ The base class is a template: the public methods (`continue_items`, `recent_item
 `fetch_artwork`, `search`) are final in spirit and do the checks that must never be skipped, in
 this order:
 
-  1. the argument is a real `MemberPrincipal` (a raw string is a programming error);
+  1. the argument is a parser-minted `MemberPrincipal` (anything else is a programming error);
   2. the member holds the adapter's required Authentik group, else NOT_PERMITTED with ZERO upstream
      calls and without touching the cache;
-  3. the per-service circuit is closed, else UNAVAILABLE with zero upstream calls;
-  4. member-scoped cache lookup (keyed by member, never shared);
+  3. member-scoped cache lookup (keyed by member, never shared). A hit is served even while the
+     circuit is open: it makes no upstream call and is bounded by a short TTL;
+  4. the in-flight cap (`busy`) and the shared circuit (`cooling_off`), both returning UNAVAILABLE
+     with zero upstream calls;
   5. the upstream mapping (`resolve_user`): unmapped -> NOT_LINKED, ambiguous -> NOT_LINKED
      (refused), never a fallback to an admin or service view;
   6. only then the subclass hook, which may talk to the upstream.
 
-Subclasses implement the `_hook` methods only.
+Subclasses implement the `_hook` methods only. Anything the upstream (or a transport) can
+provoke is converted to an `UpstreamError` at this boundary (`resilience.coerce`), so a public
+method returns a state and never raises for upstream-controlled input. Which errors count toward
+the circuit shared by all members is `resilience.counts_toward_breaker`.
 """
 from __future__ import annotations
 
 import enum
 import logging
 import re
+import threading
 from dataclasses import dataclass
 from typing import Any, Callable, Optional, Tuple
 
 from .cache import MemberCache
-from .principal import MemberPrincipal
-from .resilience import (CircuitBreaker, UpstreamError, SystemClock, log_failure)
+from .principal import MemberPrincipal, is_minted_principal
+from .resilience import (CircuitBreaker, SystemClock, UpstreamNotFound, coerce,
+                         counts_toward_breaker, log_failure)
 
 DEFAULT_LIMIT = 12
 MAX_LIMIT = 50
 MAX_TITLE_LEN = 200
+ARTWORK_TTL = 300.0   # longest an item hidden from a member can still be served from cache
+DEFAULT_MAX_IN_FLIGHT = 4
 
 log = logging.getLogger("avrana_home")
 
@@ -205,20 +214,37 @@ class ForbiddenRequest(Exception):
     """An adapter tried a request outside its read-only allow-list. Raised BEFORE any I/O."""
 
 
+@dataclass(frozen=True)
+class _Outcome:
+    kind: str                       # "ok" | "unavailable" | "not_linked"
+    value: Any = None
+    reason: Optional[str] = None
+    fresh: bool = False             # False when a hung call finished after the circuit moved on
+
+
 class MediaAdapter:
     """Base class. Subclasses set `service`, pass a breaker and cache, and implement hooks."""
 
     service: Service
 
     def __init__(self, breaker: Optional[CircuitBreaker] = None,
-                 cache: Optional[MemberCache] = None, clock=None):
+                 cache: Optional[MemberCache] = None, clock=None,
+                 max_in_flight: int = DEFAULT_MAX_IN_FLIGHT):
         self.clock = clock or SystemClock()
         self.breaker = breaker or CircuitBreaker(self.clock)
         self.cache = cache or MemberCache(self.clock)
+        self._max_in_flight = max_in_flight
+        self._in_flight = 0
+        self._flight_lock = threading.Lock()
 
     @property
     def required_group(self) -> str:
         return REQUIRED_GROUP[self.service]
+
+    @property
+    def in_flight(self) -> int:
+        with self._flight_lock:
+            return self._in_flight
 
     # ---- hooks for subclasses -------------------------------------------------------------
     def _resolve_user(self, principal: MemberPrincipal) -> UpstreamUser:
@@ -243,20 +269,13 @@ class MediaAdapter:
 
     # ---- public contract ------------------------------------------------------------------
     def resolve_user(self, principal: MemberPrincipal) -> Optional[UpstreamUser]:
-        """Explicit mapping. None means unmapped OR ambiguous (refused); never a fallback."""
+        """Explicit mapping. None means unmapped OR ambiguous (refused) or unavailable; never a
+        fallback account."""
         self._require_principal(principal)
         if not principal.has_group(self.required_group):
             return None
-        if not self.breaker.allow():
-            return None
-        try:
-            user = self._mapped(principal)
-        except (MappingFailed, AmbiguousMappingError):
-            return None
-        except UpstreamError as exc:
-            self._failed(exc)
-            return None
-        return user
+        out = self._call(principal, lambda user: user)
+        return out.value if out.kind == "ok" else None
 
     def continue_items(self, principal: MemberPrincipal, limit: int = DEFAULT_LIMIT) -> SectionResult:
         limit = _limit(limit)
@@ -271,8 +290,9 @@ class MediaAdapter:
     def item(self, principal: MemberPrincipal, item_id: str) -> SectionResult:
         if not valid_upstream_id(self.service, item_id):
             self._require_principal(principal)
-            return SectionResult(self.service, "item", SectionState.EMPTY, reason="invalid_id") \
-                if principal.has_group(self.required_group) else self._not_permitted("item")
+            if not principal.has_group(self.required_group):
+                return self._not_permitted("item")
+            return SectionResult(self.service, "item", SectionState.EMPTY, reason="invalid_id")
         return self._section(principal, "item", f"item:{item_id}",
                              lambda user: self._item(user, item_id))
 
@@ -290,20 +310,16 @@ class MediaAdapter:
         cached = scope.get(self.service.value, "art:" + ref)
         if cached is not None:
             return cached
-        if not self.breaker.allow():
+        out = self._call(principal, lambda user: self._fetch_artwork(user, ref))
+        if out.kind == "unavailable":
             return ArtworkResult(SectionState.UNAVAILABLE)
-        try:
-            user = self._mapped(principal)
-            result = self._fetch_artwork(user, ref)
-            self.breaker.record_success()
-            if result.state is SectionState.OK:
-                scope.set(self.service.value, "art:" + ref, result, ttl=600.0)
-            return result
-        except (MappingFailed, AmbiguousMappingError):
+        if out.kind == "not_linked":
             return ArtworkResult(SectionState.NOT_LINKED)
-        except UpstreamError as exc:
-            self._failed(exc)
-            return ArtworkResult(SectionState.UNAVAILABLE)
+        result = out.value
+        if result.state is SectionState.OK and out.fresh:
+            scope.set(self.service.value, "art:" + ref, result, ttl=ARTWORK_TTL,
+                      size=len(result.data) + 256)
+        return result
 
     def health(self):
         return self.breaker.snapshot(self.service.value)
@@ -311,19 +327,32 @@ class MediaAdapter:
     # ---- internals ------------------------------------------------------------------------
     @staticmethod
     def _require_principal(principal: Any) -> None:
-        if not isinstance(principal, MemberPrincipal):
-            raise TypeError("adapters take a MemberPrincipal, never a raw identity")
+        if not is_minted_principal(principal):
+            raise TypeError("adapters take a parser-minted MemberPrincipal, never a raw identity")
 
     def _not_permitted(self, section: str) -> SectionResult:
         return SectionResult(self.service, section, SectionState.NOT_PERMITTED)
 
-    def _failed(self, exc: Exception) -> None:
-        self.breaker.record_failure(type(exc).__name__)
-        log_failure(self.service.value, exc)
+    def _acquire_slot(self) -> bool:
+        with self._flight_lock:
+            if self._in_flight >= self._max_in_flight:
+                return False
+            self._in_flight += 1
+            return True
 
-    def _mapped(self, principal: MemberPrincipal) -> UpstreamUser:
+    def _release_slot(self) -> None:
+        with self._flight_lock:
+            self._in_flight -= 1
+
+    def _account(self, err: Exception, token: Optional[int]) -> None:
+        log_failure(self.service.value, err)
+        if counts_toward_breaker(err):
+            self.breaker.failure(type(err).__name__, token)
+        else:
+            self.breaker.neutral(token)          # a per-request problem: the shared circuit is untouched
+
+    def _mapped(self, scope, principal: MemberPrincipal, token: int) -> UpstreamUser:
         """Mapping with member-scoped caching of the outcome (positive and negative)."""
-        scope = self.cache.for_member(principal)
         hit = scope.get(self.service.value, "mapping")
         if hit is not None:
             kind, payload = hit
@@ -335,16 +364,56 @@ class MediaAdapter:
         try:
             user = self._resolve_user(principal)
         except MappingFailed as exc:
-            self.breaker.record_success()       # the upstream answered; the member just is not linked
-            scope.set(self.service.value, "mapping", ("absent", exc.reason), ttl=60.0)
+            if self.breaker.valid(token):
+                scope.set(self.service.value, "mapping", ("absent", exc.reason), ttl=60.0, size=128)
             raise
         except AmbiguousMappingError:
-            self.breaker.record_success()
-            scope.set(self.service.value, "mapping", ("ambiguous", None), ttl=60.0)
+            if self.breaker.valid(token):
+                scope.set(self.service.value, "mapping", ("ambiguous", None), ttl=60.0, size=128)
             raise
-        self.breaker.record_success()
-        scope.set(self.service.value, "mapping", ("user", user), ttl=300.0)
+        if self.breaker.valid(token):
+            scope.set(self.service.value, "mapping", ("user", user), ttl=300.0, size=128)
         return user
+
+    def _call(self, principal: MemberPrincipal, work: Callable[[UpstreamUser], Any]) -> _Outcome:
+        """The one place that touches the upstream: in-flight cap, shared circuit, mapping, then
+        `work`. Every upstream-provoked failure becomes an outcome; nothing raises for it."""
+        scope = self.cache.for_member(principal)
+        if not self._acquire_slot():
+            return _Outcome("unavailable", reason="busy")
+        try:
+            token = self.breaker.acquire()
+            if token is None:
+                return _Outcome("unavailable", reason="cooling_off")
+            stage = "mapping"
+            try:
+                user = self._mapped(scope, principal, token)
+                stage = "work"
+                value = work(user)
+            except MappingFailed as exc:
+                self.breaker.success(token)           # the upstream answered; the member is not linked
+                return _Outcome("not_linked", reason=exc.reason)
+            except AmbiguousMappingError:
+                self.breaker.success(token)
+                return _Outcome("not_linked", reason="ambiguous")
+            except Exception as exc:
+                err = coerce(exc)
+                if err is None:                       # a programming error, not upstream input
+                    self.breaker.neutral(token)
+                    raise
+                if isinstance(err, UpstreamNotFound) and stage == "work":
+                    # The mapped upstream user (or item) is gone: specific to this member. Forget the
+                    # mapping so it is re-resolved, and do not touch the shared circuit.
+                    scope.delete(self.service.value, "mapping")
+                    log_failure(self.service.value, err)
+                    self.breaker.neutral(token)
+                    return _Outcome("not_linked", reason="upstream_user_not_found")
+                self._account(err, token)
+                return _Outcome("unavailable", reason=type(err).__name__)
+            fresh = self.breaker.success(token)
+            return _Outcome("ok", value, fresh=fresh)
+        finally:
+            self._release_slot()
 
     def _section(self, principal: MemberPrincipal, section: str, cache_name: str,
                  fetch: Callable[[UpstreamUser], SectionResult]) -> SectionResult:
@@ -355,25 +424,15 @@ class MediaAdapter:
         cached = scope.get(self.service.value, cache_name)
         if cached is not None:
             return cached
-        if not self.breaker.allow():
-            return SectionResult(self.service, section, SectionState.UNAVAILABLE, reason="cooling_off")
-        try:
-            user = self._mapped(principal)
-        except MappingFailed as exc:
-            return SectionResult(self.service, section, SectionState.NOT_LINKED, reason=exc.reason)
-        except AmbiguousMappingError:
-            return SectionResult(self.service, section, SectionState.NOT_LINKED, reason="ambiguous")
-        except UpstreamError as exc:
-            self._failed(exc)
-            return SectionResult(self.service, section, SectionState.UNAVAILABLE, reason=type(exc).__name__)
-        try:
-            result = fetch(user)
-        except UpstreamError as exc:
-            self._failed(exc)
-            return SectionResult(self.service, section, SectionState.UNAVAILABLE, reason=type(exc).__name__)
-        self.breaker.record_success()
-        if result.state in (SectionState.OK, SectionState.EMPTY):
-            scope.set(self.service.value, cache_name, result, ttl=self.cache_ttl(section))
+        out = self._call(principal, fetch)
+        if out.kind == "unavailable":
+            return SectionResult(self.service, section, SectionState.UNAVAILABLE, reason=out.reason)
+        if out.kind == "not_linked":
+            return SectionResult(self.service, section, SectionState.NOT_LINKED, reason=out.reason)
+        result = out.value
+        if result.state in (SectionState.OK, SectionState.EMPTY) and out.fresh:
+            scope.set(self.service.value, cache_name, result, ttl=self.cache_ttl(section),
+                      size=256 + 512 * len(result.items))
         return result
 
     def cache_ttl(self, section: str) -> float:
