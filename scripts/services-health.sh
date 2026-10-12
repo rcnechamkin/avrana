@@ -242,6 +242,27 @@ else
   failures=$((failures + 1))
 fi
 
+# Gate G1 (forensic audit D4, docs/design/MEDIA-2.0.md section 4): avrana-portal,
+# avrana-kindle-connector and olivetin trust X-authentik-* headers, so none of them may share a
+# network with a sibling container; each sits on its own authentik_<name> network with the
+# Authentik server only. The decision is in check-network-isolation.py (tested offline). Until the
+# change is applied (the private networks do not exist) it prints WARN and passes; once they exist
+# any drift is a FAIL. Runbook: docs/runbooks/g1-network-isolation.md. (Media 2.0, AVR-355.)
+isolation_script="$(dirname "$0")/check-network-isolation.py"
+if [ -f "$isolation_script" ]; then
+  net_ids=$(docker network ls -q 2>/dev/null)
+  net_json=""
+  [ -n "$net_ids" ] && net_json=$(printf '%s\n' "$net_ids" | xargs docker network inspect 2>/dev/null)
+  if [ -z "$net_json" ]; then
+    printf 'WARN network isolation (G1): could not read docker network data\n' >&2
+  else
+    printf '%s\n' "$net_json" | python3 "$isolation_script" || failures=$((failures + 1))
+  fi
+else
+  printf 'FAIL check-network-isolation.py not found beside this script\n' >&2
+  failures=$((failures + 1))
+fi
+
 # The recycle bin held 650 GB after the September Radarr grab loop (finding A13). Say so before
 # it fills the array. Two entries, so the walk is cheap.
 recycle_dir=/mnt/avrana_media/.recycle

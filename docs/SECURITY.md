@@ -19,3 +19,5 @@ Some services use Docker socket proxies. The presence of a proxy or read-only fi
 LAN binding is not a substitute for a verified firewall policy. Jellyfin and Home Assistant use host networking. Historical firewall proposals and audit results must not be described as applied without fresh evidence. See [networking](NETWORKING.md).
 
 Before staging, review exact paths, text diffs, secret patterns, private keys, personal records, sizes, binaries and symlinks. Review source fixtures as well as code. Run `python3 scripts/review_git_content.py --staged` after staging; automated checks complement manual review and cannot prove absence of all sensitive data.
+
+**Identity-header trust boundary (G1): staged, not applied.** The portal, Kindle connector and OliveTin trust `X-authentik-*` headers and still share `authentik_frontend` with sibling containers. The staged fix and the owner procedure are in [the runbook](runbooks/g1-network-isolation.md); it does not cover the host network namespace (the shared-secret second layer, D-3, is unverified).
