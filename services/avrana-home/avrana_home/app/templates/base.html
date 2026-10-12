@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>{% block title %}Avrana{% endblock %}</title>
+<style>{{ stylesheet }}</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>{% block heading %}<a href="/">AVRANA</a>{% endblock %}</h1>
+    <div class="rule"></div>
+  </header>
+{% block body %}{% endblock %}
+  <footer>
+{% block footer %}    <a class="account" href="/">Back</a>{% endblock %}
+  </footer>
+</main>
+</body>
+</html>

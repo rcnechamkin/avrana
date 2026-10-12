@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Account · Avrana{% endblock %}
+{% block body %}
+  <section class="block">
+    <h2>Signed in as</h2>
+    <dl class="facts">
+{% for k, v in facts %}      <dt>{{ k }}</dt><dd>{{ v }}</dd>
+{% endfor %}
+    </dl>
+  </section>
+{% if access %}
+    <section class="block">
+      <h2>Your access</h2>
+      <ul class="access">
+{% for label in access %}        <li>{{ label|trusted }}</li>
+{% endfor %}
+      </ul>
+    </section>
+{% else %}
+    <section class="block">
+      <h2>Your access</h2>
+      <p class="note">Nothing is set up on this account yet. Ask Cody to add what you need.</p>
+    </section>
+{% endif %}
+  <section class="block">
+    <h2>Preferences</h2>
+    <p class="note">Your password, two&#8209;factor devices and active sessions are managed in your Avrana account. Per&#8209;service settings — playback, reading position, notifications — live inside each service.</p>
+  </section>
+{% endblock %}
+{% block footer %}    <a class="account" href="{{ account_url }}">Manage account</a>
+    <a class="account" href="{{ signout_url }}">Sign out</a>
+    <a class="account" href="/">Back</a>{% endblock %}
