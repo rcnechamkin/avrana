@@ -26,6 +26,9 @@ def main():
     print(f'{len(tests)} offline Kindle tests passed')
     subprocess.run([sys.executable, '-B', '-m', 'unittest', 'discover', '-s', str(ROOT / 'services/avrana-kindle-connector/tests'), '-p', 'test_authz.py'], check=True)
     subprocess.run([sys.executable, '-B', '-m', 'unittest', 'discover', '-s', str(ROOT / 'services/backups/tests'), '-p', 'test_*.py'], check=True)
+    home = ROOT / 'services/avrana-home'
+    subprocess.run([sys.executable, '-B', '-m', 'unittest', 'discover', '-s', str(home / 'tests'),
+                    '-t', str(home), '-p', 'test_*.py'], check=True)
 
 
 if __name__ == '__main__':
