@@ -7,7 +7,8 @@ directly, so {{ brand }} never sees your password.</p>
 <form method="post" action="/contribute/audible/start" class="card">
   <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
   <label>Your Audible email
-    <input type="email" name="email" required autocomplete="email" placeholder="you@example.com"
+    <input type="email" name="email" required autocomplete="email" inputmode="email" autocapitalize="none" spellcheck="false"
+           placeholder="you@example.com"
            value="{{ prefill_email or '' }}">
   </label>
   <label>Your Audible region

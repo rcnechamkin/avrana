@@ -14,6 +14,7 @@ import importlib.util
 import json
 import os
 import pathlib
+import select
 import socket
 import sqlite3
 import sys
@@ -52,6 +53,7 @@ kindle.urllib.request.urlopen = _no_network
 
 SENDER = "sender@example.test"
 GROUPS_OK = "avrana-users|avrana-books"
+GROUPS_ALL = "avrana-users|avrana-books|avrana-audiobooks"  # a member who may see Audiobookshelf named
 
 ADDR = {"a": "member_a_old@kindle.com", "b": "member_b_x1@kindle.com",
         "c": "admin_c_x1@kindle.com", "shared": "shared_x9@kindle.com"}
@@ -175,6 +177,7 @@ class Base(unittest.TestCase):
     abs_users = ABS_USERS
     abs_devices = ABS_DEVICES
     handler_timeout = None
+    handler_attrs = {}
 
     def setUp(self):
         tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)  # a straggler handler thread may still hold the file
@@ -191,6 +194,7 @@ class Base(unittest.TestCase):
         kindle.SENDER, kindle.REQUIRED_GROUP = SENDER, "avrana-books"
         self.addCleanup(lambda: [setattr(kindle, n, v) for n, v in saved.items()])
         attrs = {"disable_nagle_algorithm": True}  # avoids a ~40 ms delayed-ACK stall per response
+        attrs.update(self.handler_attrs)
         if self.handler_timeout is not None:
             attrs["timeout"] = self.handler_timeout
         self.handler_cls = type("TestHandler", (kindle.Handler,), attrs)
@@ -283,7 +287,7 @@ class PermittedMember(Base):
         self.assertIn(ADDR["a"], r.text)
         self.assertIn("amazon.com/hz/mycd/myx", r.text)
         self.assertIn(SENDER, r.text)
-        self.assertIn("Save to both libraries", r.text)
+        self.assertIn("Save address", r.text)
         self.assertIn('formaction="/remove"', r.text)  # something is set, so Remove is offered
         self.assertNoAddressLeak(r.text, allowed=(ADDR["a"],))
         self.assertNoWrites(before)
@@ -303,11 +307,12 @@ class PermittedMember(Base):
 
     def test_get_with_query_and_trailing_slash_never_writes(self):
         before = self.state()
-        for p in ("/?address=evil_1@kindle.com", "//", "/save", "/remove", "/save?address=x@kindle.com",
-                  "/some/other/path"):
+        for p in ("/?address=evil_1@kindle.com", "//", "/?"):
             r = self.get(p)
             self.assertEqual(r.status, 200, p)
             self.assertNoAddressLeak(r.text, allowed=(ADDR["a"],))
+        for p in ("/save", "/remove", "/save?address=x@kindle.com", "/some/other/path", "/index.html"):
+            self.assertEqual(self.get(p).status, 404, p)  # only "/" is a page; GET never reaches a write route
         self.assertNoWrites(before)
 
     def test_unsupported_methods_do_nothing(self):
@@ -319,7 +324,7 @@ class PermittedMember(Base):
         self.assertNoWrites(before)
 
     def test_no_account_shows_plain_message(self):
-        r = self.get(headers=hdr(user="member-z", email="z@example.test"))
+        r = self.get(headers=hdr(user="member-z", email="z@example.test", groups=GROUPS_ALL))
         self.assertEqual(r.status, 200)
         self.assertIn("No Calibre-Web or Audiobookshelf account found", r.text)
         self.assertNoAddressLeak(r.text)
@@ -331,7 +336,7 @@ class PermittedMember(Base):
 
     def test_username_case_and_padding_resolve_to_the_same_member(self):
         before_b = self.rows()[1]
-        r = self.post("/save", NEW_A, headers=hdr(user="  MEMBER-A  ", email=None))
+        r = self.post("/save", NEW_A, headers=hdr(user="  MEMBER-A  ", email=None, groups=GROUPS_ALL))
         self.assertEqual(r.status, 200)
         self.assertIn("Saved to Calibre-Web and Audiobookshelf", r.text)
         self.assertEqual(self.rows()[0][3], NEW_A)
@@ -341,7 +346,7 @@ class PermittedMember(Base):
         self.assertEqual(mine[0]["email"], NEW_A)
 
     def test_save_roundtrip_pinned(self):
-        r = self.post("/save", "  " + NEW_A + "  ")
+        r = self.post("/save", "  " + NEW_A + "  ", headers=hdr(groups=GROUPS_ALL))
         self.assertEqual(r.status, 200)
         self.assertIn("Saved to Calibre-Web and Audiobookshelf. Remember to approve " + SENDER, r.text)
         self.assertIn(NEW_A, r.text)
@@ -352,7 +357,7 @@ class PermittedMember(Base):
         self.assertEqual(len([d for d in self.abs.devices if d["users"] == ["abs-u-a"]]), 1)
 
     def test_remove_roundtrip_pinned(self):
-        r = self.post("/remove", body=b"")
+        r = self.post("/remove", body=b"", headers=hdr(groups=GROUPS_ALL))
         self.assertEqual(r.status, 200)
         self.assertIn("Removed from Calibre-Web and Audiobookshelf.", r.text)
         self.assertIsNone(self.rows()[0][3])
@@ -382,7 +387,7 @@ class PermittedMember(Base):
         before = self.state()
         r = self.post("/save", NEW_A, headers=hdr(user="member-z", email="z@example.test"))
         self.assertEqual(r.status, 200)
-        self.assertIn("No library account found for this login.", r.text)
+        self.assertIn("No library account was found for this sign-in.", r.text)
         self.assertNoWrites(before)
 
     def test_null_device_array_is_handled(self):
@@ -522,7 +527,7 @@ class MalformedIdentity(Base):
         before = self.state()
         r = self.post("/save", NEW_A, headers=hdr(user="m" * 8000, email=None))
         self.assertEqual(r.status, 200)
-        self.assertIn("No library account found", r.text)
+        self.assertIn("No library account was found", r.text)
         self.assertNoAddressLeak(r.text)
         self.assertNoWrites(before)
 
@@ -791,7 +796,7 @@ class IdentityResolution(Base):
         before = self.state()
         for e in ("b@example.test", "B@EXAMPLE.TEST", "c@example.test"):
             r = self.post("/save", NEW_B, headers=hdr(user="renamed-b", email=e))
-            self.assertIn("No library account found", r.text)
+            self.assertIn("No library account was found", r.text)
             self.assertNoAddressLeak(r.text)
             self.assertNotIn("Removed", self.post("/remove", headers=hdr(user="renamed-b", email=e), body=b"").text)
         self.assertNoWrites(before)
@@ -833,7 +838,7 @@ class IdentityResolution(Base):
         self.abs.users.append(abs_user("abs-u-d", "member-d", "b@example.test"))
         before = self.state()
         r = self.post("/save", NEW_A, headers=hdr(user="renamed", email="b@example.test"))
-        self.assertIn("No library account found", r.text)
+        self.assertIn("No library account was found", r.text)
         self.assertNoAddressLeak(r.text)
         self.assertNoWrites(before)
 
@@ -916,12 +921,17 @@ class AliasMap(unittest.TestCase):
         self.assertEqual(self.parse("a=b, c=d\ne=f  g=h")[0], {"a": "b", "c": "d", "e": "f", "g": "h"})
         self.assertEqual(self.parse("a=b,a=b")[0], {"a": "b"})  # an exact repeat is harmless
 
-    def test_malformed_entries_are_ignored_and_only_counted(self):
-        got, log = self.parse("novalue =x y= a=b=c ok=fine")
-        self.assertEqual(got, {"ok": "fine"})
-        self.assertIn("ignored 4 malformed", log)
-        for name in ("novalue", "ok", "fine"):
-            self.assertNotIn(name, log)
+    def test_any_malformed_token_refuses_the_whole_map(self):
+        # names with spaces are not supported: "John Smith=Cody" must not become {"Smith": "Cody"}
+        for raw in ("John Smith=Cody", "akadmin=Cody Smith", "ok=fine novalue", "ok=fine =x", "ok=fine y=",
+                    "ok=fine a=b=c", "ok=fine,junk", "novalue"):
+            with self.subTest(raw):
+                got, log = self.parse(raw)
+                self.assertEqual(got, {})
+                self.assertEqual(log.count("\n"), 1)
+                self.assertIn("refused", log)
+                for name in ("John", "Smith", "Cody", "ok", "fine", "novalue", "akadmin"):
+                    self.assertNotIn(name, log)
 
     def test_ambiguous_maps_are_refused_whole_with_a_count_only_log(self):
         for raw in ("a=b,b=c", "a=x,b=x", "a=x,b=X", "a=x,a=y", "a=A", "a=b,fine=ok,B=z"):
@@ -946,7 +956,7 @@ class AliasedLogin(Base):
         self.addCleanup(lambda: setattr(kindle, "ALIASES", saved))
 
     def test_alias_resolves_in_both_libraries_and_only_touches_the_target(self):
-        h = hdr(user="akadmin", email="whatever@example.test")
+        h = hdr(user="akadmin", email="whatever@example.test", groups=GROUPS_ALL)
         r = self.get(headers=h)
         self.assertIn(ADDR["c"], r.text)
         self.assertNoAddressLeak(r.text, allowed=(ADDR["c"],))
@@ -970,17 +980,29 @@ class AliasedLogin(Base):
 
     def test_alias_needs_an_exact_source_and_never_chains(self):
         before = self.state()
-        for u in ("AKADMIN", "Akadmin", "akadmin2"):
-            with self.subTest(u):
-                r = self.post("/save", NEW_A, headers=hdr(user=u))
-                self.assertIn("No library account found", r.text)
+        r = self.post("/save", NEW_A, headers=hdr(user="akadmin2"))
+        self.assertIn("No library account was found", r.text)
         self.assertNoWrites(before)
+
+    def test_case_variants_of_a_source_or_target_resolve_to_nobody(self):
+        # a library account named like the source in another case must not be reachable by that variant
+        con = sqlite3.connect(self.db)
+        con.execute("INSERT INTO user VALUES (4,'AkAdmin','x@example.test','akadmin_x1@kindle.com')")
+        con.commit()
+        con.close()
+        before = self.state()
+        for u in ("AKADMIN", "Akadmin", "AkAdmin", "ADMIN-C", "Admin-C"):
+            with self.subTest(u):
+                self.assertEqual(self.get(headers=hdr(user=u)).status, 404)
+                self.assertEqual(self.post("/save", NEW_A, headers=hdr(user=u)).status, 404)
+        self.assertNoWrites(before)
+        self.assertIn(ADDR["c"], self.get(headers=hdr(user="akadmin")).text)  # the exact source still works
 
     def test_alias_to_a_name_that_does_not_exist_resolves_nobody(self):
         kindle.ALIASES = {"akadmin": "nobody-here"}
         before = self.state()
         r = self.post("/save", NEW_A, headers=hdr(user="akadmin"))
-        self.assertIn("No library account found", r.text)
+        self.assertIn("No library account was found", r.text)
         self.assertNoWrites(before)
 
     def test_unaliased_members_are_unaffected(self):
@@ -999,7 +1021,7 @@ class WriteFailures(Base):
     def test_save_with_abs_patch_failure_reports_it_and_leaves_others_alone(self):
         self.abs.fail_patch = True
         dev0 = copy.deepcopy(self.abs.devices)
-        r = self.post("/save", NEW_A)
+        r = self.post("/save", NEW_A, headers=hdr(groups=GROUPS_ALL))
         self.assertEqual(r.status, 200)
         self.assertIn("Saved to Calibre-Web; failed for Audiobookshelf.", r.text)
         self.assertEqual(self.abs.devices, dev0)
@@ -1010,7 +1032,7 @@ class WriteFailures(Base):
 
     def test_save_with_cwa_failure_reports_it_and_leaves_others_alone(self):
         self.block_cwa_updates()
-        r = self.post("/save", NEW_A)
+        r = self.post("/save", NEW_A, headers=hdr(groups=GROUPS_ALL))
         self.assertEqual(r.status, 200)
         self.assertIn("Saved to Audiobookshelf; failed for Calibre-Web.", r.text)
         self.assertEqual(self.rows(), CWA_ROWS)
@@ -1020,14 +1042,14 @@ class WriteFailures(Base):
     def test_save_when_abs_goes_down_after_the_failed_write_still_answers(self):
         self.abs.fail_patch = True
         self.abs.dead_after_failed_patch = True
-        r = self.post("/save", NEW_A)
+        r = self.post("/save", NEW_A, headers=hdr(groups=GROUPS_ALL))
         self.assertEqual(r.status, 200, "connection dropped after Calibre-Web was already written")
         self.assertIn("failed for Audiobookshelf", r.text)
         self.assertEqual(self.server.errors, [])
 
     def test_remove_with_abs_patch_failure_reports_it(self):
         self.abs.fail_patch = True
-        r = self.post("/remove", body=b"")
+        r = self.post("/remove", body=b"", headers=hdr(groups=GROUPS_ALL))
         self.assertEqual(r.status, 200, "no response: /remove has no error handling")
         self.assertIn("failed for Audiobookshelf", r.text)
         self.assertEqual(self.server.errors, [])
@@ -1035,7 +1057,7 @@ class WriteFailures(Base):
 
     def test_remove_with_cwa_failure_still_removes_from_abs_and_reports(self):
         self.block_cwa_updates()
-        r = self.post("/remove", body=b"")
+        r = self.post("/remove", body=b"", headers=hdr(groups=GROUPS_ALL))
         self.assertEqual(r.status, 200, "no response: /remove has no error handling")
         self.assertIn("failed for Calibre-Web", r.text)
         self.assertEqual(self.server.errors, [])
@@ -1097,6 +1119,7 @@ class WriteFailures(Base):
 
 class Hardening(Base):
     handler_timeout = 0.4
+    handler_attrs = {"body_deadline": 0.6}
 
     def test_stalled_body_times_out_with_408_instead_of_pinning_a_thread(self):
         before = self.state()
@@ -1107,17 +1130,90 @@ class Hardening(Base):
         self.assertLess(time.time() - t0, 3)
         self.assertNoWrites(before)
 
+    def test_trickled_body_hits_a_total_deadline_not_just_a_per_read_timeout(self):
+        # one byte every 0.15 s never trips the 0.4 s per-read timeout; only a total deadline stops it
+        before = self.state()
+        head = (b"POST /save HTTP/1.1\r\nHost: x\r\nContent-Length: 60\r\n" +
+                b"".join(f"{k}: {v}\r\n".encode() for k, v in hdr()) + b"\r\n")
+        s = socket.create_connection(("127.0.0.1", self.port), timeout=5)
+        t0 = time.time()
+        try:
+            s.sendall(head)
+            sent, data = 0, b""
+            while sent < 60 and time.time() - t0 < 4 and not data:
+                s.sendall(b"a")
+                sent += 1
+                if select.select([s], [], [], 0.15)[0]:  # the server answered: stop sending
+                    data = s.recv(65536)
+            if not data:
+                s.settimeout(2)
+                data = s.recv(65536)
+        finally:
+            s.close()
+        self.assertTrue(data.startswith(b"HTTP/1.0 408"), data[:40])
+        self.assertLess(time.time() - t0, 3, "the server kept reading a trickled body")
+        self.assertLess(sent, 60)
+        self.assertNoWrites(before)
+
     def test_timeout_default_and_protocol(self):
         self.assertEqual(kindle.Handler.timeout, 15)
         self.assertEqual(kindle.Handler.protocol_version, "HTTP/1.0")
 
     def test_every_response_is_http_1_0_and_closes_the_connection(self):
-        # early 404/400/413 replies do not read the body; that is only safe if the connection closes
-        for r in (self.get(), self.get(headers=[]), self.post("/save", NEW_A),
-                  self.request("POST", "/save", hdr(), b"x", content_length="abc"),
-                  self.request("POST", "/save", hdr(), b"x", content_length="99999999")):
+        # early 404/400/413 replies do not read the body; that is only safe if the connection closes.
+        # A short timeout makes a keep-alive mutation fail on the version, not by hanging.
+        self.assertEqual(kindle.Handler.protocol_version, "HTTP/1.0")
+        for r in (self.get(timeout=1.5), self.get(headers=[], timeout=1.5), self.post("/save", NEW_A, timeout=1.5),
+                  self.request("POST", "/save", hdr(), b"x", content_length="abc", timeout=1.5),
+                  self.request("POST", "/save", hdr(), b"x", content_length="99999999", timeout=1.5)):
             self.assertEqual(r.version, "HTTP/1.0")
             self.assertFalse(r.timed_out)  # the server closed; we never had to give up waiting
+
+
+class Boundaries(Base):
+    def test_body_size_limit_is_exact(self):
+        before = self.state()
+        r = self.request("POST", "/save", hdr(), b"address=", content_length=str(kindle.MAX_BODY + 1))
+        self.assertEqual(r.status, 413)
+        self.assertNoWrites(before)
+        body = b"address=" + b"a" * (kindle.MAX_BODY - 8)
+        self.assertEqual(len(body), kindle.MAX_BODY)
+        r = self.request("POST", "/save", hdr(), body, timeout=5)
+        self.assertEqual(r.status, 200)  # accepted, then rejected as an address
+        self.assertIn("That is not a @kindle.com address.", r.text)
+        self.assertNoWrites(before)
+
+    def test_hostile_sender_is_escaped_in_the_saved_banner(self):
+        saved = kindle.SENDER
+        kindle.SENDER = "<b>s</b>@example.test"
+        self.addCleanup(lambda: setattr(kindle, "SENDER", saved))
+        r = self.post("/save", NEW_A)
+        self.assertIn("Saved to", r.text)
+        self.assertNotIn("<b>s</b>", r.text)
+        self.assertGreaterEqual(r.text.count("&lt;b&gt;s&lt;/b&gt;@example.test"), 2)  # banner and instructions
+
+    def test_a_shared_device_listing_the_member_is_not_their_device(self):
+        fam = "family_x1@kindle.com"
+        self.abs.devices = [abs_device("Family reader", fam, ["abs-u-a", "abs-u-b"])]
+        r = self.get(headers=hdr(groups=GROUPS_ALL))  # the Audiobookshelf row is only shown to such a member
+        self.assertNotIn(fam, r.text)
+        self.assertIn("<dt>Audiobookshelf</dt><dd>not set</dd>", r.text)
+        self.assertIn(ADDR["a"], r.text)  # Calibre-Web is still shown
+
+    def test_only_the_exact_healthz_path_is_open(self):
+        for headers in ([], hdr()):
+            for path in ("/health", "/healthzz", "/healthz/x", "/healthz.html", "/Healthz", "/xhealthz"):
+                with self.subTest(path=path, member=bool(headers)):
+                    r = self.get(path, headers=headers)
+                    self.assertEqual(r.status, 404)
+                    self.assertNotEqual(r.text, "ok")
+        for headers in ([], hdr(groups="avrana-users")):
+            self.assertEqual(self.get("/healthz", headers=headers).text, "ok")
+
+    def test_kindle_regex_rejects_a_trailing_newline(self):
+        for a in ("a@kindle.com\n", "a@kindle.com\r\n", "a@kindle.com\n\n"):
+            self.assertIsNone(kindle.KINDLE_RE.match(a), repr(a))
+        self.assertTrue(kindle.KINDLE_RE.match("a@kindle.com"))
 
 
 class StoredValues(Base):
@@ -1128,7 +1224,7 @@ class StoredValues(Base):
         con.commit()
         con.close()
         self.abs.devices[0]["email"] = '<img src=x onerror=alert(2)>@kindle.com'
-        r = self.get()
+        r = self.get(headers=hdr(groups=GROUPS_ALL))
         self.assertNotIn("<script>alert(1)", r.text)
         self.assertNotIn("<img src=x", r.text)
         self.assertIn("&lt;script&gt;alert(1)&lt;/script&gt;", r.text)
@@ -1142,6 +1238,26 @@ class StoredValues(Base):
         r = self.get()
         self.assertNotIn("<b>s</b>", r.text)
         self.assertIn("&lt;b&gt;s&lt;/b&gt;@example.test", r.text)
+
+    def test_matching_is_ascii_only_and_consistent_across_libraries(self):
+        kelvin, dotless = "Kevin", "kındle"
+        # Python's lower() folds the Kelvin sign to k, SQLite's does not: both must say "nobody"
+        self.assertEqual(kindle._pick([(1, "kevin")], lambda r: r[1], kelvin), (None, False))
+        self.assertEqual(kindle._pick([(1, kelvin)], lambda r: r[1], "kevin"), (None, False))
+        self.assertEqual(kindle._pick([(1, "kindle")], lambda r: r[1], dotless), (None, False))
+        self.assertEqual(kindle._pick([(1, kelvin)], lambda r: r[1], kelvin), (None, False))  # non-ASCII never matches
+        self.assertEqual(kindle._fold("ABC-Kİ"), "abc-Kİ")
+        self.abs.users.append(abs_user("abs-u-k", "kevin", ""))
+        con = sqlite3.connect(self.db)
+        con.execute("INSERT INTO user VALUES (4,'kevin','k@example.test',NULL)")
+        con.commit()
+        con.close()
+        for wanted in (kelvin, dotless, "member-K"):
+            self.assertIsNone(kindle.cwa_find(wanted), ascii(wanted))
+            self.assertIsNone(kindle.abs_find(wanted), ascii(wanted))
+        self.assertEqual(kindle.cwa_find("KEVIN")[1], "kevin")  # ASCII case-insensitivity stays
+        self.assertEqual(kindle.abs_find("KEVIN")["id"], "abs-u-k")
+        self.assertEqual(kindle.library_name(kelvin), kelvin)  # passed through, then matches nobody
 
     def test_pick_with_identical_exact_names_resolves_to_nobody(self):
         rows = [(1, "dup"), (2, "dup")]

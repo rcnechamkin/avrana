@@ -33,6 +33,7 @@ import re
 import sqlite3
 import sys
 import threading
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -42,6 +43,8 @@ CWA_DB = os.environ.get("CWA_DB", "/cwa/app.db")
 ABS_URL = os.environ.get("ABS_URL", "http://10.0.0.218:13378")
 ABS_KEY = os.environ.get("ABS_API_KEY", "")
 REQUIRED_GROUP = os.environ.get("REQUIRED_GROUP", "avrana-books")
+# Only decides whether the page may link to Audiobookshelf. It never gates access and never decides what is written.
+AUDIOBOOKS_GROUP = os.environ.get("AUDIOBOOKS_GROUP", "avrana-audiobooks")
 SENDER = os.environ.get("SENDER_ADDRESS", "cody@avrana.net")
 
 USERNAME_HEADER = "X-authentik-username"
@@ -63,15 +66,28 @@ MAX_ADDRESS = 254      # RFC 5321 path limit; Kindle addresses are far shorter
 _abs_lock = threading.Lock()
 
 
+def _fold(name: str) -> str:
+    """ASCII-only case fold. Python's str.lower() is Unicode-aware (U+212A Kelvin sign becomes k)
+    while SQLite's lower() is not, so the two libraries would disagree on look-alike names."""
+    return name.encode("utf-8").lower().decode("utf-8")
+
+
 def load_aliases(raw: str) -> dict[str, str]:
-    """Parse KINDLE_USERNAME_ALIASES: comma- or space-separated `authentik_username=library_username`.
+    """Parse KINDLE_USERNAME_ALIASES.
+
+    Grammar: tokens separated by commas, newlines or other whitespace; every token is exactly
+    `authentik_username=library_username` - both sides non-empty, no further `=`. Names containing
+    spaces (or commas) are therefore NOT supported: they would split into fragments, and a fragment
+    like `Smith` must never become an alias of its own.
 
     The ONLY way a login whose Authentik username differs from its library username (the admin is
     `akadmin` in Authentik and `Cody` in the libraries) is matched. Set by the owner, empty by
     default, never derived from request data. Exact match on the Authentik username; the target is
-    then looked up in both libraries like any other username. Malformed entries are ignored; a map
-    that is ambiguous (a target that is also a source, two sources sharing a target, one source
-    given two targets) is refused whole. Only counts are logged, never names.
+    then looked up in both libraries like any other username.
+
+    Fails closed: ANY malformed token, or an ambiguous map (a target that is also a source, two
+    sources sharing a target, one source with two targets), refuses the whole map - no aliases at
+    all, one stderr line, counts only, never names.
     """
     pairs, bad, conflict = {}, 0, False
     for tok in re.split(r"[,\s]+", raw or ""):
@@ -84,13 +100,12 @@ def load_aliases(raw: str) -> dict[str, str]:
             conflict = True
         else:
             pairs[src] = dst
-    targets = [t.lower() for t in pairs.values()]
-    if conflict or len(set(targets)) != len(targets) or any(t in {k.lower() for k in pairs} for t in targets):
-        print(f"kindle: username alias map refused ({len(pairs)} usable entries); no aliases in effect",
-              file=sys.stderr)
+    targets = [_fold(t) for t in pairs.values()]
+    if (bad or conflict or len(set(targets)) != len(targets)
+            or any(t in {_fold(k) for k in pairs} for t in targets)):
+        print(f"kindle: username alias map refused ({bad} malformed, {len(pairs)} usable entries); "
+              "no aliases in effect", file=sys.stderr)
         return {}
-    if bad:
-        print(f"kindle: ignored {bad} malformed username alias entries", file=sys.stderr)
     return pairs
 
 
@@ -100,13 +115,14 @@ ALIASES = load_aliases(os.environ.get("KINDLE_USERNAME_ALIASES", ""))
 def library_name(username: str):
     """The name to look up in Calibre-Web and Audiobookshelf for this Authentik username, or None.
 
-    None (fail closed) when the username is the target of an alias but is not that alias's source:
-    otherwise a second Authentik user literally named like the aliased library account would share
-    it. The e-mail header plays no part in resolution - it is user-editable and not unique.
+    None (fail closed) when the username equals, ignoring case, an alias source or target without
+    being that exact source: otherwise a second Authentik user named like the aliased library
+    account (or a case variant of the source, which the case-insensitive library lookup would
+    resolve to it) would share it. The e-mail header plays no part in resolution - it is user-editable and not unique.
     """
     if username in ALIASES:
         return ALIASES[username]
-    if username.lower() in {t.lower() for t in ALIASES.values()}:
+    if _fold(username) in {_fold(n) for n in (*ALIASES, *ALIASES.values())}:
         return None
     return username
 
@@ -132,9 +148,13 @@ def _pick(rows, name_of, wanted: str):
 
     The match is case-insensitive (Authentik and the libraries do not agree on case) but exact case
     wins, and two candidates that cannot be told apart resolve to nobody rather than to whichever
-    was listed first - the first match is not necessarily the right person.
+    was listed first - the first match is not necessarily the right person. Case folding is
+    ASCII-only, the same as SQLite's lower(), and a name with any non-ASCII character matches
+    nobody, so look-alikes (U+212A Kelvin sign) cannot match in one library and not the other.
     """
-    folded = [r for r in rows if name_of(r).lower() == wanted.lower()]
+    if not wanted.isascii():
+        return None, False
+    folded = [r for r in rows if _fold(name_of(r)) == _fold(wanted)]
     exact = [r for r in folded if name_of(r) == wanted]
     if len(exact) == 1:
         return exact[0], True
@@ -200,62 +220,84 @@ def abs_set(abs_user, address: str | None, label: str):
 
 
 # ---------------------------------------------------------------- view
+# Tokens are the names and values in docs/design/DESIGN.md. Interactive edges use --rule-control (4.1:1 on
+# --ink, WCAG 1.4.11); --rule-quiet is for dividers only. Every interactive element shows the same
+# two-ring focus mark on :focus-visible, kept apart from the hover inversion. tests/test_a11y.py
+# computes contrast, focus and target size from this sheet.
 STYLE = """
-  :root{--bg:#000;--fg:#fff;--dim:#9a9a9a;--line:rgba(255,255,255,.28);--strong:rgba(255,255,255,.6);
-        --err:#ff8b8b;--ok:#8fe3a6;}
+  :root{color-scheme:dark;--ink:#000000;--paper:#ffffff;--ash:#9a9a9a;--rule-quiet:#474747;
+        --rule-control:#6e6e6e;--rule-strong:#999999;--ok:#8fe3a6;--err:#ff8b8b;
+        --ring:0 0 0 2px #000000,0 0 0 4px #ffffff}
   *{box-sizing:border-box}html,body{margin:0;padding:0}
-  body{background:var(--bg);color:var(--fg);font-family:"Times New Roman",Times,serif;
+  body{background:var(--ink);color:var(--paper);
+    font-family:"Times New Roman",Times,"Liberation Serif",Tinos,"Noto Serif",serif;
     min-height:100vh;display:flex;justify-content:center;-webkit-font-smoothing:antialiased}
-  main{width:100%;max-width:640px;padding:10vh 24px 8vh;display:flex;flex-direction:column;gap:36px}
+  .page{width:100%;max-width:640px;padding:10vh 24px 8vh;display:flex;flex-direction:column;gap:36px}
+  main{display:flex;flex-direction:column;gap:36px}
+  .sr{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;
+    clip:rect(0,0,0,0);white-space:nowrap;border:0}
   header{text-align:center;display:flex;flex-direction:column;gap:14px;align-items:center}
-  h1{margin:0;font-weight:400;font-size:clamp(2rem,7vw,3rem);letter-spacing:.28em;text-indent:.28em;line-height:1}
+  h1{margin:0;font-weight:400;font-size:clamp(2rem,7vw,3rem);letter-spacing:.28em;text-indent:.28em;line-height:1;
+    overflow-wrap:anywhere}
   h1 a{color:inherit;text-decoration:none}
-  .rule{width:64px;height:1px;background:var(--strong)}
-  h2{margin:0;font-weight:400;font-size:1rem;letter-spacing:.22em;text-transform:uppercase;color:var(--dim)}
+  .rule{width:64px;height:1px;background:var(--rule-strong)}
+  h2{margin:0;font-weight:400;font-size:1rem;letter-spacing:.22em;text-transform:uppercase;color:var(--ash)}
   section{display:flex;flex-direction:column;gap:14px}
-  p{margin:0;line-height:1.55}p.note{color:var(--dim);font-size:.97rem}
-  input[type=email]{width:100%;padding:12px 14px;background:transparent;color:var(--fg);
-    border:1px solid var(--line);border-radius:0;font:inherit}
-  input[type=email]:focus{outline:none;border-color:var(--fg)}
-  button{font:inherit;padding:12px 20px;border-radius:0;cursor:pointer;letter-spacing:.06em;
-    background:var(--fg);color:var(--bg);border:1px solid var(--fg);transition:background .16s,color .16s}
-  button:hover,button:focus-visible{background:transparent;color:var(--fg);outline:none}
-  button.ghost{background:transparent;color:var(--fg);border-color:var(--line)}
-  button.ghost:hover{background:var(--fg);color:var(--bg)}
+  p{margin:0;line-height:1.55}p.note{color:var(--ash);font-size:.97rem}
+  p.hint{margin-top:8px}
+  label{display:block;margin-bottom:8px}
+  input[type=email]{width:100%;min-height:48px;padding:12px 14px;background:transparent;color:var(--paper);
+    border:1px solid var(--rule-control);border-radius:0;font:inherit}
+  input[type=email]::placeholder{color:var(--ash);opacity:1}
+  input[type=email]:focus{border-color:var(--paper)}
+  button{font:inherit;min-height:44px;padding:12px 20px;border-radius:0;cursor:pointer;letter-spacing:.06em;
+    background:var(--paper);color:var(--ink);border:1px solid var(--paper);transition:background .16s,color .16s}
+  button:hover,button:focus-visible{background:transparent;color:var(--paper)}
+  button.ghost{background:transparent;color:var(--paper);border-color:var(--rule-control)}
+  button.ghost:hover,button.ghost:focus-visible{background:var(--paper);color:var(--ink)}
+  a:focus-visible,button:focus-visible,input:focus-visible{box-shadow:var(--ring);outline:2px solid transparent}
   .row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
-  a{color:var(--fg)}
-  a.plain{text-decoration:none;border-bottom:1px solid var(--strong);padding-bottom:2px}
-  a.plain:hover{border-color:var(--fg)}
+  .actions{margin-top:14px}
+  a{color:var(--paper)}
+  a.plain{position:relative;display:inline-flex;align-items:center;min-height:44px;text-decoration:underline;
+    text-decoration-color:var(--rule-strong);text-decoration-thickness:1px;text-underline-offset:2px}
+  a.plain:hover{text-decoration-color:var(--paper)}
   dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:10px 24px;align-items:baseline}
-  dt{color:var(--dim);font-size:.85rem;letter-spacing:.08em;text-transform:uppercase}
+  dt{color:var(--ash);font-size:.92rem}
   dd{margin:0;overflow-wrap:anywhere}
-  .banner{border:1px solid var(--line);padding:12px 16px}
+  .banner{border:1px solid var(--rule-quiet);padding:12px 16px}
   .banner.err{border-color:var(--err);color:var(--err)}
   .banner.ok{border-color:var(--ok);color:var(--ok)}
-  ol{margin:0;padding-left:1.3rem;color:var(--dim)}ol li{margin:.45rem 0}
-  footer{display:flex;justify-content:center;gap:24px;flex-wrap:wrap}
-  @media(max-width:560px){main{padding:8vh 20px 6vh;gap:28px}dl{grid-template-columns:1fr;gap:2px}}
+  ol{margin:0;padding-left:1.3rem;color:var(--ash)}ol li{margin:.45rem 0}
+  footer{display:flex;justify-content:center;gap:0 24px;flex-wrap:wrap}
+  @media(max-width:560px){.page{padding:8vh 20px 6vh;gap:28px}main{gap:28px}dl{grid-template-columns:1fr;gap:2px}
+    dd{margin-bottom:12px}dd:last-child{margin-bottom:0}}
+  @media(prefers-reduced-motion:reduce){button{transition:none}}
 """
 
 PAGE = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
 <meta name="robots" content="noindex, nofollow">
-<title>Kindle · Avrana</title><style>{style}</style></head><body><main>
+<title>Kindle · Avrana</title><style>{style}</style></head><body><div class="page">
 <header><h1><a href="https://avrana.net">AVRANA</a></h1><div class="rule"></div></header>
+<main>
 {banner}
 <section>
   <h2>Your Kindle address</h2>
   {current}
   <form method="post" action="/save">
-    <div class="row">
-      <input type="email" name="address" placeholder="yourname_abc123@kindle.com"
-             value="{value}" aria-label="Send-to-Kindle address" required>
+    <div>
+      <label for="address">Send-to-Kindle address</label>
+      <input type="email" id="address" name="address" placeholder="yourname_abc123@kindle.com"
+             value="{value}" autocomplete="off" inputmode="email" autocapitalize="none" spellcheck="false"
+             aria-describedby="{describedby}"{invalid} required>
     </div>
-    <p class="note">It must end in <strong>@kindle.com</strong>. Amazon discards books sent to an
+    <p class="note hint" id="address-hint">It must end in <strong>@kindle.com</strong>. Amazon discards books sent to an
       address that does not exist, without telling anyone, so this is checked before saving.</p>
-    <div class="row" style="margin-top:14px">
-      <button type="submit">Save to both libraries</button>
+    <div class="row actions">
+      <button type="submit">Save address</button>
       {remove}
     </div>
   </form>
@@ -270,43 +312,84 @@ PAGE = """<!doctype html>
         <strong>{sender}</strong>. Without this, books are silently dropped.</li>
   </ol>
   <p><a class="plain" href="{amazon}" target="_blank" rel="noopener noreferrer">
-     Open Amazon Personal Document Settings</a></p>
+     Open Amazon Personal Document Settings<span class="sr"> (opens in a new tab)</span></a></p>
 </section>
+</main>
 <footer>
   <a class="plain" href="https://books.avrana.net">Calibre&#8209;Web</a>
-  <a class="plain" href="https://listen.avrana.net">Audiobookshelf</a>
-  <a class="plain" href="https://avrana.net">Back to Avrana</a>
+  {audiobooks}<a class="plain" href="https://avrana.net">Back to Avrana</a>
 </footer>
-</main></body></html>
+</div></body></html>
 """
 
+AUDIOBOOKSHELF_LINK = '<a class="plain" href="https://listen.avrana.net">Audiobookshelf</a>\n  '
 
-def render(current_cwa, current_abs, value="", banner=None, can_remove=False):
+
+def render(current_cwa, current_abs, value="", banner=None, can_remove=False, invalid=False, audiobooks=False):
+    """`invalid`: the value in the field was just rejected (aria-invalid, tied to the banner).
+    `audiobooks`: the member also holds AUDIOBOOKS_GROUP, so Audiobookshelf may be named on the page
+    (its row and link). This changes only what is shown; which libraries get written is decided by the
+    accounts found, as before."""
     rows = []
     rows.append(f"<dt>Calibre-Web</dt><dd>{html.escape(current_cwa or 'not set')}</dd>")
-    rows.append(f"<dt>Audiobookshelf</dt><dd>{html.escape(current_abs or 'not set')}</dd>")
+    if audiobooks:  # a books-only member is never shown a second library, even if one holds an account
+        rows.append(f"<dt>Audiobookshelf</dt><dd>{html.escape(current_abs or 'not set')}</dd>")
     cur = f'<dl>{"".join(rows)}</dl>'
-    b = ""
+    b, describedby = "", "address-hint"
     if banner:
         kind, msg = banner
-        b = f'<div class="banner {kind}">{html.escape(msg)}</div>'
+        role = "alert" if kind == "err" else "status"
+        b = f'<div class="banner {kind}" id="notice" role="{role}">{html.escape(msg)}</div>'
+        if invalid:
+            describedby = "notice address-hint"
     rm = ('<button class="ghost" type="submit" formaction="/remove" formnovalidate>Remove</button>'
           if can_remove else "")
     return PAGE.format(style=STYLE, banner=b, current=cur, value=html.escape(value),
-                       remove=rm, amazon=AMAZON_PDOC, sender=html.escape(SENDER))
+                       remove=rm, amazon=AMAZON_PDOC, sender=html.escape(SENDER),
+                       describedby=describedby, invalid=' aria-invalid="true"' if invalid else "",
+                       audiobooks=AUDIOBOOKSHELF_LINK if audiobooks else "")
 
+
+# The 404 carries its own tiny stylesheet: the full one has selectors for fields, buttons and banners, which
+# would hint at a form page to anyone who views the source. Same tokens, same look for what it shows.
+NOT_FOUND_STYLE = """
+  :root{color-scheme:dark;--ink:#000000;--paper:#ffffff;--ash:#9a9a9a;--rule-quiet:#474747;
+        --rule-control:#6e6e6e;--rule-strong:#999999;--ok:#8fe3a6;--err:#ff8b8b;
+        --ring:0 0 0 2px #000000,0 0 0 4px #ffffff}
+  *{box-sizing:border-box}html,body{margin:0;padding:0}
+  body{background:var(--ink);color:var(--paper);
+    font-family:"Times New Roman",Times,"Liberation Serif",Tinos,"Noto Serif",serif;
+    min-height:100vh;display:flex;justify-content:center;-webkit-font-smoothing:antialiased}
+  .page{width:100%;max-width:640px;padding:10vh 24px 8vh;display:flex;flex-direction:column;gap:36px}
+  main{display:flex;flex-direction:column;gap:36px}
+  header{text-align:center;display:flex;flex-direction:column;gap:14px;align-items:center}
+  h1{margin:0;font-weight:400;font-size:clamp(2rem,7vw,3rem);letter-spacing:.28em;text-indent:.28em;line-height:1;
+    overflow-wrap:anywhere}
+  h1 a{color:inherit;text-decoration:none}
+  .rule{width:64px;height:1px;background:var(--rule-strong)}
+  section{display:flex;flex-direction:column;gap:14px}
+  p{margin:0;line-height:1.55}p.note{color:var(--ash);font-size:.97rem}
+  a{color:var(--paper)}
+  a:focus-visible{box-shadow:var(--ring);outline:2px solid transparent}
+  a.plain{display:inline-flex;align-items:center;min-height:44px;text-decoration:underline;
+    text-decoration-color:var(--rule-strong);text-decoration-thickness:1px;text-underline-offset:2px}
+  a.plain:hover{text-decoration-color:var(--paper)}
+  footer{display:flex;justify-content:center;gap:0 24px;flex-wrap:wrap}
+  @media(max-width:560px){.page{padding:8vh 20px 6vh;gap:28px}main{gap:28px}}
+"""
 
 # The 404 is its own minimal document, not a cut-down PAGE: PAGE's <title> says "Kindle", which would
 # tell a non-member what lives here. The title is the portal's, character for character.
 NOT_FOUND = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
 <meta name="robots" content="noindex, nofollow">
-<title>Not found · Avrana</title><style>{style}</style></head><body><main>
+<title>Not found · Avrana</title><style>{style}</style></head><body><div class="page">
 <header><h1><a href="https://avrana.net">AVRANA</a></h1><div class="rule"></div></header>
-<section><p class="note">That page does not exist.</p></section>
+<main><section><p class="note">That page does not exist.</p></section></main>
 <footer><a class="plain" href="https://avrana.net">Back to Avrana</a></footer>
-</main></body></html>
+</div></body></html>
 """
 
 
@@ -314,7 +397,32 @@ def render_not_found():
     """The 404 for everyone who is not a member (and for every unknown route): nothing about Kindle,
     Amazon, the libraries or the sender address. 404 rather than 403 so that the existence of this
     tool is not disclosed (audit finding A5, same rule as the portal)."""
-    return NOT_FOUND.format(style=STYLE)
+    return NOT_FOUND.format(style=NOT_FOUND_STYLE)
+
+
+def outcome(verb, written, failed, audiobooks, sender):
+    """The banner for a save or remove: (kind, message). Names only libraries the member may see
+    (Audiobookshelf needs AUDIOBOOKS_GROUP). An empty list is never put in a sentence: unless a visible
+    library was written AND a visible library failed, any failure reads as the generic message, so a hidden
+    library can neither be named nor be implied ("Saved to nothing")."""
+    def show(names):
+        return [n for n in names if audiobooks or n != "Audiobookshelf"]
+
+    sw, sf = show(written), show(failed)
+    saving = verb == "save"
+    if failed:
+        if sw and sf:
+            return "err", (("Saved to " if saving else "Removed from ") + " and ".join(sw)
+                           + "; failed for " + " and ".join(sf) + ".")
+        return "err", f"Something went wrong while {'saving' if saving else 'removing'}. Try again."
+    if written:
+        if saving:
+            return "ok", (("Saved to " + " and ".join(sw) if sw else "Saved")
+                          + ". Remember to approve " + sender + " on Amazon.")
+        return "ok", "Removed from " + " and ".join(sw) + "." if sw else "Removed."
+    if saving:
+        return "err", "No library account was found for this sign-in."
+    return "err", "Nothing to remove."
 
 
 # ---------------------------------------------------------------- server
@@ -323,8 +431,13 @@ class Handler(BaseHTTPRequestHandler):
     # HTTP/1.0 (the stdlib default): every response closes the connection. Replies that are sent
     # without reading the request body (404, 400, 413) rely on that; do not switch to keep-alive.
     protocol_version = "HTTP/1.0"
-    # Per-connection socket timeout: a client that trickles or stalls cannot pin a thread.
+    # Idle limit per socket read: a connection that goes quiet for 15 s is dropped. It is NOT a total
+    # limit: a client sending one byte every few seconds resets it each time. The body therefore has
+    # its own total deadline below; a slow trickle of the request line and headers (before any
+    # identity is known) is bounded only by the upstream outpost, which stdlib http.server cannot
+    # enforce cleanly here.
     timeout = 15
+    body_deadline = 15  # seconds, in total, for the whole POST body to arrive
 
     def _send(self, code, body, ctype="text/html; charset=utf-8", location=None):
         data = body.encode()
@@ -346,6 +459,26 @@ class Handler(BaseHTTPRequestHandler):
     def _identity(self):
         return self._hdr(USERNAME_HEADER), self._hdr(EMAIL_HEADER), parse_groups(self._hdr(GROUPS_HEADER))
 
+    def _read_body(self, length):
+        """The POST body, or None if it did not arrive within `body_deadline` seconds in total (or the
+        socket failed). Never the unbounded rfile.read(length): that restarts the idle timeout on
+        every byte, so a trickling client could hold the thread indefinitely."""
+        deadline = time.monotonic() + self.body_deadline
+        buf = b""
+        try:
+            while len(buf) < length:
+                left = deadline - time.monotonic()
+                if left <= 0:
+                    return None
+                self.connection.settimeout(min(left, self.timeout))
+                chunk = self.rfile.read1(length - len(buf))
+                if not chunk:  # client closed early: use what arrived, like read() would
+                    break
+                buf += chunk
+        except OSError:  # includes the socket timeout
+            return None
+        return buf
+
     def _member(self):
         """Library username of a permitted member, or None. Anything else is a 404.
 
@@ -361,6 +494,10 @@ class Handler(BaseHTTPRequestHandler):
         if REQUIRED_GROUP not in groups or not username:
             return None
         return library_name(username)
+
+    def _audiobooks(self):
+        """True when the member also holds the audiobooks group (display only, see AUDIOBOOKS_GROUP)."""
+        return AUDIOBOOKS_GROUP in self._identity()[2]
 
     def _state(self, username):
         cwa = cwa_find(username)
@@ -405,7 +542,7 @@ class Handler(BaseHTTPRequestHandler):
         if route == "/healthz":
             return self._send(200, "ok", "text/plain; charset=utf-8")
         username = self._member()
-        if username is None:
+        if username is None or route != "/":  # the page lives at "/" only; /health, /save etc. are 404
             return self._send(404, render_not_found())
         state = self._read_state(username)
         if state is None:
@@ -413,9 +550,10 @@ class Handler(BaseHTTPRequestHandler):
         cwa, absu, cwa_val, abs_val = state
         banner = None
         if not cwa and not absu:
-            banner = ("err", "No Calibre-Web or Audiobookshelf account found for this login.")
+            banner = ("err", "No Calibre-Web or Audiobookshelf account found for this login."
+                      if self._audiobooks() else "No library account was found for this sign-in.")
         return self._send(200, render(cwa_val, abs_val, cwa_val or abs_val or "",
-                                      banner, bool(cwa_val or abs_val)))
+                                      banner, bool(cwa_val or abs_val), audiobooks=self._audiobooks()))
 
     def do_POST(self):
         route = self.path.split("?", 1)[0].rstrip("/") or "/"
@@ -432,9 +570,8 @@ class Handler(BaseHTTPRequestHandler):
         length = int(raw_len)
         if length > MAX_BODY:
             return self._send(413, "request too large", "text/plain; charset=utf-8")
-        try:
-            data = self.rfile.read(length)
-        except OSError:  # includes the socket timeout: the client stalled or trickled the body
+        data = self._read_body(length)
+        if data is None:
             return self._send(408, "request timeout", "text/plain; charset=utf-8")
         form = urllib.parse.parse_qs(data.decode("utf-8", "replace"))
         address = (form.get("address", [""])[0] or "").strip()
@@ -462,19 +599,15 @@ class Handler(BaseHTTPRequestHandler):
             if state is None:
                 return self._unavailable()
             cwa, absu, cwa_val, abs_val = state
-            if failed:
-                msg = ("err", "Removed from " + (" and ".join(written) or "nothing") +
-                       "; failed for " + " and ".join(failed) + ".")
-            elif written:
-                msg = ("ok", "Removed from " + " and ".join(written) + ".")
-            else:
-                msg = ("err", "Nothing to remove.")
-            return self._send(200, render(cwa_val, abs_val, "", msg, bool(cwa_val or abs_val)))
+            msg = outcome("remove", written, failed, self._audiobooks(), SENDER)
+            return self._send(200, render(cwa_val, abs_val, "", msg, bool(cwa_val or abs_val),
+                                          audiobooks=self._audiobooks()))
 
         if len(address) > MAX_ADDRESS or not KINDLE_RE.match(address):
             return self._send(200, render(cwa_val, abs_val, address,
                                           ("err", "That is not a @kindle.com address."),
-                                          bool(cwa_val or abs_val)))
+                                          bool(cwa_val or abs_val), invalid=True,
+                                          audiobooks=self._audiobooks()))
 
         written, failed = [], []
         if cwa:
@@ -492,15 +625,9 @@ class Handler(BaseHTTPRequestHandler):
         if state is None:
             return self._unavailable()
         cwa, absu, cwa_val, abs_val = state
-        if failed:
-            msg = ("err", "Saved to " + (" and ".join(written) or "nothing") +
-                   "; failed for " + " and ".join(failed) + ".")
-        elif written:
-            msg = ("ok", "Saved to " + " and ".join(written) +
-                   ". Remember to approve " + SENDER + " on Amazon.")
-        else:
-            msg = ("err", "No library account found for this login.")
-        return self._send(200, render(cwa_val, abs_val, address, msg, bool(cwa_val or abs_val)))
+        msg = outcome("save", written, failed, self._audiobooks(), SENDER)
+        return self._send(200, render(cwa_val, abs_val, address, msg, bool(cwa_val or abs_val),
+                                      audiobooks=self._audiobooks()))
 
     do_HEAD = do_GET
 
