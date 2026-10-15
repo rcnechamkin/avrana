@@ -129,7 +129,7 @@ class HeaderHandlingTests(unittest.TestCase):
         run(drive(self.mw, [(b"x-dev-identity", b"member-a"), (b"X-authentik-username", b"synthetic-admin"),
                             (b"x-authentik-groups", b"authentik Admins"), (b"X_authentik_groups", b"authentik Admins")]))
         self.assertEqual(["member-a"], self.seen("x-authentik-username"))
-        self.assertEqual(["avrana-users|avrana-videos"], self.seen("x-authentik-groups"))
+        self.assertEqual(["avrana-users|avrana-videos|avrana-audiobooks"], self.seen("x-authentik-groups"))
         self.assertNotIn("x-dev-identity", [k for k, _ in self.inner.seen])
         self.assertFalse([k for k, _ in self.inner.seen if "_" in k and "authentik" in k])
 

@@ -23,7 +23,9 @@ from markupsafe import Markup
 from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from ..adapters.audiobookshelf import AudiobookshelfAdapter
 from ..adapters.jellyfin import JellyfinAdapter
+from ..adapters.komga import KomgaAdapter
 from ..aggregate import gather, health_summary
 from ..contract import MediaAdapter
 from ..cache import MemberCache
@@ -69,7 +71,19 @@ def build_adapters(settings: Settings, cache: MemberCache) -> list:
     # contract.py:271 does `cache or MemberCache(...)`, and an EMPTY cache is falsy (__len__), so a
     # freshly injected cache is silently replaced. Re-assert the shared one (reported upstream).
     adapter.cache = cache
-    return [adapter]
+    adapters = [adapter]
+    if settings.audiobookshelf_base_url:          # off unless configured (settings.py validates)
+        abs_transport = UrllibTransport(settings.audiobookshelf_base_url,
+                                        {"Authorization": f"Bearer {settings.audiobookshelf_token}"})
+        abs_adapter = AudiobookshelfAdapter(abs_transport, timeout=settings.timeout, cache=cache)
+        abs_adapter.cache = cache
+        adapters.append(abs_adapter)
+    if settings.komga_base_url:                   # off unless configured; mock mode only (settings.py)
+        komga_transport = UrllibTransport(settings.komga_base_url, {"X-API-Key": settings.komga_token})
+        komga_adapter = KomgaAdapter(komga_transport, timeout=settings.timeout, cache=cache)
+        komga_adapter.cache = cache
+        adapters.append(komga_adapter)
+    return adapters
 
 
 def _is_loopback_peer(request: Request) -> bool:

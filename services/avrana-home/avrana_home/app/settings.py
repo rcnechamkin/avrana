@@ -52,6 +52,10 @@ class Settings:
     upstream_mode: str = "mock"                  # "mock" | "real"
     jellyfin_base_url: str = DEFAULT_MOCK_JELLYFIN_URL
     jellyfin_api_key: str = field(default=MOCK_API_KEY, repr=False)
+    audiobookshelf_base_url: str = ""            # "" = the Audiobookshelf adapter is not built
+    audiobookshelf_token: str = field(default="", repr=False)
+    komga_base_url: str = ""                     # "" = the Komga adapter is not built
+    komga_token: str = field(default="", repr=False)
     timeout: float = 2.0
     section_limit: int = 12
     health_detail: str = "loopback"              # "loopback" | "off"
@@ -130,6 +134,10 @@ class Settings:
 
         base_url = get("JELLYFIN_BASE_URL")
         key = _read_key(env, problems)
+        abs_url = get("AUDIOBOOKSHELF_BASE_URL")
+        abs_token = _read_key(env, problems, "AUDIOBOOKSHELF_TOKEN")
+        komga_url = get("KOMGA_BASE_URL")
+        komga_token = _read_key(env, problems, "KOMGA_TOKEN")
         if mode == "mock":
             base_url = base_url or DEFAULT_MOCK_JELLYFIN_URL
             if not is_loopback_host(url_host(base_url) or ""):
@@ -138,6 +146,18 @@ class Settings:
                 problems.append("a Jellyfin API key is set but HOME_UPSTREAM_MODE is mock "
                                 "(mock mode never sends a real key; unset it or choose real)")
             key = MOCK_API_KEY
+            if abs_token:
+                problems.append("an Audiobookshelf token is set but HOME_UPSTREAM_MODE is mock "
+                                "(mock mode never sends a real token; unset it or choose real)")
+            if abs_url and not is_loopback_host(url_host(abs_url) or ""):
+                problems.append("AUDIOBOOKSHELF_BASE_URL must be a loopback address in mock mode")
+            abs_token = MOCK_API_KEY if abs_url else ""
+            if komga_token:
+                problems.append("a Komga token is set but HOME_UPSTREAM_MODE is mock "
+                                "(mock mode never sends a real token; unset it or choose real)")
+            if komga_url and not is_loopback_host(url_host(komga_url) or ""):
+                problems.append("KOMGA_BASE_URL must be a loopback address in mock mode")
+            komga_token = MOCK_API_KEY if komga_url else ""
         else:
             if get("HOME_GATES_VERIFIED").lower() != "yes":
                 problems.append("HOME_UPSTREAM_MODE=real needs HOME_GATES_VERIFIED=yes "
@@ -146,40 +166,53 @@ class Settings:
                 problems.append("JELLYFIN_BASE_URL is required in real mode")
             if not key:
                 problems.append("JELLYFIN_API_KEY or JELLYFIN_API_KEY_FILE is required in real mode")
+            if komga_url or komga_token:
+                # ADAPTER-CONTRACT 12.2: the key scope and the member mapping are open OWNER decisions.
+                problems.append("Komga cannot be configured in real mode until the owner decides the "
+                                "key scope and member mapping (ADAPTER-CONTRACT 12.2)")
+            if bool(abs_url) != bool(abs_token):
+                problems.append("AUDIOBOOKSHELF_BASE_URL and AUDIOBOOKSHELF_TOKEN (or _FILE) must be "
+                                "set together, or both left unset")
         if base_url:
-            _check_url(base_url, problems)
+            _check_url(base_url, problems, "JELLYFIN_BASE_URL")
+        if abs_url:
+            _check_url(abs_url, problems, "AUDIOBOOKSHELF_BASE_URL")
+        if komga_url:
+            _check_url(komga_url, problems, "KOMGA_BASE_URL")
 
         if problems:
             raise SettingsError("invalid configuration: " + "; ".join(problems))
         return cls(home_sections=sections, upstream_mode=mode, jellyfin_base_url=base_url,
-                   jellyfin_api_key=key, timeout=timeout, section_limit=limit,
+                   jellyfin_api_key=key, audiobookshelf_base_url=abs_url,
+                   audiobookshelf_token=abs_token, komga_base_url=komga_url,
+                   komga_token=komga_token, timeout=timeout, section_limit=limit,
                    health_detail=detail, catalogue_path=catalogue, log_level=level,
                    host=host, port=port)
 
 
-def _check_url(url: str, problems: list) -> None:
+def _check_url(url: str, problems: list, name: str = "JELLYFIN_BASE_URL") -> None:
     try:
         parts = urlsplit(url)
         parts.port  # noqa: B018  (validates the port)
     except ValueError:
-        problems.append("JELLYFIN_BASE_URL is not a valid URL")
+        problems.append(f"{name} is not a valid URL")
         return
     if parts.scheme not in ("http", "https") or not parts.hostname:
-        problems.append("JELLYFIN_BASE_URL must be an http(s) URL")
+        problems.append(f"{name} must be an http(s) URL")
     elif parts.username or parts.password or parts.query or parts.fragment or url.endswith("/"):
-        problems.append("JELLYFIN_BASE_URL must have no credentials, query, fragment or trailing slash")
+        problems.append(f"{name} must have no credentials, query, fragment or trailing slash")
 
 
-def _read_key(env: Mapping[str, str], problems: list) -> str:
-    path = (env.get("JELLYFIN_API_KEY_FILE") or "").strip()
-    direct = (env.get("JELLYFIN_API_KEY") or "").strip()
+def _read_key(env: Mapping[str, str], problems: list, name: str = "JELLYFIN_API_KEY") -> str:
+    path = (env.get(name + "_FILE") or "").strip()
+    direct = (env.get(name) or "").strip()
     if path and direct:
-        problems.append("set only one of JELLYFIN_API_KEY and JELLYFIN_API_KEY_FILE")
+        problems.append(f"set only one of {name} and {name}_FILE")
         return ""
     if path:
         try:
             return Path(path).read_text(encoding="utf-8").strip()
         except OSError:
-            problems.append("JELLYFIN_API_KEY_FILE cannot be read")
+            problems.append(f"{name}_FILE cannot be read")
             return ""
     return direct

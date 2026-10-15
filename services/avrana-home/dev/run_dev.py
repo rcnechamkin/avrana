@@ -27,21 +27,38 @@ if str(HOME) not in sys.path:
 
 
 def build_stack(host: str, app_port: int, mock_port: int, enabled: bool, mode: str = "ok",
-                slow_seconds: float = 5.0, start_mock: bool = True, sections: str = "on"):
-    """Return (mock, asgi_app, settings). Raises DevIdentityRefused BEFORE anything is started."""
+                slow_seconds: float = 5.0, start_mock: bool = True, sections: str = "on",
+                abs_mock_port: int = 0, komga_mock_port: int = 0):
+    """Return (mock, asgi_app, settings). Raises DevIdentityRefused BEFORE anything is started.
+    `abs_mock_port` > 0 also builds the mock Audiobookshelf (`mock.abs`); off by default."""
     from avrana_home.app.main import create_app
     from avrana_home.app.settings import Settings
     from dev.dev_identity import DevIdentityMiddleware, check_startup
     from dev.mock_jellyfin import MockJellyfin
 
-    settings = Settings.from_mapping({
-        "HOME_SECTIONS": sections, "HOME_UPSTREAM_MODE": "mock",
-        "JELLYFIN_BASE_URL": f"http://127.0.0.1:{mock_port}", "HOME_HOST": host,
-        "HOME_PORT": str(app_port), "HOME_TIMEOUT": "2.0"})
+    env = {"HOME_SECTIONS": sections, "HOME_UPSTREAM_MODE": "mock",
+           "JELLYFIN_BASE_URL": f"http://127.0.0.1:{mock_port}", "HOME_HOST": host,
+           "HOME_PORT": str(app_port), "HOME_TIMEOUT": "2.0"}
+    if abs_mock_port:
+        env["AUDIOBOOKSHELF_BASE_URL"] = f"http://127.0.0.1:{abs_mock_port}"
+    if komga_mock_port:
+        env["KOMGA_BASE_URL"] = f"http://127.0.0.1:{komga_mock_port}"
+    settings = Settings.from_mapping(env)
     checked = check_startup(enabled=enabled, host=host, settings=settings)   # refuse first
     mock = MockJellyfin("127.0.0.1", mock_port, mode, slow_seconds)
+    mock.abs = None
+    if abs_mock_port:
+        from dev.mock_audiobookshelf import MockAudiobookshelf
+        mock.abs = MockAudiobookshelf("127.0.0.1", abs_mock_port, mode, slow_seconds)
+    mock.komga = None
+    if komga_mock_port:
+        from dev.mock_komga import MockKomga
+        mock.komga = MockKomga("127.0.0.1", komga_mock_port, mode, slow_seconds)
     if start_mock:
         mock.start()
+        for extra in (mock.abs, mock.komga):
+            if extra is not None:
+                extra.start()
     return mock, DevIdentityMiddleware(create_app(settings), checked=checked), settings
 
 
@@ -53,6 +70,10 @@ def main(argv=None) -> int:
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=8096)
     ap.add_argument("--mock-port", type=int, default=18096)
+    ap.add_argument("--abs-mock-port", type=int, default=0,
+                    help="also start the mock Audiobookshelf on this port (default: off)")
+    ap.add_argument("--komga-mock-port", type=int, default=0,
+                    help="also start the mock Komga on this port (default: off)")
     ap.add_argument("--mode", default="ok")
     ap.add_argument("--slow-seconds", type=float, default=5.0)
     ap.add_argument("--sections", choices=("on", "off"), default="on",
@@ -62,7 +83,9 @@ def main(argv=None) -> int:
     from dev.dev_identity import DevIdentityRefused
     try:
         mock, app, settings = build_stack(args.host, args.port, args.mock_port, args.dev_identity,
-                                          args.mode, args.slow_seconds, sections=args.sections)
+                                          args.mode, args.slow_seconds, sections=args.sections,
+                                          abs_mock_port=args.abs_mock_port,
+                                          komga_mock_port=args.komga_mock_port)
     except DevIdentityRefused as exc:
         print(f"refusing to start: {exc}", file=sys.stderr)
         return 2
@@ -77,6 +100,9 @@ def main(argv=None) -> int:
                     proxy_headers=False, server_header=False, log_config=None)
     finally:
         mock.stop()
+        for extra in (mock.abs, mock.komga):
+            if extra is not None:
+                extra.stop()
     return 0
 
 
