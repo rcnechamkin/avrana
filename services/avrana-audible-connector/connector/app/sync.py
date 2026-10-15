@@ -150,9 +150,12 @@ async def finalize_once_mode(
     except BaseException:
         conn.execute("UPDATE connection SET state='connected' WHERE id=? AND state='finishing'", (cid,))
         raise
-    from .repo import set_connection_state
-
-    set_connection_state(conn, cid, "disconnected")
+    # Conditional on our claim: if the member disconnected manually meanwhile, that path already
+    # recorded it, so do not audit a second time.
+    if conn.execute(
+        "UPDATE connection SET state='disconnected', failure=NULL WHERE id=? AND state='finishing'", (cid,)
+    ).rowcount != 1:
+        return False
     audit.record(conn, audit.ACCOUNT_DISCONNECTED, sub=sub, connection_id=cid,
                  detail="one-time import complete; auth revoked")
     return True
