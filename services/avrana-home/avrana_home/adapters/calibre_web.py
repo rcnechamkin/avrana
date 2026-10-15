@@ -95,6 +95,7 @@ def _relative(href: Any) -> Optional[str]:
 
 class CalibreWebAdapter(GuardedAdapter):
     service = Service.CALIBRE_WEB
+    not_offered = frozenset({"continue", "item"})
 
     def __init__(self, transport: Transport, timeout: float = DEFAULT_TIMEOUT, *,
                  owner_confirms_no_member_restrictions: bool = False, **kw):
@@ -114,12 +115,6 @@ class CalibreWebAdapter(GuardedAdapter):
 
     def item(self, principal: MemberPrincipal, item_id: str) -> SectionResult:
         return self._not_offered(principal, "item")          # OPDS has no single-entry route (UNVERIFIED)
-
-    def _not_offered(self, principal: MemberPrincipal, section: str) -> SectionResult:
-        self._require_principal(principal)
-        if not principal.has_group(self.required_group):
-            return self._not_permitted(section)
-        return SectionResult(self.service, section, SectionState.EMPTY, reason="not_offered")
 
     # -- mapping: none. A shared view (OWNER INVARIANT, contract 13.2) ------------------------
     def _resolve_user(self, principal) -> UpstreamUser:
