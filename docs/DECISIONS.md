@@ -61,3 +61,9 @@ half the containers still carry its label).
 | Upstream applications are preserved and unmodified; custom infrastructure is one small application | No frames, proxy injection, upstream patches, custom players or dedicated search engine |
 | Real-member acceptance testing joins automated accessibility, security and API contract tests | Testers, tasks and pass criteria in Section 7 of the charter |
 | Member and operator interfaces stay separate | Status reaches members only as an operator-set notice in plain language |
+
+## Owner decisions, 2026-10-14
+
+| Decision | Consequence |
+|---|---|
+| **D-8a**: CI may install exactly one hash-pinned PyYAML wheel, in CI only | `.github/requirements-ci.txt` holds one `==` pin with one sha256; `pip` runs `--require-hashes --only-binary=:all: --no-deps`. No secrets, read-only permissions, no deployment and the no-network second run are unchanged. `AVRANA_REQUIRE_YAML=1` makes a missing PyYAML fail the G1 security tests instead of skipping them. Any other dependency needs a new decision |

@@ -10,6 +10,9 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / '.github' / 'workflows'
 MAIN = WORKFLOWS / 'offline-tests.yml'
+REQUIREMENTS = ROOT / '.github' / 'requirements-ci.txt'
+INSTALL = ('run: python -m pip install --disable-pip-version-check --no-cache-dir --no-deps '
+           '--only-binary=:all: --require-hashes -r .github/requirements-ci.txt')
 
 
 def code_of(path):
@@ -71,12 +74,36 @@ class OfflineTestsWorkflow(unittest.TestCase):
 
     def test_no_deploy_ssh_or_remote_access_steps(self):
         banned = (r'ssh', r'scp', r'sftp', r'rsync', r'docker', r'kubectl', r'helm', r'terraform', r'ansible',
-                  r'deploy\w*', r'rclone', r'curl', r'wget', r'pip', r'npm', r'gh', r'git push', r'git remote')
+                  r'deploy\w*', r'rclone', r'curl', r'wget', r'npm', r'gh', r'git push', r'git remote')
         for word in banned:
             with self.subTest(word=word):
                 self.assertNotRegex(self.code, rf'(?i)(?<![\w-]){word}(?![\w-])')
         self.assertNotRegex(self.code, r'(?m)^\s*environment:')
         self.assertNotRegex(self.code, r'(?m)^\s*(?:id-token|packages|deployments|actions):')
+
+    def test_only_the_d8a_hash_pinned_install_uses_pip(self):
+        """D-8a (owner, 2026-10-14): one pip call, hash-pinned, binary-only, no dependencies, in the
+        offline-tests job before the suites run. Nothing else may install or fetch a package."""
+        pip_lines = [l.strip() for l in self.code.splitlines() if re.search(r'(?<![\w-])pip(?![\w-])', l)]
+        self.assertEqual(pip_lines, [INSTALL])
+        offline_job = self.code.split('\n  offline-tests:\n', 1)[1].split('\n  content-gate:\n', 1)
+        self.assertIn(INSTALL, offline_job[0])
+        self.assertNotIn('pip', offline_job[1])
+        self.assertLess(offline_job[0].index(INSTALL), offline_job[0].index('python -B tests/run_offline.py'))
+        for other in ('pipx', 'poetry', 'uv ', 'conda', 'easy_install', 'setup.py'):
+            self.assertNotIn(other, self.code)
+
+    def test_requirements_file_is_one_hash_pinned_pyyaml(self):
+        lines = [l.strip() for l in REQUIREMENTS.read_text(encoding='utf-8').splitlines()
+                 if l.strip() and not l.lstrip().startswith('#')]
+        self.assertEqual(len(lines), 1)
+        self.assertRegex(lines[0], r'^PyYAML==\d+\.\d+\.\d+ --hash=sha256:[0-9a-f]{64}$')
+        self.assertNotIn(b'\r', REQUIREMENTS.read_bytes())
+
+    def test_missing_pyyaml_fails_both_runs(self):
+        self.assertRegex(self.code, r'(?m)^env:\n(?:  .*\n)*  AVRANA_REQUIRE_YAML: "1"\n')
+        # sudo resets the environment, so the no-network run must pass the variable itself.
+        self.assertRegex(self.code, r'sudo env "PATH=\$PATH" AVRANA_REQUIRE_YAML=1 unshare --net')
 
     def test_every_action_is_pinned_to_a_full_commit_sha(self):
         uses = re.findall(r'(?m)^\s*-?\s*uses:\s*(\S+)', self.code)
