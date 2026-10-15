@@ -27,6 +27,8 @@ Sources (repo paths):
 
 # House rules and privacy
 
+**DRAFT for owner review. Not published and not final.**
+
 Avrana is a small, private media service. This page says how to use it, what it records about you,
 who can see that, how long it is kept, and how to leave.
 

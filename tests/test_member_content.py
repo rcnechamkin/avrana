@@ -281,6 +281,18 @@ def span_ok(lines, start, end):
         start != end or bool(lines[start - 1].strip()))
 
 
+class VisibleDraftBanner(unittest.TestCase):
+    """The HTML-comment banner disappears when rendered; each member page also says DRAFT where a reader sees it."""
+
+    def test_member_pages_show_a_visible_draft_line_under_the_title(self):
+        for name in ("welcome", "help", "house-rules-and-privacy"):
+            lines = (MEMBER / f"{name}.md").read_text(encoding="utf-8").splitlines()
+            h1 = next(i for i, line in enumerate(lines) if line.startswith("# "))
+            following = [line for line in lines[h1 + 1:h1 + 4] if line.strip()]
+            self.assertTrue(following and following[0].startswith("**DRAFT"),
+                            f"{name}.md: no visible DRAFT line under its title")
+
+
 class MemberContent(unittest.TestCase):
     def test_files_exist(self):
         for name in DRAFTS + ['DECISIONS-NEEDED.md']:

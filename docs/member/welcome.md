@@ -23,6 +23,8 @@ Sources (repo paths; nothing here is from memory):
 
 # Welcome to Avrana
 
+**DRAFT for owner review. Not published and not final.**
+
 Avrana is a small, private media service shared with friends and family. You have one Avrana account,
 and it opens the parts of Avrana that have been set up for you.
 <!-- src: docs/onboarding/welcome.md:8, :14-15 -->
