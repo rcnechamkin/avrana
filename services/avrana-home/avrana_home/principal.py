@@ -263,3 +263,94 @@ def principal_from_raw_headers(raw_headers) -> MemberPrincipal:
             except UnicodeDecodeError:
                 pairs.append((lname, "\x00"))          # dropped by the display-only cleaner
     return principal_from_headers(pairs)
+
+
+# --- Verified-JWT identity (AVR-498). Additive: nothing above this line changed. -----------------------
+#
+# `principal_from_verified_jwt` mints the SAME MemberPrincipal as `principal_from_headers`, from the claims
+# of a token that `outpost_jwt.OutpostJwtVerifier` has verified (signature, algorithm, issuer, audience,
+# expiry). The plain identity headers are never a source of identity on this path; if they are present they
+# must agree with the claims, otherwise the request is refused. `principal_for_request` is the one entry
+# point a service should call: the mode is an explicit argument with NO default, so JWT enforcement can
+# never switch on (or off) by omission. Offline only; nothing here is wired into a service.
+
+JWT_HEADER = "X-authentik-jwt"
+MODE_HEADERS = "headers"            # today's behaviour: identity from the plain headers
+MODE_JWT_LOG_ONLY = "jwt_log_only"  # serve from headers, verify the token and report a reason code
+MODE_JWT_REQUIRED = "jwt_required"  # identity only from a verified token; header-only requests refused
+IDENTITY_MODES = (MODE_HEADERS, MODE_JWT_LOG_ONLY, MODE_JWT_REQUIRED)
+
+
+def _claim_text(claims, name: str, limit: int) -> Optional[str]:
+    value = claims.get(name)
+    if not isinstance(value, str) or value == "" or len(value) > limit or _bad_chars(value):
+        return None
+    return value
+
+
+def principal_from_verified_jwt(headers: HeaderInput, verifier) -> MemberPrincipal:
+    """Verify `X-authentik-jwt` with `verifier` (anything with `.verify(token) -> claims` that raises on
+    any problem) and mint the principal from the verified claims only. Raises PrincipalError with a fixed
+    reason: missing_header, duplicate_header, malformed_header, unverified_identity (the verifier refused
+    for any reason), identity_mismatch (plain headers disagree with the claims), and the same
+    empty/oversized/malformed codes as the header path for the username and groups."""
+    tokens = _occurrences(headers, JWT_HEADER)
+    if not tokens:
+        raise PrincipalError("missing_header")
+    if len(tokens) != 1:
+        raise PrincipalError("duplicate_header")
+    if not isinstance(tokens[0], str):
+        raise PrincipalError("malformed_header")
+    try:
+        claims = verifier.verify(tokens[0])
+    except Exception:  # every verifier failure, expected or not, is the same closed answer
+        raise PrincipalError("unverified_identity") from None
+    if not isinstance(claims, Mapping):
+        raise PrincipalError("unverified_identity")
+    raw_user, raw_groups = claims.get("preferred_username"), claims.get("groups")
+    if not isinstance(raw_user, str) or not isinstance(raw_groups, (list, tuple)) or not all(
+            isinstance(g, str) and g == g.strip() and g and "|" not in g and "," not in g for g in raw_groups):
+        raise PrincipalError("malformed_header")
+    username = _clean_username(raw_user)
+    groups = _clean_groups("|".join(raw_groups))
+    if groups != frozenset(raw_groups):
+        raise PrincipalError("malformed_header")  # a group was altered or dropped by parsing: refuse
+    for name, expected in ((USERNAME_HEADER, username), (GROUPS_HEADER, "|".join(raw_groups))):
+        sent = _occurrences(headers, name)
+        if sent and (len(sent) != 1 or not isinstance(sent[0], str)
+                     or (sent[0] != expected and (name == USERNAME_HEADER
+                                                  or parse_groups(sent[0]) != set(groups)))):
+            raise PrincipalError("identity_mismatch")
+    return _mint_principal(username, groups, _claim_text(claims, "email", MAX_OPTIONAL_LEN),
+                           _claim_text(claims, "name", MAX_OPTIONAL_LEN))
+
+
+def principal_for_request(headers: HeaderInput, *, mode: str, verifier=None, report=None) -> MemberPrincipal:
+    """The single entry point for services. `mode` is required (no default) and must be one of
+    IDENTITY_MODES; anything else, or a JWT mode without a verifier, fails closed.
+
+    headers       -> `principal_from_headers` (unchanged behaviour).
+    jwt_log_only  -> still serves the header principal, but also runs the verified path and calls
+                     `report(code)` with a fixed code: "ok", "mismatch" or a PrincipalError reason.
+                     Reporting never changes the outcome and never carries token or identity content.
+    jwt_required  -> `principal_from_verified_jwt` only; a request with identity headers but no valid token
+                     is refused."""
+    if mode not in IDENTITY_MODES:
+        raise PrincipalError("bad_mode")
+    if mode == MODE_HEADERS:
+        return principal_from_headers(headers)
+    if verifier is None:
+        raise PrincipalError("misconfigured")
+    if mode == MODE_JWT_REQUIRED:
+        return principal_from_verified_jwt(headers, verifier)
+    served = principal_from_headers(headers)
+    try:
+        code = "ok" if principal_from_verified_jwt(headers, verifier) == served else "mismatch"
+    except PrincipalError as exc:
+        code = exc.reason
+    try:
+        if report is not None:
+            report(code)
+    except Exception:
+        pass
+    return served
