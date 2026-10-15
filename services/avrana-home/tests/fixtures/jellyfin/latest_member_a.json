@@ -1,0 +1,14 @@
+{
+  "_synthetic": "Hand-written SYNTHETIC fixture. Not recorded from any server. Invented titles and ids.",
+  "_schema": "Shaped like the public Jellyfin 10.10/10.11 OpenAPI response for GET /Items/Latest (a bare array of BaseItemDto) for member-a. member-a can see a library member-b cannot. Unverified against a real server.",
+  "response": [
+    {"Id": "aaaa0000000000000000000000000010", "Name": "Synthetic Film Three", "Type": "Movie",
+     "ProductionYear": 2020, "UserData": {"Played": true, "IsFavorite": true, "PlayCount": 3},
+     "ImageTags": {"Primary": "synthtag10"}},
+    {"Id": "aaaa0000000000000000000000000011", "Name": "Synthetic Series Alpha", "Type": "Series",
+     "UserData": {"Played": false}, "ImageTags": {"Primary": "synthtag11"}},
+    {"Id": "cccc0000000000000000000000000001", "Name": "Synthetic Shared Film", "Type": "Movie",
+     "ProductionYear": 1999, "UserData": {"Played": false}, "ImageTags": {}},
+    {"Id": "aaaa0000000000000000000000000012", "Name": "Synthetic Folder", "Type": "Folder"}
+  ]
+}

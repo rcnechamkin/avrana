@@ -15,3 +15,5 @@ Independent Compose networks remain in use. Authentik backend/frontend networks 
 BookStack pages 2 and 7 describe Cloudflare tunnels for public applications and LAN-only administrative interfaces. Current tunnel routes, DNS and firewall enforcement were not re-audited; published port bindings alone do not prove public reachability or isolation. Old operations documentation still mentions the retired health API, so it was not copied as current truth.
 
 Historical `deploy/ufw/README.md` is a draft. August Docker address-pool changes caused outages and rollback defects; later notes correct the claim that changing default pools renumbers existing networks. Never apply those proposals during documentation work. See [historical findings](findings/2026-08-infrastructure-incidents.md).
+
+**G1 network isolation: staged, not applied.** One private network per Authentik-proxied backend (`authentik_portal`, `authentik_kindle`, `authentik_olivetin`) to take the portal, Kindle connector and OliveTin off `authentik_frontend`. Procedure and rollback: [runbook](runbooks/g1-network-isolation.md). `scripts/services-health.sh` warns until the networks exist, then fails on drift.
