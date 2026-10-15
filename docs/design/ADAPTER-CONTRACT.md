@@ -30,6 +30,13 @@ duplicates (including case variants of the header name) are visible.
 | malformed | non-string; control, format or unassigned characters; leading or trailing whitespace in the username; `|`, `,` or newline in the username; username not in Unicode NFC |
 | oversized | username over 150 characters; groups header over 4096 characters, over 64 groups, or a group over 128 characters |
 
+**UNVERIFIED (identity inputs).** The 150-character username limit is this layer's own bound taken
+from Authentik's documented user model as remembered, not checked against the deployed Authentik.
+The `|` group separator, and the `,` also accepted, follow `services/avrana-portal/portal.py::parse_groups`
+and the repository's notes about the outpost header; the exact form the deployed outpost sends has
+not been observed by this work. Both belong to the recorded read-only check before any real header is
+parsed.
+
 Groups are parsed like `services/avrana-portal/portal.py::parse_groups` (split on `|` and `,`,
 strip, drop empties) and compared **exactly and case-sensitively**; there is no prefix matching.
 
@@ -44,9 +51,20 @@ Rules for the rest of the application:
   or pickled, and is immutable. Python cannot stop code already running in the process from using
   `object.__new__` and `object.__setattr__`; that is out of scope, and such code could equally edit
   the parser. The guarantee is against mistakes and misuse, not against hostile in-process code.
-- Non-mapping input to the parser (`None`, a string, a generator, malformed pairs) is no principal.
-  Usernames and group names may not contain Unicode line or paragraph separators, non-breaking or
-  other non-ASCII spaces (an ordinary space is allowed).
+- Non-mapping input to the parser (`None`, a string, a generator, malformed pairs, a pair whose
+  name is not text) is no principal. Usernames and group names may not contain Unicode line or
+  paragraph separators, non-breaking or other non-ASCII spaces (an ordinary space is allowed).
+- Display-only `name` and `email` are stripped, and dropped (set to `None`) if empty after the strip,
+  too long, duplicated, or containing control characters, so consumers never have to clean them.
+- Two constructors: `principal_from_headers` (a mapping or a list of text pairs) and
+  `principal_from_raw_headers` (a list of `(bytes, bytes)` pairs as an ASGI server provides). The raw
+  form decodes strictly: names must be ASCII, and the identity headers must be pure ASCII, so any
+  non-ASCII or non-UTF-8 value (including latin-1 mojibake) yields no principal. This is deliberately
+  stricter than Authentik allows; relaxing it for non-ASCII usernames is an owner decision.
+- **Framework header-mapping behaviour is UNVERIFIED.** The statement that a framework's header
+  mapping merges duplicates and decodes as latin-1 is recalled from Starlette's documented behaviour,
+  not tested here (no framework is installed in this offline work). It is why section 10 requires the
+  raw header list; if a framework turns out to preserve duplicates, the raw form is still the safe one.
 - The trust in these headers exists only because of G1. A shared-secret header from the outpost
   (decision D-3) is the planned second layer and is out of scope here.
 
@@ -60,10 +78,11 @@ Each public method runs these steps, in this order, in the shared base class
    `NOT_PERMITTED` with **zero upstream calls and no cache access**.
 3. **Cache** (member-partitioned, section 5). A hit returns without any upstream call, even while
    the circuit is open (cached data is bounded by short TTLs).
-4. **In-flight cap, then circuit.** If the adapter already has its maximum number of upstream calls
-   running (default 4, for example because some are hung): `UNAVAILABLE` (`busy`). If the shared
-   circuit is cooling off, or its single half-open trial is taken: `UNAVAILABLE` (`cooling_off`).
-   Both start no upstream traffic.
+4. **In-flight caps, then circuit.** If the adapter already has its maximum number of upstream calls
+   running (default 8, for example because some are hung): `UNAVAILABLE` (`busy`). If this member
+   already holds their share (default 2, below the service cap, so one member cannot take every slot):
+   `UNAVAILABLE` (`member_busy`). If the shared circuit is cooling off, or its single half-open trial
+   is taken: `UNAVAILABLE` (`cooling_off`). All three start no upstream traffic.
 5. **Mapping** (`resolve_user`, section 3). Unmapped or ambiguous: `NOT_LINKED`.
 6. **Hook.** The only place that talks to the upstream, through the guarded transport.
 
@@ -111,8 +130,23 @@ Each public method runs these steps, in this order, in the shared base class
 - **Ambiguity is refused.** Two exact matches, or one exact match that also collides with another
   account after normalisation, is `NOT_LINKED` (reason `ambiguous`). The adapter never picks one.
 - A disabled upstream account is `NOT_LINKED` (reason `disabled`).
-- Mapping outcomes are cached per member (found 300 s, absent or ambiguous 60 s). A 404 on a later
-  member-scoped call drops that member's cached mapping so it is resolved again.
+- Mapping outcomes are cached per member for **60 s**, found, absent or ambiguous alike (a negative
+  result is cached too). This bounds how long a renamed, swapped or deleted upstream account can
+  keep serving the old mapping. Jellyfin item responses carry no user name, so there is no stronger
+  evidence to check; the residual window is therefore up to 60 s. A 404 on a later route addressed by
+  the bound user, with a cached mapping, drops the mapping so it is resolved again (section 6, what a
+  404 means).
+- **Single-flight.** The sections of one page run concurrently and would both miss the mapping cache
+  on a cold page. The mapping lookup is single-flight per (adapter, member): one page is one
+  mapping call and, in an outage, one counted failure; the follower sections share the leader's
+  answer and are not counted again. A follower waits at most what is left of its own request
+  budget (never the hard cap); a flight older than one budget is abandoned and the next caller leads
+  afresh; a follower never accepts an answer older than the mapping TTL; every follower gets its own
+  new exception instance, never the leader's. A follower also knows its mapping was just confirmed by
+  the leader, so it never drops a mapping the leader has just confirmed.
+- A `/Users` list that is non-empty but has **no parsable entry** (schema drift) is `UpstreamMalformed`
+  (`UNAVAILABLE`, counted, not cached), never "everyone is unlinked". An empty list is legitimately
+  unlinked.
 - Only the opaque upstream id is retained. The fetched user list is not stored.
 
 ## 4. Result types and states
@@ -164,7 +198,10 @@ template must escape them.
 `listen.avrana.net`, `read.avrana.net`, `books.avrana.net`) plus an upstream id that must fully
 match a strict per-service pattern (Jellyfin: 32 lowercase hex characters). An invalid id drops the
 item; it is never interpolated. An upstream-supplied URL is never used, so there is no open redirect.
-The path templates are **unverified against the live apps**.
+The path templates are **unverified against the live apps**, and so are the Audiobookshelf
+(`li_` plus 6 to 40 lowercase alphanumerics) and Komga (6 to 32 alphanumerics) id patterns in
+`contract.py`: they are placeholders written from memory so that a typo cannot become a URL, not
+observed ids. Only the Jellyfin pattern (32 lowercase hex) is a documented format.
 
 **Artwork** is an opaque `ref` (`"jellyfin/primary/<id>"`). The home fetches it server-side via
 `fetch_artwork`, which first confirms the item is visible to the mapped member, then fetches the
@@ -202,16 +239,76 @@ a 404 or the sign-in flow, never a partial page. These are listed so the UI team
 
 ## 5. Cache rules
 
-In-memory, disposable, bounded. Deleting it (restart) costs speed only. Bounds: 2048 entries and
-32 MiB in total; per member 128 entries and 8 MiB. A member over quota evicts only their own
-oldest entries; under global pressure the member holding the most bytes loses entries first; an
-entry larger than the per-member byte quota is not stored. One member therefore cannot push the
-others out.
+**One mechanism, following the approved design.** `MEDIA-2.0.md` section 3, "Cache", says in full:
+"A small SQLite file in the container's own volume, holding catalogue metadata and resized artwork with
+short lifetimes. It is disposable: deleting it costs a slower first page, nothing else." The reference
+implements one SQLite mechanism, once: `DisposableCache` over stdlib `sqlite3` (`MemberCache` and
+`SharedCache` are thin facades; only `MemberCache` has a member API, `SharedCache` has none). There is
+no second cache mechanism in the tree.
+
+**Where this implementation is stricter than, or deviates from, the charter text.**
+
+- *Artwork in memory only is a deviation.* The charter names catalogue metadata **and resized artwork**
+  as the file's content. This implementation's conservative default keeps artwork out of the file
+  (it is visibility-checked per member, so it is member data); artwork reaches a file only if the
+  application widens `persist_classes`. That is a deviation from the charter text, flagged for the
+  owner (decision below), not something the charter asked for.
+- *"Deleted and recreated at every start" is this implementation's stricter reading of "disposable",
+  not the charter's wording.* The charter only says deleting it costs nothing; recreating it at
+  every start is a choice that keeps the file from ever becoming a store.
+- *Per-member progress and the per-member mapping are not in the charter's list at all.* They are
+  cached in memory because the home page needs them; whether they may ever touch a file is the open
+  owner decision below.
+
+| | Default (tests, local development, and until the owner decides) | Configured file path (the deployment the charter describes) |
+|---|---|---|
+| Database | `:memory:` | a file in the application's own volume |
+| Created | in memory | **deleted and recreated at every start**, mode 0600, created with `O_EXCL` (and `O_NOFOLLOW` where the platform has it), never migrated, never backed up, never a system of record |
+| Pragmas | `secure_delete=ON`, `temp_store=MEMORY` | the same plus rollback journal kept in memory (no sidecar or temp files) and `synchronous=OFF`; `application_id` marks the file as ours |
+| Schema | `user_version` = 2 | the same |
+| Existing file at the path | n/a | replaced **only** if it is a regular file that is empty or carries this cache's `application_id`. Anything else (another program's file, a symlink, a directory) is **refused**: one log line by reason class only (`cache_path_refused`), the file is left untouched, and the cache runs in memory |
+| Two caches, one path | n/a | the second is refused with `CachePathInUseError` (raised at construction) |
+| Shutdown | nothing to do | `close()` closes the connection and removes the file |
+| Errors | no database, encoder or decoder exception reaches a caller: a sqlite error is a **miss** and the cache is rebuilt; an undecodable or type-invalid row is a miss and is deleted; a value that cannot be encoded is simply not stored | the same; an unusable path degrades to memory |
+
+Two databases are attached to one connection under one lock and one quota code path: `main` (the
+file, when configured) and `member` (always `:memory:`). Each write declares a data class, and one
+policy decides where it may live:
+
+| Data class | Written by | Persisted to a file by default? |
+|---|---|---|
+| `member_progress` | continue, recent and item sections (all permission dependent) | **No** |
+| `member_mapping` | the upstream mapping outcome | **No** |
+| `artwork` | image bytes, visibility-checked per member | **No** |
+| `catalogue` | permission-independent shared data (`SharedCache` only) | Yes (`persist_classes` default) |
+
+`MemberScope.set` accepts only the three member classes and `SharedCache.set` only `catalogue`, so a
+member-keyed entry can never be filed under `catalogue`. The application may widen `persist_classes`;
+that is the owner decision below.
+
+**Keys and values.** Every partition key and entry key is an HMAC-SHA256 under a random key
+generated at start and never stored (every part is length-prefixed, so no two part lists can give
+one input), so neither a file nor a memory dump contains usernames,
+service names, item ids or artwork references as key material, and a file left behind is useless
+after a restart. **Values are plaintext JSON** (titles, progress, image bytes): that is why member
+classes stay out of the file by default. Stored types are a whitelist of immutable domain types.
+
+Bounds (a member over quota evicts only their own oldest entries; under global pressure the member
+holding the most bytes loses entries first; an entry larger than the per-member byte quota is not
+stored): 2048 entries and 32 MiB in total; per member 128 entries and 8 MiB. **All byte bounds are in
+STORED bytes**: the cache measures the encoded payload itself (text column plus any binary column plus
+a fixed 200-byte per-row overhead) and ignores any size a caller declares (the old `size` argument
+is accepted and ignored). Artwork is stored as a BLOB, not base64. Inside one member, eviction goes by
+class (artwork first, then section data, the mapping last) and then oldest first, in one pass.
+`purge_member(principal)` (a `MemberCache` method) removes everything cached for one member from both
+databases (offboarding). Concurrent use is safe (one connection, one lock). A write that is refused
+(non-positive, NaN or infinite TTL; unencodable; over quota) also removes any previous value under
+that key.
 
 | Data | Shared across members? | Key | TTL |
 |---|---|---|---|
-| Upstream mapping | No | member, service | 300 s found; 60 s absent or ambiguous |
-| Continue items | No | member, service, section, limit | 30 s |
+| Upstream mapping | No | member, service | 60 s (found, absent or ambiguous) |
+| Continue items | No | member, service, section, **limit** | 30 s |
 | Recently added | **No**, because library visibility depends on the member | member, service, section, limit | 120 s |
 | Item metadata | No | member, service, item id | 120 s |
 | Artwork bytes | No (visibility is checked per member first) | member, service, ref | 300 s |
@@ -221,60 +318,98 @@ others out.
 library access changes, cached artwork for that item can still be served until its TTL expires.
 Five minutes is accepted because the image is a poster the member could legitimately see within
 the previous five minutes, and because a loss of the Authentik group takes effect immediately
-(the group check precedes the cache). Shorter TTLs are cheap to set (`ARTWORK_TTL`) if the owner
-wants a tighter window.
+(the group check precedes the cache). `ARTWORK_TTL` is the one place to tighten it.
 
-The API makes misuse hard: member data goes through `MemberCache.for_member(principal)`, which
-needs a parser-minted principal and returns a view that cannot name another member. The key is the
-exact username, so case, whitespace and Unicode variants are different partitions. `SharedCache` is
-a separate store for permission-independent values and is not used for library, progress or artwork
-data. The permission check runs **before** any cache read, so removing a group takes effect
-immediately even with a warm cache.
+The permission check runs **before** any cache read, so removing a group takes effect immediately
+even with a warm cache. A cache hit is served even while the circuit is open.
 
-**Proposed deviation from `MEDIA-2.0.md` section 3, for owner confirmation.** The approved
-architecture describes "a small SQLite file in the container's own volume". This reference
-implementation caches in memory only, because everything it caches is per-member and short-lived
-(30 to 300 s), so a file would persist member data to disk for little gain and a restart losing it
-costs one slow page. This is a proposal, not a decision. If SQLite is wanted, the one place where
-it earns its keep is **resized artwork bytes**, keyed per member exactly as above (or shared only
-after the visibility check is proven not to change per member), stored in the container's own
-volume and deleted freely. The approved design is not changed by this document.
+**Owner decision (open): may per-member watch state be written to a disk file?** Today the answer
+is no, by policy default, because it is an unresolved privacy question. Options and consequences:
+
+1. *Keep member classes in memory only (the default).* No member data on disk; a restart empties the
+   member cache (one slower first page per member); nothing to back up, exclude or purge.
+2. *Persist `member_progress`, `member_mapping` and/or `artwork` in the file.* Titles and progress are
+   plaintext in the file for as long as it exists. Survives a restart only if the recreate-at-start
+   rule is removed, which makes it a data store that needs thought: it must then be excluded from
+   backups and off-host copies (it is not a system of record), purged on offboarding
+   (`purge_member`, plus free pages, which `secure_delete` zeroes), covered by the privacy page
+   (what is recorded, who can see it), and its file mode and volume ownership reviewed.
+3. *Persist only artwork bytes.* The lowest-risk file use: images are already served to the member;
+   keys stay hashed per member. Needs the visibility-change window above to be accepted.
+
+Until the owner decides, only option 1 is implemented as the default; the code path for 2 and 3 exists
+behind `persist_classes` but is not enabled. This document does not edit `MEDIA-2.0.md` or
+`DECISIONS.md`.
 
 ## 6. Failure handling
 
-- Per-call timeout about 2 s (`CallBudget` bounds a whole section across several requests).
+- **One deadline per request.** A request has a 2 s budget shared by the mapping and the work
+  (`REQUEST_BUDGET`, or the `timeout` an adapter is built with); each transport call gets what is
+  left, so a request that respects its budget can never reach the hard cap in `gather`. The hard cap
+  is **derived**: the longest request timeout among the adapters passed to `gather` plus 1 s (3 s with
+  the defaults); `derive_hard_cap(adapters)` computes it and an explicit `hard_cap` still overrides.
 - **No retries** in the request path.
 - **The circuit is shared by every member of an adapter.** Policy, exactly:
   1. Counts toward it (service-wide evidence): timeouts, connection errors (including
-     `http.client` errors), HTTP 5xx, 429, unexpected 3xx, 401 or 403 (the service credential
-     itself is refused), malformed or oversized payloads, total schema drift (below), and
-     `UpstreamMisbehaved` (a response that contradicts the request scope).
-  2. Does not count (specific to one member's or one item's request): 404 and every other 4xx.
-     A 404 on a member-scoped call returns `NOT_LINKED` (`upstream_user_not_found`) and drops that
-     member's cached mapping. A 404 on the user-list call used for mapping is route drift and does
-     count. Other 4xx give `UNAVAILABLE` for that request only.
-  3. Threshold: **3 consecutive** counted failures open it (any success resets the run), so one
-     unlucky or odd request cannot shut a service for everyone. It stays open for 60 s with no
-     upstream traffic.
-  4. After the cool-off it is half-open: exactly **one** trial call is admitted at a time (no
-     thundering herd). Success closes it; one failure re-opens it for a full cool-off.
-  5. Each opening bumps an epoch. A call admitted before that and finishing after (a hung call)
-     is ignored: it cannot close the circuit and cannot populate a cache.
-- **Hung adapters.** `gather()` runs sections on one shared, fixed-size pool with a hard 3 s
-  wall-clock cap as a backstop; an adapter that exceeds it has its circuit force-opened and its
-  section reports `UNAVAILABLE` (`hard_cap`). Python cannot kill a hung thread, so concurrency is
-  bounded instead: each adapter allows 4 in-flight upstream calls, and further requests get
-  `UNAVAILABLE` (`busy`) immediately, starting no work. Queued work that never started is cancelled.
+     `http.client` errors and any other surprise exception class a transport raises), HTTP 5xx,
+     429, unexpected 3xx, **401** (the service credential is refused), **403 on the user list**
+     (the credential lacks rights), malformed or oversized payloads, total schema drift (section 9),
+     and `UpstreamMisbehaved`. 401/403 semantics are **unverified** against the deployed Jellyfin.
+  2. Does not count (about one member's or one item's request): other 4xx; **403 on a member-scoped
+     call** (that member gets `UNAVAILABLE`); and the two member-specific kinds of 404 below.
+  3. **What a 404 means is declared by the ROUTE** (each allow-listed route names its class; a bare
+     404 from a transport is converted by the guard):
+     - *user route* (addressed by the bound user: resume, latest, items for Jellyfin) = `UserGone`.
+       With a *cached* mapping the account is gone: `NOT_LINKED`, reason `upstream_user_not_found`,
+       that member's mapping dropped, not counted. Right after the mapping was freshly confirmed (by
+       this call or by the single-flight leader it followed) it is contradictory, so it is drift:
+       `UNAVAILABLE` reason `UserGone`, counted, mapping kept.
+     - *item route* (the image of one item) = `ItemGone`: an `EMPTY` result (reason `item_not_found`,
+       artwork `EMPTY`), never counted, never cached.
+     - *fixed route* (the user list) = `RouteMissing`: the route is gone, service-wide drift,
+       `UNAVAILABLE`, counted. A 404 nobody classified is treated the same way.
+  4. Only calls that actually reached the upstream report to the breaker. A mapping served from the
+     cache (found, absent or ambiguous) is neutral: it can neither reset a failure run nor hold a
+     failing service open.
+  5. Threshold: **3 consecutive** counted failures open it (any success resets the run). Open for
+     60 s with no upstream traffic.
+  6. After the cool-off it is half-open: exactly **one** trial is admitted at a time; success closes,
+     one failure re-opens. The trial holds a 30 s **lease**: if it never reports, one new trial is
+     admitted and the lost trial's result is ignored.
+  7. Each opening bumps an epoch. A call admitted before that and finishing after (a hung call)
+     cannot close the circuit and cannot populate a cache.
+- **Programming errors in our own adapter code** (as opposed to anything an upstream or transport
+  can provoke) are not swallowed: the method raises, so tests see them; under `gather` that section
+  is `UNAVAILABLE`, is logged by class only, and that adapter's circuit is force-opened.
+- **Hung adapters.** Python cannot kill a hung thread, so concurrency is bounded instead. `gather()`
+  runs sections on one shared 48-thread pool of daemon threads (so a hung call cannot keep a shutting
+  down process alive) with a hard wall-clock cap (derived, 3 s with the defaults); an adapter that
+  exceeds it has its circuit force-opened and reports `UNAVAILABLE` (`hard_cap`). Each adapter allows
+  8 in-flight calls and 2 per member; beyond that, `busy` / `member_busy` immediately. Work that
+  never started when the cap hits is cancelled and reported `queued`, and touches no circuit. This
+  protection covers sections run through `gather`; a caller that calls adapter methods directly gets
+  the in-flight caps, the per-request deadline and the epoch protection, but no hard cap.
 - **Boundary.** Anything an upstream or transport can provoke (`RecursionError` from nested JSON,
   numeric overflow, `http.client` errors, wrong types) becomes an `UpstreamError`; a public method
-  returns a state and never raises for upstream-controlled input. Only programming errors propagate.
+  returns a state and never raises for upstream-controlled input. The same holds for the cache: no
+  exception from encoding, decoding or sqlite escapes it (a failure is a miss), and a clock that
+  raises cannot leak an in-flight slot.
 - Logging: `adapter_failure service=<name> error=<ExceptionClass>`. Never member identity, titles,
   URLs, exception messages or credentials. Reprs of principals, users and transports are redacted.
-- `health_summary()` is the data for a future `/healthz`: `{"home": "ok", "libraries": "ok|degraded",
-  "adapters": [{service, state, last_error_class, retry_in_seconds}]}`. It reports what the request
-  path last observed (`unknown` before the first call) and makes no upstream call of its own.
-- Error classes: timeout, unreachable, HTTP error, auth error (401/403), not found, malformed body,
-  oversized body, and `UpstreamMisbehaved` (the response contradicts the request scope, section 7).
+- **Health vocabulary** (`AdapterHealth.state`, rendered by the app's readiness check):
+
+  | State | Meaning |
+  |---|---|
+  | `ok` | closed; no failure in the current run |
+  | `failing` | closed, but 1 or 2 consecutive counted failures so far (`consecutive_failures`); an early outage |
+  | `cooling_off` | open; no upstream traffic for `retry_in_seconds` |
+  | `unknown` | never heard from, or a cool-off ended and the trial call has not reported |
+
+  `health_summary()` returns `{"home": "ok", "libraries": "ok|degraded", "adapters": [{service,
+  state, last_error_class, retry_in_seconds, consecutive_failures}]}`; `libraries` is `degraded` when
+  any adapter is `failing` or `cooling_off`. It makes no upstream call of its own.
+- Error classes: timeout, unreachable, HTTP error, auth error, not found, malformed body, oversized
+  body, and `UpstreamMisbehaved` (the response contradicts the request scope, section 7).
 
 ## 7. Isolation requirements for every adapter
 
@@ -285,10 +420,18 @@ volume and deleted freely. The approved design is not changed by this document.
 3. Upstream ids are validated before use and never interpolated unvalidated.
 4. A response that contradicts the request scope (for example an item whose user data names another
    user or another item, or more items than requested) is discarded whole: `UNAVAILABLE`, and it
-   counts toward the circuit (section 6).
+   counts toward the circuit (section 6). **`UserData.UserId` may well be absent from real Jellyfin
+   responses (unverified); the code checks it only if present**, so do not rely on it.
 5. The credential lives only inside the transport. It is in no result, repr or log line. The
    guard also refuses to bind anything that is not a 32-hex user id.
 6. The service credential is never used to produce an "everyone" or admin view as a fallback.
+
+**UNVERIFIED Jellyfin behaviours this isolation relies on** (all part of the recorded read-only check):
+(a) `GET /Items?userId=..&ids=..` returns an **empty list**, not a 404, for an item the user cannot see
+(if it returns 404 instead, `ItemGone`/`UserGone` classification of that route must be revisited);
+(b) `userId` is **honoured** when the request is authenticated with an API key;
+(c) API keys are administrator-equivalent, with no scopes; (d) the image route honours `maxWidth` and
+`quality`.
 
 The image route cannot carry a `userId`, so the guard cannot bind it to the member. Its member
 scoping rests on the adapter first running a `userId`-scoped lookup of the same item
@@ -314,6 +457,13 @@ other secret (`docs/SECRETS.md`), never reaching the browser.
 | Komga | Per-user API key or HTTP Basic acting as that user; no impersonation. This repository records that `X-API-Key` was rejected in the deployed version, so admin Basic is what exists today. *To verify.* | Per-member progress is not readable with a non-admin service account; see the assessment. |
 | Calibre-Web | HTTP Basic against OPDS as a normal (non-admin) local user. *To verify.* | Catalogue only; no per-member state. |
 
+**Jellyfin authorization header form (unverified).** The transport sends the key only as a header,
+never in the query string (`api_key=` would end up in URLs and logs). The form used throughout the
+tests and expected in configuration is `Authorization: MediaBrowser Token="<key>"`; Jellyfin has
+accepted other spellings over time (`X-Emby-Token`, `X-MediaBrowser-Token`, the older
+`X-Emby-Authorization`). Which form the **deployed 10.11.11** accepts, and that the same key works for
+`GET /Users`, is **unverified** and is part of the recorded read-only contract check (section 7).
+
 Details and the resulting risk per service are in [`ADAPTER-ASSESSMENT.md`](ADAPTER-ASSESSMENT.md).
 
 ## 9. Fixtures and API version drift
@@ -330,5 +480,353 @@ item (never raises into the page); a non-JSON or wrongly shaped top level is `Up
 (not an object, invalid id, missing type, non-numeric position), the section is `UNAVAILABLE`
 (`UpstreamMalformed`, counted toward the circuit) and is never cached as an empty success. Items
 dropped for a legitimate reason (another media type, not in progress) do not count as drift, and
-partial drops stay as before. Re-recording against a real server with a read-only step, before any upstream
+partial drops stay as before. A non-empty user list in which no entry can be parsed is drift too
+(section 3). Re-recording against a real server with a read-only step, before any upstream
 upgrade, remains the Media 2.0 plan (section 7 of `MEDIA-2.0.md`) and is an owner-approved action.
+
+## 10. Integration requirements for the application (FastAPI shell)
+
+- **Adapters are synchronous.** Call them from the threadpool (for example `run_in_threadpool`),
+  never directly on the event loop; `gather` already blocks until its sections finish or the cap hits.
+- **Read identity from the raw header list** (`request.scope["headers"]`, a list of byte pairs) and
+  build the principal with `principal_from_raw_headers`, so duplicates stay visible and decoding is
+  strict. Do not use a framework header mapping (it merges duplicates and decodes as latin-1).
+- **One worker process.** The circuit, the in-flight counters, the single-flight table and the cache
+  are per process; several workers would each learn about outages separately and each hold a cache.
+- **Artwork responses** must carry `X-Content-Type-Options: nosniff` and the `Content-Type` the
+  adapter returned (it has verified the magic number against the claimed PNG, JPEG or WebP type).
+  Serve them only on an authenticated route, from `fetch_artwork`.
+- **Expect `busy` and `member_busy`.** A page that requests many images at once from one member will
+  see `member_busy` beyond the per-member cap; the image route should serialise or retry, not treat it
+  as an error page.
+- **Never call an adapter without a principal**, and never pass a username from anywhere else.
+
+## 11. Audiobookshelf adapter (AVR-378)
+
+Status: **proposed, not deployed.** `services/avrana-home/avrana_home/adapters/audiobookshelf.py`,
+standard library only, proven only against fixtures that are **hand-written, unverified against the
+deployed version**; a recorded read-only contract check is a separate owner-approved step before any
+real data is read. Every fixture file under `tests/fixtures/audiobookshelf/` carries that sentence in
+its `_synthetic` field. The adapter contacts no server in any test (the network guard is on).
+
+**What it offers.** One section, "Continue listening": the member's in-progress audiobooks, read-only.
+`recent_items`, `item` and `fetch_artwork` return `EMPTY` (reason `not_offered`) with no upstream call
+and nothing cached; ask `gather` for `sections=("continue",)` so the UI does not render an empty
+"recent" for this service. Covers are **left out** (a cover route cannot be bound to the member), so
+`artwork` is `null` on every item.
+
+### 11.1 How it stays member-scoped with an admin-capable token
+
+Audiobookshelf has no impersonation, so the credential is admin-capable and the isolation is the
+adapter's job:
+
+1. **Token inside the transport only.** The adapter takes a `Transport`; the token is in the
+   transport's headers (for example `UrllibTransport(base, {"Authorization": "Bearer <token>"})`). It is
+   in no repr, result, health report, log line or cache row (tested with a sentinel).
+2. **GET only, explicit route list**, enforced by the shared guard before any I/O: the user list
+   `/api/users` (mapping only, no query), the member's record `/api/users/{id}` and one item
+   `/api/items/{id}` (query key `expanded` only). Nothing else, in particular no "me" route.
+3. **The bound user id travels in the PATH** of the member route and the guard compares it with the id
+   the adapter bound (a 36-character lowercase UUID, validated before binding). Another member's id, a
+   traversal, an encoded slash, an upper-cased id or no bound id is `ForbiddenRequest`.
+4. **Identity is checked in the response, and is mandatory.** The record's own `id` must equal the
+   bound id, and **every** progress entry must carry a `userId` equal to it. An entry that names another
+   user, **or names nobody**, is `UpstreamMisbehaved` and the whole section is discarded (counted toward
+   the circuit). An item lookup that answers with a different item id is `UpstreamMisbehaved` too.
+5. **Permissions come from the user's own record, before any item is fetched.** Item metadata fetched
+   with an admin token is not member-scoped, so an item is shown only if it passes that user's library
+   access list (or "can access all libraries"), the explicit-content flag and the tag allow or deny
+   list. Every permission field must be present and correctly typed: a malformed permission record makes
+   the section `UNAVAILABLE` (`UpstreamMalformed`) and no item is fetched; a malformed item is left out;
+   if items were looked up, none could be shown and at least one was unusable, the section is
+   `UNAVAILABLE` with the drift reason, never an empty or unfiltered list.
+6. **Never the token owner's view.** The only request not carrying the bound id is the user list used
+   for mapping; the tests assert that no other request ever goes out.
+7. **Tokens in upstream responses are never retained.** The user list and the user record may contain
+   per-user tokens; the adapter reads only whitelisted fields (id, name, active flag, permissions,
+   progress), stores only the opaque id, and never logs a body.
+8. Item 404 = omitted and neutral (`ItemGone`); user-route 404 = `NOT_LINKED` with a cached mapping,
+   drift when the mapping was just confirmed; the user-list 404 = route drift (section 6).
+
+### 11.2 Mapping, and the owner decision it needs
+
+The principal's **username** is matched to the Audiobookshelf `username` with the shared
+exact-or-refuse helper: exact and case-sensitive; a case, Unicode or whitespace difference is
+`NOT_LINKED` (`case_or_unicode_mismatch`); two matches are `NOT_LINKED` (`ambiguous`); an inactive
+account is `NOT_LINKED` (`disabled`); no match is `NOT_LINKED` (`unmapped`). **The e-mail is never used
+for mapping** (tested: an account whose e-mail equals the member's but whose username differs is not
+linked).
+
+**Conflict to decide (owner).** `docs/services/sso-architecture.md` and the Authentik blueprint record
+that Audiobookshelf matches existing users **by e-mail** (`authOpenIDMatchExistingBy: email`), so an
+account that predates OIDC may carry a username different from the Authentik username.
+
+| Option | Consequence |
+|---|---|
+| A. Username, exact (implemented, the default) | Safe against an e-mail claimed by another member. An account whose ABS username differs (case, spelling) stays `NOT_LINKED` until the operator reconciles it. Whether OIDC-created accounts carry the Authentik username is **unverified** (assumption 9). |
+| B. E-mail | Only as trustworthy as the e-mail: if members can edit their e-mail in Authentik, or it is unverified, one member could be mapped to another's account. Needs the owner to confirm e-mails are immutable and verified. Not implemented. |
+| C. Owner-maintained link list (username to ABS user id), outside Git | Strongest, as the assessment recommends; costs a maintained list and a load-time duplicate check. Not implemented; fits behind the same `_resolve_user` hook. |
+
+Until the owner decides, only A exists. Note the assessment recommended excluding the user-list route
+and using a link list; this adapter does list users (option A needs it) and mitigates by parsing only
+`username`, `id` and `isActive` and retaining only the id.
+
+### 11.3 Fixed behaviour
+
+- Group gate: `avrana-audiobooks`; without it, `NOT_PERMITTED` with no upstream call and no cache read.
+- Excluded from the section: finished entries, entries the member hid from continue listening, podcast
+  episodes, items marked missing or invalid, non-book media.
+- Progress fraction is clamped to 0 to 1 (a non-positive progress is "not started"); positions and
+  durations are bounded integers; the list is newest-first by `lastUpdate`; at most 24 item lookups per
+  request however long the list is, each under the shared 2 s request budget.
+- Cache writes use member classes only (`member_progress`, `member_mapping`); a file-backed cache holds
+  zero rows of them by default (tested).
+- Hand-off URL: `https://listen.avrana.net/item/<id>` from the fixed host table; the id must match the
+  `li_` pattern (assumption 6).
+
+### 11.4 Example, "ok"
+
+All titles are invented.
+
+```json
+{"service": "audiobookshelf", "section": "continue", "state": "ok", "items": [
+  {"id": "audiobookshelf:li_book000001", "service": "audiobookshelf", "kind": "audiobook",
+   "title": "Synthetic Audiobook One", "subtitle": "Synthetic Author", "series": "Synthetic Saga #1",
+   "progress": {"fraction": 0.42, "percent": 42, "position_seconds": 15120, "duration_seconds": 36000},
+   "artwork": null, "handoff_url": "https://listen.avrana.net/item/li_book000001"}]}
+```
+
+The other states are as in section 4: `empty` (nothing in progress), `unavailable` (upstream down, slow,
+misbehaving or malformed), `not_linked` (no exact match), `not_permitted` (omitted by the app). Render
+the text equivalent of the progress as for Jellyfin.
+
+### 11.5 Residual risks
+
+- An upstream that ignores the user id in the path and returns another member's record **with that
+  member's id** is caught; one that returns the right id with wrong data cannot be detected.
+- Permission fields are read from the user record: if Audiobookshelf changes their names or meaning,
+  the adapter fails closed (`UNAVAILABLE`) rather than showing unfiltered items, at the cost of an
+  outage until the field map is updated (it is one class, `_Access`).
+- The token is admin-capable: a bug in the allow-list would be a bug with admin reach. The allow-list
+  has three entries and no write method.
+- No per-member rate limit yet (as for Jellyfin).
+
+### 11.6 Unverified upstream assumptions (every one)
+
+Every fixture file carries `_target_version` (Audiobookshelf 2.36, the version the contract says is deployed, not confirmed) and `_provenance`, which separates the shapes recalled from the public API documentation (not re-checked) from the SYNTHETIC assumptions below, and states that live compatibility is unproven. A test enforces both fields.
+
+1. Authentication is `Authorization: Bearer <token>` with an admin-capable API token or JWT, and that
+   token can call the three routes below. (Which form 2.36 accepts is unknown.)
+2. `GET /api/users` returns `{"users": [ ... ]}` with `id`, `username`, `isActive` per user.
+3. `GET /api/users/{id}` returns one user with `id`, `isActive`, `permissions` (`accessAllLibraries`,
+   `accessAllTags`, `accessExplicitContent`, `selectedTagsNotAccessible`), `librariesAccessible`,
+   `itemTagsSelected` and `mediaProgress`.
+4. `selectedTagsNotAccessible: true` means the selected tags are a **deny** list, `false` an **allow**
+   list (the adapter's reading; inverted would show forbidden items, so this is a first contract-check item).
+5. Each `mediaProgress` entry carries `userId`, `libraryItemId`, `episodeId`, `progress` (0 to 1),
+   `currentTime`, `duration`, `isFinished`, `hideFromContinueListening` and `lastUpdate` (ms). The
+   adapter **requires** `userId`: if the real API omits it the section is `UNAVAILABLE` until the
+   fixture and adapter are changed on evidence.
+6. `GET /api/items/{id}?expanded=1` returns `id`, `libraryId`, `mediaType` (`book` for audiobooks),
+   `isMissing`, `isInvalid` and `media` with `metadata` (`title`, `authorName`, `seriesName`,
+   `explicit` as a **boolean**) and `tags` (list of text) and `duration`. Library item ids match
+   `li_` plus 6 to 40 lowercase alphanumerics; user ids are 36-character lowercase UUIDs; the
+   hand-off path `/item/<id>` exists.
+7. An unknown user or item gives HTTP 404 (not 200 with an empty body or 400).
+8. Missing explicit flag handling: the adapter treats an item with no boolean `explicit` as unusable;
+   if the real API omits it for some items, those items will be left out (fail closed).
+9. OIDC-created accounts carry the Authentik username as the Audiobookshelf `username`.
+10. The user list and user record may contain per-user tokens (the adapter never retains them).
+
+### 11.7 Recorded read-only contract check (checklist, owner-approved, NOT run by this work)
+
+Nothing here is a script and nothing touches the host. When the owner approves a check, a human does
+the following with a dedicated, rotatable, read-only-by-habit token and records the results:
+
+1. **Request, read-only (GET), one at a time:** `/api/users` (once); `/api/users/{id}` for **two**
+   members with different library or tag access and an explicit-content difference; `/api/items/{id}?expanded=1`
+   for one item in each of: an accessible library, an inaccessible library, an explicit item, a tagged item.
+2. **Compare:** each assumption in 11.6 against the real response (field names, types, presence of
+   `userId` on every progress entry, boolean `explicit`, deny versus allow list meaning, 404 behaviour for
+   an unknown id, the id formats); that the user record and the progress entries differ per member;
+   that the admin token reads `/api/users/{id}` without needing `?include=`.
+3. **Do not request:** any POST, PATCH or DELETE; sessions, e-reader device settings, backups, libraries
+   listings, covers, or any "me" route.
+4. **Redact before anything is stored or shared:** all tokens and API keys (the user list may contain
+   them), e-mail addresses, real usernames (replace by `member-a`, `member-b`), real titles, authors and
+   series, library and item ids (replace consistently), IP addresses and device names, timestamps (shift).
+5. **Record:** the Audiobookshelf version, the date, which assumptions held and which did not, and
+   update the fixtures and the adapter from the evidence in a separate reviewed change.
+
+## 12. Komga adapter (AVR-379)
+
+Status: **proposed, not deployed.** `services/avrana-home/avrana_home/adapters/komga.py`, standard library only,
+proven only against fixtures that are **hand-written, unverified against the deployed version**. Every fixture
+under `tests/fixtures/komga/` carries `_synthetic`, `_target_version` and `_provenance`; the last separates the
+shapes recalled from the public API documentation (not re-checked) from the SYNTHETIC assumptions, and says that
+live compatibility is **UNPROVEN**. A test enforces all three.
+
+### 12.1 What it offers
+
+One section, "Recently added" (`recent_items`, and `item` for one book): comics as `Kind.COMIC`, hand-off
+`https://read.avrana.net/book/<id>` from the contract builder. `continue_items` returns `EMPTY` (reason
+`not_offered`) with no upstream call: in Komga, read progress belongs to the credential's user, not to the member,
+and the book responses' `readProgress` is never read. `search` stays as the contract defines it (not implemented).
+Read lists and collections are server-global and are not in the route table (no collection or title leak).
+Artwork is the book thumbnail, fetched only after the member's restrictions allowed that book; a missing
+thumbnail is `EMPTY`.
+
+### 12.2 OWNER DECISIONS this adapter cannot make
+
+1. **Key scope.** Komga has no impersonation. A member's restrictions (library sharing, age restriction, sharing
+   label allow and exclude lists) are in that member's user record, which only an **admin** credential can list.
+   Implemented here: an admin-capable key behind the GET-only allow-list (five routes), with a fail-closed
+   client-side filter built from the member's own record. The read-only property comes from the allow-list, not
+   from the key. The alternative is a non-admin shared-view account (`ADAPTER-ASSESSMENT.md`, section 2): it
+   cannot read restrictions, so it is correct only while no member is restricted. **Until the owner chooses, no
+   key may be wired to this adapter.** If the owner picks the non-admin account, the filter becomes a no-op and
+   the "no restricted member" invariant must be checked in the runbook.
+2. **Member mapping** (same open decision as section 11.2). A Komga user record has an `email` (the login) and no
+   username. The mapping is a seam, `linker`: the default `exact_name_linker` applies the contract's current rule
+   (exact, case-sensitive, loose matches never link, two matches ambiguous) to the Komga `email` field, which links
+   a member only when the Authentik username equals the Komga login exactly and otherwise gives `NOT_LINKED`
+   (fail safe). `link_table_linker` is option C (an owner-maintained link list, outside Git). The e-mail rule (B)
+   is **not** implemented, and the principal's e-mail is never consulted.
+
+### 12.3 How it stays member-scoped
+
+Komga routes cannot carry the member in the path or query, so, unlike Jellyfin and Audiobookshelf, the guard cannot
+bind a request to a member (it only requires that a mapped member exists before any non-mapping route). Isolation
+is the adapter's filter, built to fail closed:
+
+- The member's own record is read from `/api/v2/users` (matched by the linked id; none = `NOT_LINKED`, two =
+  `UpstreamMisbehaved`) **before** any book is requested; a malformed restriction field makes the section
+  `UNAVAILABLE`, never an unfiltered list.
+- A book is shown only if its library (from the book, and equal to its series' library), its series' age rating and
+  its series' sharing labels pass. The check is **stricter than Komga's own combination** (every configured rule must
+  pass): an allow-only age rule hides unrated content, an exclude label wins over an allow label.
+- A book whose series cannot be checked is left out; if nothing could be shown and something was unusable the
+  section is `UNAVAILABLE` (drift), never "nothing new". Series lookups are bounded (12 per request), the page is
+  bounded (`size` at most 100, a larger answer is `UpstreamMisbehaved`).
+- Ids that are also Komga sub-routes (`latest`, `updated`) are never treated as ids.
+
+### 12.4 Unverified upstream assumptions (every one)
+
+1. Authentication by an admin-capable credential in a transport header (Basic or API key: the repository records
+   that `X-API-Key` was rejected in the deployed version).
+2. `GET /api/v2/users` returns a bare array of users with `id`, `email`, `roles`, `sharedAllLibraries`,
+   `sharedLibrariesIds`, `labelsAllow`, `labelsExclude` and `ageRestriction` (`null` or `{age, restriction}` with
+   `ALLOW_ONLY` or `EXCLUDE`).
+3. Semantics: `ALLOW_ONLY n` shows ratings up to n; `EXCLUDE n` hides ratings from n; labels match case-insensitively.
+4. `GET /api/v1/books/latest?page&size` returns `{content: [...]}` newest first; each book has `id`, `seriesId`,
+   `seriesTitle`, `libraryId`, `name`, `deleted`, `media.status` and `metadata.{title,number}`.
+5. `GET /api/v1/series/{id}` returns `id`, `libraryId` and `metadata.{ageRating (integer or null), sharingLabels}`:
+   age and labels are series-level, not book-level.
+6. `GET /api/v1/books/{id}/thumbnail` returns a PNG, JPEG or WebP; an unknown id is 404.
+7. Ids are 6 to 32 alphanumeric characters (`contract.py` placeholder pattern); the hand-off path `/book/<id>` exists.
+8. A 404 for an unknown book or series (not 200 with an empty body).
+
+### 12.5 Recorded read-only contract check (owner-approved, NOT run by this work)
+
+As for section 11.7, with a dedicated token and redaction: GET `/api/v2/users` once; one book and its series for
+members with different library, age and label restrictions; compare every assumption above, in particular the
+meaning of the age and label rules and whether age and labels are series-level; do not request pages, files,
+read lists, collections or any write route. Record the Komga version and update fixtures and adapter in a
+separate reviewed change.
+
+### 12.6 Residual risks
+
+- The admin key reaches everything; a bug in the five-route allow-list would be a bug with admin reach.
+- The member's restrictions are re-read per section (one extra call to the user list, which returns every
+  account; only the member's record is read and nothing else is retained).
+- Komga's real combination of allow rules is not verified; the adapter shows less, never more, by design.
+
+## 13. Calibre-Web adapter (AVR-380)
+
+Status: **proposed, not deployed.** `services/avrana-home/avrana_home/adapters/calibre_web.py`, standard library
+only, proven only against a fixture that is **hand-written, unverified against the deployed version**. The fixture
+under `tests/fixtures/calibre_web/` carries `_synthetic`, `_target_version` and `_provenance`; the last separates the
+shapes recalled from Calibre-Web's public OPDS behaviour (not re-checked) from the SYNTHETIC assumptions, and says
+that live compatibility is **UNPROVEN**. A test enforces all three.
+
+### 13.1 What it offers
+
+One section, "Recently added" (`recent_items`): ebooks as `Kind.EBOOK` from the OPDS "new" feed, hand-off
+`https://books.avrana.net/book/<id>` from the contract builder, cover by opaque ref `calibre-web/cover/<id>`.
+`continue_items` and `item` return `EMPTY` (reason `not_offered`) with no upstream call: per-member read state needs
+the member's own password, and OPDS has no single-entry route (UNVERIFIED). `search` stays as the contract defines
+it (not implemented). Titles are text, never HTML; no download link is exposed; no reader (AVR-380: no custom reader).
+
+### 13.2 This is a SHARED VIEW (owner invariant)
+
+Enforced in code: `CalibreWebAdapter(..., owner_confirms_no_member_restrictions=True)` is required, and any other
+value raises `ValueError`, so the adapter cannot be constructed without the owner's deliberate opt-in. This was
+added after the review of #39.
+
+Calibre-Web's public interface is OPDS over HTTP Basic. The home holds one dedicated local viewer account (no
+upload, edit, download-of-others or admin rights) and never a member's password; **no per-member credential is
+needed, so there is no key-scope decision to stop on.** The consequences are explicit:
+
+- **No member mapping.** `resolve_user` returns the fixed non-member `shared` viewer for every member who holds
+  `avrana-books`; it never names a Calibre-Web account. The exact-username rule of section 3 cannot be applied
+  because OPDS cannot list users. Authorization is the Authentik group, checked before any upstream call and
+  before any cache read.
+- **No per-member visibility is enforceable.** Calibre-Web supports per-user tag and custom-column restrictions,
+  but the home cannot read the user table (public interfaces only), so it cannot reproduce them. Every member sees
+  what the viewer account sees. **Invariant for the owner:** no member has a Calibre-Web restriction, and the
+  viewer account is created with the visibility of an ordinary member. If that is not true, the adapter must not
+  be enabled; the alternative is a per-member credential (not available: replicated passwords are not stored).
+- **Artwork authorization** is therefore the group gate plus the viewer account's own rights: a cover the viewer
+  cannot read is a 404 (`EMPTY`, never counted); results are cached per member only.
+- **Per-account state never reaches a member.** The route table has two entries, `/opds/new` and
+  `/opds/thumb_cover/<id>`; shelves, read books, hot, discover, downloads, search and everything under `/admin`
+  are refused by the guard (tested). Public shelves, if any, are a visibility decision for the owner.
+- **Open owner decision (shared with sections 11.2 and 12.2):** whether a shared-view adapter's results may be
+  cached once for all members. Not done: results stay keyed per member, which is safe and wasteful.
+
+### 13.3 Untrusted XML and links
+
+OPDS is Atom/XML from an upstream. The transport caps the body (1 MiB); a document containing a DOCTYPE, ENTITY,
+ELEMENT or ATTLIST declaration is refused **before** parsing (no entity expansion, no external subset);
+any parser failure, nesting that exhausts the parser, a wrong root (for example an HTML login page) is
+`UpstreamMalformed`; more than 100 entries is `UpstreamMisbehaved`. Links in the feed are never used as URLs: the
+numeric book id (1 to 9 digits) is taken only from a **relative absolute-path** link of a known shape (cover,
+thumbnail or acquisition); absolute URLs, protocol-relative links and other schemes are ignored; an entry whose
+links name no id or disagree is left out, and if every entry is unusable the section is `UNAVAILABLE`, never
+"nothing new".
+
+### 13.4 Credential
+
+The credential lives only inside the transport (an `Authorization` header), never in a URL, a result, a repr, a
+health report, a log line or a cache row (tested with a sentinel). The browser never sees it: covers are fetched
+server-side and served by the home.
+
+### 13.5 Unverified upstream assumptions (every one)
+
+1. A dedicated local viewer account authenticates for OPDS with HTTP Basic in the deployed (LDAP) configuration
+   (the repository records a local-password fallback in the patched image; OPDS coverage is unverified).
+2. `GET /opds/new` returns an Atom feed, newest first, with no query, listing a few dozen entries at most.
+3. Each entry has `title`, `author/name` and relative links: image `/opds/cover/<id>`, thumbnail
+   `/opds/thumb_cover/<id>`, acquisition `/opds/download/<id>/<format>/`; the numeric id appears only there.
+4. `GET /opds/thumb_cover/<id>` returns PNG, JPEG or WebP, and 404 for an id the viewer cannot see.
+5. The hand-off path `/book/<id>` exists on `books.avrana.net`; the id pattern `[0-9]{1,9}` in `contract.py` is a
+   placeholder.
+6. The viewer account sees the same catalogue as any member (the 13.2 invariant).
+7. A 401/403 means the credential is refused; a 404 on `/opds/new` means the route is gone (drift, counted).
+
+### 13.6 Recorded read-only contract check (owner-approved, NOT run by this work)
+
+As for section 11.7, with a dedicated viewer account and redaction: GET `/opds/new` once, one thumbnail, and one
+thumbnail for an id the viewer cannot see; compare every assumption above, in particular the link shapes, that
+the feed is not paged unexpectedly, and whether any member has a tag or column restriction (counts only). Do not
+request shelves, read books, downloads, search or any admin or user route. Record the Calibre-Web version and
+update the fixture and adapter in a separate reviewed change.
+
+### 13.7 Residual risks
+
+- A restricted member would see more than Calibre-Web shows them (13.2). This is the main risk.
+- Calibre-Web's LDAP `cached` mode can keep OPDS access for a removed member for a while; the home's own group
+  check is stricter, and the viewer account is unaffected.
+- The standard-library XML parser is protected here by refusing declarations and capping size, not by a hardened
+  parser; deep nesting is caught as a parser failure.
+- No per-member rate limit yet (as for the other adapters).

@@ -47,6 +47,10 @@ def main():
     home = ROOT / 'services/avrana-home'
     subprocess.run([sys.executable, '-B', '-m', 'unittest', 'discover', '-s', str(home / 'tests'),
                     '-t', str(home), '-p', 'test_*.py'], check=True)
+    # Web application suite (loopback sockets only, so a separate process from the adapter tests,
+    # which forbid every socket). Tier B skips itself with an explicit line when FastAPI is absent.
+    subprocess.run([sys.executable, '-B', '-m', 'unittest', 'discover', '-s', str(home / 'webtests'),
+                    '-t', str(home), '-p', 'test_*.py'], check=True)
 
 
 if __name__ == '__main__':

@@ -1,10 +1,15 @@
 """Shared-circuit policy: what counts toward it, the threshold, and the single half-open trial."""
+import os as _os
+import sys as _sys
+
+_sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+from tests import _netguard  # noqa: E402,F401  (installs the network guard, also when run directly)
 import unittest
 
 from avrana_home.adapters.jellyfin import JellyfinAdapter
 from avrana_home.contract import SectionState
 from avrana_home.resilience import (CircuitBreaker, FakeClock, UpstreamAuthError, UpstreamHTTPError,
-                                    UpstreamMalformed, UpstreamMisbehaved, UpstreamNotFound,
+                                    ItemGone, RouteMissing, UserGone, UpstreamMalformed, UpstreamMisbehaved, UpstreamNotFound,
                                     UpstreamTimeout, UpstreamTooLarge, UpstreamUnreachable,
                                     counts_toward_breaker)
 from tests.fake_jellyfin import A, B, FakeJellyfin, FakeTransport, load
@@ -18,8 +23,8 @@ class CountingRuleTests(unittest.TestCase):
         counted = [UpstreamTimeout(), UpstreamUnreachable(), UpstreamMalformed(), UpstreamTooLarge(),
                    UpstreamMisbehaved(), UpstreamAuthError(401), UpstreamAuthError(403),
                    UpstreamHTTPError(500), UpstreamHTTPError(503), UpstreamHTTPError(429),
-                   UpstreamHTTPError(302)]
-        not_counted = [UpstreamNotFound(404), UpstreamHTTPError(400), UpstreamHTTPError(410),
+                   UpstreamHTTPError(302), RouteMissing(404), UpstreamNotFound(404)]
+        not_counted = [UserGone(404), ItemGone(404), UpstreamHTTPError(400), UpstreamHTTPError(410),
                        UpstreamHTTPError(422)]
         for e in counted:
             self.assertTrue(counts_toward_breaker(e), repr(e))
@@ -97,19 +102,6 @@ class SharedCircuitAcrossMembersTests(unittest.TestCase):
         self.adapter = JellyfinAdapter(self.transport, clock=self.clock)
         self.a = make_principal("member-a", GROUPS)
         self.b = make_principal("member-b", GROUPS)
-
-    def test_404_is_member_specific_and_never_opens_the_circuit(self):
-        self.fake.overrides["/UserItems/Resume"] = ("status", 404)
-        for _ in range(10):
-            ra = self.adapter.continue_items(self.a)
-            rb = self.adapter.continue_items(self.b)
-            for r in (ra, rb):
-                self.assertIs(r.state, SectionState.NOT_LINKED)
-                self.assertEqual(r.reason, "upstream_user_not_found")
-        self.assertNotEqual(self.adapter.health().state, "cooling_off")
-        self.assertEqual(self.adapter.health().last_error_class, None)
-        # B can still be served by other routes while A's resume is 404
-        self.assertIs(self.adapter.recent_items(self.b).state, SectionState.OK)
 
     def test_404_drops_the_cached_mapping(self):
         self.assertIs(self.adapter.continue_items(self.a).state, SectionState.OK)

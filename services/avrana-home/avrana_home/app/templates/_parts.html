@@ -1,0 +1,6 @@
+{% macro tile(path, label, desc) -%}
+    <a class="tile" href="/{{ path }}">
+      <span class="label">{{ label|trusted }}</span>
+      <span class="desc">{{ desc|trusted }}</span>
+    </a>
+{%- endmacro %}
