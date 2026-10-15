@@ -26,6 +26,20 @@ The original Kindle live tests were omitted and its personal fixture replaced. A
 
 The day-to-day local workflow, fixture rules and how to add a suite are in [DEVELOPMENT.md](DEVELOPMENT.md).
 
+## UI harness (AVR-360)
+
+`python3 -B tests/run_offline.py` also renders every portal and Kindle page offline, from their own code
+with synthetic identities, and runs stdlib accessibility, copy and no-leak checks (`tests/test_ui_harness.py`)
+plus a design-token drift check (`tests/test_token_drift.py`). Known defects are listed in
+`tests/ui/harness/baseline.json`, each with the issue that fixes it; a finding outside that list fails the
+run, and the baseline may only shrink.
+
+The browser layer (Chromium, axe-core, Tab order, rendered target sizes, 200% text) is a development tool
+for a laptop, not part of the offline suite and never run against production:
+`python -B tests/ui/harness/run_ui.py`. It needs Node and a Playwright install kept outside the repository.
+What it does not cover (real phones, screen readers, Safari, Firefox, anything behind Authentik) and how to
+add pages are in [`tests/ui/README.md`](../tests/ui/README.md).
+
 ## Commit gates
 
 Stage exact reviewed paths, then run:
