@@ -47,6 +47,9 @@ MAX_TOKEN_LEN = 16384
 MIN_MODULUS_BITS = 2048
 DEFAULT_LEEWAY = 60
 MAX_LEEWAY = 300
+MAX_TIMESTAMP = 1e12
+DEFAULT_MAX_LIFETIME = 86400  # Authentik's default access_token_validity is 24 h
+MAX_LIFETIME_LIMIT = 30 * 86400
 _DIGEST_INFO_SHA256 = bytes.fromhex("3031300d060960864801650304020105000420")
 _B64URL = re.compile(r"[A-Za-z0-9_-]+")
 _FORBIDDEN_HEADER_KEYS = ("crit", "jku", "jwk", "x5u", "x5c")
@@ -89,7 +92,7 @@ def _no_duplicates(pairs):
 def _json_object(raw: bytes, reason: str) -> dict:
     try:
         value = json.loads(raw.decode("utf-8"), object_pairs_hook=_no_duplicates, parse_constant=_no_constants)
-    except (UnicodeDecodeError, ValueError):
+    except (UnicodeDecodeError, ValueError, RecursionError):  # RecursionError: absurdly nested JSON
         raise JwtRejected(reason) from None
     if not isinstance(value, dict):
         raise JwtRejected(reason)
@@ -217,7 +220,7 @@ class OutpostJwtVerifier:
 
     def __init__(self, keys: Iterable[RsaPublicKey] = (), issuer: str = "", audience: str = "",
                  leeway: int = DEFAULT_LEEWAY, clock: Callable[[], float] = time.time,
-                 hmac_secrets: Iterable[bytes] = ()):
+                 hmac_secrets: Iterable[bytes] = (), max_lifetime: int = DEFAULT_MAX_LIFETIME):
         self.keys = list(keys)
         self.secrets = list(hmac_secrets)
         if bool(self.keys) == bool(self.secrets):
@@ -237,6 +240,10 @@ class OutpostJwtVerifier:
             raise ValueError("issuer and audience are required")
         if not isinstance(leeway, int) or isinstance(leeway, bool) or not 0 <= leeway <= MAX_LEEWAY:
             raise ValueError(f"leeway must be an integer 0..{MAX_LEEWAY} seconds")
+        if (not isinstance(max_lifetime, int) or isinstance(max_lifetime, bool)
+                or not 1 <= max_lifetime <= MAX_LIFETIME_LIMIT):
+            raise ValueError(f"max_lifetime must be an integer 1..{MAX_LIFETIME_LIMIT} seconds")
+        self.max_lifetime = max_lifetime
         if not isinstance(issuer, str) or not isinstance(audience, str):
             raise ValueError("issuer and audience must be strings")
         self.issuer, self.audience, self.leeway, self.clock = issuer, audience, leeway, clock
@@ -297,7 +304,7 @@ class OutpostJwtVerifier:
         iat = claims.get("iat")
         if not _is_number(iat):  # iat is required: Authentik ID tokens always carry it
             raise JwtRejected("bad_claims")
-        if iat > exp:
+        if iat > exp or exp - iat > self.max_lifetime:  # a distant exp is not a longer session
             raise JwtRejected("bad_claims")
         for name in ("nbf", "iat"):
             if name in claims:
@@ -322,8 +329,10 @@ def _is_group_name(value) -> bool:
 
 
 def _is_number(value) -> bool:
+    # The magnitude bound comes first: math.isfinite(10**400) raises OverflowError. 1e12 seconds is far
+    # beyond any real timestamp, so nothing legitimate is refused.
     return (isinstance(value, (int, float)) and not isinstance(value, bool)
-            and math.isfinite(value))
+            and abs(value) < MAX_TIMESTAMP and math.isfinite(value))
 
 
 def principal_from_outpost(headers, verifier: OutpostJwtVerifier):

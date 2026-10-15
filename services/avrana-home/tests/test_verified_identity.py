@@ -425,5 +425,113 @@ class MutationStyleTests(unittest.TestCase):
         self.assertEqual(caught.exception.reason, "malformed_token")
 
 
+class ReviewFindingTests(unittest.TestCase):
+    """Findings from the independent review of PR #35 (AVR-498)."""
+
+    def rejects(self, payload, reason=None, v=None):
+        with self.assertRaises(oj.JwtRejected) as caught:
+            (v or verifier()).verify(sign(KEY_A, HDR_A, payload))
+        if reason:
+            self.assertEqual(caught.exception.reason, reason)
+
+    def test_huge_integers_are_rejected_not_raised(self):
+        for name in ("exp", "iat"):
+            for value in (10 ** 400, -(10 ** 400), 10 ** 13, 2 ** 1024):
+                with self.subTest(claim=name, value=str(value)[:12]):
+                    self.rejects(claims(**{name: value}), "bad_claims")
+        for value in (10 ** 400, 10 ** 13):  # nbf is optional but, when present, checked the same way
+            body = json.dumps(claims())[:-1] + ', "nbf": ' + str(value) + "}"
+            with self.subTest(claim="nbf", value=str(value)[:12]), self.assertRaises(oj.JwtRejected):
+                verifier().verify(sign(KEY_A, HDR_A, None, raw_claims=b64(body.encode())))
+        self.assertTrue(oj._is_number(1_800_000_000) and oj._is_number(-5.5) and oj._is_number(0))
+        for bad in (10 ** 400, float("inf"), float("nan"), True, "1", None, 1e12, -1e12):
+            self.assertFalse(oj._is_number(bad))
+
+    def test_deeply_nested_json_is_rejected_not_raised(self):
+        deep = b64(("[" * 10000).encode())
+        good_h, good_c = b64(json.dumps(HDR_A).encode()), b64(json.dumps(claims()).encode())
+        for h, c in ((deep, good_c), (good_h, deep)):
+            with self.assertRaises(oj.JwtRejected):
+                verifier().verify(f"{h}.{c}.{b64(b'x')}")
+        with self.assertRaises(oj.JwtRejected):  # validly signed, nested claims
+            verifier().verify(sign(KEY_A, HDR_A, None, raw_claims=deep))
+        with self.assertRaises(oj.JwtRejected):  # HMAC mode shares the parser
+            hs_verifier().verify(f"{deep}.{b64(b'{}')}.{b64(b'x')}")
+        self.assertEqual(reason_of(principal_from_verified_jwt, req(f"{deep}.{b64(b'{}')}.{b64(b'x')}"),
+                                   verifier()), "unverified_identity")
+
+    def test_token_lifetime_is_capped(self):
+        v = verifier()
+        self.assertEqual(v.max_lifetime, 86400)
+        self.assertTrue(v.verify(sign(KEY_A, HDR_A, claims(iat=NOW - 10, exp=NOW - 10 + 86400))))
+        self.rejects(claims(iat=NOW - 10, exp=NOW - 10 + 86401), "bad_claims")
+        self.rejects(claims(exp=NOW + 10 ** 10), "bad_claims")
+        longer = oj.OutpostJwtVerifier([pub(KEY_A)], ISS, AUD, clock=lambda: NOW, max_lifetime=7 * 86400)
+        self.assertTrue(longer.verify(sign(KEY_A, HDR_A, claims(exp=NOW + 5 * 86400))))
+        for bad in (0, -1, 30 * 86400 + 1, 3600.5, "3600", None, True):
+            with self.subTest(max_lifetime=bad), self.assertRaises(ValueError):
+                oj.OutpostJwtVerifier([pub(KEY_A)], ISS, AUD, max_lifetime=bad)
+
+    def test_malformed_pkcs1_signed_with_the_real_private_key_is_rejected(self):
+        """Valid RSA signatures over wrong encodings. A check that only compares the hash tail accepts
+        these; the whole encoded message must match."""
+        h, c = b64(json.dumps(HDR_A).encode()), b64(json.dumps(claims()).encode())
+        digest = hashlib.sha256(f"{h}.{c}".encode()).digest()
+        k = 256
+        good_t = oj._DIGEST_INFO_SHA256 + digest
+
+        def signed(em):
+            self.assertEqual(len(em), k)
+            return pow(int.from_bytes(em, "big"), KEY_A["d"], KEY_A["n"]).to_bytes(k, "big")
+
+        def frame(t, pad=None):
+            pad = b"\xff" * (k - len(t) - 3) if pad is None else pad
+            return b"\x00\x01" + pad + b"\x00" + t
+
+        variants = {
+            "wrong DigestInfo OID (sha384 OID, sha256 digest)":
+                frame(bytes.fromhex("3031300d060960864801650304020205000420") + digest),
+            "wrong DigestInfo OID (unknown arc)":
+                frame(bytes.fromhex("3031300d060960864801650304020905000420") + digest),
+            "DigestInfo with the NULL missing":
+                frame(bytes.fromhex("302f300b0609608648016503040201" "0420") + digest),
+            "digest only, no DigestInfo": frame(digest),
+            "garbage in the padding, correct tail": frame(good_t, b"\xff" * 10 + b"\x41" * (k - len(good_t) - 13)),
+            "padding of 0xfe": frame(good_t, b"\xfe" * (k - len(good_t) - 3)),
+            "padding byte 0x01 at the end": frame(good_t, b"\xff" * (k - len(good_t) - 4) + b"\x01"),
+        }
+        for name, em in variants.items():
+            with self.subTest(variant=name), self.assertRaises(oj.JwtRejected) as caught:
+                verifier().verify(f"{h}.{c}.{b64(signed(em))}")
+            self.assertEqual(caught.exception.reason, "bad_signature")
+        # Control: the correct encoding with the same key is accepted.
+        self.assertTrue(verifier().verify(f"{h}.{c}.{b64(signed(frame(good_t)))}"))
+
+
+class LogOnlyServesHeadersTests(unittest.TestCase):
+    PLAIN = [("X-authentik-username", "member-a"), ("X-authentik-groups", "avrana-users|avrana-books"),
+             ("X-authentik-email", "header@example.test"), ("X-authentik-name", "Header Name")]
+
+    def test_display_fields_come_from_the_headers_not_the_token(self):
+        tok = sign(KEY_A, HDR_A, claims(email="token@example.test", name="Token Name"))
+        p = principal_for_request(self.PLAIN + [("X-authentik-jwt", tok)], mode=MODE_JWT_LOG_ONLY,
+                                  verifier=verifier())
+        self.assertEqual((p.email, p.name), ("header@example.test", "Header Name"))
+        verified = principal_from_verified_jwt(self.PLAIN + [("X-authentik-jwt", tok)], verifier())
+        self.assertEqual((verified.email, verified.name), ("token@example.test", "Token Name"))
+
+    def test_valid_token_with_mismatched_headers_never_yields_a_jwt_principal(self):
+        tok = sign(KEY_A, HDR_A, claims(preferred_username="member-b", groups=["avrana-users", "authentik Admins"],
+                                        email="token@example.test", name="Token Name"))
+        seen = []
+        p = principal_for_request(self.PLAIN + [("X-authentik-jwt", tok)], mode=MODE_JWT_LOG_ONLY,
+                                  verifier=verifier(), report=seen.append)
+        self.assertEqual(seen, ["identity_mismatch"])
+        self.assertEqual((p.username, p.groups, p.email, p.name),
+                         ("member-a", frozenset({"avrana-users", "avrana-books"}), "header@example.test",
+                          "Header Name"))
+        self.assertFalse(p.has_group("authentik Admins"))
+
+
 if __name__ == "__main__":
     unittest.main()
