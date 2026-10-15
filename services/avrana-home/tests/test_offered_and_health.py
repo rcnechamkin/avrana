@@ -9,6 +9,7 @@ import json
 import unittest
 
 from avrana_home.adapters.audiobookshelf import AudiobookshelfAdapter
+from avrana_home.adapters.calibre_web import CalibreWebAdapter
 from avrana_home.adapters.jellyfin import JellyfinAdapter
 from avrana_home.adapters.komga import KomgaAdapter, link_table_linker
 from avrana_home.aggregate import gather, health_summary
@@ -67,6 +68,11 @@ class NotOffered(Setup):
         self.assertEqual(self.jellyfin.not_offered, frozenset())
         self.assertEqual(self.abs.not_offered, frozenset({"recent", "item"}))
         self.assertEqual(self.komga.not_offered, frozenset({"continue"}))
+        cwa = CalibreWebAdapter(FakeTransport(FakeKomga(self.clock)), clock=self.clock,
+                                owner_confirms_no_member_restrictions=True)
+        self.assertEqual(cwa.not_offered, frozenset({"continue", "item"}))
+        with self.assertRaises(Exception):                                  # the constructor stays opt-in
+            CalibreWebAdapter(FakeTransport(FakeKomga(self.clock)), clock=self.clock)
 
 
 class NotOfferedHelper(Setup):
