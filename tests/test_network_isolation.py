@@ -325,7 +325,9 @@ class HealthHookTests(unittest.TestCase):
         self.assertEqual(run.returncode, 0, run.stderr)
 
 
-@unittest.skipIf(yaml is None, "PyYAML not installed: compose declaration tests skipped")
+# With AVRANA_REQUIRE_YAML=1 (CI, decision D-8a) a missing PyYAML fails these tests instead of skipping them.
+@unittest.skipIf(yaml is None and os.environ.get("AVRANA_REQUIRE_YAML", "") in ("", "0"),
+                 "PyYAML not installed: compose declaration tests skipped")
 class ComposeDeclarationTests(unittest.TestCase):
     @staticmethod
     def compose(service_dir):
