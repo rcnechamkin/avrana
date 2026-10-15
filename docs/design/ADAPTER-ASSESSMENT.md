@@ -1,6 +1,9 @@
 # Adapter assessment: Audiobookshelf, Komga, Calibre-Web
 
-Status: **assessment only, 2026-10-11. No code, nothing deployed, nothing run against a live service.**
+Status: **assessment, 2026-10-11. Nothing deployed, nothing run against a live service.** Update: a
+read-only Audiobookshelf adapter now exists (`continue_items` only, hand-written unverified fixtures;
+see [ADAPTER-CONTRACT.md](ADAPTER-CONTRACT.md) section 11). It maps by exact **username**, not e-mail, and
+raises the e-mail conflict below as an owner decision; Komga and Calibre-Web remain assessment only.
 It measures the three remaining upstreams against the [adapter contract](ADAPTER-CONTRACT.md) using
 only what this repository documents and what each project's public API documentation says. Every API
 statement is from memory of public documentation and is marked **to verify**; none was checked
