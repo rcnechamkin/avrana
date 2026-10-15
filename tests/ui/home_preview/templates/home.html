@@ -13,7 +13,7 @@
 {{ frame.preview(states, state, viewers, who, art, '/') }}
 
 <a class="skip" href="#content">Skip to main content</a>
-{{ frame.mast(q, signed_in, member_name, initial, account_menu, true) }}
+{{ frame.mast(q, signed_in, member_name, initial, account_menu, true, signed_in and not no_library) }}
 {# The places a member came for are first: the libraries, Request and Help. #}
 {{ frame.places(nav) }}
 

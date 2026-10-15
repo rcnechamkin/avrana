@@ -27,9 +27,12 @@
    with no script, and focus stays on it. Escape and a tap outside do not close it without script;
    see docs/design/previews/home/README.md. The menu holds only places that exist, never an email,
    access group or technical detail. A request without a verified identity gets Sign in instead. #}
-{% macro mast(q, signed_in, member_name, initial, account_menu, heading) %}
+{% macro mast(q, signed_in, member_name, initial, account_menu, heading, searchable=False) %}
 <header class="mast">
   <div class="id">
+    {# Search (owner decision, 2026-10-15): a visible word near the places, not a sixth place in the bar.
+       Only for a member with a library to search. #}
+    {% if searchable %}<a class="link find" href="/search?{{ q }}">Search</a>{% endif %}
     {% if signed_in %}
     <details class="account">
       <summary aria-label="Account, signed in as {{ member_name }}"><span class="mono" aria-hidden="true">{{ initial }}</span>Account</summary>

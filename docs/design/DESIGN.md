@@ -248,7 +248,8 @@ High Contrast still draws one. No element sets `outline: none` without this ring
 
 Square everywhere (`border-radius: 0`). Edges are 1px. The rule under the wordmark is 64px wide
 on custom pages and 160px in Authentik, where the wordmark sits in a wider card; both are kept.
-Cover art in lists is a square crop with no rounding. (Media artwork: each library's own shape is proposed; see Media components.)
+Cover art in lists is a square crop with no rounding. Media artwork keeps each library's own shape
+(owner decision, 2026-10-15; see Media components).
 
 ## Components
 
@@ -308,15 +309,17 @@ Cover art in lists is a square crop with no rounding. (Media artwork: each libra
 > [the home preview](../../tests/ui/home_preview/README.md), which shows every component below in
 > every state at 360, 390 and 1280px (`check.mjs` writes the renders; this repository tracks no
 > images). **Owner-approved** and not to be revised here: the compact Home with one Continue row
-> and one bounded New row, and browsing on its own New page (AVR-431, AVR-452). Everything else in
-> this section is a proposal. Where it departs from the rules above, it says so and names the
-> owner decision in [the preview's proposals](previews/home/README.md#proposals-for-the-owner).
+> and one bounded New row, and browsing on its own New page (AVR-431, AVR-452). **Owner decisions of
+> 2026-10-15** (`docs/DECISIONS.md`) settle the artwork shape and colour, the Search entry, the
+> 720px browsing column with Kindle's 640px form column, and the script-free account menu. The
+> visual result still waits for the owner's review on a phone (AVR-455); the rest of this section
+> is the specification that review checks.
 > It follows the [Media UX research](https://linear.app/avranakern/document/avrana-media-ux-research-implementation-principles-backlog-gap-4a08eb39e598).
 
 ### Two shells
 - **Read and Operate** (Help, Account, Welcome, sign-in pages): the 640px single-form column.
-- **Browse** (Home, New, Search, a title page): the 720px column. A wider Browse shell is not
-  proposed: four covers fit in 720px, and a wider page would need its own type sizes (owner decision 10).
+- **Browse** (Home, New, Search, a title page): the 720px column (owner decision, 2026-10-15,
+  subject to a desktop review). Kindle's form keeps the 640px single-form column.
 - Both shells share the top: the account control, the compact wordmark linking home, then the
   bar of places. Both end with the shared footer: Account and security (signed in) and Help.
 
@@ -332,20 +335,20 @@ A tile never shows a title, and a card is never used for navigation. No card car
 control, a menu or an icon.
 
 ### Artwork
-- **Proposed exception to Shapes** (owner decision 1): each library keeps its own shape
+- **Each library keeps its own shape** (owner decision, 2026-10-15)
   (2:3 posters for films and series, 16:9 stills in Continue, square audiobook covers, 2:3 books,
-  13:20 comics). Covers keep 1px Quiet Rule edges, square corners and no shadow. Under the
-  alternative, every cover is the square crop the Shapes section names today.
+  13:20 comics). Covers keep 1px Quiet Rule edges, square corners and no shadow.
 - Covers in one row share a top edge; their widths differ. A cover is decoration (`alt=""`):
   the title is always beside it in words.
-- Library artwork keeps its colour; the page around it stays black and white (owner decision 3).
+- Library artwork keeps its original colour; the page around it stays black and white (owner
+  decision, 2026-10-15).
 
 ### Places bar
 - Watch, Listen, Read, Request and Help, as words in one ruled bar under the wordmark on every
   Browse page. It wraps at large text and never scrolls.
 - Only places the member can use. A library the member cannot use has no place at all. A library
   whose service is down keeps its word, struck through and not a link, with ", unavailable" for
-  screen readers (owner decision 7).
+  screen readers (decided, preview decision 7).
 
 ### Account control
 Specified in [the preview's account section](previews/home/README.md#account-and-shared-navigation-avr-478-proposed)
@@ -375,8 +378,10 @@ The New page's grid of media cards: three columns on a phone, six at 720px. Same
   and a Small/Ash hint linked by `aria-describedby`: "Searches your libraries only."
 - No suggestions while typing: a suggestion list is a second way to leak a title, and needs script.
 - The query is trimmed, cut to 100 characters, escaped, and shown back in the field and the page title.
-- **The entry point on Home is not placed yet** (owner decision 9). The approved Home composition
-  is not changed here.
+- **Entry point** (owner decision, 2026-10-15): the word **Search**, a visible text link at the top
+  left of every Browse page, opposite Account and directly above the bar of places. The bar keeps
+  Watch, Listen, Read, Request, Help in that order; Search is not a sixth place in it. Shown once
+  search works for members (M3.4); the preview shows it now for review.
 
 ### Search result
 - Results grouped by library under Subtitle headings, each group a ruled list (List row). A row is

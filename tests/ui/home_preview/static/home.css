@@ -46,7 +46,8 @@ img { display: block; max-width: 100%; }
 /* The account control (AVR-478): top right, the same on every page, found by its word. A square
    initial, never a photograph or an icon. A native disclosure: no script, no ARIA menu pattern. */
 .mast { padding-top: 0.5rem; }
-.id { align-self: stretch; display: flex; justify-content: flex-end; min-height: 2.75rem; }
+.id { align-self: stretch; display: flex; justify-content: flex-end; align-items: center; min-height: 2.75rem; }
+.id .find { margin-right: auto; }   /* Search at the left, Account at the right */
 .account { position: relative; }
 .account summary {
   list-style: none; display: inline-flex; align-items: center; gap: 0.5rem; min-height: 2.75rem; min-width: 2.75rem;

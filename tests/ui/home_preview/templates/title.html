@@ -13,7 +13,7 @@
 {{ frame.preview(states, state, viewers, who, art, '/title/' ~ slug) }}
 
 <a class="skip" href="#content">Skip to the title</a>
-{{ frame.mast(q, signed_in, member_name, initial, account_menu, false) }}
+{{ frame.mast(q, signed_in, member_name, initial, account_menu, false, signed_in and not no_library) }}
 {{ frame.places(nav) }}
 
 {# A title page (AVR-426, for M3.5). In this order: the title, its one action, where the member is in

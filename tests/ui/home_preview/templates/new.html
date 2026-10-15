@@ -13,7 +13,7 @@
 {{ frame.preview(states, state, viewers, who, art, '/new') }}
 
 <a class="skip" href="#content">Skip to what is new</a>
-{{ frame.mast(q, signed_in, member_name, initial, account_menu, false) }}
+{{ frame.mast(q, signed_in, member_name, initial, account_menu, false, signed_in and not no_library) }}
 {{ frame.places(nav) }}
 
 {# Browsing is its own page: everything new in one library at a time, behind the same tabs. #}

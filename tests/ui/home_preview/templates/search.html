@@ -13,7 +13,7 @@
 {{ frame.preview(states, state, viewers, who, art, '/search') }}
 
 <a class="skip" href="#content">Skip to search</a>
-{{ frame.mast(q, signed_in, member_name, initial, account_menu, false) }}
+{{ frame.mast(q, signed_in, member_name, initial, account_menu, false, signed_in and not no_library) }}
 {{ frame.places(nav) }}
 
 {# Search (AVR-426). One field, a plain GET form: no script, no suggestions while typing (a suggestion

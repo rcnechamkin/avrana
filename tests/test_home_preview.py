@@ -367,5 +367,20 @@ class HomePreviewTests(unittest.TestCase):
         self.assertIn('href="/title/metropolis?state=healthy"', rails[1])
 
 
+    def test_search_is_a_visible_word_beside_the_places_never_a_sixth_place(self):
+        for path in ('/', '/new', '/search', '/title/walden'):
+            for who in ('member', 'books'):
+                text = self.body('healthy', path, who=who)
+                mast = text[text.index('<header class="mast">'):text.index('</header>')]
+                self.assertRegex(mast, r'<a class="link find" href="/search\?state=healthy[^"]*">Search</a>')
+                if who == 'books':
+                    self.assertIn('who=books', re.search(r'class="link find" href="([^"]+)"', mast).group(1))
+                bar = text[text.index('<nav class="places"'):text.index('</nav>')]
+                self.assertNotIn('Search', bar)
+                self.assertLess(text.index('class="link find"'), text.index('class="places"'))
+        for who in ('none', 'out'):                       # nothing to search: no entry
+            self.assertNotIn('class="link find"', self.body('healthy', '/', who=who))
+
+
 if __name__ == '__main__':
     unittest.main()

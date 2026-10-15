@@ -4,7 +4,7 @@
 > reviewed two compositions in AVR-431 and chose the compact content home with a separate New
 > page.** Screenshots of a fixture-only preview
 > ([how to open it](../../../../tests/ui/home_preview/README.md)). Nothing here is deployed, and
-> nothing here changes the portal that runs today. Items marked *Proposal* wait for the owner.
+> nothing here changes the portal that runs today. Owner decisions of 2026-10-15 are under Decisions; visual approval is pending (AVR-455).
 
 The preview keeps the identity in [DESIGN.md](../../DESIGN.md): black, white and ash, one serif,
 square corners, 1px rules, no icon, shadow or accent. It adds the three things
@@ -52,22 +52,25 @@ Loading has no spinner and no script: the page is rendered once, a section whose
 answer in time says so in a sentence and offers "Try again", which is a plain link to the same
 page.
 
-## Proposals for the owner
+## Decisions
 
-| # | Question | Shown in the preview | Alternative |
-|---|---|---|---|
-| 1 | Artwork shape | each library's own shape | one shape everywhere (crops covers) |
-| 2 | Rail or grid | one bounded rail on Home; a wall of covers on `/new` | a wall on Home (a longer page) |
-| 3 | Artwork colour on a monochrome page | as the library supplies it; the page stays black and white | greyscale (the "Artwork: grey" switch, `/?art=mono`) |
-| 4 | Wordmark size on the home page | the compact wordmark, so the first shelf is on screen | the full wordmark, as today |
-| 5 | Continue as one mixed row | stills and square covers in one row of four (decided, AVR-431) | one row per library (the rejected first version) |
-| 7 | A struck-through place when its service is down | the word stays in the bar, struck through, not a link | remove it from the bar |
-| 6 | Wording of the slow, empty and all-down sentences | as written in `fixtures.py` and `home.html` | owner's wording |
-| 9 | Where Search starts on Home (AVR-426) | not on Home yet: the preview bar's "Search" link opens `/search`; the approved Home is unchanged | a "Search" word at the end of the bar of places, or a field under it |
-| 10 | Width of the browsing pages | the 720px column of Home for Search and title pages | a wider Browse shell, which needs its own type sizes |
+The owner decided these on 2026-10-15 (`docs/DECISIONS.md`). Visual approval of the result is
+still pending (AVR-455).
 
-The preview's drawn covers are tinted so that question 3 can be judged; real artwork is brighter
-and more varied than these.
+| # | Question | Decision |
+|---|---|---|
+| 1 | Artwork shape | each library's natural shape (posters, audiobook squares, books, comics, video stills) |
+| 2 | Rail or grid | one bounded rail on Home; a wall of covers on `/new` (AVR-452) |
+| 3 | Artwork colour | original colour; the interface stays black and white. The grey switch stays only as a comparison in the preview |
+| 4 | Wordmark size on the home page | the compact wordmark |
+| 5 | Continue as one mixed row | one row of at most four (AVR-431) |
+| 6 | Wording of the slow, empty and all-down sentences | as written; open to the owner's edits during the phone review |
+| 7 | A struck-through place when its service is down | the word stays in the bar, struck through, not a link |
+| 9 | Where Search starts | a visible "Search" link at the top left, above the bar of places; the bar's order is unchanged |
+| 10 | Width of the browsing pages | the 720px column, subject to a desktop review; Kindle keeps 640px |
+
+The preview's drawn covers are tinted so that colour on the black page can be judged; real artwork is
+brighter and more varied than these.
 
 ## Account and shared navigation (AVR-478, proposed)
 
@@ -90,11 +93,11 @@ Active page: the places bar holds destinations in other apps, so on Home nothing
 the `/new` tabs mark the library on screen with `aria-current`. Help and Account will mark
 themselves the same way when the shell (AVR-374) serves them.
 
-### Owner decision
+### Decision 8: closing the menu
 
-| # | Question | Shown | Alternative |
-|---|---|---|---|
-| 8 | Escape and tap-outside to close the account menu | not supported: no script on the page, so the policy stays `script-src` none | a small first-party script for Escape, outside tap and returning focus, which needs a CSP change |
+The owner chose the native, script-free menu first (2026-10-15). Escape and a tap outside are checked
+in Safari with VoiceOver during the phone review. Only if that shows a script is needed for
+accessibility does one come, as a narrowly scoped CSP exception in its own pull request for review.
 
 ## Search and title pages (AVR-426, proposed)
 
