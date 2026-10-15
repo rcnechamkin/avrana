@@ -30,7 +30,7 @@
   <div class="id">
     {% if signed_in %}
     <details class="account">
-      <summary><span class="mono" aria-hidden="true">{{ initial }}</span>Account<span class="sr">, signed in as {{ member_name }}</span></summary>
+      <summary aria-label="Account, signed in as {{ member_name }}"><span class="mono" aria-hidden="true">{{ initial }}</span>Account</summary>
       <div class="menu">
         <p class="as">Signed in as {{ member_name }}</p>
         <ul>

@@ -169,8 +169,10 @@ class HomePreviewTests(unittest.TestCase):
                     text = self.body(state, path)
                     menu = text[text.index('<details class="account">'):text.index('</details>')]
                     self.assertEqual(1, text.count('<details class="account">'))
-                    summary = re.sub(r'<span class="mono"[^>]*>.*?</span>', '', re.search(r'<summary>(.*?)</summary>', menu).group(1))
-                    self.assertEqual('Account, signed in as Ada Lovelace', re.sub(r'<[^>]+>', '', summary))
+                    # its name starts with the word on screen (label in name), with no stray space before the comma
+                    label, inner = re.search(r'<summary aria-label="([^"]*)">(.*?)</summary>', menu).groups()
+                    self.assertEqual('Account, signed in as Ada Lovelace', label)
+                    self.assertEqual('Account', re.sub(r'<[^>]+>', '', re.sub(r'<span class="mono"[^>]*>.*?</span>', '', inner)))
                     self.assertIn('aria-hidden="true">A</span>', menu)   # the initial is decoration; the word names it
                     self.assertEqual(['Account and security', 'Help', 'Sign out'], re.findall(r'<a [^>]*>([^<]+)</a>', menu))
                     for never in ('@', 'avrana-', 'authentik', '/me', 'role="menu"', 'role="menuitem"'):
@@ -229,6 +231,16 @@ class HomePreviewTests(unittest.TestCase):
         self.assertIn('min-width: 2.75rem', summary)
         self.assertIn('min-height: 2.75rem', re.search(r'\.menu a \{([^}]*)\}', css).group(1))
         self.assertIn('max-width: calc(100vw - 2.5rem)', re.search(r'\.menu \{([^}]*)\}', css).group(1))
+        # a text link is a 44px target in both directions, even a short word such as Help
+        link = re.search(r'\.link \{([^}]*)\}', css).group(1)
+        self.assertIn('min-height: 2.75rem', link)
+        self.assertIn('min-width: 2.75rem', link)
+
+    def test_the_skip_link_fits_every_viewer(self):
+        for who in fixtures.VIEWERS:
+            for path in ('/', '/new'):
+                skip = re.search(r'<a class="skip" href="#content">([^<]+)</a>', self.body('healthy', path, who=who)).group(1)
+                self.assertNotIn('left', skip, f'{path} {who}')   # not every viewer has anything to continue
 
     def test_unknown_viewers_are_not_found(self):
         self.assertEqual(404, self.client.get('/', params={'who': 'admin'}).status_code)
