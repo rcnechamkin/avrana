@@ -86,6 +86,9 @@ SSO_INIT = {
 # "Read" covers two libraries that are one idea to a reader, so the grid shows one tile and the
 # split happens on the next page. Rendered by the same shell, so it inherits the identical look.
 CHOOSERS = [
+    # The subtitle here is only the FULL form, shown to a viewer who may open every member. What a
+    # viewer actually sees is built by chooser_subtitle() from the members they may open, so a
+    # books-only member is never told a comics library exists, nor the reverse (AVR-430).
     ("Read", "Comics &amp; ebooks", "read", ["comics", "books", "kindle"]),
     # Note the path is "request" (singular) while Seerr's long-standing direct route stays
     # "requests" (plural) so existing links keep working. They are distinct paths.
@@ -97,6 +100,24 @@ CHOOSERS = [
     ("Request", "Ask for something that&rsquo;s missing", "request",
      ["requests", "requestabook", "requestacomic"]),
 ]
+
+# Copy that depends on WHICH of a shared service's groups the viewer holds (AVR-430).
+# Request Books is open to ebook readers and audiobook listeners alike, so one static label and
+# subtitle ("Books" / "Ask for an ebook or audiobook") told each of them about the other
+# library. Key: the gating groups the viewer holds, in the order SERVICES lists them. Holding
+# all of them falls back to the table's own (full) wording.
+SERVICE_VARIANTS = {
+    "requestabook": {
+        ("avrana-books",): ("Books", "Ask for an ebook"),
+        ("avrana-audiobooks",): ("Audiobooks", "Ask for an audiobook"),
+    },
+}
+
+# What each chooser member contributes to the chooser tile's subtitle, as a lowercase noun.
+# Members absent here (the Kindle address page belongs to Books) add nothing.
+CHOOSER_PARTS = {
+    "read": {"comics": "comics", "books": "ebooks"},
+}
 
 # Grid order for the home page. Entries are service paths or chooser paths.
 HOME_ORDER = ["watch", "listen", "read", "request", "contribute", "ops", "help"]
@@ -358,55 +379,64 @@ ACCOUNT_URL = f"{AUTH_HOST}/if/user/"      # Authentik's own user settings (pass
 SIGNOUT_URL = "/outpost.goauthentik.io/sign_out"  # intercepted by the outpost, never reaches us
 
 STYLE = """
-  :root{--bg:#000000;--fg:#ffffff;--dim:#9a9a9a;--line:rgba(255,255,255,0.28);--line-strong:rgba(255,255,255,0.6);}
+  :root{color-scheme:dark;--bg:#000000;--fg:#ffffff;--dim:#9a9a9a;--rule-quiet:#474747;
+    --rule-control:#6e6e6e;--rule-strong:#999999;--dim-on-fg:#333333;}
   *{box-sizing:border-box;}
   html,body{margin:0;padding:0;}
   body{background:var(--bg);color:var(--fg);font-family:"Times New Roman",Times,serif;
     -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;min-height:100vh;
     display:flex;justify-content:center;}
-  main{width:100%;max-width:720px;padding:12vh 24px 8vh;display:flex;flex-direction:column;gap:44px;}
+  .page{width:100%;max-width:720px;padding:12vh 24px 8vh;display:flex;flex-direction:column;gap:44px;}
+  main{display:flex;flex-direction:column;gap:44px;}
   header{text-align:center;display:flex;flex-direction:column;gap:14px;align-items:center;}
-  h1{margin:0;font-weight:400;font-size:clamp(2.6rem,9vw,4.4rem);letter-spacing:0.34em;
-    text-indent:0.34em;line-height:1;}
+  h1{margin:0;font-weight:400;font-size:min(clamp(2.6rem,9vw,4.4rem),calc((100vw - 3rem) / 6.6));
+    letter-spacing:0.34em;text-indent:0.34em;line-height:1;overflow-wrap:anywhere;}
   h1 a{color:inherit;text-decoration:none;}
-  .rule{width:64px;height:1px;background:var(--line-strong);margin-top:6px;}
-  nav{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;}
-  a.tile{display:flex;flex-direction:column;gap:6px;padding:22px 24px;border:1px solid var(--line);
-    text-decoration:none;color:var(--fg);background:transparent;
+  a:focus-visible{outline:2px solid transparent;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--fg);}
+  .rule{width:64px;height:1px;background:var(--rule-strong);margin-top:6px;}
+  .sr{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;
+    clip:rect(0,0,0,0);white-space:nowrap;border:0;}
+  nav.tiles{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;}
+  a.tile{display:flex;flex-direction:column;gap:6px;padding:22px 24px;border:1px solid var(--rule-control);
+    text-decoration:none;color:var(--fg);background:transparent;overflow-wrap:anywhere;
     transition:background .16s ease,color .16s ease,border-color .16s ease;}
   a.tile .label{font-size:1.7rem;letter-spacing:0.06em;line-height:1.1;}
   a.tile .desc{font-size:0.98rem;color:var(--dim);transition:color .16s ease;}
   a.tile .host{font-style:italic;}
-  a.tile:hover,a.tile:focus-visible{background:var(--fg);color:var(--bg);border-color:var(--fg);outline:none;}
-  a.tile:hover .desc,a.tile:focus-visible .desc{color:#333333;}
-  a.tile:focus-visible{box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--fg);}
-  footer{display:flex;justify-content:center;gap:26px;flex-wrap:wrap;}
-  a.account{color:var(--fg);text-decoration:none;border-bottom:1px solid var(--line-strong);
-    padding-bottom:2px;letter-spacing:0.03em;font-size:0.9rem;}
-  a.account:hover,a.account:focus-visible{border-color:var(--fg);outline:none;}
+  a.tile:hover,a.tile:focus-visible{background:var(--fg);color:var(--bg);border-color:var(--fg);}
+  a.tile:hover .desc,a.tile:focus-visible .desc{color:var(--dim-on-fg);}
+  footer nav{display:flex;justify-content:center;gap:26px;flex-wrap:wrap;}
+  a.account,a.store{color:var(--fg);text-decoration:underline;text-decoration-color:var(--rule-strong);
+    text-decoration-thickness:1px;text-underline-offset:2px;display:inline-block;min-height:44px;
+    padding:12px 0;margin:-12px 0;line-height:1.5;}
+  a.account:hover,a.account:focus-visible,a.store:hover,a.store:focus-visible{
+    text-decoration-color:var(--fg);}
+  a.account{letter-spacing:0.03em;font-size:0.9rem;}
+  a.store{font-size:0.92rem;align-self:flex-start;padding:8px 0 12px;margin:-8px 0 -14px;}
   dl.facts{margin:0;display:grid;grid-template-columns:auto 1fr;gap:12px 28px;align-items:baseline;}
   dl.facts dt{color:var(--dim);font-size:0.9rem;letter-spacing:0.08em;text-transform:uppercase;}
   dl.facts dd{margin:0;font-size:1.15rem;overflow-wrap:anywhere;}
   ul.access{margin:0;padding:0;list-style:none;display:flex;flex-wrap:wrap;gap:10px;}
-  ul.access li{border:1px solid var(--line);padding:6px 14px;font-size:1rem;}
+  ul.access li{border:1px solid var(--rule-quiet);padding:6px 14px;font-size:1rem;overflow-wrap:anywhere;}
   section.block{display:flex;flex-direction:column;gap:16px;}
   section.block h2{margin:0;font-weight:400;font-size:1rem;letter-spacing:0.22em;
     text-transform:uppercase;color:var(--dim);}
+  h2.topic{margin:0;font-weight:400;font-size:clamp(1.7rem,5vw,2.3rem);line-height:1.15;
+    letter-spacing:0.04em;overflow-wrap:anywhere;}
   p.note{margin:0;color:var(--dim);font-size:0.98rem;line-height:1.5;}
-  .platform{border-top:1px solid var(--line);padding-top:20px;display:flex;flex-direction:column;gap:18px;}
+  .platform{border-top:1px solid var(--rule-quiet);padding-top:20px;display:flex;flex-direction:column;gap:18px;}
   .platform > h3{margin:0;font-weight:400;font-size:1.35rem;letter-spacing:0.04em;}
   .client{display:flex;flex-direction:column;gap:8px;}
   .client .cname{font-size:1.05rem;}
   .client .tag{color:var(--dim);font-size:0.8rem;letter-spacing:0.14em;text-transform:uppercase;
     margin-left:10px;}
   .client ol{margin:6px 0 0;padding-left:1.3rem;color:var(--dim);font-size:0.98rem;line-height:1.6;}
-  .client ol li{margin:4px 0;}
-  .client code{font-family:inherit;color:var(--fg);border-bottom:1px solid var(--line);}
-  a.store{color:var(--fg);text-decoration:none;border-bottom:1px solid var(--line-strong);
-    padding-bottom:1px;font-size:0.92rem;}
-  a.store:hover,a.store:focus-visible{border-color:var(--fg);outline:none;}
-  @media (max-width:560px){nav{grid-template-columns:1fr;}main{padding:9vh 20px 7vh;gap:36px;}
+  .client ol li{margin:4px 0;overflow-wrap:anywhere;}
+  .client code{font-family:inherit;color:var(--fg);border-bottom:1px solid var(--rule-quiet);}
+  @media (max-width:560px){nav.tiles{grid-template-columns:1fr;}
+    .page{padding:9vh 20px 7vh;gap:36px;}main{gap:36px;}
     dl.facts{grid-template-columns:1fr;gap:4px 0;}dl.facts dd{margin-bottom:10px;}}
+  @media (prefers-reduced-motion:reduce){a.tile,a.tile .desc{transition:none;}}
 """
 
 SHELL = """<!doctype html>
@@ -414,21 +444,26 @@ SHELL = """<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
 <meta name="robots" content="noindex, nofollow">
 <title>{title}</title>
 <style>{style}</style>
 </head>
 <body>
-<main>
+<div class="page">
   <header>
     <h1>{heading}</h1>
     <div class="rule"></div>
   </header>
+  <main>
 {body}
+  </main>
   <footer>
+    <nav aria-label="Footer">
 {footer}
+    </nav>
   </footer>
-</main>
+</div>
 </body>
 </html>
 """
@@ -487,6 +522,32 @@ def chooser_members(chooser, groups: set[str]):
     return out
 
 
+def service_copy(svc, groups: set[str]):
+    """(label, description) of a service as THIS viewer should read it."""
+    variants = SERVICE_VARIANTS.get(svc[3])
+    if variants and isinstance(svc[0], (tuple, list)):
+        held = tuple(g for g in svc[0] if g in groups)
+        if held in variants:
+            return variants[held]
+    return svc[1], svc[2]
+
+
+def chooser_subtitle(chooser, groups: set[str]) -> str:
+    """The chooser tile's subtitle, built only from the members this viewer may open."""
+    parts = CHOOSER_PARTS.get(chooser[2])
+    if parts is None:
+        return chooser[1]
+    words = []
+    for svc in chooser_members(chooser, groups):
+        word = parts.get(svc[3])
+        if word and word not in words:
+            words.append(word)
+    if not words:
+        return chooser[1]
+    text = " &amp; ".join(words)
+    return text[0].upper() + text[1:]
+
+
 def render_home(groups: set[str]) -> str:
     parts = []
     for path in HOME_ORDER:
@@ -495,7 +556,8 @@ def render_home(groups: set[str]) -> str:
             # A chooser appears if the user can reach ANY of its members. Someone with only
             # comics still sees one "Read" tile, which looks complete rather than reduced.
             if chooser_members(ch, groups):
-                parts.append(TILE.format(label=ch[0], desc=ch[1], path=ch[2], host="avrana.net"))
+                parts.append(TILE.format(label=ch[0], desc=chooser_subtitle(ch, groups),
+                                         path=ch[2], host="avrana.net"))
             continue
         if path == "help":
             # Shown to everyone who can see the portal at all. The landing page lists only the
@@ -505,27 +567,29 @@ def render_home(groups: set[str]) -> str:
             continue
         svc = by_path(path)
         if svc and allows(svc[0], groups):
-            parts.append(TILE.format(label=svc[1], desc=svc[2], path=svc[3], host=svc[4]))
+            label, desc = service_copy(svc, groups)
+            parts.append(TILE.format(label=label, desc=desc, path=svc[3], host=svc[4]))
     return SHELL.format(
         title="Avrana",
         style=STYLE,
         heading="AVRANA",
-        body=f'  <nav aria-label="Your Avrana services">\n{chr(10).join(parts)}\n  </nav>',
+        body=f'  <nav class="tiles" aria-label="Your Avrana services">\n{chr(10).join(parts)}\n  </nav>',
         footer='    <a class="account" href="/account">Account &amp; sign&#8209;in</a>',
     )
 
 
-def render_chooser(chooser, members) -> str:
+def render_chooser(chooser, members, groups=frozenset()) -> str:
     """A sub-page in the identical shell: same type, same rules, one level down."""
-    tiles = "\n".join(
-        TILE.format(label=label, desc=desc, path=path, host=host)
-        for _grp, label, desc, path, host in members
-    )
+    rows = []
+    for svc in members:
+        label, desc = service_copy(svc, groups)
+        rows.append(TILE.format(label=label, desc=desc, path=svc[3], host=svc[4]))
+    tiles = "\n".join(rows)
     return SHELL.format(
         title=f"{chooser[0]} · Avrana",
         style=STYLE,
         heading='<a href="/">AVRANA</a>',
-        body=f'  <nav aria-label="{chooser[0]}">\n{tiles}\n  </nav>',
+        body=f'  <nav class="tiles" aria-label="{chooser[0]}">\n{tiles}\n  </nav>',
         footer='    <a class="account" href="/">Back</a>',
     )
 
@@ -546,7 +610,7 @@ def render_account(groups: set[str], name: str, username: str, email: str) -> st
 
     # Only what the user HAS — never a list of what they don't, same principle as the grid.
     mine = permitted(groups)
-    access_html = "\n".join(f"        <li>{label}</li>" for _g, label, _d, _p, _h in mine)
+    access_html = "\n".join(f"        <li>{service_copy(svc, groups)[0]}</li>" for svc in mine)
     if mine:
         access_block = (
             '    <section class="block">\n'
@@ -558,7 +622,7 @@ def render_account(groups: set[str], name: str, username: str, email: str) -> st
         access_block = (
             '    <section class="block">\n'
             "      <h2>Your access</h2>\n"
-            '      <p class="note">Nothing is set up on this account yet. '
+            '      <p class="note msg">Nothing is set up on this account yet. '
             "Ask Cody to add what you need.</p>\n"
             "    </section>"
         )
@@ -572,8 +636,8 @@ def render_account(groups: set[str], name: str, username: str, email: str) -> st
         '  <section class="block">\n'
         "    <h2>Preferences</h2>\n"
         '    <p class="note">Your password, two&#8209;factor devices and active sessions are '
-        "managed in your Avrana account. Per&#8209;service settings — playback, reading position, "
-        "notifications — live inside each service.</p>\n"
+        "managed in your Avrana account. Per&#8209;service settings, such as notifications, "
+        "live inside each service.</p>\n"
         "  </section>"
     )
     footer = (
@@ -612,8 +676,8 @@ def render_help_index(topics) -> str:
         TILE.format(label=label, desc="Apps and setup", path=f"help/{HELP_SLUGS[label]}", host=host)
         for _grp, label, host, _plat in topics
     )
-    body = (f'  <nav aria-label="Help topics">\n{tiles}\n  </nav>' if tiles else
-            '  <section class="block"><p class="note">Nothing is set up on this account yet.</p></section>')
+    body = (f'  <nav class="tiles" aria-label="Help topics">\n{tiles}\n  </nav>' if tiles else
+            '  <section class="block"><p class="note msg">Nothing is set up on this account yet.</p></section>')
     return SHELL.format(title="Help · Avrana", style=STYLE, heading='<a href="/">AVRANA</a>',
                         body=body, footer='    <a class="account" href="/">Back</a>')
 
@@ -635,7 +699,7 @@ def render_help_page(topic) -> str:
                 phrase = {"App Store": "Get it on the App Store",
                           "Google Play": "Get it on Google Play"}.get(store, f"Download from {store}")
                 block.append(f'        <a class="store" href="{url}" target="_blank" '
-                             f'rel="noopener noreferrer">{phrase}</a>')
+                             f'rel="noopener noreferrer">{phrase}<span class="sr"> (opens in a new tab)</span></a>')
             block.append("        <ol>")
             for st in steps:
                 block.append(f"          <li>{st}</li>")
@@ -643,7 +707,9 @@ def render_help_page(topic) -> str:
             block.append("      </div>")
             rows.append("\n".join(block))
         out.append('  <section class="platform">\n' + "\n".join(rows) + "\n  </section>")
-    body = "\n".join(out)
+    # The topic headline: the page's own name, right after the wordmark h1 so the platforms
+    # (h3) never skip a level and a member arriving from a link can tell which help this is.
+    body = f'  <h2 class="topic">{label}</h2>\n' + "\n".join(out)
     return SHELL.format(title=f"{label} help · Avrana", style=STYLE,
                         heading='<a href="/">AVRANA</a>', body=body,
                         footer=f'    <a class="account" href="/help">All help</a>\n'
@@ -657,11 +723,11 @@ def render_interstitial(svc, warning: str, help_path: str) -> str:
     body = (
         '  <section class="block">\n'
         f'    <h2>Before you continue</h2>\n'
-        f'    <p class="note">{warning}</p>\n'
+        f'    <p class="note msg" role="note">{warning}</p>\n'
         "  </section>\n"
-        '  <nav aria-label="Continue">\n'
-        f'    <a class="tile" href="https://{host}">\n'
-        f'      <span class="label">I understand</span>\n'
+        '  <nav class="tiles" aria-label="Continue">\n'
+        f'    <a class="tile" href="https://{host}" aria-label="Understood, continue to {host}">\n'
+        f'      <span class="label">Understood</span>\n'
         f'      <span class="desc">Continue to <span class="host">{host}</span></span>\n'
         "    </a>\n"
         f'    <a class="tile" href="{help_path}">\n'
@@ -681,7 +747,7 @@ def render_404() -> str:
         style=STYLE,
         heading='<a href="/">AVRANA</a>',
         body='  <section class="block">\n'
-             '    <p class="note">That page does not exist.</p>\n'
+             '    <p class="note msg">That page does not exist.</p>\n'
              "  </section>",
         footer='    <a class="account" href="/">Back</a>',
     )
@@ -762,7 +828,7 @@ class Handler(BaseHTTPRequestHandler):
             members = chooser_members(ch, groups)
             if not members:
                 return self._send(404, render_404())
-            return self._send(200, render_chooser(ch, members))
+            return self._send(200, render_chooser(ch, members, groups))
 
         for svc in SERVICES:
             grp, _label, _desc, path, host = svc
