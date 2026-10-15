@@ -31,7 +31,7 @@ BLOCK = re.compile(r'<!--\s*if:\s*([^>]*?)\s*-->(.*?)<!--\s*endif\s*-->', re.S)
 SOURCE_PATH = re.compile(
     r'\b((?:docs|services|scripts|deploy|tests)/[A-Za-z0-9_./\-]+?\.(?:md|py|sh|yaml|yml|txt|json))')
 # path:line, path:a-b and continuations such as "path:12-14, :20" or "path:12, 30-31". A bare file name
-# (portal.py:691) is resolved against the unique file of that name under docs, services, scripts, deploy
+# (portal.py:791) is resolved against the unique file of that name under docs, services, scripts, deploy
 # and tests.
 CITE = re.compile(
     r'(?P<path>(?:(?:docs|services|scripts|deploy|tests)/[A-Za-z0-9_./\-]+?'
@@ -130,10 +130,10 @@ ALLOWED_COMMITMENTS = {
 # written, repo file, line, text that line must contain). Kills a wrong line number that still falls
 # inside the file, and code drift under a cited line.
 PINNED_CITES = [
-    (MEMBER / 'help.md', 'portal.py:691', 'services/avrana-portal/portal.py', 691, 'Recommended'),
-    (MEMBER / 'help.md', 'portal.py:293-316', 'services/avrana-portal/portal.py', 293, 'avrana-videos'),
-    (MEMBER / 'help.md', ':56 (tile gated', 'services/avrana-portal/portal.py', 56, 'avrana-videos'),
-    (MEMBER / 'welcome.md', 'portal.py:378-379', 'services/avrana-portal/portal.py', 379, 'sign_out'),
+    (MEMBER / 'help.md', 'portal.py:791', 'services/avrana-portal/portal.py', 791, 'Recommended'),
+    (MEMBER / 'help.md', 'portal.py:306-329', 'services/avrana-portal/portal.py', 306, 'avrana-videos'),
+    (MEMBER / 'help.md', ':69 (tile gated', 'services/avrana-portal/portal.py', 69, 'avrana-videos'),
+    (MEMBER / 'welcome.md', 'portal.py:398-399', 'services/avrana-portal/portal.py', 399, 'sign_out'),
     (RUNBOOK, 'scripts/offboard.py:99-102', 'scripts/offboard.py', 101, "'{username}'"),
     (RUNBOOK, 'offboard.py:99-102, 203-204', 'scripts/offboard.py', 204, "'{u}'"),
     (RUNBOOK, 'scripts/offboard.py:218-220', 'scripts/offboard.py', 218, 'authentik_user'),
@@ -146,7 +146,7 @@ ALLOWED_EMAIL_DOMAINS = {'example.invalid', 'example.com'}
 ALLOWED_EMAILS = set()
 # Capitalised word pairs are skipped when either word is a product, place or interface term used in the
 # documents, or when the first word is an ordinary sentence opener. "Ask Cody" is the existing portal copy
-# quoted in the register (services/avrana-portal/portal.py:626).
+# quoted in the register (services/avrana-portal/portal.py:726).
 PAIR_PRODUCT_WORDS = {
     'Avrana', 'Authentik', 'Jellyfin', 'Seerr', 'Audible', 'Amazon', 'Kindle', 'Komga', 'Shelfarr',
     'Omnibus', 'Swiftfin', 'Wholphin', 'Quick', 'Connect', 'Media', 'Player', 'Account', 'Help', 'Request',
@@ -545,7 +545,7 @@ class MemberContent(unittest.TestCase):
         """Every path:line citation: the file exists, each line number is inside it and not blank.
 
         A range must lie inside the file and contain at least one non-blank line. A bare file name
-        (portal.py:691) is resolved against the files of that name under docs, services, scripts, deploy
+        (portal.py:791) is resolved against the files of that name under docs, services, scripts, deploy
         and tests; it passes when at least one of them satisfies the citation. LIMIT: this proves the line
         exists, not that it says what the sentence claims; PINNED_CITES covers the ones that matter most.
         """
