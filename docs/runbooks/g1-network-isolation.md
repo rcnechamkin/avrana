@@ -151,11 +151,18 @@ for n in portal kindle olivetin; do docker network inspect authentik_$n --format
 # expect exactly two names each, per the table above
 for c in avrana-portal avrana-kindle-connector olivetin; do docker inspect $c --format '{{.Name}} {{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}'; done
 # expect one network each
-docker ps -aq | xargs docker inspect --format '{{.Name}} net={{.HostConfig.NetworkMode}} pid={{.HostConfig.PidMode}} ipc={{.HostConfig.IpcMode}}' \
-  | grep -E 'container:' || echo "no namespace sharing"
-# expect "no namespace sharing". A container whose net= is container:<id of authentik-server or a backend>
-# shares that network namespace, never appears in `docker network inspect`, and passes the drift guard
-# while reaching every network its host container is on: a G1 failure (AVR-345 review, finding F1).
+ids=$(docker ps -aq) && [ -n "$ids" ] && modes=$(docker inspect --format \
+  '{{.Name}} net={{.HostConfig.NetworkMode}} pid={{.HostConfig.PidMode}} ipc={{.HostConfig.IpcMode}}' $ids) \
+  && echo "containers inspected: $(printf '%s\n' "$modes" | wc -l)" \
+  && { printf '%s\n' "$modes" | grep -E ' net=container:' && echo "NET SHARING FOUND" || echo "no network namespace sharing"; } \
+  && { printf '%s\n' "$modes" | grep -E ' (pid|ipc)=container:' || echo "no pid/ipc namespace sharing"; } \
+  || echo "CHECK FAILED: docker ps or inspect returned nothing or an error; result is void"
+# Pass only with a non-zero "containers inspected" count (it should equal `docker ps -aq | wc -l`) AND
+# "no network namespace sharing". A container whose net= is container:<id of authentik-server or a backend>
+# shares that network namespace, never appears in `docker network inspect`, and passes the drift guard while
+# reaching every network its host container is on: a G1 failure (AVR-345 review, finding F1). pid/ipc
+# sharing is a separate finding to report, not a network bypass. Containers with net=host are the known
+# D-3 residual and are not reported by this check.
 ```
 
 Through the outpost, as a **member** (in `avrana-users`; `avrana-books` for Kindle) and as an **admin**
@@ -240,12 +247,19 @@ for u in avrana.net kindle.avrana.net ops.avrana.net; do
   echo "lan $u $(fc -H "Host: $u" http://10.0.0.218:9000/ops)"
 done
 ```
-Expect `302` to `auth.avrana.net` for all six (the LAN port 9000 is the same outpost). Any `200`, `307` or
-`404` from a backend is a **G1 failure**. Then, signed in as a **member without `authentik Admins`**, the owner
+**E1 (unauthenticated):** expect `302` to `auth.avrana.net` for all six (the LAN port 9000 is the same
+outpost). Any `200`, `307` or `404` from a backend is a **G1 failure**. E1 only shows that unauthenticated
+requests never reach a backend; the outpost redirects before it would set or strip any header, so **E1 says
+nothing about header overwrite and is not evidence for F3**.
+
+**E2 (authenticated; the only evidence for F3).** Signed in as a **member without `authentik Admins`**, the owner
 (never an agent: it needs the owner's session) uses a browser header-editing tool to add
 `X-authentik-groups: authentik Admins` and opens `https://avrana.net/` and `https://avrana.net/ops`: expect no
-Operations tile and a 404 for `/ops`. If the tile appears, the outpost passed the forged header: stop and roll
-back; G1 does not hold for this Authentik version.
+Operations tile and a 404 for `/ops`. Then, as a member in `avrana-books`, add
+`X-authentik-username: <another member's username>` and open `https://kindle.avrana.net/`: expect the signed-in
+member's own saved address (or none), never the other member's. Positive control first: without the extra
+header the member's own page renders normally. If the tile appears or another member's data shows, the outpost
+passed the forged header: stop and roll back; G1 does not hold for this Authentik version.
 
 **D. Expected non-failure (host).** `curl -m 5 http://<backend IP>/healthz` from the host shell **will**
 succeed (the host reaches all bridge IPs). Record it as the residual risk, not a failure.

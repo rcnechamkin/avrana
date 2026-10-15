@@ -106,9 +106,9 @@ class NamespaceSharingTests(unittest.TestCase):
                         offenders.append(f"{path.relative_to(ROOT)}:{name} {key}={service[key]}")
         self.assertEqual(offenders, [])
 
-    def test_checker_is_blind_to_namespace_sharing(self):
-        """Pins WHY the static test above exists: a borrower never appears in network data, so the
-        runtime guard alone cannot catch it and the runbook carries a separate read-only check."""
+    def test_runbook_documents_the_host_namespace_check(self):
+        """Documentation pin, not a guard test: network data cannot show a namespace borrower (the healthy
+        data below is identical with or without one), so the runbook must carry the host-side check."""
         spec = importlib.util.spec_from_file_location("iso_for_bypass", ROOT / "scripts/check-network-isolation.py")
         iso = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(iso)
@@ -123,7 +123,7 @@ class NamespaceSharingTests(unittest.TestCase):
         # The same data whether or not a borrower runs inside authentik-server's namespace.
         self.assertEqual([lvl for lvl, _ in iso.evaluate(healthy, applied=True)], ["OK"])
         runbook = (ROOT / "docs/runbooks/g1-network-isolation.md").read_text(encoding="utf-8")
-        self.assertTrue("HostConfig.NetworkMode" in runbook, "runbook must check namespace sharing on the host")
+        self.assertTrue("HostConfig.NetworkMode" in runbook and "result is void" in runbook, "runbook must check namespace sharing on the host")
 
 
 @unittest.skipIf(yaml is None, "PyYAML missing: G1 bypass-path compose tests NOT RUN")
@@ -232,13 +232,22 @@ class ProxyProviderModeTests(unittest.TestCase):
             body = path.read_text(encoding="utf-8")
             self.assertNotRegex(body, r"^\s*skip_path_regex:\s*\S", f"{path.name}: unauthenticated paths carry no identity")
 
-    def test_no_proxy_provider_accepts_header_or_basic_auth_passthrough(self):
+    def test_no_proxy_provider_enables_basic_auth_injection(self):
+        # basic_auth_enabled defaults to false in Authentik 2026.5.6. intercept_header_auth defaults to TRUE
+        # (bearer/basic credentials are verified by the outpost, not forged); finding F9 in the review.
         for path in self.blueprints():
+            match = re.search(r"^\s*basic_auth_enabled:\s*(\S+)", path.read_text(encoding="utf-8"), re.M)
+            if match:
+                self.assertIn(match.group(1).lower(), ("false", "no"), path.name)
+
+    def test_nothing_can_set_additional_headers(self):
+        """The outpost copies ak_proxy.user_attributes.additionalHeaders over its own identity headers
+        (mode_common.go getHeaders, 2026.5.6), and user_attributes are the user's group attributes. No
+        blueprint, prompt or mapping may write that attribute (finding F10)."""
+        for path in sorted((ROOT / "services/authentik/blueprints").glob("*.yaml")):
             body = path.read_text(encoding="utf-8")
-            for key in ("basic_auth_enabled", "intercept_header_auth"):
-                match = re.search(rf"^\s*{key}:\s*(\S+)", body, re.M)
-                if match:
-                    self.assertIn(match.group(1).lower(), ("false", "no"), f"{path.name}: {key}")
+            self.assertNotIn("additionalHeaders", body, path.name)
+            self.assertNotRegex(body, r"field_key:\s*attributes\.", f"{path.name}: prompts must not write attributes")
 
 
 # ------------------------------------------------------------------ header-name variants
