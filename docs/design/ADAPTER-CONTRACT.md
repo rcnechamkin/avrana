@@ -500,3 +500,87 @@ upgrade, remains the Media 2.0 plan (section 7 of `MEDIA-2.0.md`) and is an owne
   see `member_busy` beyond the per-member cap; the image route should serialise or retry, not treat it
   as an error page.
 - **Never call an adapter without a principal**, and never pass a username from anywhere else.
+
+## 12. Komga adapter (AVR-379)
+
+Status: **proposed, not deployed.** `services/avrana-home/avrana_home/adapters/komga.py`, standard library only,
+proven only against fixtures that are **hand-written, unverified against the deployed version**. Every fixture
+under `tests/fixtures/komga/` carries `_synthetic`, `_target_version` and `_provenance`; the last separates the
+shapes recalled from the public API documentation (not re-checked) from the SYNTHETIC assumptions, and says that
+live compatibility is **UNPROVEN**. A test enforces all three.
+
+### 12.1 What it offers
+
+One section, "Recently added" (`recent_items`, and `item` for one book): comics as `Kind.COMIC`, hand-off
+`https://read.avrana.net/book/<id>` from the contract builder. `continue_items` returns `EMPTY` (reason
+`not_offered`) with no upstream call: in Komga, read progress belongs to the credential's user, not to the member,
+and the book responses' `readProgress` is never read. `search` stays as the contract defines it (not implemented).
+Read lists and collections are server-global and are not in the route table (no collection or title leak).
+Artwork is the book thumbnail, fetched only after the member's restrictions allowed that book; a missing
+thumbnail is `EMPTY`.
+
+### 12.2 OWNER DECISIONS this adapter cannot make
+
+1. **Key scope.** Komga has no impersonation. A member's restrictions (library sharing, age restriction, sharing
+   label allow and exclude lists) are in that member's user record, which only an **admin** credential can list.
+   Implemented here: an admin-capable key behind the GET-only allow-list (five routes), with a fail-closed
+   client-side filter built from the member's own record. The read-only property comes from the allow-list, not
+   from the key. The alternative is a non-admin shared-view account (`ADAPTER-ASSESSMENT.md`, section 2): it
+   cannot read restrictions, so it is correct only while no member is restricted. **Until the owner chooses, no
+   key may be wired to this adapter.** If the owner picks the non-admin account, the filter becomes a no-op and
+   the "no restricted member" invariant must be checked in the runbook.
+2. **Member mapping** (same open decision as section 11.2). A Komga user record has an `email` (the login) and no
+   username. The mapping is a seam, `linker`: the default `exact_name_linker` applies the contract's current rule
+   (exact, case-sensitive, loose matches never link, two matches ambiguous) to the Komga `email` field, which links
+   a member only when the Authentik username equals the Komga login exactly and otherwise gives `NOT_LINKED`
+   (fail safe). `link_table_linker` is option C (an owner-maintained link list, outside Git). The e-mail rule (B)
+   is **not** implemented, and the principal's e-mail is never consulted.
+
+### 12.3 How it stays member-scoped
+
+Komga routes cannot carry the member in the path or query, so, unlike Jellyfin and Audiobookshelf, the guard cannot
+bind a request to a member (it only requires that a mapped member exists before any non-mapping route). Isolation
+is the adapter's filter, built to fail closed:
+
+- The member's own record is read from `/api/v2/users` (matched by the linked id; none = `NOT_LINKED`, two =
+  `UpstreamMisbehaved`) **before** any book is requested; a malformed restriction field makes the section
+  `UNAVAILABLE`, never an unfiltered list.
+- A book is shown only if its library (from the book, and equal to its series' library), its series' age rating and
+  its series' sharing labels pass. The check is **stricter than Komga's own combination** (every configured rule must
+  pass): an allow-only age rule hides unrated content, an exclude label wins over an allow label.
+- A book whose series cannot be checked is left out; if nothing could be shown and something was unusable the
+  section is `UNAVAILABLE` (drift), never "nothing new". Series lookups are bounded (12 per request), the page is
+  bounded (`size` at most 100, a larger answer is `UpstreamMisbehaved`).
+- Ids that are also Komga sub-routes (`latest`, `updated`) are never treated as ids.
+
+### 12.4 Unverified upstream assumptions (every one)
+
+1. Authentication by an admin-capable credential in a transport header (Basic or API key: the repository records
+   that `X-API-Key` was rejected in the deployed version).
+2. `GET /api/v2/users` returns a bare array of users with `id`, `email`, `roles`, `sharedAllLibraries`,
+   `sharedLibrariesIds`, `labelsAllow`, `labelsExclude` and `ageRestriction` (`null` or `{age, restriction}` with
+   `ALLOW_ONLY` or `EXCLUDE`).
+3. Semantics: `ALLOW_ONLY n` shows ratings up to n; `EXCLUDE n` hides ratings from n; labels match case-insensitively.
+4. `GET /api/v1/books/latest?page&size` returns `{content: [...]}` newest first; each book has `id`, `seriesId`,
+   `seriesTitle`, `libraryId`, `name`, `deleted`, `media.status` and `metadata.{title,number}`.
+5. `GET /api/v1/series/{id}` returns `id`, `libraryId` and `metadata.{ageRating (integer or null), sharingLabels}`:
+   age and labels are series-level, not book-level.
+6. `GET /api/v1/books/{id}/thumbnail` returns a PNG, JPEG or WebP; an unknown id is 404.
+7. Ids are 6 to 32 alphanumeric characters (`contract.py` placeholder pattern); the hand-off path `/book/<id>` exists.
+8. A 404 for an unknown book or series (not 200 with an empty body).
+
+### 12.5 Recorded read-only contract check (owner-approved, NOT run by this work)
+
+As for section 11.7, with a dedicated token and redaction: GET `/api/v2/users` once; one book and its series for
+members with different library, age and label restrictions; compare every assumption above, in particular the
+meaning of the age and label rules and whether age and labels are series-level; do not request pages, files,
+read lists, collections or any write route. Record the Komga version and update fixtures and adapter in a
+separate reviewed change.
+
+### 12.6 Residual risks
+
+- The admin key reaches everything; a bug in the five-route allow-list would be a bug with admin reach.
+- The member's restrictions are re-read per section (one extra call to the user list, which returns every
+  account; only the member's record is read and nothing else is retained).
+- Komga's real combination of allow rules is not verified; the adapter shows less, never more, by design.
+- No per-member rate limit yet (as for the other adapters).
