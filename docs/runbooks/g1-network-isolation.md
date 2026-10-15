@@ -151,6 +151,11 @@ for n in portal kindle olivetin; do docker network inspect authentik_$n --format
 # expect exactly two names each, per the table above
 for c in avrana-portal avrana-kindle-connector olivetin; do docker inspect $c --format '{{.Name}} {{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}'; done
 # expect one network each
+docker ps -aq | xargs docker inspect --format '{{.Name}} net={{.HostConfig.NetworkMode}} pid={{.HostConfig.PidMode}} ipc={{.HostConfig.IpcMode}}' \
+  | grep -E 'container:' || echo "no namespace sharing"
+# expect "no namespace sharing". A container whose net= is container:<id of authentik-server or a backend>
+# shares that network namespace, never appears in `docker network inspect`, and passes the drift guard
+# while reaching every network its host container is on: a G1 failure (AVR-345 review, finding F1).
 ```
 
 Through the outpost, as a **member** (in `avrana-users`; `avrana-books` for Kindle) and as an **admin**
@@ -224,6 +229,24 @@ expect `http=200` or `204` (DNS and routing on `authentik_frontend` work); and
 `probe http://10.0.0.218:13378/healthcheck` expect `http=200` (outbound to the LAN works, as the health
 script's Audiobookshelf check does). Run C before B's verdict is accepted.
 
+**E. Through the outpost: forged headers are replaced, not passed (owner, read-only).** G1 assumes the
+pinned outpost overwrites client-sent `X-authentik-*` headers; nothing in this repository proves that for
+this image (AVR-345 review, finding F3). Unauthenticated, from any LAN shell (no credential involved):
+```sh
+fc() { curl -s -o /dev/null -m 10 -w '%{http_code} %{redirect_url}' -H 'X-authentik-username: forged' \
+       -H 'X-authentik-groups: authentik Admins' -H 'X_authentik_groups: authentik Admins' "$@"; }
+for u in avrana.net kindle.avrana.net ops.avrana.net; do
+  echo "$u $(fc https://$u/ops)"
+  echo "lan $u $(fc -H "Host: $u" http://10.0.0.218:9000/ops)"
+done
+```
+Expect `302` to `auth.avrana.net` for all six (the LAN port 9000 is the same outpost). Any `200`, `307` or
+`404` from a backend is a **G1 failure**. Then, signed in as a **member without `authentik Admins`**, the owner
+(never an agent: it needs the owner's session) uses a browser header-editing tool to add
+`X-authentik-groups: authentik Admins` and opens `https://avrana.net/` and `https://avrana.net/ops`: expect no
+Operations tile and a 404 for `/ops`. If the tile appears, the outpost passed the forged header: stop and roll
+back; G1 does not hold for this Authentik version.
+
 **D. Expected non-failure (host).** `curl -m 5 http://<backend IP>/healthz` from the host shell **will**
 succeed (the host reaches all bridge IPs). Record it as the residual risk, not a failure.
 
@@ -273,6 +296,7 @@ Stop, do not improvise, and roll back or hold as stated:
 - A private network with any member other than the expected two, or an app on two networks.
 - Forgery check: any HTTP status from a backend through `authentik_frontend`; or any positive control (A, C)
   fails (the test is then void, not passed).
+- Namespace sharing found (Verify), or check E shows a forged header reaching a backend.
 - The health script prints any new FAIL.
 - Anything not in this document.
 
