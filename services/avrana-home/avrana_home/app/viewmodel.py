@@ -17,6 +17,8 @@ import math
 from dataclasses import dataclass
 from typing import Optional, Tuple
 
+from .artwork import src_for
+
 SERVICE_LABEL = {"jellyfin": "Movies and TV", "audiobookshelf": "Audiobooks",
                  "komga": "Comics", "calibre-web": "Books"}
 CONTINUE_HEADING = {"jellyfin": "Continue watching", "audiobookshelf": "Continue listening",
@@ -67,6 +69,7 @@ class ItemVM:
     kind: str
     detail: Optional[str]          # series and subtitle, joined
     progress: Optional[str]
+    image: Optional[str] = None    # same-origin /art/... URL, only when the contract gave a valid ref
 
 
 @dataclass(frozen=True)
@@ -83,6 +86,10 @@ def _plain(value, limit: int = 200) -> str:
     """Display text from an upstream: printable characters only (no bidi overrides or other
     format/control characters), bounded. HTML escaping is the template's job."""
     return "".join(c for c in str(value) if c.isprintable())[:limit].strip()
+
+
+def _image(artwork) -> Optional[str]:
+    return src_for(artwork.get("ref")) if isinstance(artwork, dict) else None
 
 
 def _heading(service: str, section: str) -> str:
@@ -109,7 +116,8 @@ def build_sections(view: dict) -> Tuple[SectionVM, ...]:
                 detail = " · ".join(_plain(x) for x in (it.get("series"), it.get("subtitle")) if x) or None
                 items.append(ItemVM(_plain(it.get("title") or "") or "Untitled", href,
                                     str(it.get("kind", "")), detail,
-                                    progress_words(it.get("kind", ""), it.get("progress"))))
+                                    progress_words(it.get("kind", ""), it.get("progress")),
+                                    _image(it.get("artwork"))))
             if items:
                 out.append(SectionVM(service, section, heading, "ok", tuple(items)))
         elif state == "unavailable":

@@ -10,6 +10,7 @@ does the same. Every request reaches the route through the single identity depen
 """
 from __future__ import annotations
 
+import base64
 import contextlib
 import logging
 from pathlib import Path
@@ -25,6 +26,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from ..adapters.audiobookshelf import AudiobookshelfAdapter
 from ..adapters.jellyfin import JellyfinAdapter
+from ..adapters.calibre_web import CalibreWebAdapter
 from ..adapters.komga import KomgaAdapter
 from ..aggregate import gather, health_summary
 from ..contract import MediaAdapter
@@ -32,6 +34,7 @@ from ..cache import MemberCache
 from ..resilience import SystemClock, UrllibTransport
 from . import catalogue as catalogue_mod
 from .catalogue import Trusted
+from . import artwork as artwork_mod
 from .identity import Viewer, get_viewer, has_identity_headers
 from .logsafe import app_log, log_event, silence_uvicorn_access
 from .middleware import HygieneMiddleware
@@ -83,6 +86,19 @@ def build_adapters(settings: Settings, cache: MemberCache) -> list:
         komga_adapter = KomgaAdapter(komga_transport, timeout=settings.timeout, cache=cache)
         komga_adapter.cache = cache
         adapters.append(komga_adapter)
+    if settings.calibre_web_base_url:             # off unless configured (settings.py validates)
+        basic = base64.b64encode(settings.calibre_web_credential.encode("utf-8")).decode("ascii")
+        cw_transport = UrllibTransport(settings.calibre_web_base_url, {"Authorization": f"Basic {basic}"})
+        # Calibre-Web is a SHARED view (ADAPTER-CONTRACT 13.2): every member with the books group sees what
+        # the one viewer account sees. The adapter refuses to be built without the owner's statement that no
+        # member has a Calibre-Web restriction. In mock mode (synthetic data, one fake catalogue) there is
+        # nothing to restrict, so we state it explicitly; in real mode settings.py only accepts a Calibre-Web
+        # URL when CALIBRE_WEB_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS=yes, and that value is what is passed.
+        confirmed = (settings.upstream_mode == "mock") or settings.calibre_web_owner_confirms
+        cw_adapter = CalibreWebAdapter(cw_transport, timeout=settings.timeout, cache=cache,
+                                       owner_confirms_no_member_restrictions=confirmed)
+        cw_adapter.cache = cache
+        adapters.append(cw_adapter)
     return adapters
 
 
@@ -153,6 +169,18 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
                 return respond(not_found())
             scope["avrana_route"] = "/home.json"
             return JSONResponse(await _gather(viewer))
+
+        if route.startswith(artwork_mod.PREFIX):
+            ref = artwork_mod.ref_from_route(route)
+            result = None
+            if ref is not None and settings.home_sections and adapter_list:
+                result = await run_in_threadpool(artwork_mod.fetch, viewer.principal, adapter_list, ref)
+            if result is None:           # unknown service, bad ref, no group, not visible, upstream
+                scope["avrana_route"] = "not_found"          # trouble: one and the same 404
+                return respond(not_found())
+            scope["avrana_route"] = "/art/{ref}"
+            return Response(result.data, media_type=result.content_type,
+                            headers={"Cache-Control": artwork_mod.CACHE_CONTROL})
 
         p = viewer.principal
         facts = AccountFacts(name=(p.name or "").strip(), username=p.username,

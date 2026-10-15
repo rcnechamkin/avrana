@@ -51,7 +51,7 @@ Good habits that Avrana's own design supports:
   account on the Account page, which opens the account settings where Avrana documents signing out of
   Avrana itself. [UNVERIFIED U-19: what the Sign out link on the Account page actually ends]
 - Use the app that Help recommends for your device.
-<!-- src: docs/services/sso-architecture.md:142-150; services/avrana-portal/portal.py:378-379, :644-647 -->
+<!-- src: docs/services/sso-architecture.md:142-150; services/avrana-portal/portal.py:398-399, :744-747 -->
 
 <!-- if: avrana-videos -->
 ### Movies and TV
@@ -81,7 +81,7 @@ the answer, and the entry says what will be checked.
   record of sign-in events.
   <!-- src: docs/services/authentik.md:37, :27, :45-64; docs/services/authentik-sessions-passkeys.md:21-33, :60, :75-83 -->
 - **Who can see it:** the owner. You can see your own details, devices and sessions on the Account page.
-  <!-- src: services/avrana-portal/portal.py:630-647; docs/services/authentik-sessions-passkeys.md:120-124 -->
+  <!-- src: services/avrana-portal/portal.py:730-747; docs/services/authentik-sessions-passkeys.md:120-124 -->
 - **How long:** the account is kept until it is removed. A sign-in lasts 30 days, or 180 days if you
   choose to stay signed in. [UNVERIFIED U-12: what the sign-in event record contains and how long it is kept]
   <!-- src: docs/services/authentik-sessions-passkeys.md:21-33 -->
@@ -91,7 +91,7 @@ the answer, and the entry says what will be checked.
 
 The home page reads which groups you belong to in order to show your tiles. It stores nothing about you
 and writes no per-visit log.
-<!-- src: services/avrana-portal/portal.py:1-8, :848-849 -->
+<!-- src: services/avrana-portal/portal.py:1-8, :979-980 -->
 
 ### Backups
 
@@ -113,7 +113,7 @@ and writes no per-visit log.
 
 Logs are kept, limited in size and overwritten as they fill. The home page
 writes no request log. [UNVERIFIED U-14: what the logs contain about members, and how long entries last]
-<!-- src: services/avrana-portal/portal.py:848-849; services/avrana-portal/docker-compose.yml:32; services/authentik/docker-compose.yml:35; services/avrana-kindle-connector/docker-compose.yml:60 -->
+<!-- src: services/avrana-portal/portal.py:979-980; services/avrana-portal/docker-compose.yml:32; services/authentik/docker-compose.yml:35; services/avrana-kindle-connector/docker-compose.yml:60 -->
 
 <!-- if: avrana-videos -->
 ### Movies and TV: viewing

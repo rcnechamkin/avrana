@@ -84,7 +84,7 @@ behaviour, applied to the stricter parser.
 | I-5 | Non-ASCII username (UTF-8, latin-1 or mojibake) | Latin-1 decoded and shown | No principal (adapter layer: `principal_from_raw_headers` refuses any non-ASCII username) | **Keep (owner decision).** Non-ASCII usernames get no principal, so a mojibake name can never map to another account. A non-ASCII display name is shown only if it is valid UTF-8. Tested over a real socket. |
 | I-6 | Display name or e-mail that is duplicated, over 254 characters or contains control characters | Shown, whitespace-stripped | Omitted from `/account` | **Keep.** Display-only values never decide anything. |
 | I-7 | Method other than GET and HEAD | 501 from `http.server`, before routing, body echoes the method | 501 from the middleware, before routing and identity, fixed body that does **not** echo the method | **Chosen: 501, not 405.** 501 is what members' clients see today; FastAPI's native 405 would differ per path and add an `Allow` header. Identical for every identity and path; same hygiene headers. |
-| I-8 | Every response | Cache-Control, Referrer-Policy, X-Content-Type-Options (`nosniff`, asserted on every response) | Those three **plus** `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'` (no script source) | **Keep.** Inline `<style>` is how the portal is built today; dropping it needs a stylesheet route and the design team's agreement. |
+| I-8 | Every response | Cache-Control, Referrer-Policy, X-Content-Type-Options (`nosniff`, asserted on every response) | Those three **plus** `Content-Security-Policy: default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'` (no script source) | **Keep.** Inline `<style>` is how the portal is built today; dropping it needs a stylesheet route and the design team's agreement. |
 | I-9 | Protocol-level problems (malformed request line, unknown HTTP version, oversized headers) | Python `http.server` replies (400/505) with the three headers | uvicorn/h11 replies **before the application runs**: 400/431 with no application headers; `HTTP/9.9` is accepted | **Accept.** These replies carry no application data. Documented, tested to contain no page. |
 | I-10 | Connection reuse | HTTP/1.0, one request per connection (pinned by the portal tests so a connection never carries two identities) | uvicorn keeps connections alive | **Accept.** Identity is read per request and no state is per connection; pipelined and reused connections are tested with different identities. |
 | I-11 | `/readyz`, `/home.json`, `/_dev/*` | 404 | `/readyz`: loopback peer only, else 404. `/home.json`: only with `HOME_SECTIONS` on and a valid principal, else 404. `/_dev/*`: 404 (the shim is not part of the app) | **Keep.** Unchanged for anyone who is not an operator on the host or a member with the flag on. |
@@ -213,8 +213,7 @@ One example per state (synthetic, produced by the tests' mock):
 {"sections": []}      <- not_permitted: the section is omitted, so a member without the group gets this
 ```
 
-`artwork.ref` is opaque and **there is no artwork route yet**: images are omitted from the HTML, and
-serving them (member-scoped, through `fetch_artwork`) is a later change.
+`artwork.ref` is opaque. `GET /art/<ref>` (for example `/art/komga/book/<id>`) serves it, member-scoped: `app/artwork.py` is the one module that calls `fetch_artwork`, with the verified principal and a ref of the exact shape `service/word/id` (`[A-Za-z0-9_-]` only). Unknown service, bad ref, missing group, an item the member may not see, an upstream failure and a refused content type are all the same standard 404. Responses carry `Cache-Control: private, no-store`, `nosniff`, and only `image/jpeg|png|webp` of at most 5 MiB (never SVG or HTML). Section items render `<img src="/art/..." alt=<title> width="80" height="120" loading="lazy">` only when a valid ref exists.
 
 ## 6. Logging
 
@@ -247,6 +246,7 @@ variables (never the values).
 | `AUDIOBOOKSHELF_BASE_URL` | unset (adapter not built) | Optional. Same URL rules as Jellyfin. Mock mode: loopback only. Real mode: needs the token too, and the same gates. |
 | `AUDIOBOOKSHELF_TOKEN` / `AUDIOBOOKSHELF_TOKEN_FILE` | none | Real mode only, with the URL, exactly one of the two; a token in mock mode is an error. Never in a repr, log line or error message. |
 | `KOMGA_BASE_URL` / `KOMGA_TOKEN` (`_FILE`) | unset (adapter not built) | Optional, **mock mode only**: loopback URL, the token is fixed and fake. In real mode setting either is a startup error until the owner decides the key scope and member mapping (ADAPTER-CONTRACT 12.2). |
+| `CALIBRE_WEB_BASE_URL` / `CALIBRE_WEB_CREDENTIAL` (`_FILE`) / `CALIBRE_WEB_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS` | unset / unset / `off` | Optional. Mock mode: loopback URL, fixed fake credential. Real mode is refused unless the owner setting is `yes` (default off; Calibre-Web is a shared view, ADAPTER-CONTRACT 13.2), and then also needs `HOME_GATES_VERIFIED=yes`, the URL and a `user:password` credential together. The constructor's `owner_confirms_no_member_restrictions` is `True` only in mock mode or from that setting. |
 | `HOME_TIMEOUT` | `2.0` | Per-call seconds, 0.1 to 10. |
 | `HOME_SECTION_LIMIT` | `12` | Items per section, 1 to 50. |
 | `HOME_HEALTH_DETAIL` | `loopback` | `loopback` or `off`. |
@@ -262,6 +262,8 @@ setting.
 Audiobookshelf (AVR-381): the adapter is registered next to Jellyfin only when `AUDIOBOOKSHELF_BASE_URL` is set; it adds one *Continue listening* section (the adapter offers no recent list, so that section is `empty` and renders nothing). Dev: `run_dev.py --abs-mock-port 18097` starts `dev/mock_audiobookshelf.py`, which serves the adapter's own synthetic fixtures (`tests/fake_abs.py`, loaded by path, read-only). `member-a` and `member-b` carry the audiobooks group in the dev identities.
 
 Komga (AVR-382): registered the same way, from `KOMGA_BASE_URL`; it adds one *Recently added to Comics* section (Komga read progress belongs to the key's user, so no Continue). Dev: `run_dev.py --komga-mock-port 18098` runs `dev/mock_komga.py` over `tests/fake_komga.py`. Members link only when the Authentik username equals the Komga login exactly, so the dev identities `member-a@synthetic.invalid` and `member-b@synthetic.invalid` exist for it. `dev/` is never imported by the package (`webtests/test_dev_isolation.py`).
+
+Calibre-Web (AVR-380): registered the same way from `CALIBRE_WEB_BASE_URL`; one *Recently added to Books* section, the same for every member who holds the books group (shared view, no member mapping, no Continue). Dev: `run_dev.py --calibre-mock-port 18099` runs `dev/mock_calibre_web.py` over `tests/fake_calibre_web.py`. Covers go through `/art/calibre-web/cover/<id>` under the same 404 rules.
 
 ## 8. Development stack and the identity shim
 
@@ -372,7 +374,7 @@ then reload as a member whose cache is cold (the cache keeps a warm member's pag
 | S-1 | The portal's `STYLE` is copied into `templates/style.css` and the CSP allows inline styles | Keep until design phase 2 (one shared stylesheet) |
 | C-1 | At cut-over, move the tables into the app and retire the by-path load | After the a11y branch merges |
 | P-1 | Plain `uvicorn==0.34.0` (no `[standard]`: no uvloop, httptools, websockets, watchfiles) run with `--http h11`; `requirements.lock` pins everything with hashes for Linux x86_64 cp312 | Keep; one HTTP implementation under test. The lock is UNTESTED on Linux |
-| L-1 | Serving artwork needs a member-scoped route | Separate slice (M3.3) |
+| L-1 | Serving artwork needs a member-scoped route | Done: `/art/<ref>` (AVR-382) |
 
 ## 13. Known gaps
 

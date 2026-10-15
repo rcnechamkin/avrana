@@ -30,7 +30,7 @@ TRACES = ("Comic", "Manga", "Kids One", "Mature", "Teen", "Recently added to Com
 
 
 class Fixture(unittest.TestCase):
-    timeout = 0.6
+    timeout = 1.5
 
     @classmethod
     def setUpClass(cls):

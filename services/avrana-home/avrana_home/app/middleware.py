@@ -23,7 +23,7 @@ from typing import Callable
 
 from .logsafe import access_log, app_log, log_event
 
-CSP = (b"default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; "
+CSP = (b"default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; "
        b"frame-ancestors 'none'")
 HYGIENE = (
     (b"cache-control", b"no-store"),
@@ -38,8 +38,17 @@ NOT_IMPLEMENTED_BODY = (b"<!DOCTYPE HTML>\n<html lang=\"en\">\n<head>\n<meta cha
                         b"<p>Error code: 501</p>\n<p>Message: Unsupported method.</p>\n</body>\n</html>\n")
 
 
+# The artwork route sets "private, no-store" itself; that is the only value allowed to replace the default.
+_PRIVATE_NO_STORE = (b"cache-control", b"private, no-store")
+
+
 def with_hygiene(headers) -> list:
-    return [(k, v) for k, v in headers if k.lower() not in _HYGIENE_NAMES] + list(HYGIENE)
+    headers = list(headers)
+    cache = HYGIENE[0]
+    if any((bytes(k).lower(), bytes(v).lower()) == _PRIVATE_NO_STORE for k, v in headers):
+        cache = _PRIVATE_NO_STORE
+    return ([(k, v) for k, v in headers if bytes(k).lower() not in _HYGIENE_NAMES]
+            + [cache] + list(HYGIENE[1:]))
 
 
 class HygieneMiddleware:
