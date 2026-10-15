@@ -239,3 +239,108 @@ def cover(shape: str, slug: str) -> str | None:
             f'<g fill="#fff" text-anchor="middle" font-family="\'Times New Roman\',Times,\'Liberation Serif\',serif" '
             f'letter-spacing="1">{text}'
             f'<text x="{w / 2}" y="{h - 26}" font-size="13" fill-opacity=".7">{html.escape(line)}</text></g></svg>')
+
+
+# ---- Search and title pages (AVR-426) ------------------------------------------------------------
+# Which library each title lives in, and what the title page says about it. The descriptions are
+# one plain sentence each, written for the preview; a title the library describes no further has none.
+ABOUT = {
+    "nosferatu": "A clerk travels to a castle in the mountains and brings something back with him.",
+    "metropolis": "A city of workers below and owners above, and the machine between them.",
+    "the-general": "A train driver chases his stolen engine across the lines.",
+    "moby-dick": "A sailor joins a whaling ship whose captain hunts one white whale.",
+    "dracula": "Letters and diaries tell of a count who moves from Transylvania to England.",
+    "walden": "Two years in a cabin by a pond, and what living simply taught.",
+    "little-nemo": "A boy dreams his way into Slumberland, one Sunday page at a time.",
+}
+# The word a member reads on the one action of a title page, by library (never a claim that it plays).
+ACTION = {"video": "Watch in Movies and TV", "audio": "Listen in Audiobooks", "books": "Read in Books",
+          "comics": "Read in Comics"}
+RESUME = {"video": "Resume in Movies and TV", "audio": "Resume in Audiobooks"}
+KIND = {"video": "Film", "audio": "Audiobook", "books": "Book", "comics": "Comic"}
+QUERY_MOST = 100        # characters of a search kept; the rest is ignored, never echoed
+
+
+def _catalogue() -> dict[str, dict]:
+    """Every fixture title once: its library, artwork shape, lines and, if it has one, progress."""
+    out = {}
+    for shelf in RECENT:
+        for slug, title, line in shelf["items"]:
+            out[slug] = {"slug": slug, "title": title, "line": line, "lib": shelf["key"], "shape": shelf["shape"]}
+    for key, shape, items in (("video", "poster", CONTINUE_WATCHING), ("audio", "square", CONTINUE_LISTENING)):
+        for i in items:
+            out.setdefault(i["slug"], {"slug": i["slug"], "title": i["title"], "line": i["line"], "lib": key, "shape": shape})
+            out[i["slug"]].update(left=i["left"], done=i["done"])
+    return out
+
+
+CATALOGUE = _catalogue()
+
+
+def _listed(keys) -> str:
+    names = [_lower(LIBRARY_NAMES[key]) for key in keys]  # every library name is plural
+    text = names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
+    return text[0].upper() + text[1:]
+
+
+def _fold(text: str) -> str:
+    return " ".join("".join(c for c in text.casefold() if c.isalnum() or c.isspace()).split())
+
+
+def search_page(state: str, query: str = "", who: str = "member") -> dict:
+    """Search across the libraries this member can use, and only those. A library the member cannot
+    use is never searched, so "no match" reads the same whether a title is there or nowhere. A library
+    that is down or slow is said once, by name, beside what the others found."""
+    status, notice, *_ = _state(state, VIEWERS[who]["held"])
+    query = " ".join(query.split())[:QUERY_MOST]
+    mine = [key for key, v in status.items() if v != "absent"]
+    base = {**viewer(who), "no_library": not mine, "status": status, "notice": notice,
+            "nav": _nav(status) if VIEWERS[who]["name"] else [("Help", None, True)],
+            "query": query, "groups": [], "said": [], "wait": False, "none_found": False, "all_gone": False}
+    if not mine:
+        return base
+    gone = [key for key in mine if status[key] == "gone"]
+    slow = [key for key in mine if status[key] == "slow"]
+    if len(gone) == len(mine):
+        return dict(base, all_gone=True, said=[f"{_listed(mine)} are unavailable right now, so nothing can be searched. "
+                                               "Try again later, or read Help."])
+    said = []
+    if gone:
+        said.append(f"{_listed(gone)} could not be searched: unavailable right now.")
+    if slow:
+        said.append(f"{_listed(slow)} are taking longer than usual, so nothing from them is shown yet.")
+    if not query:
+        return dict(base, said=said, wait=bool(slow))
+    words = _fold(query).split()
+    groups = []
+    for key in ("video", "audio", "books", "comics"):
+        if status[key] != "ok":
+            continue
+        hits = [dict(t, where=LIBRARY_NAMES[key]) for t in CATALOGUE.values()
+                if t["lib"] == key and words and all(w in _fold(t["title"] + " " + t["line"]) for w in words)]
+        if hits:
+            groups.append({"key": key, "name": LIBRARY_NAMES[key], "items": sorted(hits, key=lambda t: t["title"])})
+    return dict(base, groups=groups, said=said, wait=bool(slow), none_found=not groups)
+
+
+def title_page(state: str, slug: str, who: str = "member") -> dict | None:
+    """One title. None (a 404) when the title does not exist for this member: unknown, or in a library
+    the member cannot use. When its library is down or slow the page says so and offers no action."""
+    t = CATALOGUE.get(slug)
+    held = VIEWERS[who]["held"]
+    if t is None or t["lib"] not in held:
+        return None
+    status, notice, *_ = _state(state, held)
+    lib = t["lib"]
+    base = {**viewer(who), "no_library": False, "status": status, "notice": notice, "nav": _nav(status),
+            "lib_name": LIBRARY_NAMES[lib], "item": None, "said": "", "wait": False}
+    if status[lib] == "gone":
+        return dict(base, said=f"{GONE[lib]} This title will be here when they are back.")
+    if status[lib] == "slow":
+        return dict(base, said=SLOW[lib], wait=True)
+    resume = "done" in t and state != "empty"
+    item = dict(t, kind=KIND[lib], about=ABOUT.get(slug, ""),
+                action=RESUME[lib] if resume else ACTION[lib],
+                progress=(t["left"] if resume else ""), done=(t["done"] if resume else None),
+                verb="watched" if lib == "video" else "heard")
+    return dict(base, item=item)

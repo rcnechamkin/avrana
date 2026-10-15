@@ -51,7 +51,7 @@
     {% if new_said %}<p class="said"{% if new_wait %} role="status"{% endif %}>{{ new_said }}{% if new_wait %} <a class="link" href="/?{{ q }}&amp;new={{ new_tab }}#h-new">Try again</a>{% endif %}</p>{% endif %}
     {% if new_items %}
     <ul class="rail tall">
-      {% for item in new_items %}{{ frame.card(item, state) }}{% endfor %}
+      {% for item in new_items %}{{ frame.card(item, state, '/title/' ~ item.slug ~ '?' ~ q) }}{% endfor %}
     </ul>
     <p class="more"><a class="link" href="/new?{{ q }}{% if new_tab != 'all' %}&amp;lib={{ new_tab }}{% endif %}">{{ new_more }}</a></p>
     {% endif %}

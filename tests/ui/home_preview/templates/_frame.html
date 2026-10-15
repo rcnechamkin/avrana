@@ -10,6 +10,8 @@
     {% endfor %}
     <li class="gap"><a href="{{ here }}?state={{ state }}{% if who != 'member' %}&amp;who={{ who }}{% endif %}{% if art != 'mono' %}&amp;art=mono{% endif %}">Artwork: {{ 'grey' if art == 'mono' else 'colour' }}</a></li>
     <li><a href="/before">Today&rsquo;s home</a></li>
+    <li class="gap"><a href="/search?state={{ state }}{% if who != 'member' %}&amp;who={{ who }}{% endif %}&amp;q=the">Search</a></li>
+    <li><a href="/title/nosferatu?state={{ state }}{% if who != 'member' %}&amp;who={{ who }}{% endif %}">Title page</a></li>
   </ul>
   <ul aria-label="Viewer">
     {% for key, v in viewers.items() %}
@@ -62,8 +64,10 @@
 </nav>
 {% endmacro %}
 
-{% macro card(item, state) %}
-<li class="w-{{ item.shape }}"><a class="card" href="/stop?to={{ item.title | urlencode }}">
+{# A card. A Continue card hands off to the library at the place the member stopped; a New card opens
+   the title page (href). One outcome per card, said by its words, never by an icon. #}
+{% macro card(item, state, href=None) %}
+<li class="w-{{ item.shape }}"><a class="card" href="{{ href or '/stop?to=' ~ (item.title | urlencode) }}">
   <img class="art" src="/art/{{ item.shape }}/{{ item.slug }}.svg" alt="" loading="lazy">
   {% if item.done is defined %}<progress max="100" value="{{ item.done }}" aria-label="{{ item.done }} percent {{ item.verb }}"></progress>{% endif %}
   <span class="t">{{ item.title }}</span>

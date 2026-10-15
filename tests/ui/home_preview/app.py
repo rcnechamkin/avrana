@@ -32,11 +32,12 @@ templates = Jinja2Templates(directory=HERE / "templates")
 @app.middleware("http")
 async def headers(request: Request, call_next):
     response = await call_next(request)
-    # No script source at all: the page has to work as plain HTML and CSS.
+    # No script source at all: the page has to work as plain HTML and CSS. The search field is a plain
+    # GET form to this same origin, so form-action allows 'self' and nothing else.
     # (/before is the portal as it is in Git, and the portal writes its stylesheet into the page.)
     response.headers["Content-Security-Policy"] = (
         "default-src 'none'; style-src 'unsafe-inline'" if request.url.path == "/before" else
-        "default-src 'none'; img-src 'self'; style-src 'self'; base-uri 'none'; form-action 'none'")
+        "default-src 'none'; img-src 'self'; style-src 'self'; base-uri 'none'; form-action 'self'")
     response.headers["X-Robots-Tag"] = "noindex, nofollow"
     response.headers["Cache-Control"] = "no-store"
     return response
@@ -62,6 +63,23 @@ def new(request: Request, state: str = "healthy", art: str = "colour", lib: str 
     """Everything new, one library at a time: browsing has a page of its own, off the home page."""
     common = _common(state, art, who)
     return templates.TemplateResponse(request, "new.html", {**common, **fixtures.new_page(state, lib, who)})
+
+
+@app.get("/search", response_class=HTMLResponse)
+def search(request: Request, state: str = "healthy", art: str = "colour", q: str = "", who: str = "member"):
+    """Search the libraries this member can use (AVR-426): a GET form, results grouped by library."""
+    common = _common(state, art, who)
+    return templates.TemplateResponse(request, "search.html", {**common, **fixtures.search_page(state, q, who)})
+
+
+@app.get("/title/{slug}", response_class=HTMLResponse)
+def title(request: Request, slug: str, state: str = "healthy", art: str = "colour", who: str = "member"):
+    """One title (AVR-426). Not found, the same as an unknown title, when its library is not this member's."""
+    common = _common(state, art, who)
+    found = fixtures.title_page(state, slug, who)
+    if found is None:
+        raise HTTPException(404)
+    return templates.TemplateResponse(request, "title.html", {**common, **found})
 
 
 @app.get("/art/{shape}/{slug}.svg")

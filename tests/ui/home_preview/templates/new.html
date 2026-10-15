@@ -37,7 +37,7 @@
     {% if said %}<p class="said"{% if wait %} role="status"{% endif %}>{{ said }}{% if wait %} <a class="link" href="/new?{{ q }}&amp;lib={{ lib }}">Try again</a>{% endif %}</p>{% endif %}
     {% if items %}
     <ul class="wall">
-      {% for item in items %}{{ frame.card(item, state) }}{% endfor %}
+      {% for item in items %}{{ frame.card(item, state, '/title/' ~ item.slug ~ '?' ~ q) }}{% endfor %}
     </ul>
     <p class="more"><a class="link" href="/stop?to={{ all | urlencode }}">{{ all }}</a></p>
     {% endif %}
