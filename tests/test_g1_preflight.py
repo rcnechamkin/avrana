@@ -327,6 +327,34 @@ class PreflightTests(unittest.TestCase):
                 self.assertEqual(rc, 1)
                 self.assertEqual(len([l for l in self.lines(out, level) if " E1 " in l]), 6, out)
 
+    def test_missing_tool_is_named_and_nothing_is_checked(self):
+        """awk or sha256sum missing must say so (VOID, tool named), not surface later as an invalid sum."""
+        for tool in ("awk", "sha256sum"):
+            with self.subTest(tool=tool):
+                # PATH = only our stub directory plus a directory of links to every needed tool except one.
+                tools = self.root / f"tools-without-{tool}"
+                tools.mkdir()
+                for name in ("bash", "sh", "awk", "sha256sum", "grep", "sed", "sort", "cut", "printf", "hostname",
+                             "date", "tr", "cat"):
+                    found = shutil.which(name)
+                    if name != tool and found:
+                        self.stub_in(tools, name, f'exec "{Path(found).as_posix()}" "$@"\n')
+                # Git Bash's launcher re-adds /usr/bin to PATH, so the restricted PATH is set from BASH_ENV,
+                # which bash reads after startup and before the script.
+                env_file = self.root / f"env-without-{tool}.sh"
+                env_file.write_text(f'PATH="{self.bin.as_posix()}:{tools.as_posix()}"\n', encoding="utf-8",
+                                    newline="\n")
+                rc, out = self.run_preflight(env={"BASH_ENV": env_file.as_posix()})
+                self.assertEqual(rc, 1, out)
+                self.assertIn(f"VOID  tool missing: {tool}", out)
+                self.assertIn("nothing checked", out)
+                self.assertNotIn("PASS", out)
+
+    def stub_in(self, directory, name, body):
+        path = directory / name
+        path.write_text("#!/bin/sh\n" + body, encoding="utf-8", newline="\n")
+        path.chmod(0o755)
+
     def test_bad_arguments_exit_2(self):
         for args in (("--rollback",), ("--apply",)):
             rc, _ = self.run_preflight(args=args)

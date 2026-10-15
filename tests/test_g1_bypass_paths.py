@@ -58,7 +58,20 @@ def compose_files():
 
 
 def load_compose(path):
-    return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    """safe_load keeps the last of two duplicate keys, so a second `network_mode:` above a harmless one
+    would be invisible to these tests. Docker Compose refuses duplicates; so does this loader."""
+    class Loader(yaml.SafeLoader):
+        pass
+
+    def no_duplicates(loader, node, deep=False):
+        keys = [loader.construct_object(k, deep=deep) for k, _ in node.value]
+        dupes = sorted({str(k) for k in keys if keys.count(k) > 1})
+        if dupes:
+            raise ValueError(f"{path.name}: duplicate key(s) {dupes}")
+        return loader.construct_mapping(node, deep=deep)
+
+    Loader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, no_duplicates)
+    return yaml.load(path.read_text(encoding="utf-8"), Loader=Loader) or {}
 
 
 def headers_from(pairs):
@@ -94,6 +107,17 @@ class NamespaceSharingTests(unittest.TestCase):
                 if mode.startswith(("container:", "service:")):
                     offenders.append(f"{path.relative_to(ROOT)}:{name} network_mode={mode}")
         self.assertEqual(offenders, [], "namespace sharing is invisible to check-network-isolation.py")
+
+    def test_a_duplicate_key_cannot_hide_a_namespace_borrow(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp, "docker-compose.yml")
+            path.write_text("services:\n  x:\n    network_mode: \"container:authentik-server\"\n"
+                            "    network_mode: none\n", encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "duplicate key"):
+                load_compose(path)
+        for path in compose_files():
+            with self.subTest(file=str(path.relative_to(ROOT))):
+                load_compose(path)  # the real files have no duplicate keys
 
     def test_no_compose_service_shares_a_protected_pid_or_ipc_namespace(self):
         targets = {f"container:{c}" for c in PROTECTED} | {"service:server"}

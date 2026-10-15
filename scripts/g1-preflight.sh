@@ -43,7 +43,7 @@ BACKENDS="avrana-portal avrana-kindle-connector olivetin"
 PRIVATE="authentik_portal authentik_kindle authentik_olivetin"
 
 # --- 0. tools --------------------------------------------------------------------------------------
-for tool in docker "$py"; do
+for tool in docker "$py" awk sha256sum grep sed sort cut; do
   command -v "$tool" >/dev/null 2>&1 || say VOID "tool missing: $tool"
 done
 if [ "$voids" -gt 0 ]; then
