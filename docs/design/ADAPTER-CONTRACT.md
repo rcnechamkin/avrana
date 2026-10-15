@@ -740,4 +740,93 @@ separate reviewed change.
 - The member's restrictions are re-read per section (one extra call to the user list, which returns every
   account; only the member's record is read and nothing else is retained).
 - Komga's real combination of allow rules is not verified; the adapter shows less, never more, by design.
+
+## 13. Calibre-Web adapter (AVR-380)
+
+Status: **proposed, not deployed.** `services/avrana-home/avrana_home/adapters/calibre_web.py`, standard library
+only, proven only against a fixture that is **hand-written, unverified against the deployed version**. The fixture
+under `tests/fixtures/calibre_web/` carries `_synthetic`, `_target_version` and `_provenance`; the last separates the
+shapes recalled from Calibre-Web's public OPDS behaviour (not re-checked) from the SYNTHETIC assumptions, and says
+that live compatibility is **UNPROVEN**. A test enforces all three.
+
+### 13.1 What it offers
+
+One section, "Recently added" (`recent_items`): ebooks as `Kind.EBOOK` from the OPDS "new" feed, hand-off
+`https://books.avrana.net/book/<id>` from the contract builder, cover by opaque ref `calibre-web/cover/<id>`.
+`continue_items` and `item` return `EMPTY` (reason `not_offered`) with no upstream call: per-member read state needs
+the member's own password, and OPDS has no single-entry route (UNVERIFIED). `search` stays as the contract defines
+it (not implemented). Titles are text, never HTML; no download link is exposed; no reader (AVR-380: no custom reader).
+
+### 13.2 This is a SHARED VIEW (owner invariant)
+
+Enforced in code: `CalibreWebAdapter(..., owner_confirms_no_member_restrictions=True)` is required, and any other
+value raises `ValueError`, so the adapter cannot be constructed without the owner's deliberate opt-in. This was
+added after the review of #39.
+
+Calibre-Web's public interface is OPDS over HTTP Basic. The home holds one dedicated local viewer account (no
+upload, edit, download-of-others or admin rights) and never a member's password; **no per-member credential is
+needed, so there is no key-scope decision to stop on.** The consequences are explicit:
+
+- **No member mapping.** `resolve_user` returns the fixed non-member `shared` viewer for every member who holds
+  `avrana-books`; it never names a Calibre-Web account. The exact-username rule of section 3 cannot be applied
+  because OPDS cannot list users. Authorization is the Authentik group, checked before any upstream call and
+  before any cache read.
+- **No per-member visibility is enforceable.** Calibre-Web supports per-user tag and custom-column restrictions,
+  but the home cannot read the user table (public interfaces only), so it cannot reproduce them. Every member sees
+  what the viewer account sees. **Invariant for the owner:** no member has a Calibre-Web restriction, and the
+  viewer account is created with the visibility of an ordinary member. If that is not true, the adapter must not
+  be enabled; the alternative is a per-member credential (not available: replicated passwords are not stored).
+- **Artwork authorization** is therefore the group gate plus the viewer account's own rights: a cover the viewer
+  cannot read is a 404 (`EMPTY`, never counted); results are cached per member only.
+- **Per-account state never reaches a member.** The route table has two entries, `/opds/new` and
+  `/opds/thumb_cover/<id>`; shelves, read books, hot, discover, downloads, search and everything under `/admin`
+  are refused by the guard (tested). Public shelves, if any, are a visibility decision for the owner.
+- **Open owner decision (shared with sections 11.2 and 12.2):** whether a shared-view adapter's results may be
+  cached once for all members. Not done: results stay keyed per member, which is safe and wasteful.
+
+### 13.3 Untrusted XML and links
+
+OPDS is Atom/XML from an upstream. The transport caps the body (1 MiB); a document containing a DOCTYPE, ENTITY,
+ELEMENT or ATTLIST declaration is refused **before** parsing (no entity expansion, no external subset);
+any parser failure, nesting that exhausts the parser, a wrong root (for example an HTML login page) is
+`UpstreamMalformed`; more than 100 entries is `UpstreamMisbehaved`. Links in the feed are never used as URLs: the
+numeric book id (1 to 9 digits) is taken only from a **relative absolute-path** link of a known shape (cover,
+thumbnail or acquisition); absolute URLs, protocol-relative links and other schemes are ignored; an entry whose
+links name no id or disagree is left out, and if every entry is unusable the section is `UNAVAILABLE`, never
+"nothing new".
+
+### 13.4 Credential
+
+The credential lives only inside the transport (an `Authorization` header), never in a URL, a result, a repr, a
+health report, a log line or a cache row (tested with a sentinel). The browser never sees it: covers are fetched
+server-side and served by the home.
+
+### 13.5 Unverified upstream assumptions (every one)
+
+1. A dedicated local viewer account authenticates for OPDS with HTTP Basic in the deployed (LDAP) configuration
+   (the repository records a local-password fallback in the patched image; OPDS coverage is unverified).
+2. `GET /opds/new` returns an Atom feed, newest first, with no query, listing a few dozen entries at most.
+3. Each entry has `title`, `author/name` and relative links: image `/opds/cover/<id>`, thumbnail
+   `/opds/thumb_cover/<id>`, acquisition `/opds/download/<id>/<format>/`; the numeric id appears only there.
+4. `GET /opds/thumb_cover/<id>` returns PNG, JPEG or WebP, and 404 for an id the viewer cannot see.
+5. The hand-off path `/book/<id>` exists on `books.avrana.net`; the id pattern `[0-9]{1,9}` in `contract.py` is a
+   placeholder.
+6. The viewer account sees the same catalogue as any member (the 13.2 invariant).
+7. A 401/403 means the credential is refused; a 404 on `/opds/new` means the route is gone (drift, counted).
+
+### 13.6 Recorded read-only contract check (owner-approved, NOT run by this work)
+
+As for section 11.7, with a dedicated viewer account and redaction: GET `/opds/new` once, one thumbnail, and one
+thumbnail for an id the viewer cannot see; compare every assumption above, in particular the link shapes, that
+the feed is not paged unexpectedly, and whether any member has a tag or column restriction (counts only). Do not
+request shelves, read books, downloads, search or any admin or user route. Record the Calibre-Web version and
+update the fixture and adapter in a separate reviewed change.
+
+### 13.7 Residual risks
+
+- A restricted member would see more than Calibre-Web shows them (13.2). This is the main risk.
+- Calibre-Web's LDAP `cached` mode can keep OPDS access for a removed member for a while; the home's own group
+  check is stricter, and the viewer account is unaffected.
+- The standard-library XML parser is protected here by refusing declarations and capping size, not by a hardened
+  parser; deep nesting is caught as a parser failure.
 - No per-member rate limit yet (as for the other adapters).
