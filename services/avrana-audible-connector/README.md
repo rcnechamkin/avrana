@@ -176,6 +176,44 @@ purchased-vs-Plus, selection, ASIN dedup, refresh-safe jobs, progress/polling, f
 one-time revocation, scheduled ask/auto scans, disconnect/reconnect, path-traversal, and the
 companion-privacy deployment invariants.
 
+`connector/tests/test_a11y.py` (S1-4 / AVR-359) renders every page state from the fake companion and checks
+the manual refresh control, headings, labels, `role="alert"` and `role="status"`, contrast, focus ring,
+44px targets, `color-scheme`, CSRF tokens and copy (no em or en dashes, no first person). It uses the
+stdlib helper `connector/tests/a11y_helpers.py` and the shared `style.css` is the only stylesheet. It is not
+run by the repository's `tests/run_offline.py` because it needs the packages above. From this directory,
+with a Python that has `connector/requirements.txt` plus `pytest` installed (`pyyaml` is needed only by
+`test_deploy_config.py`; the `companion` tests import `termios`, so they run on Linux or macOS only):
+
+```bash
+cd connector
+python -m pytest tests/test_a11y.py -q            # the accessibility and refresh checks
+python -m pytest tests -q                         # the whole connector suite
+```
+
+It is not a browser: layout, 200% text zoom and screen reader speech still need a manual pass.
+
+### Import progress page
+
+The page no longer reloads itself. It shows the current status in a `role="status"` line ("2 of 5 imported,
+1 failed, 2 still in progress.") and a plain **Refresh** link to the same page: a `GET`, no JavaScript, no
+form. In-place polling is deferred to Media 2.0 M3. After a one-time import has finished the page shows the
+result (as the page's single status region) and no Refresh link, because the next visit goes to the connect page.
+
+**The Refresh link is an idempotent `GET`, not a side-effect-free one.** Opening `/contribute/audible/progress`
+runs the same work the old meta refresh ran: it dispatches queued jobs, polls running ones and, in one-time
+mode, finalises the import, which can revoke the stored Audible authorization and write an audit row.
+Repeating it changes nothing further (the tests follow it twice and compare every connection, book and job row
+and the audit count), and it never starts a download twice, but it is not a pure read. This was already true of
+the page and is unchanged.
+
+**Known behaviour, owner decision (not changed here).**
+1. Refresh, and any other visit to the progress page, can disconnect the account: in one-time mode, once no
+   selected book remains unfinished the page revokes the authorization (`sync.finalize_once_mode`).
+2. Opening the progress page with nothing selected in one-time mode (the default mode) also disconnects the
+   account: books already in the library count as done, so the "all selected done" test passes with nothing
+   selected. The test fixtures choose "ask" mode first to avoid it. Options for the owner: leave it, require at
+   least one selected book, or make the finalise step a `POST`.
+
 ### Credential-free UI walkthrough (mock companion)
 ```bash
 bash scripts/gen-secrets.sh

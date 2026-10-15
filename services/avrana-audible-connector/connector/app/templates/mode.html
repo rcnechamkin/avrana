@@ -1,12 +1,12 @@
 {% extends "base.html" %}
 {% block content %}
-<h1>How should this connection work?</h1>
+<h1 id="mode-title">How should this connection work?</h1>
 <p class="lede">You have selected <strong>{{ selected }}</strong> book{{ '' if selected == 1 else 's' }}.
 Choose what happens next.</p>
 
 <form method="post" action="/contribute/audible/mode">
   <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-  <fieldset class="choices">
+  <fieldset class="choices" aria-labelledby="mode-title">
     <label class="choice">
       <input type="radio" name="mode" value="once" checked>
       <div><strong>Import these books once</strong>
