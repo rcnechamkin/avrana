@@ -30,6 +30,17 @@ RAW_USERS = [{"Id": SECRETS[6], "Name": SECRETS[1], "Policy": {"IsDisabled": Fal
               "LastLoginDate": "2026-10-01T20:00:00Z", "ServerId": "server-id-0001"}]
 
 
+def _leaves(value):
+    if isinstance(value, dict):
+        for v in value.values():
+            yield from _leaves(v)
+    elif isinstance(value, list):
+        for v in value:
+            yield from _leaves(v)
+    else:
+        yield value
+
+
 class SanitiserTests(unittest.TestCase):
     def test_output_conforms_and_carries_no_raw_value(self):
         for route, raw in (("resume", RAW_RESUME), ("users", RAW_USERS)):
@@ -51,6 +62,57 @@ class SanitiserTests(unittest.TestCase):
         item = rec["response"]["Items"][0]
         self.assertNotIn("Path", item)
         self.assertEqual(set(item["UserData"]), set(CONTRACT["entities"]["item.UserData"]))
+
+    def test_keys_that_could_be_data_are_counted_not_named(self):
+        raw = copy.deepcopy(RAW_RESUME)
+        raw["Items"][0]["ImageTags"]["Member Real Name"] = "x"
+        raw["Items"][0]["UserData"]["alice"] = 1
+        raw["Items"][0]["/mnt/media/Secret Show"] = 1
+        raw["Carol Secret Envelope"] = 1
+        rec = rs.build_recording("resume", raw, "10.11.11", CONTRACT)
+        text = json.dumps(rec)
+        for secret in ("Member Real Name", "alice", "/mnt/media/Secret Show", "Carol Secret Envelope"):
+            self.assertNotIn(secret, text)
+        self.assertIn("(other keys omitted)", rec["_undeclared_fields"]["item.ImageTags"])
+        self.assertIn("Thumb", rec["_undeclared_fields"]["item.ImageTags"])  # schema-shaped names still show
+
+    def test_a_schema_shaped_key_that_is_also_a_raw_value_is_refused(self):
+        raw = copy.deepcopy(RAW_USERS)
+        raw[0]["Name"] = "AdaLovelace"
+        raw[0]["Policy"]["AdaLovelace"] = True  # data used as a key, shaped like a field name
+        with self.assertRaises(rs.SanitiseError):
+            rs.build_recording("users", raw, "10.11.11", CONTRACT)
+
+    def test_recursion_while_sanitising_is_a_clean_refusal(self):
+        original = rs.build_recording
+        def deep(*a, **k):
+            raise RecursionError()
+        with tempfile.TemporaryDirectory() as tmp:
+            raw, out = Path(tmp, "raw.json"), Path(tmp, "out.json")
+            raw.write_text(json.dumps(RAW_USERS), encoding="utf-8")
+            try:
+                rs.build_recording = deep
+                self.assertEqual(rs.main(["--route", "users", "--server-version", "10.11.11", str(raw), str(out)]), 1)
+            finally:
+                rs.build_recording = original
+            self.assertFalse(out.exists())
+
+    def test_numbers_are_never_copied_through(self):
+        rec = rs.build_recording("resume", copy.deepcopy(RAW_RESUME), "10.11.11", CONTRACT)
+        numbers = [v for v in _leaves(rec["response"]) if isinstance(v, (int, float)) and not isinstance(v, bool)]
+        self.assertTrue(numbers)
+        for real in (13_000_000_000, 6_000_000_000, 46.2, 2021):
+            self.assertNotIn(real, numbers)
+
+    def test_deep_nesting_and_odd_versions_are_refused_cleanly(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            raw, out = Path(tmp, "raw.json"), Path(tmp, "out.json")
+            raw.write_text("[" * 100_000 + "]" * 100_000, encoding="utf-8")
+            self.assertIn(rs.main(["--route", "users", "--server-version", "10.11.11", str(raw), str(out)]), (1, 2))
+            self.assertFalse(out.exists())
+        for version in ("10.11.11 ", "1" * 100, "١٠.11", "10", "10..11"):
+            with self.subTest(version=version), self.assertRaises(rs.SanitiseError):
+                rs.build_recording("users", copy.deepcopy(RAW_USERS), version, CONTRACT)
 
     def test_lists_are_cut_and_count_follows(self):
         body = rs.build_recording("resume", copy.deepcopy(RAW_RESUME), "10.11.11", CONTRACT)["response"]

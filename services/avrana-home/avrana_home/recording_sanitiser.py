@@ -6,7 +6,8 @@ Capturing the raw response is a separate, owner-approved step (docs/runbooks/jel
 What a recording is for: proving that the real server's response SHAPE (envelope, which declared fields
 exist, their JSON types) matches contracts/jellyfin.json. Values are never needed for that, so none are kept:
   * only fields the contract declares are kept; the names (never the values) of the others are listed in
-    `_undeclared_fields` so contract drift stays visible;
+    `_undeclared_fields` so contract drift stays visible, but only names shaped like a schema field
+    (PascalCase ASCII); any other key could be data used as a key and is only counted;
   * every kept value is replaced by a synthetic value of the type it ACTUALLY had (not the declared type),
     so a type change on the server still fails the contract gate;
   * lists are cut to MAX_ENTRIES entries; `TotalRecordCount` is replaced by the kept count;
@@ -20,10 +21,14 @@ import datetime
 import json
 import os
 from pathlib import Path
+import re
 import sys
 
 VERSION = "avrana_home.recording_sanitiser 1"
 MAX_ENTRIES = 3
+# An undeclared key is reported by name only if it looks like a Jellyfin schema field (PascalCase,
+# ASCII, short). Anything else may be data used as a key (a name, a path) and is only counted.
+_FIELD_NAME = re.compile(r"[A-Z][A-Za-z0-9]{0,63}")
 HOME = Path(__file__).resolve().parents[1]
 CONTRACT_PATH = HOME / "contracts/jellyfin.json"
 
@@ -70,8 +75,9 @@ def sanitise(route, raw_body, contract):
         if not isinstance(raw_body, dict) or not isinstance(raw_body.get("Items"), list):
             raise SanitiseError(f"{route}: body has no Items list")
         entries = raw_body["Items"]
-        undeclared.setdefault("(envelope)", set()).update(
-            k for k in raw_body if k not in ("Items", "TotalRecordCount", "StartIndex"))
+        for k in raw_body:
+            if k not in ("Items", "TotalRecordCount", "StartIndex"):
+                _note(undeclared, "(envelope)", k)
     kept = []
     for raw in entries[:MAX_ENTRIES]:
         if not isinstance(raw, dict):
@@ -81,8 +87,9 @@ def sanitise(route, raw_body, contract):
         body = kept
     else:
         body = {"Items": kept, "TotalRecordCount": len(kept)}
-    _assert_no_raw_strings(raw_body, body)
-    return body, {k: sorted(v) for k, v in sorted(undeclared.items()) if v}
+    report = {k: sorted(v) for k, v in sorted(undeclared.items()) if v}
+    _assert_no_raw_strings(raw_body, body, report.values())
+    return body, report
 
 
 def _entity(name, raw, contract, synth, undeclared):
@@ -90,7 +97,7 @@ def _entity(name, raw, contract, synth, undeclared):
     out = {}
     for field, value in raw.items():
         if field not in declared:
-            undeclared.setdefault(name, set()).add(field)
+            _note(undeclared, name, field)
             continue
         nested = f"{name}.{field}"
         if nested in contract["entities"] and isinstance(value, dict):
@@ -98,6 +105,14 @@ def _entity(name, raw, contract, synth, undeclared):
         else:
             out[field] = synth.value(field, value)
     return out
+
+
+def _note(undeclared, where, key):
+    """Record an undeclared key: its name if it is shaped like a schema field, else only a count."""
+    if isinstance(key, str) and _FIELD_NAME.fullmatch(key):
+        undeclared.setdefault(where, set()).add(key)
+    else:
+        undeclared.setdefault(where, set()).add("(other keys omitted)")
 
 
 def _strings(value):
@@ -111,10 +126,10 @@ def _strings(value):
             yield from _strings(v)
 
 
-def _assert_no_raw_strings(raw_body, body):
+def _assert_no_raw_strings(raw_body, body, undeclared_names=()):
     # Output keys are contract field names, so only output VALUES are searched (a Type of "Series" must not
     # trip over the key "SeriesName").
-    values = list(_strings(body))
+    values = list(_strings(body)) + [n for names in undeclared_names for n in names]
     leaked = sum(1 for s in set(_strings(raw_body)) if len(s) >= 4 and any(s in v for v in values))
     if leaked:
         raise SanitiseError(f"refusing to write: {leaked} raw value(s) would appear in the output")
@@ -122,7 +137,7 @@ def _assert_no_raw_strings(raw_body, body):
 
 def build_recording(route, raw_body, server_version, contract, today=None):
     body, undeclared = sanitise(route, raw_body, contract)
-    if not isinstance(server_version, str) or not server_version.replace(".", "").isdigit():
+    if not isinstance(server_version, str) or not re.fullmatch(r"[0-9]{1,3}(\.[0-9]{1,3}){1,3}", server_version):
         raise SanitiseError("server version must look like 10.11.11")
     return {
         "_recorded": {"date": (today or datetime.date.today()).isoformat(), "server_version": server_version,
@@ -144,11 +159,14 @@ def main(argv=None):
     contract = json.loads(CONTRACT_PATH.read_text(encoding="utf-8"))
     try:
         raw = json.loads(a.raw.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+    except (OSError, ValueError, RecursionError):
         print("cannot read the raw file as JSON", file=sys.stderr)
         return 2
     try:
         recording = build_recording(a.route, raw, a.server_version, contract)
+    except RecursionError:
+        print("not written: the response is nested too deeply", file=sys.stderr)
+        return 1
     except SanitiseError as exc:
         print(f"not written: {exc}", file=sys.stderr)
         return 1

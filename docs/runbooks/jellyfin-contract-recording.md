@@ -22,21 +22,33 @@ With A, play part of one item as the test user first, so `/UserItems/Resume` ret
 
 1. Start the throwaway server at the pinned digest, bound to `127.0.0.1` only, with its own empty config
    directory. Create one admin and one test user and add a public-domain library.
-2. Put the test user's token in an environment variable in your own shell. Never put it in a file in the
-   repository, a command line that is logged, or a message to an agent.
-3. Capture the four routes the adapter uses, into a directory **outside** the repository, for example
-   `~/jf-capture/`:
+2. Keep the test user's token out of the repository, out of any command line (the process list shows
+   arguments), out of shell history and out of every message to an agent. Type it once into a header file
+   in a private directory outside the repository; curl reads the header from that file:
 
    ```sh
-   H="Authorization: MediaBrowser Token=\"$JF_TOKEN\""   # header only; token stays in the shell
-   B=http://127.0.0.1:8096
-   curl -sf -H "$H" "$B/Users"                                           > ~/jf-capture/users.raw.json
-   curl -sf -H "$H" "$B/UserItems/Resume?userId=$JF_USER&limit=3&enableUserData=true&enableImageTypes=Primary" > ~/jf-capture/resume.raw.json
-   curl -sf -H "$H" "$B/Items/Latest?userId=$JF_USER&limit=3&enableUserData=true&enableImageTypes=Primary"    > ~/jf-capture/latest.raw.json
-   curl -sf -H "$H" "$B/Items?userId=$JF_USER&ids=$JF_ITEM&enableUserData=true&enableImageTypes=Primary"      > ~/jf-capture/items.raw.json
+   mkdir -m 700 ~/jf-capture && cd ~/jf-capture
+   read -rs JF_TOKEN                                       # paste, then Enter; nothing is echoed
+   ( umask 077; printf 'Authorization: MediaBrowser Token="%s"\n' "$JF_TOKEN" > auth.header )
+   unset JF_TOKEN
+   JF_USER=<the test user's id>    # from the throwaway server's admin pages; not a secret
+   JF_ITEM=<one item id>           # an item the test user can see
    ```
 
-   Use the same query keys the adapter sends (`avrana_home/adapters/jellyfin.py`, `ALLOWED_ROUTES`).
+3. Capture the four routes with exactly the query keys the adapter sends
+   (`avrana_home/adapters/jellyfin.py`: `_continue_items`, `_recent_items`, `_visible_item`), so the
+   recorded shape is the shape the adapter will get:
+
+   ```sh
+   B=http://127.0.0.1:8096
+   F=PrimaryImageAspectRatio
+   curl -sf -H @auth.header "$B/Users"                                                    > users.raw.json
+   curl -sf -H @auth.header "$B/UserItems/Resume?userId=$JF_USER&limit=3&mediaTypes=Video&fields=$F&enableUserData=true&enableImageTypes=Primary&enableTotalRecordCount=false" > resume.raw.json
+   curl -sf -H @auth.header "$B/Items/Latest?userId=$JF_USER&limit=3&includeItemTypes=Movie,Series,Episode&groupItems=true&fields=$F&enableImageTypes=Primary&enableUserData=true" > latest.raw.json
+   curl -sf -H @auth.header "$B/Items?userId=$JF_USER&ids=$JF_ITEM&fields=$F&enableUserData=true&enableImageTypes=Primary" > items.raw.json
+   ```
+
+   If the adapter's parameters change, change these lines in the same pull request.
 
 ## Sanitise (offline, anyone)
 
