@@ -99,3 +99,29 @@ published port).
 Stateless apart from a disposable in-memory SQLite cache (`:memory:`, no file setting; closed on shutdown; `MemberCache.purge_member` is the offboarding hook and is deliberately wired to nothing yet). Recover by rebuilding from Git and restoring
 the environment file from 1Password. Cut-over and rollback are a proxy-provider upstream switch
 between the new app and the still-deployed portal (MEDIA-2.0 section 5); see HOME-APP.md section 9.
+
+## Owner-run capture of upstream responses (AVR-376 sections 11.7, 12.5, 13.6)
+
+`tools/capture_upstreams.py` records what the four adapters would read, for the owner to compare with the
+fixtures. **The owner runs it, on the owner's own machine, with the owner's own accounts.** No agent runs it.
+It sends GET requests only, to routes the adapters allow, follows no redirect and uses no proxy. Members are
+matched by username. Status: written and tested only against a local stub server (`webtests/test_capture_upstreams.py`).
+It has never touched a real server, so its behaviour against real ones is unverified.
+
+Step by step (PowerShell shown; use `export` in a POSIX shell):
+
+1. Make a read-only credential for each service you want to capture, and use test accounts for the members you pick where you can.
+2. In your own shell set the variables. Never put a token on the command line:
+   `$env:AVRANA_CAPTURE_JELLYFIN_URL`, `..._JELLYFIN_KEY`, `..._AUDIOBOOKSHELF_URL`, `..._AUDIOBOOKSHELF_TOKEN`,
+   `..._KOMGA_URL`, `..._KOMGA_TOKEN`, `..._CALIBRE_WEB_URL`, `..._CALIBRE_WEB_USER`, `..._CALIBRE_WEB_PASSWORD`
+   (all prefixed `AVRANA_CAPTURE_`). Base URLs must be https, or loopback http. Unset a service to skip it.
+3. Look first: `python services/avrana-home/tools/capture_upstreams.py --dry-run --members alice,bob`
+   prints every request it would make and makes none. It prints no host and no credential.
+4. Run it: `python services/avrana-home/tools/capture_upstreams.py --members alice,bob --own-username you --out C:\captures\avrana-1`
+   Add `--images` for one cover per service (only status, type and size are kept). The output directory must be outside any Git work tree and empty.
+   Without `--members` only the user lists are fetched.
+5. Read every file in the output directory and `manifest.json`. Titles, ids, names, e-mails, hosts, IPs and paths are replaced.
+   Timestamps and numbers are kept. A four-part version number looks like an IP and is replaced: write the server versions down by hand.
+6. If the tool exits with 3, a file still matched a secret-like pattern and was not written. Do not share the others until you have read them.
+7. Unset the variables (`Remove-Item Env:AVRANA_CAPTURE_*`) and rotate the credentials you used.
+8. Give the files to a reviewed change that updates the fixtures and adapters. Do not paste them into chat unread.
