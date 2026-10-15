@@ -132,10 +132,10 @@ class Base(unittest.TestCase):
 # ---------------------------------------------------------------------------------------------
 class VendoredVerifierPinTests(unittest.TestCase):
     # Update ONLY together with a deliberate, reviewed change to the vendored file.
-    PINNED_SHA256 = "e61d2cbe39b6586d7ded5119446e459072222379efc8a1795258acef6c5c969c"
+    PINNED_SHA256 = "62cccaa5d8af807783d785aed72a647653ed997f1312c849e572202e653d4db2"
 
     SHARED = ("HMAC_ALG", "MIN_HMAC_SECRET", "MAX_TOKEN_LEN", "DEFAULT_LEEWAY", "MAX_LEEWAY", "_B64URL",
-              "_FORBIDDEN_HEADER_KEYS", "JwtRejected", "_b64url_decode", "_no_constants", "_no_duplicates",
+              "_FORBIDDEN_HEADER_KEYS", "MAX_TIMESTAMP", "DEFAULT_MAX_LIFETIME", "MAX_LIFETIME_LIMIT", "JwtRejected", "_b64url_decode", "_no_constants", "_no_duplicates",
               "_json_object", "_is_group_name", "_is_number")
     SHARED_METHODS = ("verify", "_check_claims")
 
@@ -309,6 +309,10 @@ class RequiredModeAttackTests(Base):
             "empty groups": token(groups=[]),
             "missing iat": token(iat=..., groups=[ADMIN]),
             "group with separator": token(groups=["a|authentik Admins"]),
+            "huge integer exp": token(exp=10 ** 400, groups=[ADMIN]),
+            "exp far in the future (lifetime cap)": token(exp=NOW + 10 ** 9, groups=[ADMIN]),
+            "deeply nested header": b64(("[" * 10000).encode()) + "." + c + "." + s,
+            "deeply nested claims": h + "." + b64(("[" * 10000).encode()) + "." + s,
             "garbage": "not-a-token",
             "two dots": "..",
             "oversized": "x" * 20000,
