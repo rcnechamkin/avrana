@@ -17,7 +17,7 @@ Part of [Avrana Media 2.0](../../docs/design/MEDIA-2.0.md). Read these first:
 - `avrana_home/resilience.py`: timeouts, circuit cool-off, transport interface, safe logging.
 - `avrana_home/cache.py`: disposable in-memory TTL cache, member-partitioned by API shape.
 - `avrana_home/aggregate.py`: independent sections, health summary.
-- `avrana_home/adapters/`: one module per upstream (Jellyfin, Komga).
+- `avrana_home/adapters/`: one module per upstream (Jellyfin, Audiobookshelf, Komga, Calibre-Web).
 
 ## Layout
 

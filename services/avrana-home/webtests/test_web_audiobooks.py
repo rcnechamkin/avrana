@@ -183,12 +183,14 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual("mock-api-key-not-real", ok.audiobookshelf_token)
         self.assertNotIn("mock-api-key", repr(ok))
         for env in ({"AUDIOBOOKSHELF_BASE_URL": "http://abs.internal:13378"},
-                    {"AUDIOBOOKSHELF_BASE_URL": "http://127.0.0.1:18097", "AUDIOBOOKSHELF_TOKEN": "x"},
+                    {"AUDIOBOOKSHELF_BASE_URL": "http://127.0.0.1:18097",
+                     "AUDIOBOOKSHELF_TOKEN": "sentinel-token-must-not-echo"},
                     {"AUDIOBOOKSHELF_BASE_URL": "http://127.0.0.1:18097/"}):
             with self.subTest(env=sorted(env)):
                 with self.assertRaises(SettingsError) as cm:
                     Settings.from_mapping({**base, **env})
                 self.assertNotIn("abs.internal", str(cm.exception))
+                self.assertNotIn("sentinel-token", str(cm.exception))   # review of #38: never echo the token
 
     def test_real_mode_needs_url_and_token_together_and_the_gates(self):
         from avrana_home.app.settings import Settings, SettingsError
