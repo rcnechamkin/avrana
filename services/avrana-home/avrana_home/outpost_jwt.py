@@ -46,6 +46,7 @@ MIN_HMAC_SECRET = 32
 MAX_TOKEN_LEN = 16384
 MIN_MODULUS_BITS = 2048
 DEFAULT_LEEWAY = 60
+MAX_LEEWAY = 300
 _DIGEST_INFO_SHA256 = bytes.fromhex("3031300d060960864801650304020105000420")
 _B64URL = re.compile(r"[A-Za-z0-9_-]+")
 _FORBIDDEN_HEADER_KEYS = ("crit", "jku", "jwk", "x5u", "x5c")
@@ -95,6 +96,29 @@ def _json_object(raw: bytes, reason: str) -> dict:
     return value
 
 
+def _der_at(buf: bytes, tag: int, off: int = 0):
+    """Read one definite-length DER element with `tag` at `off`: returns (content, next offset)."""
+    if off + 2 > len(buf) or buf[off] != tag:
+        raise ValueError("DER")
+    length, off = buf[off + 1], off + 2
+    if length & 0x80:
+        count = length & 0x7F
+        if count == 0 or count > 3 or off + count > len(buf):
+            raise ValueError("DER")
+        length = int.from_bytes(buf[off:off + count], "big")
+        if length < 0x80 or (count > 1 and buf[off] == 0):
+            raise ValueError("DER")
+        off += count
+    if off + length > len(buf):
+        raise ValueError("DER")
+    return buf[off:off + length], off + length
+
+
+def _der(buf: bytes, tag: int):
+    content, end = _der_at(buf, tag)
+    return content, buf[end:]
+
+
 class RsaPublicKey:
     """A pinned RSA public key. Build from the provider's JWKS entry (public data)."""
 
@@ -122,6 +146,49 @@ class RsaPublicKey:
         except (KeyError, TypeError, JwtRejected):
             raise ValueError("JWK n/e malformed") from None
         return cls(n, e, jwk.get("kid"))
+
+    @classmethod
+    def from_jwks(cls, document) -> list:
+        """Parse a JWKS document (a dict, or JSON text) into pinned keys. Offline: the caller supplies the
+        document from the repository or the owner's config; this module never fetches anything."""
+        if isinstance(document, (str, bytes)):
+            try:
+                document = json.loads(document, object_pairs_hook=_no_duplicates, parse_constant=_no_constants)
+            except ValueError:
+                raise ValueError("JWKS is not valid JSON") from None
+        keys = document.get("keys") if isinstance(document, Mapping) else None
+        if not isinstance(keys, list) or not keys:
+            raise ValueError("JWKS has no keys")
+        return [cls.from_jwk(k) for k in keys]
+
+    @classmethod
+    def from_pem(cls, pem: str, kid: Optional[str] = None) -> "RsaPublicKey":
+        """Parse a PEM `PUBLIC KEY` (SubjectPublicKeyInfo, rsaEncryption) or `RSA PUBLIC KEY` (PKCS#1)."""
+        m = re.fullmatch(r"\s*-----BEGIN (PUBLIC|RSA PUBLIC) KEY-----([A-Za-z0-9+/=\s]+)-----END \1 KEY-----\s*",
+                         pem if isinstance(pem, str) else "")
+        if not m:
+            raise ValueError("not a PEM public key")
+        try:
+            der = base64.b64decode("".join(m.group(2).split()), validate=True)
+            if m.group(1) == "PUBLIC":
+                spki, rest = _der(der, 0x30)
+                alg, off = _der_at(spki, 0x30)
+                if alg != bytes.fromhex("06092a864886f70d0101010500"):  # rsaEncryption, NULL
+                    raise ValueError("not an RSA key")
+                bits, end = _der_at(spki, 0x03, off)
+                if end != len(spki) or rest or bits[:1] != b"\x00":
+                    raise ValueError("bad SPKI")
+                der = bits[1:]
+            body, rest = _der(der, 0x30)
+            n_raw, off = _der_at(body, 0x02)
+            e_raw, off = _der_at(body, 0x02, off)
+            if rest or off != len(body):
+                raise ValueError("trailing data")
+        except (ValueError, binascii.Error, IndexError):
+            raise ValueError("PEM public key malformed") from None
+        if not n_raw or not e_raw or n_raw[0] & 0x80 or e_raw[0] & 0x80:
+            raise ValueError("PEM public key malformed")
+        return cls(int.from_bytes(n_raw, "big"), int.from_bytes(e_raw, "big"), kid)
 
     def verify(self, signing_input: bytes, signature: bytes) -> bool:
         if len(signature) != self.size:
@@ -168,7 +235,11 @@ class OutpostJwtVerifier:
             self.alg = HMAC_ALG
         if not issuer or not audience:
             raise ValueError("issuer and audience are required")
-        self.issuer, self.audience, self.leeway, self.clock = issuer, audience, int(leeway), clock
+        if not isinstance(leeway, int) or isinstance(leeway, bool) or not 0 <= leeway <= MAX_LEEWAY:
+            raise ValueError(f"leeway must be an integer 0..{MAX_LEEWAY} seconds")
+        if not isinstance(issuer, str) or not isinstance(audience, str):
+            raise ValueError("issuer and audience must be strings")
+        self.issuer, self.audience, self.leeway, self.clock = issuer, audience, leeway, clock
 
     def _signature_ok(self, header: dict, signing_input: bytes, signature: bytes) -> bool:
         if self.alg == ALG:
@@ -223,6 +294,11 @@ class OutpostJwtVerifier:
             raise JwtRejected("bad_claims")
         if now >= exp + self.leeway:
             raise JwtRejected("expired")
+        iat = claims.get("iat")
+        if not _is_number(iat):  # iat is required: Authentik ID tokens always carry it
+            raise JwtRejected("bad_claims")
+        if iat > exp:
+            raise JwtRejected("bad_claims")
         for name in ("nbf", "iat"):
             if name in claims:
                 if not _is_number(claims[name]):
@@ -233,7 +309,8 @@ class OutpostJwtVerifier:
         groups = claims.get("groups")
         if not isinstance(user, str) or not user:
             raise JwtRejected("bad_claims")
-        if not isinstance(groups, list) or not all(_is_group_name(g) for g in groups):
+        if (not isinstance(groups, list) or not groups
+                or not all(_is_group_name(g) for g in groups)):
             raise JwtRejected("bad_claims")
 
 
@@ -250,22 +327,6 @@ def _is_number(value) -> bool:
 
 
 def principal_from_outpost(headers, verifier: OutpostJwtVerifier):
-    """Build a MemberPrincipal from the VERIFIED token. The plain identity headers must agree with it,
-    so a request that mixes a valid token with different headers is refused rather than reconciled."""
-    from .principal import PrincipalError, _occurrences, principal_from_headers
-
-    tokens = _occurrences(headers, "X-authentik-jwt")
-    if len(tokens) != 1:
-        raise PrincipalError("missing_header" if not tokens else "duplicate_header")
-    try:
-        claims = verifier.verify(tokens[0])
-    except JwtRejected:
-        raise PrincipalError("unverified_identity") from None
-    principal = principal_from_headers({"X-authentik-username": claims["preferred_username"],
-                                        "X-authentik-groups": "|".join(claims["groups"])})
-    for name, expected in (("X-authentik-username", claims["preferred_username"]),
-                           ("X-authentik-groups", "|".join(claims["groups"]))):
-        sent = _occurrences(headers, name)
-        if sent and (len(sent) != 1 or sent[0] != expected):
-            raise PrincipalError("identity_mismatch")
-    return principal
+    """Kept for the PoC's callers; identical to `principal.principal_from_verified_jwt`."""
+    from .principal import principal_from_verified_jwt
+    return principal_from_verified_jwt(headers, verifier)

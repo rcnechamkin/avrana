@@ -1,5 +1,8 @@
 # D-3: proving the outpost sent the request (offline investigation)
 
+> AVR-498 update: the verifier is now production-grade and offline-tested, and the adoption and OliveTin
+> migration plan is in [D3-adoption-and-olivetin-plan.md](D3-adoption-and-olivetin-plan.md).
+
 **Status: proposal with an offline proof of concept. Nothing is deployed, configured or wired in.** No live
 system, credential or member data was touched. Live implementation needs the owner's separate approval.
 
@@ -85,7 +88,7 @@ Proof of concept: `services/avrana-home/avrana_home/outpost_jwt.py` (stdlib only
 
 | Service | Change (not made) | Notes |
 |---|---|---|
-| Media 2.0 home | Use `principal_from_outpost` in place of `principal_from_headers` | Same module |
+| Media 2.0 home | Call `principal_for_request(headers, mode=..., verifier=...)` in place of `principal_from_headers` (implemented offline in AVR-498; mode has no default and nothing selects a JWT mode) | `principal.py`, same `MemberPrincipal` |
 | Portal, Kindle | Vendor the module (single-file stdlib services); verify before reading any identity header | `/healthz` stays unauthenticated |
 | OliveTin | `authJwtHeader: X-authentik-jwt`, `authJwtHmacSecret` from env, `authJwtAud: <client id>`, `authJwtClaimUsername: preferred_username`, `authJwtClaimUserGroup: groups`; **remove** `authHttpHeaderUsername`/`Usergroup` (checked first, E9) | Groups are split on spaces: `authentik Admins` becomes `authentik` + `Admins`, so the ACL must match a group without a space or match by username. **Owner decision** |
 

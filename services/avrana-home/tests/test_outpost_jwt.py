@@ -99,7 +99,7 @@ class AcceptTests(unittest.TestCase):
         self.assertTrue(verifier().verify(sign(KEY_A, HDR_A, claims(aud=[AUD, "other"]))))
 
     def test_leeway_allows_small_clock_skew(self):
-        self.assertTrue(verifier().verify(sign(KEY_A, HDR_A, claims(exp=NOW - 30, iat=NOW + 30))))
+        self.assertTrue(verifier().verify(sign(KEY_A, HDR_A, claims(exp=NOW - 30, iat=NOW - 3600))))
 
     def test_jwk_round_trip(self):
         jwk = {"kty": "RSA", "alg": "RS256", "use": "sig", "kid": "kid-a",
