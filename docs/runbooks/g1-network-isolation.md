@@ -247,8 +247,10 @@ for u in avrana.net kindle.avrana.net ops.avrana.net; do
   echo "lan $u $(fc -H "Host: $u" http://10.0.0.218:9000/ops)"
 done
 ```
-**E1 (unauthenticated):** expect `302` to `auth.avrana.net` for all six (the LAN port 9000 is the same
-outpost). Any `200`, `307` or `404` from a backend is a **G1 failure**. E1 only shows that unauthenticated
+**E1 (unauthenticated):** expect `302` to `https://<same host>/outpost.goauthentik.io/start?rd=...` (the
+outpost's `redirectToStart`, Authentik 2026.5.6), or directly to `auth.avrana.net`, for all six (the LAN port
+9000 is the same outpost). Any `200`, `307` or `404` from a backend, or a redirect elsewhere, is a
+**G1 failure**. `scripts/g1-preflight.sh --e1` runs exactly this check. E1 only shows that unauthenticated
 requests never reach a backend; the outpost redirects before it would set or strip any header, so **E1 says
 nothing about header overwrite and is not evidence for F3**.
 
