@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% from "_parts.html" import tile %}
+{% block title %}{{ chooser.label|trusted }} · Avrana{% endblock %}
+{% block body %}
+  <nav class="tiles" aria-label="{{ chooser.label|trusted }}">
+{% for path, label, desc in tiles %}{{ tile(path, label, desc) }}
+{% endfor %}
+  </nav>
+{% endblock %}
