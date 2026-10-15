@@ -20,6 +20,8 @@ services:
       # their Calibre-Web/Audiobookshelf username (e.g. akadmin in Authentik, Cody in both libraries).
       # Format: authentik_username=library_username, comma- or space-separated. See README, "Identity
       # matching". Without an entry such a member sees "No ... account found".
+      # Each token is exactly source=target; names with spaces or commas are NOT supported, and any
+      # malformed token disables the whole map.
       # - KINDLE_USERNAME_ALIASES=akadmin=Cody
     volumes:
       # Calibre-Web's user table, READ-WRITE because kindle_mail is a per-user column there.
