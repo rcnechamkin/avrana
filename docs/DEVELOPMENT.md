@@ -107,6 +107,12 @@ After D-8 is approved and the workflow is merged, `.github/workflows/offline-tes
 request. It has no secrets and no deployment step, and `tests/test_ci_workflow.py` keeps it that way. CI is
 a second opinion; the local run before you commit is still the gate.
 
+Known CI gap (AVR-386): the runner has no PyYAML and D-8 allows no `pip`, so the G1 compose-declaration
+tests skip in CI (12 on `main`, more with the bypass-path suite). `run_offline.py` prints a WARN when that
+happens; with `AVRANA_REQUIRE_YAML=1` it fails instead. Closing the gap is an owner decision: amend D-8 to
+install one hash-pinned PyYAML wheel and set that variable in the workflow, or accept the skip and keep
+running the suite locally with PyYAML before merging G1 changes.
+
 ## One worktree per issue
 
 Keep `main` clean and give each issue its own checkout next to it:
