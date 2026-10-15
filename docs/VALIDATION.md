@@ -24,6 +24,8 @@ The portal authorization suite (`tests/test_portal_authz.py`, 83 tests on this b
 
 The original Kindle live tests were omitted and its personal fixture replaced. Audible application/end-to-end tests were not imported because their shared fixture initializes application state; only the isolated in-memory schema invariants are tested here. CWA integration tests require its upstream package and were not executed. These boundaries are deliberate; passing local checks is not deployment validation.
 
+The day-to-day local workflow, fixture rules and how to add a suite are in [DEVELOPMENT.md](DEVELOPMENT.md).
+
 ## Commit gates
 
 Stage exact reviewed paths, then run:

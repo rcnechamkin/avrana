@@ -36,6 +36,7 @@ Read [AGENTS.md](AGENTS.md) first. In short:
 - Change files here, review, commit, then deploy one service at a time ([docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)).
 - `python3 scripts/review_git_content.py --staged` must pass before every commit.
 - `scripts/drift-check.py`, run on the host, shows where production differs from Git.
+- [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) is the local workflow: one command for all offline tests, fixture rules, worktrees.
 - `docs/provenance/` records where every file in the initial import came from and what was left behind.
 
 ## Start here

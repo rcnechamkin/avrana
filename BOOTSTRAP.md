@@ -161,8 +161,10 @@ Details, retention and the design are in `services/backups/OFFHOST.md`.
 docker network create --subnet 10.220.25.0/24 avrana-ldap      # used by authentik and calibre-web-automated
 ```
 
-`authentik_frontend` is also external for `avrana-portal`, `avrana-kindle-connector` and `olivetin`; it is
-created by the `authentik` project, which is why Authentik starts first.
+`authentik_portal`, `authentik_kindle` and `authentik_olivetin` are also external, for `avrana-portal`,
+`avrana-kindle-connector` and `olivetin` respectively (staged, not applied: `docs/runbooks/g1-network-isolation.md`).
+They are created by the `authentik` project when its `server` service starts, which is why Authentik starts first
+and why `docker compose down` must never be run in `services/authentik`.
 
 Each directory under `services/` is its own Compose project, named after the directory, with **one
 exception**: the arr stack in `services/media` runs as project **`docker`**, and Jellyfin is behind the

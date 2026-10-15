@@ -15,8 +15,9 @@ outpost** → the `avrana-portal` service. The outpost authenticates (applicatio
 avrana-audiobooks→Listen, avrana-comics/avrana-books→Read, library-contributors→Contribute). Service subdomains stay as-is for native clients.
 
 **Service** (`services/avrana-portal/`): a tiny stdlib Python server, no deps, digest-pinned,
-read-only/non-root, on Authentik's `frontend` network with **no published port**: reachable only
-via the outpost, so auth can't be bypassed.
+read-only/non-root, with **no published port**: reachable only via the outpost, so auth can't be bypassed.
+On Authentik's shared `frontend` network today; G1 (staged, not applied, see
+`docs/runbooks/g1-network-isolation.md`) moves it to the private network `authentik_portal`.
 
 **Authentik**: proxy provider `avrana-portal-proxy` (external avrana.net → internal
 avrana-portal:8095) + app `avrana-portal` gated by `avrana-users`, added to the embedded outpost
