@@ -30,6 +30,9 @@ a = sys.argv[1:]
 def out(text):
     if text is None:
         sys.exit(1)
+    if isinstance(text, dict):  # partial output, then a failure
+        print(text["out"])
+        sys.exit(text["rc"])
     print(text)
     sys.exit(0)
 if a[:1] == ["version"]:
@@ -43,6 +46,8 @@ if a[:2] == ["network", "inspect"]:
         out("[]")
     if a[2] == "authentik_frontend":
         out(s.get("frontend"))
+    missing = "Error response from daemon: network %s not found" if s.get("new_wording") else "Error: No such network: %s"
+    sys.stderr.write(s.get("private_error", missing % a[2]) + "\n")
     sys.exit(1)
 if a[:1] == ["ps"]:
     out(s.get("ps"))
@@ -64,7 +69,8 @@ HEALTHY = {
     "containers": {c: "running healthy 2026-10-01T00:00:00Z nets=authentik_frontend,"
                    for c in ("authentik-server", "avrana-portal", "avrana-kindle-connector", "olivetin")},
 }
-READ_ONLY_CALLS = {("version",), ("network", "ls"), ("network", "inspect"), ("ps",), ("inspect",)}
+FOUR_IDS = "c1\nc2\nc3\nc4"
+READ_ONLY_CALLS ={("version",), ("network", "ls"), ("network", "inspect"), ("ps",), ("inspect",)}
 ROLLBACK_FILES = ["authentik/docker-compose.yml", "avrana-portal/docker-compose.yml",
                   "avrana-kindle-connector/docker-compose.yml", "olivetin/docker-compose.yml", "services-health.sh"]
 
@@ -85,7 +91,7 @@ class PreflightTests(unittest.TestCase):
         # PATH, so a stub merely named "curl" was bypassed once and real requests went out.
         self.curl_log = self.root / "curl.log"
         self.stub("curl-stub", f'echo "$@" >> "{self.curl_log.as_posix()}"\n'
-                               'printf "%s" "${G1_CURL:-302 https://auth.avrana.net/application/o/authorize/}"\n')
+                               'printf "%s" "${G1_CURL-302 https://auth.avrana.net/application/o/authorize/}"\n')
         self.calls = self.root / "calls.log"
         self.backups = self.root / "backups"
         (self.backups / "avrana").mkdir(parents=True)
@@ -143,11 +149,64 @@ class PreflightTests(unittest.TestCase):
         self.assertIn("host-network containers (D-3 residual): /jellyfin", out)
 
     def test_docker_is_only_asked_to_list_and_inspect(self):
-        self.run_preflight(args=("--rollback", None, "--e1"))
-        calls = [json.loads(l) for l in self.calls.read_text(encoding="utf-8").splitlines()]
-        self.assertTrue(calls)
-        for call in calls:
-            self.assertTrue(tuple(call[:1]) in READ_ONLY_CALLS or tuple(call[:2]) in READ_ONLY_CALLS, call)
+        scenarios = ({}, {"existing_private": ["authentik_kindle"]}, {"ps": None}, {"server": None},
+                     {"ps": FOUR_IDS, "modes": HEALTHY["modes"] + "\n/evil net=container:abc pid= ipc=private"},
+                     {"containers": {}}, {"private_error": "permission denied"})
+        for scenario in scenarios:
+            with self.subTest(scenario=scenario):
+                if self.calls.exists():
+                    self.calls.unlink()
+                self.run_preflight(scenario, args=("--rollback", None, "--e1"))
+                calls = [json.loads(l) for l in self.calls.read_text(encoding="utf-8").splitlines()]
+                self.assertTrue(calls)
+                for call in calls:
+                    self.assertTrue(tuple(call[:1]) in READ_ONLY_CALLS or tuple(call[:2]) in READ_ONLY_CALLS, call)
+
+    def test_partial_inspect_output_is_void(self):
+        partial = {"out": "/avrana-portal net=authentik_frontend pid= ipc=private", "rc": 1}
+        rc, out = self.run_preflight({"modes": partial})
+        self.assertEqual(rc, 1, out)
+        self.assertTrue(any("namespace sharing" in l for l in self.lines(out, "VOID")), out)
+        self.assertFalse(any("namespace sharing" in l for l in self.lines(out, "PASS")), out)
+        rc, out = self.run_preflight({"modes": {"out": HEALTHY["modes"].split("\n", 1)[1], "rc": 0}})
+        self.assertTrue(any("inspected 2 of 3" in l for l in self.lines(out, "VOID")), out)
+
+    def test_private_network_state_unknown_is_void(self):
+        rc, out = self.run_preflight({"private_error": "permission denied while trying to connect"})
+        self.assertEqual(rc, 1, out)
+        self.assertTrue(any("g1 state: docker could not say" in l for l in self.lines(out, "VOID")), out)
+        self.assertNotIn("not applied", out)
+        rc, out = self.run_preflight({"private_error": "Error response from daemon: network X not found"})
+        self.assertTrue(any("could not say" in l for l in self.lines(out, "VOID")), "X is not the name asked")
+        # Docker's newer wording, naming the network that was actually asked, counts as absent.
+        rc, out = self.run_preflight({"new_wording": True})
+        self.assertEqual(rc, 0, out)
+        self.assertIn("not applied", out)
+
+    def test_pool_limit_and_daemon_json_fail_closed(self):
+        rc, out = self.run_preflight(env={"AVRANA_POOL_LIMIT": "lots"})
+        self.assertEqual(rc, 1)
+        self.assertTrue(any("not a number" in l for l in self.lines(out, "VOID")), out)
+        self.assertFalse(any("address pool" in l for l in self.lines(out, "PASS")), out)
+        daemon = self.root / "daemon.json"
+        for content, expect in (('{"data-root": "/x", "default-address-pools": []}', "default-address-pools"),
+                                ("not json", "not a JSON object"), ('["data-root"]', "not a JSON object")):
+            with self.subTest(content=content):
+                daemon.write_text(content, encoding="utf-8")
+                rc, out = self.run_preflight(env={"AVRANA_DOCKER_DAEMON_JSON": daemon.as_posix()})
+                self.assertEqual(rc, 1, out)
+                self.assertTrue(any(expect in l for l in self.lines(out, "VOID")), out)
+        daemon.write_text('{"data-root": "/mnt/x"}', encoding="utf-8")
+        rc, out = self.run_preflight(env={"AVRANA_DOCKER_DAEMON_JSON": daemon.as_posix()})
+        self.assertEqual(rc, 0, out)
+        self.assertIn("daemon.json keys: data-root", out)
+
+    def test_short_container_line_is_void_not_a_crash(self):
+        containers = dict(HEALTHY["containers"], olivetin="running")
+        rc, out = self.run_preflight({"containers": containers})
+        self.assertEqual(rc, 1, out)
+        self.assertTrue(any("olivetin: inspect output not understood" in l for l in self.lines(out, "VOID")), out)
+        self.assertIn("PREFLIGHT:", out)
 
     def test_pool_without_room_stops(self):
         rc, out = self.run_preflight({"net_ids": "\n".join(f"n{i}" for i in range(30))})
@@ -155,23 +214,26 @@ class PreflightTests(unittest.TestCase):
         self.assertTrue(any("address pool: 30 networks + 3 new exceeds 32" in l for l in self.lines(out, "STOP")), out)
 
     def test_network_namespace_borrower_stops_and_is_named(self):
-        rc, out = self.run_preflight({"modes": HEALTHY["modes"] + "\n/evil net=container:abc123 pid= ipc=private"})
+        rc, out = self.run_preflight({"ps": FOUR_IDS,
+                                      "modes": HEALTHY["modes"] + "\n/evil net=container:abc123 pid= ipc=private"})
         self.assertEqual(rc, 1)
         self.assertIn("/evil net=container:abc123", out)
         self.assertTrue(any("namespace sharing" in l for l in self.lines(out, "STOP")))
 
     def test_pid_sharing_is_reported_but_is_not_a_network_stop(self):
-        rc, out = self.run_preflight({"modes": HEALTHY["modes"] + "\n/p net=bridge pid=container:abc ipc=private"})
+        rc, out = self.run_preflight({"ps": FOUR_IDS,
+                                      "modes": HEALTHY["modes"] + "\n/p net=bridge pid=container:abc ipc=private"})
         self.assertEqual(rc, 0, out)
         self.assertIn("pid/ipc sharing", out)
 
     def test_unreadable_docker_is_void_never_pass(self):
-        for broken in ({"ps": None}, {"modes": None}, {"net_ids": None}, {"subnets": None}, {"server": None},
-                       {"frontend": None}):
+        for broken, label in (({"ps": None}, "namespace sharing"), ({"modes": None}, "namespace sharing"),
+                              ({"net_ids": None}, "address pool"), ({"subnets": None}, "address pool"),
+                              ({"server": None}, "docker daemon"), ({"frontend": None}, "authentik_frontend")):
             with self.subTest(broken=broken):
                 rc, out = self.run_preflight(broken)
                 self.assertEqual(rc, 1, out)
-                self.assertTrue(self.lines(out, "VOID"), out)
+                self.assertTrue(any(label in l for l in self.lines(out, "VOID")), out)
 
     def test_already_existing_private_network_stops(self):
         rc, out = self.run_preflight({"existing_private": ["authentik_kindle"]})
@@ -199,6 +261,10 @@ class PreflightTests(unittest.TestCase):
                 self.assertEqual(rc, 1)
                 self.assertTrue(any(expect in l for l in self.lines(out, "STOP")), out)
         self.setUp()
+        self.status(self.backups / "avrana/LAST_RUN.json", "ok", -5)
+        rc, out = self.run_preflight()
+        self.assertTrue(any("in the future" in l for l in self.lines(out, "STOP")), out)
+        self.setUp()
         (self.backups / "OFFHOST_LAST_RUN.json").unlink()
         rc, out = self.run_preflight()
         self.assertTrue(any("off-host backup: missing" in l for l in self.lines(out, "STOP")), out)
@@ -213,16 +279,49 @@ class PreflightTests(unittest.TestCase):
         rc, out = self.run_preflight()
         self.assertTrue(any("services-health.sh" in l for l in self.lines(out, "STOP")), out)
 
+    def test_every_file_needs_exactly_one_valid_sum_line(self):
+        sums = self.rollback / "SHA256SUMS"
+        good = sums.read_text(encoding="utf-8").splitlines()
+        target = "olivetin/docker-compose.yml"
+        mine = next(l for l in good if l.endswith(target))
+        others = [l for l in good if l != mine]
+        cases = {
+            "garbage hash": others + ["zz" * 32 + "  " + target],
+            "short hash": others + [mine[:40] + "  " + target],
+            "no line": others,
+            "two lines": good + [mine],
+            "dots are literal": others + [mine.replace(target, "olivetin/docker-compose_yml")],
+        }
+        for name, lines in cases.items():
+            with self.subTest(case=name):
+                sums.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+                rc, out = self.run_preflight()
+                self.assertEqual(rc, 1, out)
+                self.assertTrue(any(target in l for l in self.lines(out, "STOP")), out)
+        sums.write_text("\n".join(good + ["this line is junk"]) + "\n", encoding="utf-8", newline="\n")
+        rc, out = self.run_preflight()
+        self.assertEqual(rc, 0, "an unrelated junk line does not hide or fail the five files")
+
     def test_e1_passes_only_on_redirect_to_sign_in(self):
         rc, out = self.run_preflight(args=("--rollback", None, "--e1"))
         self.assertEqual(rc, 0, out)
         self.assertEqual(len([l for l in self.lines(out, "PASS") if l.startswith("PASS  E1 ")]), 6)
-        self.assertEqual(len(self.curl_log.read_text(encoding="utf-8").splitlines()), 6, "the stub, not a real curl")
+        log = self.curl_log.read_text(encoding="utf-8").splitlines()
+        self.assertEqual(len(log), 6, "the stub, not a real curl")
+        for host in ("avrana.net", "kindle.avrana.net", "ops.avrana.net"):
+            self.assertIn(f"https://{host}/ops", "\n".join(log))
+            self.assertTrue(any(l.endswith("http://10.0.0.218:9000/ops") and f"Host: {host} " in l for l in log),
+                            f"LAN request for {host} must carry its Host header")
+        for l in log:
+            self.assertNotRegex(l, r"(?i)authorization|cookie", "E1 never sends a credential")
         rc, out = self.run_preflight(args=("--rollback", None, "--e1"), env={
             "G1_CURL": "302 https://avrana.net/outpost.goauthentik.io/start?rd=x"})
         self.assertEqual(len([l for l in self.lines(out, "PASS") if " E1 avrana.net" in l]), 2, out)
         for answer, level in (("200 ", "STOP"), ("404 ", "STOP"), ("302 https://evil.example/", "STOP"),
-                              ("302 https://evil.example/outpost.goauthentik.io/start", "STOP"), ("000 ", "VOID")):
+                              ("302 https://evil.example/outpost.goauthentik.io/start", "STOP"),
+                              ("302 https://auth.avrana.net.evil.example/", "STOP"),
+                              ("301 https://auth.avrana.net/", "STOP"), ("307 https://auth.avrana.net/", "STOP"),
+                              ("302 http://auth.avrana.net/", "STOP"), ("000 ", "VOID"), ("", "VOID")):
             with self.subTest(answer=answer):
                 rc, out = self.run_preflight(args=("--rollback", None, "--e1"), env={"G1_CURL": answer})
                 self.assertEqual(rc, 1)
@@ -250,7 +349,8 @@ class StaticReadOnlyTests(unittest.TestCase):
         for word in (r"docker\s+(run|rm|create|exec|start|stop|restart|kill|compose|system|volume|image|pull)",
                      r"docker\s+network\s+(create|rm|connect|disconnect|prune)", r"\bsystemctl\b", r"\bsudo\b",
                      r"\brm\b", r"\bmv\b", r"\bcp\b", r"\btee\b", r"\btouch\b", r"\bmkdir\b", r"\bchmod\b",
-                     r"\bchown\b", r"\bkill\b", r"\bln\b", r"--data", r"-X\s*(POST|PUT|DELETE)"):
+                     r"\bchown\b", r"\bkill\b", r"\bln\b", r"--data", r"\s-d\s", r"\s-F\s", r"--form\b",
+                     r"\s-T\s", r"--upload", r"\s-X\b", r"--request"):
             with self.subTest(word=word):
                 self.assertNotRegex(code, word)
 

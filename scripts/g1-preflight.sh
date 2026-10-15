@@ -58,8 +58,11 @@ else
 fi
 
 # --- 1. address-pool headroom (runbook: Address-pool headroom) --------------------------------------
+case "$pool_limit" in ''|*[!0-9]*) say VOID "address pool: AVRANA_POOL_LIMIT '$pool_limit' is not a number"; pool_limit="" ;; esac
 net_ids=$(docker network ls -q 2>/dev/null) || net_ids=""
-if [ -z "$net_ids" ]; then
+if [ -z "$pool_limit" ]; then
+  :
+elif [ -z "$net_ids" ]; then
   say VOID "address pool: docker network ls returned nothing"
 else
   count=$(printf '%s\n' "$net_ids" | grep -c .)
@@ -75,20 +78,38 @@ else
     fi
   fi
 fi
-if [ -r "$daemon_json" ]; then
-  keys=$("$py" -c 'import json,sys; print(" ".join(sorted(json.load(open(sys.argv[1])))))' "$daemon_json" 2>/dev/null) || keys="unparseable"
-  say INFO "daemon.json keys: ${keys:-none} (expect data-root only; do not edit)"
-  case " $keys " in *" default-address-pools "*) say INFO "daemon.json sets default-address-pools: recompute the limit from it" ;; esac
+# The limit of 32 holds only for Docker's default pools, so a daemon.json that cannot be read, cannot be
+# parsed or sets its own pools voids the pool check instead of leaving it a PASS.
+if [ ! -e "$daemon_json" ]; then
+  say INFO "daemon.json absent at $daemon_json: Docker's default address pools apply"
+elif [ ! -r "$daemon_json" ]; then
+  say VOID "address pool: $daemon_json exists but is not readable; the limit is unverified"
 else
-  say INFO "daemon.json not readable at $daemon_json (needs root: the owner records it by hand)"
+  keys=$("$py" -c 'import json,sys; d=json.load(open(sys.argv[1])); assert isinstance(d, dict); print(" ".join(sorted(d)))' "$daemon_json" 2>/dev/null) || keys="(unparseable)"
+  if [ "$keys" = "(unparseable)" ]; then
+    say VOID "address pool: $daemon_json is not a JSON object; the limit is unverified"
+  else
+    say INFO "daemon.json keys: ${keys:-none} (expect data-root only; do not edit)"
+    case " $keys " in *" default-address-pools "*) say VOID "address pool: daemon.json sets default-address-pools, so the default limit does not apply; recompute it by hand" ;; esac
+  fi
 fi
 
 # --- 2. current G1 state --------------------------------------------------------------------------
 present=""
+unknown=""
 for n in $PRIVATE; do
-  if docker network inspect "$n" >/dev/null 2>&1; then present="$present $n"; fi
+  if err=$(docker network inspect "$n" 2>&1 >/dev/null); then
+    present="$present $n"
+  else
+    case "$err" in
+      *"No such network"*|*"network $n not found"*) ;;
+      *) unknown="$unknown $n" ;;
+    esac
+  fi
 done
-if [ -z "$present" ]; then
+if [ -n "$unknown" ]; then
+  say VOID "g1 state: docker could not say whether these exist:$unknown"
+elif [ -z "$present" ]; then
   say PASS "g1 state: not applied (none of the private networks exists), as expected before the window"
 else
   say STOP "g1 state: private network(s) already exist:$present; find out why before applying"
@@ -103,11 +124,18 @@ fi
 # --- 3. namespace sharing (runbook: Verify; review finding F1) --------------------------------------
 ids=$(docker ps -aq 2>/dev/null) || ids=""
 modes=""
-[ -n "$ids" ] && modes=$(docker inspect --format '{{.Name}} net={{.HostConfig.NetworkMode}} pid={{.HostConfig.PidMode}} ipc={{.HostConfig.IpcMode}}' $ids 2>/dev/null) || true
+if [ -n "$ids" ]; then
+  # Any failure (one container vanished, one bad id) discards the partial output: the container that was
+  # not inspected could be the borrower.
+  modes=$(docker inspect --format '{{.Name}} net={{.HostConfig.NetworkMode}} pid={{.HostConfig.PidMode}} ipc={{.HostConfig.IpcMode}}' $ids 2>/dev/null) || modes=""
+fi
+id_count=$(printf '%s\n' "$ids" | grep -c .)
+inspected=$(printf '%s\n' "$modes" | grep -c .)
 if [ -z "$ids" ] || [ -z "$modes" ]; then
-  say VOID "namespace sharing: docker ps or inspect returned nothing"
+  say VOID "namespace sharing: docker ps or inspect failed or returned nothing"
+elif [ "$inspected" -ne "$id_count" ]; then
+  say VOID "namespace sharing: inspected $inspected of $id_count containers"
 else
-  inspected=$(printf '%s\n' "$modes" | grep -c .)
   net_share=$(printf '%s\n' "$modes" | grep -E ' net=container:' || true)
   other_share=$(printf '%s\n' "$modes" | grep -E ' (pid|ipc)=container:' || true)
   if [ -n "$net_share" ]; then
@@ -128,11 +156,14 @@ for c in authentik-server $BACKENDS; do
     say STOP "$c: not found"
     continue
   fi
-  set -- $line
-  if [ "$1" != running ] || [ "$2" != healthy ]; then
-    say STOP "$c: $1/$2 (must be running and healthy before the window)"
+  started=""
+  read -r st health started _ <<<"$line"
+  if [ -z "$started" ]; then
+    say VOID "$c: inspect output not understood"
+  elif [ "$st" != running ] || [ "$health" != healthy ]; then
+    say STOP "$c: $st/$health (must be running and healthy before the window)"
   else
-    say PASS "$c: running/healthy since $3"
+    say PASS "$c: running/healthy since $started"
   fi
 done
 
@@ -149,7 +180,9 @@ except ValueError:
     print("STOP unparseable"); raise SystemExit
 age = (time.time() - p.stat().st_mtime) / 3600
 status = d.get("status") if isinstance(d, dict) else None
-if status != "ok":
+if age < -0.1:
+    print("STOP modified in the future (clock problem)")
+elif status != "ok":
     print(f"STOP status={status!r}")
 elif age > limit:
     print(f"STOP stale {age:.0f}h > {limit:.0f}h")
@@ -169,18 +202,26 @@ if [ -z "$rollback" ]; then
 elif [ ! -f "$rollback/SHA256SUMS" ]; then
   say STOP "rollback material: $rollback/SHA256SUMS missing"
 else
+  # Each file is checked by its own name: exactly one well-formed line, and the hash that line names.
   missing=""
+  bad=""
   for f in authentik/docker-compose.yml avrana-portal/docker-compose.yml avrana-kindle-connector/docker-compose.yml \
            olivetin/docker-compose.yml services-health.sh; do
-    [ -s "$rollback/$f" ] || missing="$missing $f"
-    grep -q " [* ]\{0,1\}$f\$" "$rollback/SHA256SUMS" || missing="$missing $f(no-sum)"
+    if [ ! -s "$rollback/$f" ]; then missing="$missing $f"; continue; fi
+    want=$(awk -v f="$f" '$2 == f || $2 == "*" f { print $1 }' "$rollback/SHA256SUMS")
+    case "$want" in
+      ""|*[!0-9a-f]*) missing="$missing $f(no-valid-sum)"; continue ;;
+    esac
+    if [ "${#want}" -ne 64 ]; then missing="$missing $f(no-valid-sum)"; continue; fi
+    got=$(sha256sum "$rollback/$f" 2>/dev/null | cut -d' ' -f1)
+    [ "$got" = "$want" ] || bad="$bad $f"
   done
   if [ -n "$missing" ]; then
-    say STOP "rollback material: missing or unsummed:$missing"
-  elif (cd "$rollback" && sha256sum -c --quiet SHA256SUMS >/dev/null 2>&1); then
-    say PASS "rollback material: 5 files present, SHA-256 verified"
+    say STOP "rollback material: missing or without exactly one valid sum:$missing"
+  elif [ -n "$bad" ]; then
+    say STOP "rollback material: SHA-256 mismatch:$bad"
   else
-    say STOP "rollback material: SHA-256 mismatch"
+    say PASS "rollback material: 5 files present and match the SHA256SUMS staged with them"
   fi
 fi
 
@@ -199,7 +240,7 @@ if [ "$run_e1" = 1 ]; then
               -H 'X_authentik_groups: authentik Admins' ${hostarg:+-H "$hostarg"} "$url" 2>/dev/null) || r="000"
         case "$r" in
           "302 https://$u/outpost.goauthentik.io/start"*|"302 https://auth.avrana.net/"*) say PASS "E1 $u ${hostarg:+(LAN) }redirected to sign-in" ;;
-          000*) say VOID "E1 $u ${hostarg:+(LAN) }no answer" ;;
+          000*|"") say VOID "E1 $u ${hostarg:+(LAN) }no answer" ;;
           *) say STOP "E1 $u ${hostarg:+(LAN) }answered '$r' to an unauthenticated forged request" ;;
         esac
       done

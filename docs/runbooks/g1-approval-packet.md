@@ -19,23 +19,25 @@ Evidence is labelled by where it comes from, and only one kind counts for each c
 On the host, from an export of the reviewed commit:
 
 ```sh
-scripts/g1-preflight.sh                       # first pass, before rollback material exists
+scripts/g1-preflight.sh                       # first pass, before rollback material exists: always ends
+                                              # with one STOP (rollback material not checked) and exit 1
 scripts/g1-preflight.sh --rollback "$B/rollback" --e1   # final pass, the day of the window
 ```
 
-`--e1` sends six unauthenticated HTTPS requests with forged headers to the three public hostnames and to the LAN
-outpost port. No credential is sent and nothing changes. Leave it out if even that is not wanted.
+`--e1` sends six unauthenticated requests with forged headers: three over HTTPS to the public hostnames and
+three over plain HTTP to the LAN outpost port (`10.0.0.218:9000`, with each hostname as `Host`). No credential
+is sent and nothing changes. Leave it out if even that is not wanted.
 
 | Check | Pass means | A STOP means |
 |---|---|---|
-| Address pool | network count + 3 ≤ 32 | Decide on explicit `ipam` subnets or on freeing networks: a **separate** approval |
+| Address pool | network count + 3 ≤ 32 (VOID if `daemon.json` is unreadable or sets its own pools) | Decide on explicit `ipam` subnets or on freeing networks: a **separate** approval |
 | G1 state | none of the three private networks exists | Investigate before anything else |
 | Namespace sharing | non-zero inspected count, no `net=container:` | A G1 bypass exists today: report it, do not apply |
 | Containers | `authentik-server` and the three backends running and healthy | Fix that first |
 | Local backup | `LAST_RUN.json` status ok and under 26 h old | Wait for a clean run |
 | Off-host backup | `OFFHOST_LAST_RUN.json` ok and under 50 h old | Wait for a clean sync |
-| Rollback material | five files present, SHA-256 verified | Stage it again (precondition 3) |
-| E1 | 302 to the outpost sign-in start for all six | A backend answered unauthenticated: G1 failure |
+| Rollback material | five files present, each matching its own line in the `SHA256SUMS` staged with them (this proves the copy is intact, not that it matches production: the staging step does that) | Stage it again (precondition 3) |
+| E1 | for all six, `302` to `https://<same host>/outpost.goauthentik.io/start…` or to `https://auth.avrana.net/…` | A backend answered unauthenticated: G1 failure |
 | *(manual)* F10 | no user or group attribute named `additionalHeaders` in the Authentik admin UI | An identity-override path exists: report it |
 
 The script exits 0 only with no STOP and no VOID. A VOID (it could not read something) is not a pass.
