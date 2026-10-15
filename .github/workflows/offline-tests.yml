@@ -1,4 +1,5 @@
-# Offline tests and the content gate. Decision D-8 (Media 2.0 Sprint 1): prepared, not yet approved.
+# Offline tests and the content gate. Decision D-8 (Media 2.0 Sprint 1), amended by D-8a (owner, 2026-10-14).
+# Actions billing is blocked (2026-10-15): this workflow has not run on GitHub; local runs are the evidence.
 # Merging this file is the approval. It reads the repository and runs the standard-library suites;
 # it uses no secrets, has no network dependency beyond fetching the two pinned actions, Python and (D-8a,
 # owner 2026-10-14) one hash-pinned PyYAML wheel, and has no step that touches the host.
