@@ -613,6 +613,8 @@ the text equivalent of the progress as for Jellyfin.
 
 ### 11.6 Unverified upstream assumptions (every one)
 
+Every fixture file carries `_target_version` (Audiobookshelf 2.36, the version the contract says is deployed, not confirmed) and `_provenance`, which separates the shapes recalled from the public API documentation (not re-checked) from the SYNTHETIC assumptions below, and states that live compatibility is unproven. A test enforces both fields.
+
 1. Authentication is `Authorization: Bearer <token>` with an admin-capable API token or JWT, and that
    token can call the three routes below. (Which form 2.36 accepts is unknown.)
 2. `GET /api/users` returns `{"users": [ ... ]}` with `id`, `username`, `isActive` per user.
