@@ -84,7 +84,8 @@ class OfflineTestsWorkflow(unittest.TestCase):
     def test_only_the_d8a_hash_pinned_install_uses_pip(self):
         """D-8a (owner, 2026-10-14): one pip call, hash-pinned, binary-only, no dependencies, in the
         offline-tests job before the suites run. Nothing else may install or fetch a package."""
-        pip_lines = [l.strip() for l in self.code.splitlines() if re.search(r'(?<![\w-])pip(?![\w-])', l)]
+        pip_lines = [l.strip() for l in self.code.splitlines()
+                     if re.search(r'(?i)(?<![\w-])pip\d*(?![\w-])|PIP_', l)]
         self.assertEqual(pip_lines, [INSTALL])
         offline_job = self.code.split('\n  offline-tests:\n', 1)[1].split('\n  content-gate:\n', 1)
         self.assertIn(INSTALL, offline_job[0])
@@ -102,6 +103,8 @@ class OfflineTestsWorkflow(unittest.TestCase):
 
     def test_missing_pyyaml_fails_both_runs(self):
         self.assertRegex(self.code, r'(?m)^env:\n(?:  .*\n)*  AVRANA_REQUIRE_YAML: "1"\n')
+        # Exactly these two settings: a job- or step-level override (for example "0") would also match above.
+        self.assertEqual(self.code.count('AVRANA_REQUIRE_YAML'), 2)
         # sudo resets the environment, so the no-network run must pass the variable itself.
         self.assertRegex(self.code, r'sudo env "PATH=\$PATH" AVRANA_REQUIRE_YAML=1 unshare --net')
 
