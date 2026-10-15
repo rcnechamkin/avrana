@@ -88,6 +88,10 @@ def check_startup(*, enabled: bool, host: str, settings) -> _Checked:
         raise DevIdentityRefused("the development identity needs a loopback mock upstream URL")
     if settings.komga_base_url and not is_loopback_host(url_host(settings.komga_base_url) or ""):
         raise DevIdentityRefused("the development identity needs a loopback mock upstream URL")
+    if settings.calibre_web_base_url and not is_loopback_host(url_host(settings.calibre_web_base_url) or ""):
+        raise DevIdentityRefused("the development identity needs a loopback mock upstream URL")
+    if settings.calibre_web_credential not in ("", "viewer:" + MOCK_API_KEY):
+        raise DevIdentityRefused("the development identity refuses a non-mock upstream key")
     if settings.komga_token not in ("", MOCK_API_KEY):
         raise DevIdentityRefused("the development identity refuses a non-mock upstream key")
     if settings.audiobookshelf_token not in ("", MOCK_API_KEY):
