@@ -176,6 +176,51 @@ purchased-vs-Plus, selection, ASIN dedup, refresh-safe jobs, progress/polling, f
 one-time revocation, scheduled ask/auto scans, disconnect/reconnect, path-traversal, and the
 companion-privacy deployment invariants.
 
+`connector/tests/test_a11y.py` (S1-4 / AVR-359) renders every page state from the fake companion and checks
+the manual refresh control, headings, labels, `role="alert"` and `role="status"`, contrast, focus ring,
+44px targets, `color-scheme`, CSRF tokens and copy (no em or en dashes, no first person). It uses the
+stdlib helper `connector/tests/a11y_helpers.py` and the shared `style.css` is the only stylesheet. It is not
+run by the repository's `tests/run_offline.py` because it needs the packages above. From this directory,
+with a Python that has `connector/requirements.txt` plus `pytest` installed (`pyyaml` is needed only by
+`test_deploy_config.py`; the `companion` tests import `termios`, so they run on Linux or macOS only):
+
+```bash
+cd connector
+python -m pytest tests/test_a11y.py -q            # the accessibility and refresh checks
+python -m pytest tests -q                         # the whole connector suite
+```
+
+It is not a browser: layout, 200% text zoom and screen reader speech still need a manual pass.
+
+### Import progress page
+
+The page no longer reloads itself. It shows the current status in a `role="status"` line ("2 of 5 imported,
+1 failed, 2 still in progress.") and a **Refresh** button. In-place polling is deferred to Media 2.0 M3.
+
+**Loading the page changes nothing** (owner decision, 2026-10-15). `GET /contribute/audible/progress` only
+reads: it never dispatches, polls, finalises or revokes. **Refresh** is a CSRF-protected
+`POST /contribute/audible/progress/refresh`. It dispatches queued jobs, polls running ones and, in one-time
+mode, finishes the import (revokes the stored Audible authorization and records it) once every book the
+member chose is in. It answers with a `303` back to the page, so reloading never resubmits it; a second
+Refresh changes nothing the first did not. The background scheduler does the same work every five minutes,
+so an import still finishes when the browser is closed. When Refresh finishes a one-time import it shows the
+result itself (the connection is gone afterwards) and no further Refresh.
+
+**An empty choice finishes nothing.** Selecting no book is refused with "Choose at least one book to import.",
+and one-time mode cannot be chosen with nothing selected. Only books the member chose (they have a job) count
+towards "all done": books a scan found already in Avrana no longer do, so they alone can never revoke the
+authorization. A chosen book that turns out to be present still counts, so the one-time promise holds.
+
+**A failed book keeps the authorization.** A chosen book that failed counts as unfinished, so the import is
+not finished and the member can still **Retry** it (or disconnect themselves). Once the retried book is in,
+the next Refresh or scheduler pass finishes the import.
+
+**Finishing happens once.** Before revoking, the finisher claims the connection with one conditional update
+(`connected` to `finishing`). Overlapping Refreshes, or Refresh and the scheduler, therefore revoke and audit
+exactly once; the others do nothing. A failed revoke hands the claim back (with the sanitized failure), and a
+claim left by a process that stopped mid-revoke is released when the connector starts.
+`tests/test_once_lifecycle.py` covers the whole lifecycle, including CSRF and isolation between members.
+
 ### Credential-free UI walkthrough (mock companion)
 ```bash
 bash scripts/gen-secrets.sh

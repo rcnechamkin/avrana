@@ -2,16 +2,27 @@
 {% block title %}{{ brand }} · Import progress{% endblock %}
 {% block content %}
 {% if revoked %}
-<div class="alert notice">All selected books are in {{ brand }}. Your Audible account has been
+<div class="alert notice" role="status">All selected books are in {{ brand }}. Your Audible account has been
   disconnected and nothing was kept.</div>
 {% endif %}
 <h1>Import progress</h1>
 <p class="lede">You can leave this page and come back any time. Refreshing will not start anything
 twice.</p>
 
-<meta http-equiv="refresh" content="10">
+{% set total = rows|length %}
+{% set done = rows|selectattr('book_status', 'equalto', 'imported')|list|length %}
+{% set failed = rows|selectattr('book_status', 'equalto', 'failed')|list|length %}
+{% set active = total - done - failed %}
+<div class="rowbar">
+  <p class="status" id="import-status"{% if not revoked %} role="status"{% endif %}>{% if total == 0 %}Nothing is queued.{% else %}{{ done }} of {{ total }} imported{% if failed %}, {{ failed }} failed{% endif %}{% if active %}, {{ active }} still in progress{% endif %}.{% endif %}</p>
+  {% if not revoked %}<form method="post" action="/contribute/audible/progress/refresh" class="inline">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <button type="submit" class="ghost">Refresh</button>
+  </form>{% endif %}
+</div>
+{% if not revoked %}<p class="hint">This page does not update by itself. Select Refresh to check again; imports also carry on while you are away.</p>{% endif %}
 
-<ul class="progress">
+{% if rows %}<ul class="progress">
   {% for r in rows %}
   <li class="p-{{ r.book_status }}">
     <span class="pt">{{ r.title or r.asin }}</span>
@@ -31,10 +42,8 @@ twice.</p>
     {% if r.failure %}<span class="err">{{ r.failure }}</span>{% endif %}
     {% endif %}
   </li>
-  {% else %}
-  <li class="empty">Nothing queued.</li>
   {% endfor %}
-</ul>
+</ul>{% endif %}
 
 <div class="rowbar">
   <a href="/contribute/audible/library" class="ghost as-button">Back to library</a>

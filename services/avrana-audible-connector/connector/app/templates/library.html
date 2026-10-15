@@ -42,12 +42,14 @@ imported. Audible Plus titles and books already in {{ brand }} are shown but can
           {% else %}<span class="badge muted">Not purchased</span>{% endif %}
         </div>
       </div>
-      <div class="pick">
-        {% if b.eligibility == 'purchased' and b.status in ['available','review','selected','pending'] %}
+      {% if b.eligibility == 'purchased' and b.status in ['available','review','selected','pending'] %}
+      <label class="pick">
         <input type="checkbox" name="asin" value="{{ b.asin }}" {% if b.status == 'selected' %}checked{% endif %}
                aria-label="Select {{ b.title or b.asin }}">
-        {% endif %}
-      </div>
+      </label>
+      {% else %}
+      <div class="pick"></div>
+      {% endif %}
     </li>
     {% else %}
     <li class="empty">No books found yet. Try “Re-scan library”.</li>

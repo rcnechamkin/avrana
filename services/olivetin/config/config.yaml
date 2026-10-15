@@ -1,8 +1,8 @@
 # OliveTin - Avrana operations console. Admin-only, default-deny.
 #
 # Identity arrives as trusted headers from Authentik's embedded proxy outpost, which is the ONLY
-# thing that can reach this service (no host port is published, and the container sits on
-# authentik_frontend). The outpost strips any client-supplied X-authentik-* headers and sets its
+# thing that can reach this service (no host port is published, and the container sits on the
+# private network authentik_olivetin, shared with authentik-server only). The outpost strips any client-supplied X-authentik-* headers and sets its
 # own, so these values cannot be forged by a client.
 logLevel: INFO
 listenAddressSingleHTTPFrontend: 0.0.0.0:1337

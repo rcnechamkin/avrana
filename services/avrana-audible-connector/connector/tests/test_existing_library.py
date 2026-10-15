@@ -12,7 +12,7 @@ tests cover the connector's side of that contract.
 """
 from __future__ import annotations
 
-from helpers import connect, csrf, hdr
+from helpers import connect, csrf, hdr, refresh
 
 
 def _books(app):
@@ -71,7 +71,7 @@ def test_companion_skip_resolves_the_job_instead_of_hanging(client, app):
     client.post("/contribute/audible/mode",
                 data={"mode": "once", "csrf_token": csrf(app, "alice")},
                 headers=hdr("alice"), follow_redirects=False)
-    client.get("/contribute/audible/progress", headers=hdr("alice"))
+    refresh(client, app, "alice")
 
     assert _books(app)["B000000AA1"] == "already"
     job = [j for j in _jobs(app) if j["asin"] == "B000000AA1"][0]
@@ -89,7 +89,7 @@ def test_once_mode_still_revokes_when_every_pick_was_already_present(client, app
     client.post("/contribute/audible/mode",
                 data={"mode": "once", "csrf_token": csrf(app, "alice")},
                 headers=hdr("alice"), follow_redirects=False)
-    client.get("/contribute/audible/progress", headers=hdr("alice"))
+    refresh(client, app, "alice")
 
     assert len(app.state.companion.revoked) == 1
 
