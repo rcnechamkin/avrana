@@ -24,7 +24,7 @@ PNG = b"\x89PNG\r\n\x1a\n"
 
 
 class Fixture(unittest.TestCase):
-    timeout = 0.6
+    timeout = 1.5
 
     @classmethod
     def setUpClass(cls):

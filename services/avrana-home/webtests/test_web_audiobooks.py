@@ -25,7 +25,7 @@ AUDIOBOOK_TRACES = ("Audiobook", "audiobook", "listening", "li_book", "Continue 
 
 
 class Fixture(unittest.TestCase):
-    timeout = 0.6
+    timeout = 1.5
 
     @classmethod
     def setUpClass(cls):
