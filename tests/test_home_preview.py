@@ -156,6 +156,84 @@ class HomePreviewTests(unittest.TestCase):
             self.assertIn(f'viewBox="0 0 {w} {h}"', response.text)
         self.assertEqual({'poster', 'square', 'book', 'comic'}, {s['shape'] for s in fixtures.RECENT})
 
+    # ---- AVR-478: the account control and what each viewer may see -------------------------------
+    LIBRARY_WORDS = {'video': ('Watch', 'Movies and TV', 'movies and TV'),
+                     'audio': ('Listen', 'Audiobooks', 'audiobooks'),
+                     'comics': ('Comics', 'comics'),
+                     'books': ('Books', 'books')}
+
+    def test_the_account_control_is_the_same_short_menu_on_every_page(self):
+        for path in ('/', '/new'):
+            for state in fixtures.STATES:
+                with self.subTest(path=path, state=state):
+                    text = self.body(state, path)
+                    menu = text[text.index('<details class="account">'):text.index('</details>')]
+                    self.assertEqual(1, text.count('<details class="account">'))
+                    summary = re.sub(r'<span class="mono"[^>]*>.*?</span>', '', re.search(r'<summary>(.*?)</summary>', menu).group(1))
+                    self.assertEqual('Account, signed in as Ada Lovelace', re.sub(r'<[^>]+>', '', summary))
+                    self.assertIn('aria-hidden="true">A</span>', menu)   # the initial is decoration; the word names it
+                    self.assertEqual(['Account and security', 'Help', 'Sign out'], re.findall(r'<a [^>]*>([^<]+)</a>', menu))
+                    for never in ('@', 'avrana-', 'authentik', '/me', 'role="menu"', 'role="menuitem"'):
+                        self.assertNotIn(never, menu)
+                    # it comes before the wordmark and the places, so it is in the same place every time
+                    self.assertLess(text.index('<details class="account">'), text.index('class="places"'))
+
+    def test_signed_out_gets_sign_in_and_help_and_nothing_of_the_libraries(self):
+        for path in ('/', '/new'):
+            for state in fixtures.STATES:
+                with self.subTest(path=path, state=state):
+                    text = self.body(state, path, who='out')
+                    self.assertNotIn('<details', text)
+                    self.assertIn('>Sign in</a>', text)
+                    bar = text[text.index('<nav class="places"'):text.index('</nav>', text.index('<nav class="places"'))]
+                    self.assertEqual(['Help'], re.findall(r'<a [^>]*>([^<]+)</a>', bar))
+                    for words in self.LIBRARY_WORDS.values():
+                        for word in words:
+                            self.assertNotIn(word, text)
+                    self.assertNotIn('class="card"', text)
+                    visible = re.sub(r'<[^>]+>', ' ', text)
+                    for never in ('Request', 'Account and security', 'Continue', 'unavailable'):
+                        self.assertNotIn(never, visible)
+
+    def test_a_library_the_member_cannot_use_is_never_named_in_any_state(self):
+        for who, held in (('books', {'books'}), ('none', set())):
+            for path in ('/', '/new'):
+                for state in fixtures.STATES:
+                    with self.subTest(who=who, path=path, state=state):
+                        text = self.body(state, path, who=who)
+                        for library, words in self.LIBRARY_WORDS.items():
+                            if library in held:
+                                continue
+                            for word in words:
+                                self.assertNotIn(word, text)
+                        bar = text[text.index('<nav class="places"'):text.index('</nav>', text.index('<nav class="places"'))]
+                        expected = (['Read'] if held else []) + ['Request', 'Help']
+                        self.assertEqual(expected, re.findall(r'>([A-Z][a-z]+)<', bar))
+                        if not held:
+                            self.assertIn('No library is shared with this account yet.', text)
+                            self.assertNotIn('class="card"', text)
+        # the books member is told nothing about a service it cannot use being down
+        self.assertNotIn('class="banner"', self.body('degraded', who='books'))
+        self.assertNotIn('id="h-continue"', self.body('healthy', who='books'))   # Continue is video and audio only
+
+    def test_every_link_keeps_the_viewer(self):
+        for path in ('/', '/new'):
+            text = self.body('healthy', path, who='books')
+            for href in re.findall(r'href="(/(?:new)?\?[^"]*)"', text):
+                self.assertIn('who=books', href, href)
+
+    def test_account_controls_are_large_enough_and_never_hidden_behind_an_icon(self):
+        css = (ROOT / 'tests/ui/home_preview/static/home.css').read_text(encoding='utf-8')
+        summary = re.search(r'\.account summary \{([^}]*)\}', css).group(1)
+        self.assertIn('min-height: 2.75rem', summary)
+        self.assertIn('min-width: 2.75rem', summary)
+        self.assertIn('min-height: 2.75rem', re.search(r'\.menu a \{([^}]*)\}', css).group(1))
+        self.assertIn('max-width: calc(100vw - 2.5rem)', re.search(r'\.menu \{([^}]*)\}', css).group(1))
+
+    def test_unknown_viewers_are_not_found(self):
+        self.assertEqual(404, self.client.get('/', params={'who': 'admin'}).status_code)
+        self.assertEqual(404, self.client.get('/new', params={'who': ''}).status_code)
+
     def test_before_is_the_portal_from_git(self):
         response = self.client.get('/before')
         self.assertEqual(200, response.status_code)

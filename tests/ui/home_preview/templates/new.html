@@ -10,13 +10,10 @@
 </head>
 <body class="art-{{ art }}">
 {% import "_frame.html" as frame %}
-{{ frame.preview(states, state, art, '/new') }}
+{{ frame.preview(states, state, viewers, who, art, '/new') }}
 
 <a class="skip" href="#content">Skip to what is new</a>
-<header class="mast">
-  <p class="wordmark"><a href="/?state={{ state }}">AVRANA</a></p>
-  <div class="rule"></div>
-</header>
+{{ frame.mast(q, signed_in, member_name, initial, account_menu, false) }}
 {{ frame.places(nav) }}
 
 {# Browsing is its own page: everything new in one library at a time, behind the same tabs. #}
@@ -24,16 +21,20 @@
   {% if notice %}
   <p class="banner" role="status">{{ notice }}</p>
   {% endif %}
+  {% if no_library %}
+  <h1 class="section">New this week</h1>
+  {{ frame.nothing_to_show(signed_in) }}
+  {% else %}
   <section class="shelf" aria-labelledby="h-new">
     <h1 id="h-new" class="section">New this week</h1>
     {% if tabs %}
     <nav class="tabs" aria-label="New, by library">
       {% for key, name in tabs %}
-      <a href="/new?state={{ state }}&amp;lib={{ key }}"{% if key == lib %} aria-current="true"{% endif %}>{{ name }}</a>
+      <a href="/new?{{ q }}&amp;lib={{ key }}"{% if key == lib %} aria-current="true"{% endif %}>{{ name }}</a>
       {% endfor %}
     </nav>
     {% endif %}
-    {% if said %}<p class="said"{% if wait %} role="status"{% endif %}>{{ said }}{% if wait %} <a class="link" href="/new?state={{ state }}&amp;lib={{ lib }}">Try again</a>{% endif %}</p>{% endif %}
+    {% if said %}<p class="said"{% if wait %} role="status"{% endif %}>{{ said }}{% if wait %} <a class="link" href="/new?{{ q }}&amp;lib={{ lib }}">Try again</a>{% endif %}</p>{% endif %}
     {% if items %}
     <ul class="wall">
       {% for item in items %}{{ frame.card(item, state) }}{% endfor %}
@@ -41,11 +42,13 @@
     <p class="more"><a class="link" href="/stop?to={{ all | urlencode }}">{{ all }}</a></p>
     {% endif %}
   </section>
-  <p class="more"><a class="link" href="/?state={{ state }}">Back to the home page</a></p>
+  {% endif %}
+  <p class="more"><a class="link" href="/?{{ q }}">Back to the home page</a></p>
 </main>
 
 <footer>
-  <a class="link" href="/stop?to=Account">Account and sign&#8209;in</a>
+  {% if signed_in %}<a class="link" href="/stop?to=Account%20and%20security">Account and security</a>{% endif %}
+  <a class="link" href="/stop?to=Help">Help</a>
 </footer>
 </body>
 </html>

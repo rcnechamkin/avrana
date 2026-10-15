@@ -29,7 +29,7 @@ const inspect = () => {
   const lum = (c) => { const [r, g, b] = c.match(/[\d.]+/g).slice(0, 3).map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
   const ground = (el) => { for (let n = el; n; n = n.parentElement) { const bg = getComputedStyle(n).backgroundColor; if (!/rgba\(.*, 0\)|transparent/.test(bg)) return bg; } return 'rgb(0,0,0)'; };
   const out = { sideways: document.documentElement.scrollWidth > innerWidth + 1, scripts: document.scripts.length, small: [], faint: [], noAlt: [], headings: [], h1: document.querySelectorAll('h1').length };
-  for (const el of document.querySelectorAll('main a, footer a, .mast a, .places a, .preview a')) {
+  for (const el of document.querySelectorAll('main a, footer a, .mast a, .mast summary, .menu a, .places a, .preview a')) {
     const r = el.getBoundingClientRect();
     if (r.width && (r.height < 43.5 || r.width < 43.5)) out.small.push(`${el.textContent.trim().slice(0, 30)} ${Math.round(r.width)}x${Math.round(r.height)}`);
   }
@@ -78,7 +78,8 @@ try {
       if (tag === 'phone' && state === 'healthy' && !seen.rails.every(Boolean)) fail(where, 'a rail does not scroll inside itself on a phone');
       if (tag === 'desktop' && seen.rails.some(Boolean)) fail(where, 'a rail scrolls on a wide screen');
       // every Tab stop shows the two-ring focus mark
-      const stops = await page.locator('a[href]').count();
+      // links and the account control, counting only what is rendered (a closed menu's links are not)
+      const stops = await page.evaluate(() => [...document.querySelectorAll('a[href], summary')].filter((el) => el.getClientRects().length && !el.closest('details:not([open]) > :not(summary)')).length);
       for (let i = 0; i < stops; i++) {
         await page.keyboard.press('Tab');
         const mark = await page.evaluate(() => { const el = document.activeElement; return el === document.body ? 'body' : getComputedStyle(el).boxShadow; });
@@ -124,6 +125,48 @@ try {
     if (seen.cards.some((n) => n > 4)) fail('healthy small phone', `a row has more than four things: ${seen.cards}`);
     if (seen.sideways) fail('healthy small phone', 'the page scrolls sideways');
     console.log(`checked healthy small phone: places end at ${Math.max(...seen.places.map(([, y]) => y))}px, page ${seen.height}px, rows of ${seen.cards.join(' and ')}`);
+    await context.close();
+  }
+  // The account control (AVR-478), at 360 by 640 and for every viewer: found by its word, large enough,
+  // opened and closed from the keyboard with no script, focus kept on it, the menu inside the screen.
+  {
+    const context = await browser.newContext({ viewport: { width: 360, height: 640 }, deviceScaleFactor: 2, hasTouch: true, baseURL: base, javaScriptEnabled: false });
+    const page = await context.newPage();
+    for (const who of ['member', 'books', 'none', 'out']) {
+      for (const state of ['healthy', 'degraded', 'unavailable']) {
+        const where = `account, ${who}, ${state}, small phone`;
+        await page.goto(`/?state=${state}&who=${who}`);
+        const seen = await page.evaluate(inspect);
+        if (seen.sideways) fail(where, 'the page scrolls sideways');
+        for (const s of seen.small) fail(where, `target under 44px: ${s}`);
+        for (const s of seen.faint) fail(where, `text under 4.5:1: ${s}`);
+        const summary = page.locator('.account summary');
+        if (who === 'out') {
+          if (await summary.count()) fail(where, 'an account control without a member');
+          if (!(await page.locator('.mast a', { hasText: 'Sign in' }).count())) fail(where, 'no Sign in');
+          continue;
+        }
+        await summary.focus();
+        await page.keyboard.press('Enter');
+        const open = await page.evaluate(() => {
+          const d = document.querySelector('.account'), m = d.querySelector('.menu').getBoundingClientRect();
+          return { open: d.open, focus: document.activeElement.tagName, left: m.left, right: m.right,
+                   links: [...d.querySelectorAll('.menu a')].map((a) => [a.textContent.trim(), Math.round(a.getBoundingClientRect().height)]) };
+        });
+        if (!open.open) fail(where, 'Enter did not open the account menu');
+        if (open.focus !== 'SUMMARY') fail(where, `focus moved to ${open.focus} on opening`);
+        if (open.left < 0 || open.right > 360) fail(where, `the menu leaves the screen (${Math.round(open.left)} to ${Math.round(open.right)})`);
+        if (open.links.map(([n]) => n).join('|') !== 'Account and security|Help|Sign out') fail(where, `menu is ${open.links.map(([n]) => n)}`);
+        for (const [n, h] of open.links) if (h < 44) fail(where, `${n} is ${h}px high`);
+        await page.keyboard.press('Tab');
+        if ((await page.evaluate(() => document.activeElement.textContent.trim())) !== 'Account and security') fail(where, 'Tab from the open control does not reach the first menu item');
+        await summary.focus();
+        await page.keyboard.press('Space');
+        if (await page.evaluate(() => document.querySelector('.account').open)) fail(where, 'Space did not close the account menu');
+        if (state === 'healthy') await page.screenshot({ path: path.join(outdir, `account-${who}-small-phone.png`), fullPage: false });
+      }
+      console.log(`checked account control for ${who}`);
+    }
     await context.close();
   }
   // 200% text: the root size doubled, at phone width

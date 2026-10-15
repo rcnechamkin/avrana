@@ -23,7 +23,7 @@ desktop, every state), and the same pages are one click apart in the browser:
 ## What changed for a member
 
 - **The places come first.** Watch, Listen, Read, Request and Help are one ruled bar directly
-  under the wordmark, on every page. On a 360 by 640 phone the bar ends 140px into the page. The
+  under the wordmark, on every page. On a 360 by 640 phone the bar ends 178px into the page, below the account control. The
   first version of this preview put them under six shelves, more than 2,200px down; that is what the owner
   rejected.
 - **Continue** is one row of at most four, whatever library each was left in: wide stills and
@@ -34,7 +34,7 @@ desktop, every state), and the same pages are one click apart in the browser:
   artwork shape: 2:3 posters, square audiobook covers, 2:3 books, 13:20 comics.
 - **Browsing has its own page.** `/new` holds everything new in one library at a time, behind the
   same tabs, with the same bar of places above it.
-- The home page is 854px tall at 360 by 640 (the first version: 2,994px). On a phone a row scrolls
+- The home page is 892px tall at 360 by 640 (the first version: 2,994px). On a phone a row scrolls
   sideways inside itself with part of the next cover showing; the page never does.
 - Every target is at least 44px, and every Tab stop shows the two-ring focus mark.
 - The five navigation tiles are gone from the home page: the bar does their work in one line.
@@ -67,7 +67,34 @@ page.
 The preview's drawn covers are tinted so that question 3 can be judged; real artwork is brighter
 and more varied than these.
 
+## Account and shared navigation (AVR-478, proposed)
+
+The same top of the page on Home and `/new`, for every viewer. Switch viewers in the preview bar
+(`?who=books`, `?who=none`, `?who=out`).
+
+| Part | Behaviour |
+|---|---|
+| Account control | Top right on every page, before the wordmark in the reading order. A square initial and the word **Account**; its name to a screen reader is "Account, signed in as" and the member's display name. No photograph, icon, email, access group or technical detail. |
+| Account menu | A native disclosure (`details`): Signed in as the name, then **Account and security**, **Help**, **Sign out**. Nothing unfinished: no My Avrana or profile link until M4 ships one. Plain links, not an ARIA menu, so Tab moves through them as on the rest of the page. |
+| Opening and closing | Mouse, touch, Enter and Space open and close it with no script. Focus stays on the control; Tab from the open control reaches the first item. **Escape and a tap outside do not close it**: that needs a few lines of script, which the page's policy forbids today (owner decision below). |
+| Places bar | Only places this member can use. A library the member cannot use has no place, tab, item or notice at all; a library that is down is struck through and said once. Read stays when either books or comics is usable. |
+| Continue | Shown only to a member who can use video or audio, the two libraries that have progress. |
+| No library yet | Request and Help in the bar, and one sentence: "No library is shared with this account yet. Ask the person who invited you, or read Help." |
+| Signed out | What a request without a verified identity would get: Help in the bar, **Sign in** where the account control was, and nothing about any library. (In production the outpost signs people in before any page; this is the fail-closed fallback.) |
+| Footer | Account and security (signed in) and Help, so both are reachable without opening the menu. |
+| Targets and focus | Every control at least 44 by 44px, the two-ring focus mark on every Tab stop, the menu inside a 360px screen and at 200% text. Checked by `check.mjs` for every viewer. |
+
+Active page: the places bar holds destinations in other apps, so on Home nothing in it is current;
+the `/new` tabs mark the library on screen with `aria-current`. Help and Account will mark
+themselves the same way when the shell (AVR-374) serves them.
+
+### Owner decision
+
+| # | Question | Shown | Alternative |
+|---|---|---|---|
+| 8 | Escape and tap-outside to close the account menu | not supported: no script on the page, so the policy stays `script-src` none | a small first-party script for Escape, outside tap and returning focus, which needs a CSP change |
+
 ## Not shown, not decided
 
-Search, title pages, request links, the real adapters, caching, per-member identity and the
-group gating of each shelf are outside this preview (M3.2 to M3.5 in Media 2.0).
+Search, title pages, request links, the real adapters, caching and real identity (the preview's
+viewers are fixtures) are outside this preview (M3.2 to M3.5 in Media 2.0).

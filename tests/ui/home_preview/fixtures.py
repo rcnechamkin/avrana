@@ -17,6 +17,18 @@ STATES = {
     "unavailable": "Libraries unavailable",
 }
 
+# Who is looking (AVR-478). The invented member's libraries decide which places, tabs and items exist at
+# all: a library the member cannot use is never named, struck through or counted. "out" is the page a
+# request without a verified identity would get: no member content, a way to sign in, and Help.
+VIEWERS = {
+    "member": {"label": "Every library", "name": "Ada Lovelace", "held": {"video", "audio", "books", "comics"}},
+    "books": {"label": "Books only", "name": "Ada Lovelace", "held": {"books"}},
+    "none": {"label": "No library yet", "name": "Ada Lovelace", "held": set()},
+    "out": {"label": "Signed out", "name": None, "held": set()},
+}
+# The account menu: short, and only places that exist. No email, groups or technical data (AVR-478).
+ACCOUNT_MENU = [("Account and security", "Account and security"), ("Help", "Help"), ("Sign out", "Sign out")]
+
 # shape -> (width, height) of the drawn cover. Each library keeps the shape its own app uses.
 SHAPES = {"still": (320, 180), "poster": (200, 300), "square": (300, 300), "book": (200, 300), "comic": (195, 300)}
 
@@ -75,8 +87,9 @@ def _lower(name: str) -> str:
     return name[0].lower() + name[1:]
 
 
-def _state(state: str):
-    """One preview state: each library's status (ok, slow, gone), the notice, and what there is."""
+def _state(state: str, held=frozenset(LIBRARY_NAMES)):
+    """One preview state: each library's status (ok, slow, gone, or absent when the member cannot use
+    it), the notice, and what there is. An absent library is never said to be down."""
     status = {"video": "ok", "audio": "ok", "books": "ok", "comics": "ok"}
     notice = None
     watching, listening = CONTINUE_WATCHING, CONTINUE_LISTENING
@@ -88,18 +101,34 @@ def _state(state: str):
         recent = [dict(shelf, items=[]) if shelf["key"] == "audio" else shelf for shelf in RECENT]
     elif state == "degraded":
         status["video"] = "gone"
-        notice = f"{GONE['video']} Everything else works."
+        if "video" in held:
+            notice = f"{GONE['video']} Everything else works."
     elif state == "unavailable":
         status = dict.fromkeys(status, "gone")
-        notice = "The libraries are offline this evening for maintenance. Help and your account still work."
+        if held:
+            notice = "The libraries are offline this evening for maintenance. Help and your account still work."
+    for key in status:
+        if key not in held:
+            status[key] = "absent"
     return status, notice, watching, listening, recent
 
 
 def _nav(status: dict) -> list[tuple[str, str | None, bool]]:
-    """The bar of places. Read needs books or comics; Request and Help need no library."""
+    """The bar of places. Read needs books or comics; Request and Help need no library. A place for a
+    library the member cannot use is left out altogether, not struck through."""
+    read = [status[k] for k in ("books", "comics") if status[k] != "absent"]
+    held = {"video": status["video"] != "absent", "audio": status["audio"] != "absent", "books": bool(read)}
     up = {"video": status["video"] != "gone", "audio": status["audio"] != "gone",
-          "books": status["books"] != "gone" or status["comics"] != "gone"}
-    return [(label, key, True if key is None else up[key]) for label, key in PLACES]
+          "books": any(s != "gone" for s in read)}
+    return [(label, key, True if key is None else up[key]) for label, key in PLACES if key is None or held[key]]
+
+
+def viewer(who: str) -> dict:
+    """The identity part of every page: the name for the account menu (never an email) and initial."""
+    v = VIEWERS[who]
+    name = v["name"]
+    return {"who": who, "signed_in": name is not None, "member_name": name,
+            "initial": name[0].upper() if name else "", "account_menu": ACCOUNT_MENU if name else []}
 
 
 def _new(shelf: dict, slug: str, title: str, line: str, all_tab: bool) -> dict:
@@ -107,10 +136,11 @@ def _new(shelf: dict, slug: str, title: str, line: str, all_tab: bool) -> dict:
     return {"slug": slug, "title": title, "line": shelf["name"] if all_tab else line, "shape": shelf["shape"]}
 
 
-def page(state: str, tab: str = "all") -> dict:
+def page(state: str, tab: str = "all", who: str = "member") -> dict:
     """What Home shows in one preview state: the places, one Continue row, one bounded New row."""
-    status, notice, watching, listening, recent = _state(state)
-    all_gone = all(v == "gone" for v in status.values())
+    status, notice, watching, listening, recent = _state(state, VIEWERS[who]["held"])
+    mine = [v for v in status.values() if v != "absent"]
+    all_gone = bool(mine) and all(v == "gone" for v in mine)
     # Continue: video and audio mixed, the most recent of each first, never more than CONTINUE_MOST.
     mixed = []
     for i in range(max(len(watching), len(listening))):
@@ -120,7 +150,7 @@ def page(state: str, tab: str = "all") -> dict:
             mixed.append(dict(listening[i], shape="square", verb="heard", line=listening[i]["left"].split(", ")[-1]))
     slow = [SLOW[key] for key in ("video", "audio") if status[key] == "slow"]
     # New this week: a tab for each library whose service answers at all; "All" is the newest of each.
-    shelves = [shelf for shelf in recent if status[shelf["key"]] != "gone"]
+    shelves = [shelf for shelf in recent if status[shelf["key"]] not in ("gone", "absent")]
     tabs = [("all", "All")] + [(shelf["key"], shelf["name"]) for shelf in shelves]
     if tab not in dict(tabs):
         tab = "all"
@@ -142,21 +172,30 @@ def page(state: str, tab: str = "all") -> dict:
         else:
             items = [_new(shelf, *item, False) for item in shelf["items"][:NEW_MOST]]
         more = f"Everything new in {_lower(shelf['name'])}"
-    return {"status": status, "notice": notice, "all_gone": all_gone, "nav": _nav(status),
+    # Continue holds video and audio only, so it is shown only to a member who can use one of them.
+    resumable = any(status[k] != "absent" for k in ("video", "audio"))
+    return {**viewer(who), "no_library": not mine, "resumable": resumable,
+            "status": status, "notice": notice, "all_gone": all_gone, "nav": _nav(status) if VIEWERS[who]["name"] else [("Help", None, True)],
             "continue_items": mixed[:CONTINUE_MOST], "continue_slow": slow,
             "new_tabs": tabs, "new_tab": tab, "new_items": items[:NEW_MOST], "new_said": said, "new_wait": wait,
             "new_more": more}
 
 
-def new_page(state: str, lib: str = "") -> dict:
+def new_page(state: str, lib: str = "", who: str = "member") -> dict:
     """The New page: everything new in one library at a time. No "All" here: this is the long list."""
-    status, notice, _, _, recent = _state(state)
-    shelves = [shelf for shelf in recent if status[shelf["key"]] != "gone"]
+    status, notice, _, _, recent = _state(state, VIEWERS[who]["held"])
+    mine = [key for key, v in status.items() if v != "absent"]
+    shelves = [shelf for shelf in recent if status[shelf["key"]] not in ("gone", "absent")]
     tabs = [(shelf["key"], shelf["name"]) for shelf in shelves]
-    base = {"status": status, "notice": notice, "nav": _nav(status), "tabs": tabs, "lib": "", "items": [],
+    base = {**viewer(who), "no_library": not mine,
+            "status": status, "notice": notice, "nav": _nav(status) if VIEWERS[who]["name"] else [("Help", None, True)], "tabs": tabs, "lib": "", "items": [],
             "said": "", "wait": False, "all": ""}
+    if not mine:
+        return base
     if not shelves:
-        return dict(base, said="Movies and TV, audiobooks, books and comics are unavailable right now.")
+        names = [_lower(LIBRARY_NAMES[key]) for key in mine]  # every library name is plural
+        listed = names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
+        return dict(base, said=listed[0].upper() + listed[1:] + " are unavailable right now.")
     shelf = next((shelf for shelf in shelves if shelf["key"] == lib), shelves[0])
     base.update(lib=shelf["key"], all=shelf["all"])
     if status[shelf["key"]] == "slow":

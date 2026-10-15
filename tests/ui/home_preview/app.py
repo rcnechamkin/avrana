@@ -42,23 +42,26 @@ async def headers(request: Request, call_next):
     return response
 
 
-@app.get("/", response_class=HTMLResponse)
-def home(request: Request, state: str = "healthy", art: str = "colour", new: str = "all"):
-    if state not in fixtures.STATES:
+def _common(state: str, art: str, who: str) -> dict:
+    """What every page needs to keep the preview's switches: the state, the viewer and the artwork."""
+    if state not in fixtures.STATES or who not in fixtures.VIEWERS:
         raise HTTPException(404)
-    art = "mono" if art == "mono" else "colour"
-    return templates.TemplateResponse(request, "home.html", {
-        "state": state, "states": fixtures.STATES, "art": art, **fixtures.page(state, new)})
+    q = f"state={state}" + ("" if who == "member" else f"&who={who}")
+    return {"state": state, "states": fixtures.STATES, "viewers": fixtures.VIEWERS,
+            "art": "mono" if art == "mono" else "colour", "q": q}
+
+
+@app.get("/", response_class=HTMLResponse)
+def home(request: Request, state: str = "healthy", art: str = "colour", new: str = "all", who: str = "member"):
+    common = _common(state, art, who)
+    return templates.TemplateResponse(request, "home.html", {**common, **fixtures.page(state, new, who)})
 
 
 @app.get("/new", response_class=HTMLResponse)
-def new(request: Request, state: str = "healthy", art: str = "colour", lib: str = ""):
+def new(request: Request, state: str = "healthy", art: str = "colour", lib: str = "", who: str = "member"):
     """Everything new, one library at a time: browsing has a page of its own, off the home page."""
-    if state not in fixtures.STATES:
-        raise HTTPException(404)
-    art = "mono" if art == "mono" else "colour"
-    return templates.TemplateResponse(request, "new.html", {
-        "state": state, "states": fixtures.STATES, "art": art, **fixtures.new_page(state, lib)})
+    common = _common(state, art, who)
+    return templates.TemplateResponse(request, "new.html", {**common, **fixtures.new_page(state, lib, who)})
 
 
 @app.get("/art/{shape}/{slug}.svg")
