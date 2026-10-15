@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<meta name="color-scheme" content="dark">
+<title>{% if item %}{{ item.title }} · {% endif %}Avrana</title>
+<link rel="stylesheet" href="/static/home.css">
+</head>
+<body class="art-{{ art }}">
+{% import "_frame.html" as frame %}
+{{ frame.preview(states, state, viewers, who, art, '/title/' ~ slug) }}
+
+<a class="skip" href="#content">Skip to the title</a>
+{{ frame.mast(q, signed_in, member_name, initial, account_menu, false) }}
+{{ frame.places(nav) }}
+
+{# A title page (AVR-426, for M3.5). In this order: the title, its one action, where the member is in
+   it when the library says so, what it is about, then the smaller facts and where it lives. The action
+   opens the library's own app at this title; the page never says that anything is playing. #}
+<main id="content">
+  {% if notice %}
+  <p class="banner" role="status">{{ notice }}</p>
+  {% endif %}
+  {% if item %}
+  <article class="title-page w-{{ item.shape }}" aria-labelledby="h-title">
+    <img class="art" src="/art/{{ item.shape }}/{{ item.slug }}.svg" alt="" width="200">
+    <div class="about">
+      <h1 id="h-title" class="headline">{{ item.title }}</h1>
+      <p class="d">{{ item.sub }}</p>
+      <p class="act"><a class="button" href="/stop?to={{ item.title | urlencode }}">{{ item.action }}</a></p>
+      {% if item.done is not none %}
+      <div class="where">
+        <progress max="100" value="{{ item.done }}" aria-label="{{ item.done }} percent {{ item.verb }}"></progress>
+        <p class="d">{{ item.progress }}</p>
+      </div>
+      {% endif %}
+      {% if item.about %}<p class="synopsis">{{ item.about }}</p>{% endif %}
+      <dl class="facts">
+        {% for name, value in item.facts %}<div><dt>{{ name }}</dt><dd>{{ value }}</dd></div>{% endfor %}
+      </dl>
+    </div>
+  </article>
+  {% else %}
+  {# The library did not answer: no title, no action, no guess. #}
+  <h1 class="section">{{ lib_name }}</h1>
+  <p class="said" role="status">{{ said }}{% if wait %} <a class="link" href="?{{ q }}">Try again</a>{% endif %}</p>
+  {% endif %}
+  <p class="more"><a class="link" href="/?{{ q }}">Back to the home page</a></p>
+</main>
+
+<footer>
+  {% if signed_in %}<a class="link" href="/stop?to=Account%20and%20security">Account and security</a>{% endif %}
+  <a class="link" href="/stop?to=Help">Help</a>
+</footer>
+</body>
+</html>

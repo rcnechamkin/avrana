@@ -155,3 +155,55 @@ progress::-moz-progress-bar { background: var(--paper); }
 @media (min-width: 45rem) { .wall { grid-template-columns: repeat(6, minmax(0, 1fr)); } }
 
 footer { display: flex; justify-content: center; gap: 1.625rem; flex-wrap: wrap; padding-bottom: 2.5rem; }
+
+/* ---- Search (AVR-426): one field and a button, results as ruled rows ---- */
+.search { display: flex; flex-direction: column; gap: 0.5rem; }
+.search label { font-size: 0.92rem; }
+.ask { display: flex; gap: 0.5rem; }
+.ask input {
+  flex: 1; min-width: 0; min-height: 3rem; padding: 0.75rem 0.875rem; font: inherit; color: var(--paper);
+  background: var(--ink); border: 1px solid var(--rule-control); border-radius: 0; appearance: none;
+}
+.ask input:focus-visible { border-color: var(--paper); }
+.ask input:disabled, .ask button:disabled { color: var(--ash); border-color: var(--rule-quiet); background: var(--ink); cursor: not-allowed; }
+.hint { margin: 0; color: var(--ash); font-size: 0.92rem; }
+.button, .ask button {
+  display: inline-flex; align-items: center; justify-content: center; min-height: 2.75rem; min-width: 2.75rem;
+  padding: 0.75rem 1.25rem; font: inherit; text-decoration: none; cursor: pointer; border-radius: 0;
+  background: var(--paper); color: var(--ink); border: 1px solid var(--paper); transition: background-color 160ms ease, color 160ms ease;
+}
+.button:hover, .ask button:enabled:hover { background: var(--ink); color: var(--paper); }
+.found { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.5rem; }
+h3 { margin: 0; font-weight: 400; font-size: 1.35rem; line-height: 1.2; letter-spacing: 0.04em; }
+/* A result row: the cover in its library's shape at a fixed width, then the words, the whole row one link. */
+.rows { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--rule-quiet); }
+.rows > li { border-bottom: 1px solid var(--rule-quiet); }
+.row { display: flex; gap: 1rem; align-items: center; min-height: 2.75rem; padding: 0.75rem 0; text-decoration: none; color: var(--paper); }
+.row .art { flex: none; width: 3.75rem; }
+.w-still .row .art, .w-square .row .art { width: 3.75rem; }
+.row .meta { display: flex; flex-direction: column; gap: 0.125rem; min-width: 0; }
+.row:hover .t { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 0.2em; }
+.row:hover .art { border-color: var(--paper); }
+@media (max-width: 35rem) { .row .art { width: 3rem; } }
+
+/* ---- Title page (AVR-426): the cover beside the words where there is room, above them on a phone ---- */
+.title-page { display: grid; grid-template-columns: minmax(0, 11rem) minmax(0, 1fr); gap: 1.5rem; align-items: start; }
+.title-page.w-square, .title-page.w-still { grid-template-columns: minmax(0, 13rem) minmax(0, 1fr); }
+.about { display: flex; flex-direction: column; gap: 0.75rem; min-width: 0; }
+.about .headline { overflow-wrap: anywhere; }
+.about .d { margin: 0; }
+.act { margin: 0.25rem 0 0; }
+.where { display: flex; flex-direction: column; gap: 0.375rem; max-width: 20rem; }
+.synopsis { margin: 0; max-width: 34rem; }
+.facts { margin: 0; display: grid; gap: 0.25rem; font-size: 0.92rem; border-top: 1px solid var(--rule-quiet); padding-top: 0.75rem; }
+.facts div { display: flex; gap: 0.75rem; }
+.facts dt { color: var(--ash); min-width: 5rem; }
+.facts dd { margin: 0; overflow-wrap: anywhere; }
+@media (max-width: 35rem) {
+  .title-page, .title-page.w-square, .title-page.w-still { grid-template-columns: minmax(0, 1fr); }
+  /* small enough that the title and its action are on the first screen of a phone */
+  .title-page { gap: 1rem; }
+  .title-page .art { width: 6.5rem; }
+  .title-page.w-still .art, .title-page.w-square .art { width: 8.5rem; }
+  .act .button { width: 100%; }
+}

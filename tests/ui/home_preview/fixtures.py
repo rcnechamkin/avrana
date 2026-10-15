@@ -306,7 +306,7 @@ def search_page(state: str, query: str = "", who: str = "member") -> dict:
                                                "Try again later, or read Help."])
     said = []
     if gone:
-        said.append(f"{_listed(gone)} could not be searched: unavailable right now.")
+        said.append(f"{_listed(gone)} were not searched, because they are unavailable right now.")
     if slow:
         said.append(f"{_listed(slow)} are taking longer than usual, so nothing from them is shown yet.")
     if not query:
@@ -333,13 +333,22 @@ def title_page(state: str, slug: str, who: str = "member") -> dict | None:
     status, notice, *_ = _state(state, held)
     lib = t["lib"]
     base = {**viewer(who), "no_library": False, "status": status, "notice": notice, "nav": _nav(status),
-            "lib_name": LIBRARY_NAMES[lib], "item": None, "said": "", "wait": False}
+            "slug": slug, "lib_name": LIBRARY_NAMES[lib], "item": None, "said": "", "wait": False}
     if status[lib] == "gone":
-        return dict(base, said=f"{GONE[lib]} This title will be here when they are back.")
+        # said once: the page's own sentence replaces the notice that says the same thing
+        return dict(base, notice=None, said=f"{GONE[lib]} This title will be here when they are back.")
     if status[lib] == "slow":
         return dict(base, said=SLOW[lib], wait=True)
     resume = "done" in t and state != "empty"
-    item = dict(t, kind=KIND[lib], about=ABOUT.get(slug, ""),
+    line = t["line"]
+    if lib in ("audio", "books"):
+        sub, facts = f"{KIND[lib]} by {line}", [("Author", line)]
+    elif line.startswith("Episode"):
+        sub, facts = f"Series, {line}", []
+    else:
+        year = line.split(", ")[-1]
+        sub, facts = f"{KIND[lib]}, {year}", [("Year", year)]
+    item = dict(t, sub=sub, facts=[("Library", LIBRARY_NAMES[lib])] + facts, about=ABOUT.get(slug, ""),
                 action=RESUME[lib] if resume else ACTION[lib],
                 progress=(t["left"] if resume else ""), done=(t["done"] if resume else None),
                 verb="watched" if lib == "video" else "heard")

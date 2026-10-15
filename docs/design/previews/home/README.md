@@ -63,6 +63,8 @@ page.
 | 5 | Continue as one mixed row | stills and square covers in one row of four (decided, AVR-431) | one row per library (the rejected first version) |
 | 7 | A struck-through place when its service is down | the word stays in the bar, struck through, not a link | remove it from the bar |
 | 6 | Wording of the slow, empty and all-down sentences | as written in `fixtures.py` and `home.html` | owner's wording |
+| 9 | Where Search starts on Home (AVR-426) | not on Home yet: the preview bar's "Search" link opens `/search`; the approved Home is unchanged | a "Search" word at the end of the bar of places, or a field under it |
+| 10 | Width of the browsing pages | the 720px column of Home for Search and title pages | a wider Browse shell, which needs its own type sizes |
 
 The preview's drawn covers are tinted so that question 3 can be judged; real artwork is brighter
 and more varied than these.
@@ -94,7 +96,26 @@ themselves the same way when the shell (AVR-374) serves them.
 |---|---|---|---|
 | 8 | Escape and tap-outside to close the account menu | not supported: no script on the page, so the policy stays `script-src` none | a small first-party script for Escape, outside tap and returning focus, which needs a CSP change |
 
+## Search and title pages (AVR-426, proposed)
+
+Specified in [DESIGN.md, Media components](../../DESIGN.md#media-components), with every state's
+sentence. Open them from the preview bar; they keep the state and viewer switches.
+
+| Page | Address | What a member sees |
+|---|---|---|
+| Search | `/search?q=the` | one labelled field and a Search button; results grouped by library, each row saying "In" and its library; a count in words |
+| Nothing found | `/search?q=zzzz` | "Nothing called "zzzz" in your libraries. Check the spelling, or ask for it with Request." The same for a title in a library the member cannot use |
+| Search, one library down | `/search?q=the&state=degraded` | the other libraries' results, and "Movies and TV were not searched, because they are unavailable right now." |
+| Title page | `/title/nosferatu` | the title, one action ("Resume in Movies and TV"), how far along, one sentence about it, then Library and Year |
+| Title page, library down | `/title/metropolis?state=degraded` | the sentence, said once, and no action |
+| A title the member cannot use | `/title/metropolis?who=books` | Not Found, the same as a title that does not exist |
+
+New cards now open a title page; Continue cards still hand off to the library at the place the
+member stopped. `check.mjs` checks both pages in every state at 360, 390 and 1280px, including a
+focus ring at the field and the button and, on a phone, the action on the first screen.
+
 ## Not shown, not decided
 
-Search, title pages, request links, the real adapters, caching and real identity (the preview's
-viewers are fixtures) are outside this preview (M3.2 to M3.5 in Media 2.0).
+Request links, the real adapters, caching and real identity (the preview's viewers are fixtures)
+are outside this preview (M3.2 to M3.5 in Media 2.0). Search and title pages run on fixtures, not
+on any library's API.

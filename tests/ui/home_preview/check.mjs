@@ -29,7 +29,7 @@ const inspect = () => {
   const lum = (c) => { const [r, g, b] = c.match(/[\d.]+/g).slice(0, 3).map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
   const ground = (el) => { for (let n = el; n; n = n.parentElement) { const bg = getComputedStyle(n).backgroundColor; if (!/rgba\(.*, 0\)|transparent/.test(bg)) return bg; } return 'rgb(0,0,0)'; };
   const out = { sideways: document.documentElement.scrollWidth > innerWidth + 1, scripts: document.scripts.length, small: [], faint: [], noAlt: [], headings: [], h1: document.querySelectorAll('h1').length };
-  for (const el of document.querySelectorAll('main a, footer a, .mast a, .mast summary, .menu a, .places a, .preview a')) {
+  for (const el of document.querySelectorAll('main a, main button, main input:not([type=hidden]), footer a, .mast a, .mast summary, .menu a, .places a, .preview a')) {
     const r = el.getBoundingClientRect();
     if (r.width && (r.height < 43.5 || r.width < 43.5)) out.small.push(`${el.textContent.trim().slice(0, 30)} ${Math.round(r.width)}x${Math.round(r.height)}`);
   }
@@ -169,6 +169,44 @@ try {
     }
     await context.close();
   }
+  // Search and title pages (AVR-426) at 360, 390 and 1280, every state: the same page checks, a focus
+  // ring at every Tab stop (the field and button included), and on a phone the title and its one action
+  // on the first screen of the design.
+  for (const viewport of [{ width: 360, height: 640 }, { width: 390, height: 844 }, { width: 1280, height: 800 }]) {
+    const context = await browser.newContext({ viewport, deviceScaleFactor: viewport.width < 800 ? 2 : 1, baseURL: base, javaScriptEnabled: false });
+    const page = await context.newPage();
+    for (const state of STATES) {
+      for (const [name, url] of [['search', `/search?state=${state}&q=the`], ['search-nothing', `/search?state=${state}&q=zzzz`],
+                                 ['title', `/title/nosferatu?state=${state}`], ['title-audiobook', `/title/moby-dick?state=${state}`]]) {
+        const where = `${name}, ${state}, ${viewport.width}`;
+        await page.goto(url);
+        await page.evaluate(() => Promise.all([...document.images].map((i) => { i.loading = 'eager'; return i.decode().catch(() => {}); })));
+        const seen = await page.evaluate(inspect);
+        if (seen.sideways) fail(where, 'the page scrolls sideways');
+        if (seen.scripts) fail(where, `${seen.scripts} script element(s)`);
+        if (seen.h1 !== 1) fail(where, `${seen.h1} h1 elements`);
+        if (seen.broken) fail(where, `${seen.broken} image(s) did not load`);
+        seen.headings.reduce((prev, level) => { if (level > prev + 1) fail(where, `heading level jumps ${prev} to ${level}`); return level; }, 0);
+        for (const s of seen.small) fail(where, `target under 44px: ${s}`);
+        for (const s of seen.faint) fail(where, `text under 4.5:1: ${s}`);
+        for (const s of seen.noAlt) fail(where, `image without alt: ${s}`);
+        const stops = await page.evaluate(() => [...document.querySelectorAll('a[href], summary, input:not([type=hidden]):not([disabled]), button:not([disabled])')].filter((el) => el.getClientRects().length && !el.closest('details:not([open]) > :not(summary)')).length);
+        for (let i = 0; i < stops; i++) {
+          await page.keyboard.press('Tab');
+          const mark = await page.evaluate(() => { const el = document.activeElement; return el === document.body ? 'body' : getComputedStyle(el).boxShadow; });
+          if (mark === 'none' || mark === 'body') { fail(where, `Tab stop ${i + 1} shows no focus ring`); break; }
+        }
+        if (name.startsWith('title') && viewport.width < 800 && (state === 'healthy' || state === 'empty')) {
+          const top = await page.evaluate(() => document.querySelector('.preview').getBoundingClientRect().bottom + scrollY);
+          const action = await page.evaluate(() => document.querySelector('.act .button').getBoundingClientRect().bottom + scrollY);
+          if (action - top > viewport.height) fail(where, `the action ends ${Math.round(action - top)}px into the design, below the first screen`);
+        }
+        if (state === 'healthy' || state === 'degraded') await page.screenshot({ path: path.join(outdir, `${name}-${state}-${viewport.width}.png`), fullPage: true });
+      }
+    }
+    console.log(`checked search and title pages at ${viewport.width}`);
+    await context.close();
+  }
   // 200% text: the root size doubled, at phone width
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, baseURL: base });
   const page = await context.newPage();
@@ -177,6 +215,12 @@ try {
   if (await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1)) fail('healthy phone, 200% text', 'the page scrolls sideways');
   await page.screenshot({ path: path.join(outdir, 'after-healthy-200-percent-text-phone.png'), fullPage: true });
   console.log('checked healthy phone at 200% text');
+  for (const url of ['/search?state=healthy&q=the', '/title/nosferatu?state=healthy']) {
+    await page.goto(url);
+    await page.evaluate(() => { document.documentElement.style.fontSize = '200%'; });
+    if (await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1)) fail(`${url}, 200% text`, 'the page scrolls sideways');
+  }
+  console.log('checked search and title at 200% text');
   await context.close();
 } finally { await browser.close(); }
 if (failures.length) { console.error('\nFAILED\n' + failures.join('\n')); process.exit(1); }

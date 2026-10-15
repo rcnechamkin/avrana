@@ -253,5 +253,100 @@ class HomePreviewTests(unittest.TestCase):
         self.assertNotIn('Operations', response.text)   # the fixture member is not an admin
 
 
+    # ---- Search and title pages (AVR-426) ----------------------------------------------------------
+    def test_search_and_title_pages_render_every_state_and_viewer_without_script(self):
+        for who in fixtures.VIEWERS:
+            for state in fixtures.STATES:
+                for path, more in (('/search', {'q': 'the'}), ('/search', {}), ('/title/walden', {})):
+                    with self.subTest(path=path, state=state, who=who, **more):
+                        response = self.client.get(path, params={'state': state, 'who': who, **more})
+                        if path.startswith('/title') and who in ('none', 'out'):
+                            self.assertEqual(404, response.status_code)
+                            continue
+                        self.assertEqual(200, response.status_code)
+                        self.assertNotIn('<script', response.text.lower())
+                        self.assertEqual(1, response.text.count('<h1'))
+                        text = re.sub(r'<[^>]+>', ' ', response.text)
+                        self.assertIsNone(re.search(r'[–—]', text))
+                        self.assertIsNone(re.search(r"\b(we|our|we're|we've)\b", text, re.I))
+
+    def test_search_is_a_plain_form_to_this_site_only(self):
+        response = self.page('healthy', '/search')
+        self.assertIn("form-action 'self'", response.headers['content-security-policy'])
+        form = re.search(r'<form [^>]*>', response.text).group(0)
+        self.assertIn('method="get"', form)
+        self.assertIn('action="/search"', form)
+        self.assertIn('<label for="q">', response.text)          # a visible label, not a placeholder
+
+    def test_search_finds_only_in_the_members_own_libraries(self):
+        self.assertIn('Metropolis', self.body('healthy', '/search', q='metropolis'))
+        # a books-only member: the film is not found, and the sentence is the one for a title that exists nowhere
+        books = self.body('healthy', '/search', q='metropolis', who='books')
+        nowhere = self.body('healthy', '/search', q='zzzz', who='books')
+        self.assertNotIn('Metropolis</span>', books)
+        self.assertEqual(re.sub(r'metropolis|zzzz', 'X', books), re.sub(r'metropolis|zzzz', 'X', nowhere))
+        for word in ('Movies and TV', 'movies and TV', 'Audiobooks', 'Comics'):
+            self.assertNotIn(word, re.sub(r'<[^>]+>', ' ', books))
+
+    def test_every_result_says_where_it_lives_and_opens_its_title_page(self):
+        text = self.body('healthy', '/search', q='the')
+        rows = re.findall(r'<a class="row" href="([^"]+)">(.*?)</a>', text, re.S)
+        self.assertGreater(len(rows), 4)
+        for href, row in rows:
+            self.assertTrue(href.startswith('/title/'), href)
+            self.assertRegex(row, r'In (Movies and TV|Audiobooks|Books|Comics)</span>')
+            self.assertIn('alt=""', row)                          # the title is said in words beside it
+
+    def test_search_says_what_could_not_be_searched_once(self):
+        degraded = re.sub(r'<[^>]+>', ' ', self.body('degraded', '/search', q='the'))
+        self.assertIn('Movies and TV were not searched', degraded)
+        self.assertNotIn('Metropolis', degraded)
+        slow = self.body('slow', '/search', q='the')
+        self.assertIn('Audiobooks are taking longer than usual', slow)
+        self.assertIn('Try again', slow)
+        gone = self.body('unavailable', '/search', q='the')
+        self.assertIn('nothing can be searched', gone)
+        self.assertIn('disabled', re.search(r'<input id="q"[^>]*>', gone).group(0))
+        self.assertNotIn('class="row"', gone)
+
+    def test_the_query_is_escaped_trimmed_and_bounded(self):
+        text = self.body('healthy', '/search', q='  <img src=x onerror=1>  ' + 'a' * 300)
+        self.assertNotIn('<img src=x', text)
+        self.assertIn('&lt;img src=x onerror=1&gt;', text)
+        self.assertNotIn('a' * 101, text)
+
+    def test_a_title_in_a_library_the_member_cannot_use_does_not_exist(self):
+        for path in ('/title/metropolis', '/title/moby-dick'):
+            self.assertEqual(404, self.client.get(path, params={'who': 'books'}).status_code)
+        self.assertEqual(404, self.client.get('/title/not-a-title').status_code)
+        self.assertEqual(200, self.client.get('/title/walden', params={'who': 'books'}).status_code)
+
+    def test_a_title_page_puts_the_title_then_one_action_then_the_rest(self):
+        text = self.body('healthy', '/title/nosferatu')
+        order = [text.index(m) for m in ('<h1', 'class="button"', '<progress', 'class="synopsis"', 'class="facts"')]
+        self.assertEqual(order, sorted(order))
+        self.assertEqual(1, text.count('class="button"'))
+        self.assertIn('Resume in Movies and TV', text)
+        for claim in ('Playing', 'Now playing', 'started'):              # it opens an app; it never says it played
+            self.assertNotIn(claim, text)
+        self.assertIn('Watch in Movies and TV', self.body('empty', '/title/nosferatu'))   # no progress, no resume
+        self.assertNotIn('<progress', self.body('healthy', '/title/metropolis'))
+
+    def test_a_title_whose_library_is_down_offers_nothing_and_says_so_once(self):
+        text = self.body('degraded', '/title/metropolis')
+        self.assertNotIn('class="button"', text)
+        self.assertNotIn('Metropolis', re.sub(r'<[^>]+>', ' ', text.split('<main', 1)[1]))
+        self.assertEqual(1, text.count('Movies and TV are unavailable right now.'))
+        slow = self.body('slow', '/title/moby-dick')
+        self.assertNotIn('class="button"', slow)
+        self.assertIn('Try again', slow)
+
+    def test_new_cards_open_title_pages_and_continue_cards_hand_off(self):
+        text = self.body('healthy')
+        rails = text.split('id="h-new"', 1)
+        self.assertNotIn('href="/title/', rails[0].split('id="h-continue"', 1)[1])
+        self.assertIn('href="/title/metropolis?state=healthy"', rails[1])
+
+
 if __name__ == '__main__':
     unittest.main()
