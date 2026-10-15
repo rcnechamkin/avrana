@@ -70,6 +70,9 @@ class FakeJellyfin:
             return 200, val, "application/json"
         if path == "/Users":
             return self._json(self.users)
+        parts = path.strip("/").split("/")
+        if len(parts) == 3 and parts[0] == "Users" and parts[2] == "Items":
+            return self._search(_hex(parts[1]), query)
         uid = _hex(query.get("userId", ""))
         if path == "/UserItems/Resume":
             if self.hostile_resume is not None and (self.hostile_users is None or uid in self.hostile_users):
@@ -84,6 +87,16 @@ class FakeJellyfin:
         if path.startswith("/Items/") and path.endswith("/Images/Primary"):
             return self.image
         return 404, b"{}", "application/json"
+
+    def _search(self, uid, query):
+        """A user-scoped search over what THIS user can see (the resume and latest fixtures). Like the real
+        server it filters by `searchTerm` (case-insensitive substring of the name) and honours `limit`."""
+        term = query.get("searchTerm", "").casefold()
+        kinds = set(query.get("includeItemTypes", "").split(","))
+        found = [i for i in self._visible(uid).values()
+                 if term and term in str(i.get("Name", "")).casefold() and i.get("Type") in kinds]
+        found = found[:int(query.get("limit", "50"))]
+        return self._json({"Items": found, "TotalRecordCount": len(found)})
 
     @staticmethod
     def _json(obj):

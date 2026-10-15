@@ -29,6 +29,7 @@ import enum
 import logging
 import re
 import threading
+import unicodedata
 from dataclasses import dataclass
 from typing import Any, Callable, Optional, Tuple
 
@@ -117,6 +118,36 @@ def build_handoff_url(service: Service, upstream_id: str) -> str:
     if not valid_upstream_id(service, upstream_id):
         raise HandoffError("invalid upstream id")
     return HANDOFF_BASE[service] + _HANDOFF_PATH[service].format(id=upstream_id)
+
+
+MAX_QUERY_RAW = 256        # longer input is refused, not truncated
+MAX_QUERY = 100            # after cleaning
+MIN_QUERY = 2
+# Characters that are wildcards or escapes in one of the upstream query languages (SQL LIKE, glob, regex,
+# Lucene-style): they become spaces, so a member cannot widen a search with them.
+_QUERY_NEUTRALISED = frozenset("*%_?" + chr(92) + "[]{}()|^~$" + chr(34) + "`")
+
+
+def clean_query(value: Any) -> Optional[str]:
+    """A search term made safe to send as a query PARAMETER, or None if it is unusable.
+
+    Text only; at most MAX_QUERY_RAW characters in; Unicode NFC; control, format, surrogate, private-use and
+    unassigned characters and line or paragraph separators removed; wildcards and escapes turned into spaces;
+    whitespace collapsed; at most MAX_QUERY characters out; at least MIN_QUERY. It is NOT a path component and
+    must never be interpolated into one."""
+    if not isinstance(value, str) or len(value) > MAX_QUERY_RAW:
+        return None
+    out = []
+    for ch in unicodedata.normalize("NFC", value):
+        cat = unicodedata.category(ch)
+        if ch in _QUERY_NEUTRALISED or ch.isspace() or cat in ("Zs", "Zl", "Zp"):
+            out.append(" ")
+        elif cat[0] == "C":
+            continue
+        else:
+            out.append(ch)
+    term = " ".join("".join(out).split())[:MAX_QUERY].strip()
+    return term if len(term) >= MIN_QUERY else None
 
 
 def clean_text(value: Any, limit: int = MAX_TITLE_LEN) -> Optional[str]:
@@ -325,7 +356,8 @@ class MediaAdapter:
         raise NotImplementedError
 
     def _search(self, user: UpstreamUser, query: str, limit: int) -> SectionResult:
-        raise NotImplementedError("search is defined by the contract but not implemented yet")
+        """`query` is already cleaned (`clean_query`). Send it ONLY as a query parameter, never in a path."""
+        raise NotImplementedError("this adapter does not implement search")
 
     # ---- public contract ------------------------------------------------------------------
     def resolve_user(self, principal: MemberPrincipal) -> Optional[UpstreamUser]:
@@ -357,8 +389,18 @@ class MediaAdapter:
                              lambda user: self._item(user, item_id))
 
     def search(self, principal: MemberPrincipal, query: str, limit: int = DEFAULT_LIMIT) -> SectionResult:
+        """Search this library as this member. Order: principal, GROUP (before the query is even looked at),
+        then the query is validated and bounded (`clean_query`), then mapping and the hook. Search results are
+        NEVER cached (no cache read, no cache write): the term is not stored anywhere, and a revoked group or a
+        changed restriction takes effect on the next search. The term is never logged."""
         self._require_principal(principal)
-        raise NotImplementedError("search is defined by the contract but not implemented yet")
+        if not principal.has_group(self.required_group):
+            return self._not_permitted("search")
+        term = clean_query(query)
+        if term is None:
+            return SectionResult(self.service, "search", SectionState.EMPTY, reason="invalid_query")
+        limit = _limit(limit)
+        return self._section(principal, "search", None, lambda user: self._search(user, term, limit))
 
     def fetch_artwork(self, principal: MemberPrincipal, ref: str) -> ArtworkResult:
         self._require_principal(principal)
@@ -582,13 +624,14 @@ class MediaAdapter:
         self.breaker.neutral(token)
         return self.breaker.valid(token)
 
-    def _section(self, principal: MemberPrincipal, section: str, cache_name: str,
+    def _section(self, principal: MemberPrincipal, section: str, cache_name: Optional[str],
                  fetch: Callable[[UpstreamUser], SectionResult]) -> SectionResult:
+        """`cache_name=None` means this section is NEVER cached (search: the term is not a cache key)."""
         self._require_principal(principal)
         if not principal.has_group(self.required_group):
             return self._not_permitted(section)            # no upstream call, no cache read
         scope = self.cache.for_member(principal)
-        cached = scope.get(self.service.value, cache_name)
+        cached = scope.get(self.service.value, cache_name) if cache_name is not None else None
         if cached is not None:
             return cached
         out = self._call(principal, fetch)
@@ -599,7 +642,7 @@ class MediaAdapter:
         if out.kind == "gone":
             return SectionResult(self.service, section, SectionState.EMPTY, reason=out.reason)
         result = out.value
-        if result.state in (SectionState.OK, SectionState.EMPTY) and out.fresh:
+        if cache_name is not None and result.state in (SectionState.OK, SectionState.EMPTY) and out.fresh:
             # permission-dependent library data is member-scoped, never "catalogue"
             scope.set(self.service.value, cache_name, result, ttl=self.cache_ttl(section),
                       data_class="member_progress")

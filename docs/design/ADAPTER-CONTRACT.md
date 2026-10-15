@@ -101,7 +101,7 @@ Each public method runs these steps, in this order, in the shared base class
 | `continue_items(principal, limit)` | `SectionResult` | In-progress items for this member only (`section: "continue"`). |
 | `recent_items(principal, limit)` | `SectionResult` | Recently added items visible to this member (`"recent"`). |
 | `item(principal, item_id)` | `SectionResult` | Metadata for one id the member can see (`"item"`); an invalid id is `EMPTY`, never interpolated. |
-| `search(principal, query, limit)` | `SectionResult` | Signature defined; raises `NotImplementedError` for now. |
+| `search(principal, query, limit)` | `SectionResult` | Matching items for this member (`"search"`), see section 14. |
 | `fetch_artwork(principal, ref)` | `ArtworkResult` | Server-side image fetch for an opaque ref, after a member-scoped visibility check. |
 | `health()` | `AdapterHealth` | Circuit state only; no member data; no upstream call. |
 
@@ -830,3 +830,72 @@ update the fixture and adapter in a separate reviewed change.
 - The standard-library XML parser is protected here by refusing declarations and capping size, not by a hardened
   parser; deep nesting is caught as a parser failure.
 - No per-member rate limit yet (as for the other adapters).
+
+## 14. Authorized cross-library search (AVR-383)
+
+Status: **proposed, not deployed.** Adapter side: `MediaAdapter.search` and the `_search` hooks. Aggregate side:
+`aggregate.search(...)` returning `SearchResults`. Fixtures are hand-written and synthetic; the Calibre-Web search
+fixture (`tests/fixtures/calibre_web/search_feed.json`) carries `_synthetic`, `_target_version` and `_provenance`
+(live compatibility UNPROVEN); the Jellyfin and Komga fakes search the existing fixtures. The UI (search page,
+"Request this title" handoff, 360 px and screen-reader flows) belongs to the shell and is not part of this unit.
+
+### 14.1 Order of checks (every adapter, in the base class)
+
+1. the principal is parser-minted; 2. **the Authentik group, before the query is even looked at** (so a member
+without the group gets `NOT_PERMITTED` with zero upstream calls for any input, including a hostile one);
+3. the term is validated and bounded (`clean_query`): an unusable term is `EMPTY` (reason `invalid_query`) and asks
+nobody; 4. in-flight caps and the circuit; 5. mapping; 6. the hook. `limit` is clamped to 1 to 50.
+
+### 14.2 The term
+
+`clean_query`: text only; at most 256 characters in (longer is refused, not truncated); Unicode NFC; control,
+format (including bidi overrides and zero-width characters), surrogate, private-use and unassigned characters and
+line or paragraph separators removed; wildcards and escapes (`* % _ ? \ [ ] { } ( ) | ^ ~ $ " backtick`) become
+spaces so a member cannot widen a search; whitespace collapsed; at most 100 characters out; at least 2. The term is
+sent **only as a query parameter** under one named allow-list key (`searchTerm`, `search`, `query`), never in a
+path (tested with path tricks, CR/LF, NUL, percent-encodings, very long and Unicode input). Slashes survive (they are
+harmless in a query value) and are URL-encoded by the transport.
+
+### 14.3 Per service
+
+| Service | Search | Member safety |
+|---|---|---|
+| Jellyfin | `GET /Users/{id}/Items?searchTerm=` (`includeItemTypes`, `recursive`, `limit`), id in the PATH bound by the guard | The upstream scopes by user; the usual scope tripwires apply; more items than `limit` is `UpstreamMisbehaved`. |
+| Komga | `GET /api/v1/books?search=` | The SAME listing code as recent: library, age rating and sharing-label filter from the member's own record, fail closed (section 12). |
+| Calibre-Web | `GET /opds/search?query=` (OpenSearch form, UNVERIFIED) | Shared view under the section 13.2 invariant, exactly like recent; the constructor flag still applies. |
+| Audiobookshelf | **Not offered** (`not_offered`, no upstream call) | Its search is library-scoped and needs the admin key across libraries; there is no documented member-scoped route, and reproducing the member's library, tag and explicit rules for free text is not done here. |
+
+### 14.4 Cache and logging
+
+**Search results are never cached**: no cache read, no cache write (`_section(..., cache_name=None)`). The term is
+therefore stored nowhere, results cannot go stale past a revoked group or a changed restriction, and the cost is one
+upstream call per search (the in-flight caps and the shared circuit bound it). The term is never in a log line
+(failures log service and error class only), a health report, a result or the search view (it is not echoed).
+Autocomplete and suggestions are not implemented: no title or cover is offered before the member submits a term.
+Covers of results go through `fetch_artwork`, which re-checks visibility for the member.
+
+### 14.5 Aggregate and the view for the shell
+
+`aggregate.search(principal, adapters, query, limit=12, hard_cap=None)` validates the term once, then asks every
+adapter that does not list `search` in `not_offered`, concurrently, under the same derived hard cap as `gather` (one
+shared runner). A hung or crashing adapter costs its own group (`hard_cap`, or its exception class) and opens its
+circuit. `member_view()` is untouched; the new `SearchResults.search_view()` is:
+
+```json
+{"status": "ok", "entitled": true,
+ "groups": [{"service": "jellyfin", "state": "ok", "items": [ ...MediaItem... ]},
+            {"service": "komga", "state": "unavailable", "items": []}]}
+```
+
+`status` is `ok` or `invalid_query` (then `groups` is empty and nobody was asked). `state` is `ok`, `empty` (searched,
+no match), `unavailable` (service down, slow or cooling off) or `not_linked`; **a service the member may not use is
+omitted**, never a hint it exists. `entitled: false` says the member holds no searchable library's group (the
+"zero entitlements" state); `entitled: true` with an empty `groups` and `status: ok` cannot happen except when only
+non-searchable libraries are held. Stale cache is not a state, because nothing is cached.
+
+### 14.6 Unverified assumptions
+
+Jellyfin `/Users/{id}/Items` honours `searchTerm`, `includeItemTypes`, `recursive` and `limit` for an API-key request
+and is user-scoped (it is marked deprecated in newer servers; to verify on 10.11.11); Komga `/api/v1/books?search=`
+searches title text and takes `page` and `size`; Calibre-Web `/opds/search?query=` exists in the deployed version.
+All belong to the recorded read-only check.

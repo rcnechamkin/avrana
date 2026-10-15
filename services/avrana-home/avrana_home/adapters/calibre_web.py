@@ -52,6 +52,7 @@ _FORBIDDEN_XML = re.compile(rb"<!\s*(DOCTYPE|ENTITY|ELEMENT|ATTLIST)", re.IGNORE
 
 ALLOWED_ROUTES = (
     Route("new", r"/opds/new", (), user_scoped=False, not_found=RouteMissing),
+    Route("search", r"/opds/search", ("query",), user_scoped=False, not_found=RouteMissing),
     Route("cover", r"/opds/thumb_cover/[0-9]{1,9}", (), user_scoped=False, not_found=ItemGone),
 )
 
@@ -155,6 +156,14 @@ class CalibreWebAdapter(GuardedAdapter):
         entries: List[Any] = parse_feed(resp.body).findall(_ATOM + "entry")
         items = self._parse_many(entries, MAX_ENTRIES, self._book)
         return SectionResult.of(Service.CALIBRE_WEB, "recent", items[:limit])
+
+    def _search(self, user: UpstreamUser, query: str, limit: int) -> SectionResult:
+        """OPDS search of the SHARED viewer account's catalogue (contract 13.2 invariant), like recent. The term
+        is a query parameter (`/opds/search?query=`, the OpenSearch form, UNVERIFIED), never part of the path."""
+        resp = self._get(self._guard.bind(user.upstream_id), self._budget(), "/opds/search", {"query": query})
+        entries: List[Any] = parse_feed(resp.body).findall(_ATOM + "entry")
+        items = self._parse_many(entries, MAX_ENTRIES, self._book)
+        return SectionResult.of(Service.CALIBRE_WEB, "search", items[:limit])
 
     def _fetch_artwork(self, user: UpstreamUser, ref: str) -> ArtworkResult:
         m = _ARTWORK_REF.fullmatch(ref)

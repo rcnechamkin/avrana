@@ -75,9 +75,8 @@ class States(Base):
     def test_continue_item_and_search_are_not_offered_without_an_upstream_call(self):
         for r in (self.adapter.continue_items(self.a), self.adapter.item(self.a, "101")):
             self.assertEqual((r.state, r.reason), (SectionState.EMPTY, "not_offered"))
-        with self.assertRaises(NotImplementedError):
-            self.adapter.search(self.a, "x")
         self.assertEqual(self.fake.requests, [])
+        self.assertEqual(self.adapter.search(self.a, "Synthetic").state, SectionState.OK)   # offered since AVR-383
 
 
 class SharedViewAndIsolation(Base):
@@ -275,7 +274,7 @@ class GuardAndSecrets(Base):
             GuardedTransport(self.transport).bind(None).request("GET", "/opds/new", None, 1.0, 1000)
         with self.assertRaises(ForbiddenRequest):
             GuardedTransport(self.transport).bind("member-a")      # only the fixed shared viewer can be bound
-        self.assertEqual([r.name for r in ALLOWED_ROUTES], ["new", "cover"])
+        self.assertEqual([r.name for r in ALLOWED_ROUTES], ["new", "search", "cover"])
         self.assertEqual(self.fake.requests, [])
 
     def test_the_credential_is_never_in_a_repr_a_result_a_health_report_or_a_log_line(self):
@@ -303,7 +302,7 @@ class GuardAndSecrets(Base):
 
     def test_fixtures_declare_their_target_version_and_which_shapes_are_synthetic(self):
         files = sorted(FIXTURES.glob("*.json"))
-        self.assertEqual(len(files), 1)
+        self.assertEqual(len(files), 2)
         for f in files:
             doc = json.loads(f.read_text(encoding="utf-8"))
             self.assertTrue(doc["_synthetic"].startswith("Hand-written SYNTHETIC"), f.name)

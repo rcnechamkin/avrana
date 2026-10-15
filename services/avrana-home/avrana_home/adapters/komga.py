@@ -58,6 +58,7 @@ ALLOWED_ROUTES = (
     Route("latest", r"/api/v1/books/latest", ("page", "size"), user_scoped=False, not_found=RouteMissing),
     Route("book", r"/api/v1/books/(?!(?:latest|updated|ondeck)$)" + _ID, (), user_scoped=False, not_found=ItemGone),
     Route("series", r"/api/v1/series/" + _ID, (), user_scoped=False, not_found=ItemGone),
+    Route("search", r"/api/v1/books", ("search", "page", "size"), user_scoped=False, not_found=RouteMissing),
     Route("thumbnail", r"/api/v1/books/(?!(?:latest|updated|ondeck)/)" + _ID + r"/thumbnail", (), user_scoped=False,
           not_found=ItemGone),
 )
@@ -293,10 +294,19 @@ class KomgaAdapter(GuardedAdapter):
 
     # -- hooks -----------------------------------------------------------------------------
     def _recent_items(self, user: UpstreamUser, limit: int) -> SectionResult:
+        return self._listing(user, limit, "/api/v1/books/latest", {}, "recent")
+
+    def _search(self, user: UpstreamUser, query: str, limit: int) -> SectionResult:
+        """Search is the SAME listing as recent, so it passes through the SAME per-member restriction filter
+        (library, age rating, sharing labels) and the same fail-closed rules. The term is a query parameter only."""
+        return self._listing(user, limit, "/api/v1/books", {"search": query}, "search")
+
+    def _listing(self, user: UpstreamUser, limit: int, path: str, params: Dict[str, str],
+                 section: str) -> SectionResult:
         access = self._access(user)                           # BEFORE any book is requested
         guard, budget = self._guard.bind(user.upstream_id), self._budget()
         size = min(MAX_PAGE, limit * 3)
-        body = self._get_json(guard, budget, "/api/v1/books/latest", {"page": "0", "size": str(size)})
+        body = self._get_json(guard, budget, path, dict(params, page="0", size=str(size)))
         raws = body.get("content") if isinstance(body, dict) else None
         if not isinstance(raws, list):
             raise UpstreamMalformed()
@@ -315,7 +325,7 @@ class KomgaAdapter(GuardedAdapter):
                 shown.append(item)
         if not shown and bad:
             raise UpstreamMalformed()                          # nothing usable and some drift: never "empty"
-        return SectionResult.of(Service.KOMGA, "recent", tuple(shown))
+        return SectionResult.of(Service.KOMGA, section, tuple(shown))
 
     def _item(self, user: UpstreamUser, item_id: str) -> SectionResult:
         access = self._access(user)

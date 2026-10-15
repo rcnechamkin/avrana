@@ -217,9 +217,10 @@ class ContinueAndRecentTests(Base):
             self.assertIs(r.state, SectionState.EMPTY, repr(bad))
         self.assertEqual(self.fake.requests, [])
 
-    def test_search_not_implemented(self):
-        with self.assertRaises(NotImplementedError):
-            self.adapter.search(self.a, "synthetic")
+    def test_search_is_implemented_and_user_scoped(self):
+        r = self.adapter.search(self.a, "synthetic")
+        self.assertIn(r.state, (SectionState.OK, SectionState.EMPTY))
+        self.assertTrue(all(p.startswith("/Users/") or p == "/Users" for p in self.fake.paths()))
 
 
 class IsolationTests(Base):
@@ -445,7 +446,7 @@ class AllowListTests(unittest.TestCase):
 
     def test_route_table_has_no_write_capable_template(self):
         names = sorted(r.name for r in ALLOWED_ROUTES)
-        self.assertEqual(names, ["image", "items", "latest", "resume", "users"])
+        self.assertEqual(names, ["image", "items", "latest", "resume", "search", "users"])
 
     def test_adapter_cannot_bypass_the_guard(self):
         adapter = JellyfinAdapter(self.inner, clock=FakeClock())
