@@ -56,9 +56,9 @@ ALLOWED_ROUTES = (
     # the user list: mapping and the member's restrictions (admin-only upstream); not bound to a member
     Route("users", r"/api/v2/users", (), user_scoped=False, needs_user=False, not_found=RouteMissing),
     Route("latest", r"/api/v1/books/latest", ("page", "size"), user_scoped=False, not_found=RouteMissing),
-    Route("book", r"/api/v1/books/(?!latest$)" + _ID, (), user_scoped=False, not_found=ItemGone),
+    Route("book", r"/api/v1/books/(?!(?:latest|updated|ondeck)$)" + _ID, (), user_scoped=False, not_found=ItemGone),
     Route("series", r"/api/v1/series/" + _ID, (), user_scoped=False, not_found=ItemGone),
-    Route("thumbnail", r"/api/v1/books/(?!latest/)" + _ID + r"/thumbnail", (), user_scoped=False,
+    Route("thumbnail", r"/api/v1/books/(?!(?:latest|updated|ondeck)/)" + _ID + r"/thumbnail", (), user_scoped=False,
           not_found=ItemGone),
 )
 
@@ -81,7 +81,7 @@ class GuardedTransport(_Guard):
 Linker = Callable[[MemberPrincipal, Sequence[Any]], str]
 
 
-_RESERVED = frozenset({"latest", "updated"})     # Komga sub-routes that look like ids (UNVERIFIED list)
+_RESERVED = frozenset({"latest", "updated", "ondeck"})     # Komga sub-routes that look like ids (UNVERIFIED list)
 
 
 def _item_id(value: Any) -> bool:

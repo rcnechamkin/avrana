@@ -272,6 +272,14 @@ class Artwork(Base):
             self.assertEqual(self.adapter.fetch_artwork(self.a, ref).state, SectionState.EMPTY, ref)
         self.assertFalse([p for p in self.fake.paths() if "thumbnail" in p])
 
+    def test_reserved_sub_routes_are_never_requested_as_book_ids(self):
+        """Komga sub-routes that look like ids (review of #37 named ondeck) never reach upstream."""
+        for word in ("latest", "updated", "ondeck"):
+            self.fake.requests.clear()
+            self.assertNotEqual(self.adapter.item(self.b, word).state, SectionState.OK, word)
+            self.assertEqual(self.adapter.fetch_artwork(self.b, f"komga/book/{word}").state, SectionState.EMPTY, word)
+            self.assertFalse([p for p in self.fake.paths() if p.startswith(f"/api/v1/books/{word}")], word)
+
     def test_missing_thumbnails_and_bad_images_are_graceful(self):
         self.fake.overrides["/api/v1/books/BOOKAAAA0001/thumbnail"] = ("status", 404)
         self.assertEqual(self.adapter.fetch_artwork(self.b, "komga/book/BOOKAAAA0001").state, SectionState.EMPTY)
