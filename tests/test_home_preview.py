@@ -2,18 +2,23 @@
 
 Skipped where FastAPI is not installed (the preview's README lists the pinned packages).
 """
+from importlib.util import find_spec
 from pathlib import Path
 import re
 import sys
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
-try:
+# Imported as the top-level package "home_preview", not as "tests.ui.home_preview": another suite in
+# the same run puts services/avrana-home first on sys.path, and its regular package "tests" (which
+# blocks every socket on import) would win over this directory and break unrelated suites.
+sys.path.insert(0, str(ROOT / 'tests' / 'ui'))
+# Skipped only when the preview's packages are missing; any other import error fails loudly.
+if all(find_spec(m) for m in ('fastapi', 'jinja2', 'httpx')):
     from fastapi.testclient import TestClient
-    from tests.ui.home_preview import fixtures
-    from tests.ui.home_preview.app import app
-except ImportError:                                    # pragma: no cover
+    from home_preview import fixtures
+    from home_preview.app import app
+else:                                                  # pragma: no cover
     TestClient = None
 
 
