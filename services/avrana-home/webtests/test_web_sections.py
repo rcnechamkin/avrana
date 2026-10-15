@@ -28,7 +28,7 @@ B_ONLY = ["Synthetic Film Two", "Synthetic Documentary B", "Synthetic Film Four"
 
 def region(text):
     """The part of the page above the navigation (where sections live)."""
-    return text.split('<nav aria-label="Your Avrana services">')[0]
+    return text.split('<nav class="tiles" aria-label="Your Avrana services">')[0]
 
 
 class Fixture(unittest.TestCase):
@@ -73,10 +73,10 @@ class SectionRenderingTests(Fixture):
         flag_off = self.off.get("/", headers=A).text
         r = self.on.get("/", headers=A)
         self.assertEqual(200, r.status_code)
-        above, nav = r.text.split('<nav aria-label="Your Avrana services">')
+        above, nav = r.text.split('<nav class="tiles" aria-label="Your Avrana services">')
         self.assertIn("<h2", above)
         # the navigation block and everything after it are byte-identical to flag-off output
-        self.assertEqual(flag_off.split('<nav aria-label="Your Avrana services">')[1], nav)
+        self.assertEqual(flag_off.split('<nav class="tiles" aria-label="Your Avrana services">')[1], nav)
         for token in ("Synthetic Film One", "Synthetic Pilot", "Synthetic Series Alpha", "Synthetic Film Three"):
             self.assertIn(token, above)
         self.assertIn('href="https://watch.avrana.net/web/#/details?id=aaaa0000000000000000000000000001"', above)
@@ -151,7 +151,7 @@ class SectionRenderingTests(Fixture):
 
 
 class NavigationAndCallPatternTests(Fixture):
-    NAV = '<nav aria-label="Your Avrana services">'
+    NAV = '<nav class="tiles" aria-label="Your Avrana services">'
 
     def test_navigation_landmark_is_present_once_and_after_the_sections_in_every_state(self):
         """Watch/Request/Help/Account stay reachable whatever the sections do; the app never moves

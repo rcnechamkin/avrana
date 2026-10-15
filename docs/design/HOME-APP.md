@@ -153,9 +153,11 @@ bytes sent to both, the app over a real socket.
 
 The templates mirror the portal's markup one-for-one: `base.html` is the shell, each page extends
 it, and the stylesheet is `templates/style.css` (a copy of the portal's `STYLE`, injected once).
-Branch `avr-357-430-portal-a11y` changes the portal's markup, CSS and one subtitle; when it merges
-the parity test fails until `base.html`, the affected templates and `style.css` are updated,
-which is the intended forcing function. Text from the portal tables is trusted static markup
+The portal's accessibility repairs (AVR-357) and viewer-dependent copy (AVR-430) have merged to main and
+the shell tracks them: `.page`/`main`/`footer nav` landmarks, `nav.tiles`, `color-scheme`, the help topic
+`h2`, and `SERVICE_VARIANTS`/`CHOOSER_PARTS` through `catalogue.service_copy` and `chooser_subtitle`.
+Any further portal markup change fails the parity test until `base.html`, the affected templates and
+`style.css` are updated, which is the intended forcing function. Text from the portal tables is trusted static markup
 (entities, apostrophes) and is rendered as written through a `Trusted` type that request data
 can never become; everything else is autoescaped. Hostile titles, usernames, names and e-mails are
 tested for escaping.
