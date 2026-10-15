@@ -71,6 +71,15 @@ def _fields(where, entity, raw):
     return found
 
 
+def field_reads(text):
+    """Capitalised (Jellyfin-style) keys read via .get("X"[, default]), ["X"] or "X" in name."""
+    q = r"[\"']"
+    found = set(re.findall(rf"\.get\({q}([A-Z]\w*){q}\s*[,)]", text))
+    found |= set(re.findall(rf"\[{q}([A-Z]\w*){q}\]", text))
+    found |= set(re.findall(rf"{q}([A-Z]\w*){q} in \w+", text))
+    return found
+
+
 def bodies():
     for name, route in FIXTURE_ROUTES.items():
         yield name, route, json.loads((FIXTURES / name).read_text(encoding="utf-8"))["response"]
@@ -90,8 +99,8 @@ class ContractTests(unittest.TestCase):
                                 for r in jellyfin.ALLOWED_ROUTES), name)
 
     def test_every_field_the_adapter_reads_is_declared(self):
-        read = set(re.findall(r'\.get\("([A-Z]\w*)"\)', SOURCE)) | set(re.findall(r'\["([A-Z]\w*)"\]', SOURCE))
-        read |= set(re.findall(r'"([A-Z]\w*)" in data', SOURCE))
+        # Field NAMES only: placement on the right entity is checked by the fixture conformance test.
+        read = field_reads(SOURCE)
         declared = set()
         for fields in CONTRACT["entities"].values():
             declared |= set(fields)
@@ -133,6 +142,10 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(violations("latest", [{"RunTimeTicks": True}]), ["latest[0].RunTimeTicks: expected integer"])
         self.assertEqual(violations("latest", ["x"]), ["latest[0]: entry is not an object"])
         self.assertEqual(violations("latest", [{"Id": None, "Unknown": 1}]), [])
+
+    def test_field_scan_sees_default_and_single_quote_forms(self):
+        sample = """raw.get("A1", 0); raw.get('B2'); raw["C3"]; "D4" in data"""
+        self.assertEqual(field_reads(sample), {"A1", "B2", "C3", "D4"})
 
 
 if __name__ == "__main__":

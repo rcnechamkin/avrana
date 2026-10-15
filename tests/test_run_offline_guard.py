@@ -33,6 +33,12 @@ class YamlGuardTests(unittest.TestCase):
                 run_offline.yaml_guard()
         self.assertIn("FAIL", str(caught.exception.code))
 
+    def test_unexpected_values_fail_closed(self):
+        for value in ("true", "yes", " 1"):
+            with self.subTest(value=value),                     mock.patch.object(run_offline.importlib.util, "find_spec", return_value=None),                     mock.patch.dict(os.environ, {"AVRANA_REQUIRE_YAML": value}), redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit):
+                    run_offline.yaml_guard()
+
 
 if __name__ == "__main__":
     unittest.main()

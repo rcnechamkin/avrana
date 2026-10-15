@@ -15,7 +15,10 @@ def yaml_guard():
     if importlib.util.find_spec('yaml') is not None:
         return
     message = 'PyYAML not importable: G1 compose-declaration and bypass-path tests will be SKIPPED'
-    if os.environ.get('AVRANA_REQUIRE_YAML') == '1':
+    required = os.environ.get('AVRANA_REQUIRE_YAML', '')
+    if required not in ('', '0', '1'):
+        print(f'WARN AVRANA_REQUIRE_YAML={required!r} is not 0 or 1; treating it as 1', file=sys.stderr)
+    if required not in ('', '0'):
         sys.exit(f'FAIL {message} (AVRANA_REQUIRE_YAML=1)')
     print(f'WARN {message}', file=sys.stderr)
 
