@@ -104,7 +104,6 @@ ROUTES = (["/", "/account", "/help", "/healthz"] + HELP_ROUTES + CHOOSER_ROUTES 
 
 # Routes excluded from the matrix because a known defect makes the pin fail (none at present).
 MATRIX_SKIP = set()
-LEAK_SKIP = {("books", "/")}   # defect 4 (not fixed): Read tile subtitle says "Comics"
 
 
 def expected(route, groups):
@@ -820,7 +819,7 @@ class LeakTests(unittest.TestCase):
             bucket.update({html.unescape(label), html.unescape(desc), host, f'href="/{path}"'})
         for ch in portal.CHOOSERS:
             bucket = allowed if PIN_CHOOSERS[ch[2]] & groups else withheld
-            bucket.add(f'href="/{ch[2]}"')   # subtitles: see DefectTests
+            bucket.add(f'href="/{ch[2]}"')   # subtitles and word-level vocabulary: see LibraryVocabularyTests
         for _g, label, host, _p in portal.HELP:
             slug = portal.HELP_SLUGS[label]
             bucket = allowed if PIN_HELP[slug] in groups else withheld
@@ -841,7 +840,7 @@ class LeakTests(unittest.TestCase):
             _allowed, withheld = self.tokens_for(groups)
             self.assertTrue(withheld or ident == "admin_and_all" or ident == "all_members")
             for route, text in self.pages(ident).items():
-                if route in MATRIX_SKIP or (ident, route) in LEAK_SKIP:
+                if route in MATRIX_SKIP:
                     continue
                 for tok in withheld:
                     with self.subTest(ident=ident, route=route, token=tok):
@@ -902,13 +901,168 @@ class DefectTests(unittest.TestCase):
         self.assertEqual(200, fetch("videos", "/help/requests").status)
         self.assertIn("/help/requests", fetch("videos", "/help").text)
 
-    @unittest.expectedFailure  # AVR-352 defect 4: copy change owned by the UI team, not fixed here
     def test_read_chooser_subtitle_does_not_name_the_other_library(self):
-        """The home tile for the Read chooser reads 'Comics & ebooks' for everyone who sees it, so a
-        member with only books is told a comics library exists, and one with only comics is told of
-        ebooks. CHOOSERS' own comment on Request says to keep subtitles media-agnostic."""
+        """AVR-430, fixed. The Read tile used to read 'Comics & ebooks' for everyone who saw it, so
+        a books-only member was told a comics library exists and a comics-only member was told of
+        ebooks. The subtitle is now built from the members the viewer may open."""
         self.assertNotIn("Comics", html.unescape(fetch("books", "/").text))
         self.assertNotIn("ebooks", html.unescape(fetch("comics", "/").text))
+        self.assertNotIn("Ebooks", html.unescape(fetch("comics", "/").text))
+
+    def test_read_chooser_subtitle_follows_the_members_the_viewer_may_open(self):
+        read = portal.chooser_by_path("read")
+        for groups, want in [({COMICS}, "Comics"), ({BOOKS}, "Ebooks"),
+                             ({BOOKS, COMICS}, "Comics &amp; ebooks"),
+                             ({VIDEOS, AUDIOBOOKS}, read[1])]:   # no members: the chooser is hidden
+            with self.subTest(groups=sorted(groups)):
+                self.assertEqual(want, portal.chooser_subtitle(read, groups))
+        # The request chooser has no per-viewer parts: its static subtitle is already neutral.
+        request_ch = portal.chooser_by_path("request")
+        self.assertEqual(request_ch[1], portal.chooser_subtitle(request_ch, {VIDEOS, BOOKS}))
+
+    def test_request_books_copy_names_only_the_library_the_viewer_holds(self):
+        """Shelfarr serves ebook readers and listeners alike. Each must see only their own word."""
+        for ident, label, desc in [("books", "Books", "Ask for an ebook"),
+                                   ("audiobooks", "Audiobooks", "Ask for an audiobook"),
+                                   ("all_members", "Books", "Ask for an ebook or audiobook")]:
+            page = html.unescape(fetch(ident, "/request").text)
+            with self.subTest(ident=ident):
+                self.assertIn(f'<span class="label">{label}</span>', page)
+                self.assertIn(f'<span class="desc">{desc}</span>', page)
+        self.assertNotIn("audiobook", html.unescape(fetch("books", "/request").text).lower())
+        self.assertNotIn("ebook", html.unescape(fetch("audiobooks", "/request").text).lower())
+        self.assertNotIn("<li>Books</li>", fetch("audiobooks", "/account").text)
+
+
+# --- word-level library vocabulary ---------------------------------------------------------------
+# The leak tests above compare whole labels, descriptions and hostnames taken from the portal's
+# tables, which cannot see a word such as "ebook" inside a sentence, or a label two services share
+# ("Books" is both the Books tile and the Request Books tile). This vocabulary is written out here
+# on purpose, independent of portal.py: for each library, the words and host fragments that name
+# or describe it. A member who does not hold the library must meet none of them on any page.
+LIBRARY_OF_GROUP = {VIDEOS: "videos", AUDIOBOOKS: "audiobooks", BOOKS: "books", COMICS: "comics",
+                    CONTRIBUTORS: "contributors"}
+VOCABULARY = {
+    "videos": re.compile(
+        r"movies?|\bfilms?\b|\btv\b|jellyfin|swiftfin|seerr|roku|fire tv|fire stick|apple tv|shield"
+        r"|\bwatch|\blg\b|samsung|request\.avrana\.net|href=\"/requests\"", re.I),
+    "audiobooks": re.compile(r"audiobook\w*|\babsorb|\blisten", re.I),
+    "books": re.compile(r"ebooks?|kindle|calibre|readera|books\.avrana\.net|href=\"/books\"", re.I),
+    "comics": re.compile(
+        r"comics?|manga|komga|opds|panels|moon\+|librera|read\.avrana\.net|requestacomic", re.I),
+    "contributors": re.compile(r"contribut\w*|audible", re.I),
+}
+# Words that name no single library but imply a kind of media, and the libraries that justify them.
+# Shelfarr is reachable through two libraries; only a member holding neither may not meet it.
+SHARED_VOCABULARY = {
+    "implies-reading": (re.compile(r"\breading\b", re.I), {"books", "comics"}),
+    "implies-playback": (re.compile(r"\bplayback\b", re.I), {"videos", "audiobooks"}),
+    "request-books": (re.compile(r"requestabook", re.I), {"books", "audiobooks"}),
+}
+SINGLE_LIBRARY = ("videos", "books", "comics", "audiobooks", "contributors")
+LABEL_SPAN = re.compile(r'<span class="label">([^<]*)</span>')
+ACCESS_ITEM = re.compile(r"<li>([^<]*)</li>")
+
+
+def libraries_of(ident):
+    return {LIBRARY_OF_GROUP[g] for g in groups_of(ident) if g in LIBRARY_OF_GROUP}
+
+
+def foreign_hits(ident, text):
+    """Everything on this page that names a library the identity does not hold."""
+    held = libraries_of(ident)
+    hits = []
+    for lib, rx in VOCABULARY.items():
+        if lib not in held:
+            hits += [(lib, m.group(0)) for m in rx.finditer(text)]
+    for name, (rx, owners) in SHARED_VOCABULARY.items():
+        if not held & owners:
+            hits += [(name, m.group(0)) for m in rx.finditer(text)]
+    # A label two services share must not be shown to a member of only one of them.
+    if "books" not in held:
+        hits += [("books", lab) for lab in LABEL_SPAN.findall(text) + ACCESS_ITEM.findall(text)
+                 if lab.strip() == "Books"]
+    return hits
+
+
+class LibraryVocabularyTests(unittest.TestCase):
+    """AVR-430: no page names, describes or implies a library the member cannot use."""
+
+    def pages(self, ident):
+        return LeakTests().pages(ident)   # every reachable page, 200s and 404s, unescaped
+
+    def test_every_identity_meets_only_the_words_of_its_own_libraries(self):
+        for ident in IDENTITIES:
+            for route, text in self.pages(ident).items():
+                with self.subTest(ident=ident, route=route):
+                    self.assertEqual([], foreign_hits(ident, text))
+
+    def test_single_library_member_sees_no_token_of_any_other_library_on_any_reachable_page(self):
+        """The explicit matrix: five single-library members x every reachable page x the whole
+        vocabulary of the four other libraries."""
+        for ident in SINGLE_LIBRARY:
+            held = libraries_of(ident)
+            self.assertEqual(1, len(held), ident)
+            pages = self.pages(ident)
+            self.assertGreater(len(pages), 30)   # not vacuous: the whole route list was rendered
+            for route, text in pages.items():
+                for lib, rx in VOCABULARY.items():
+                    if lib in held:
+                        continue
+                    with self.subTest(ident=ident, route=route, other_library=lib):
+                        self.assertIsNone(rx.search(text), rx.pattern)
+                with self.subTest(ident=ident, route=route, check="implied media"):
+                    self.assertEqual([], foreign_hits(ident, text))
+
+    def test_multi_permission_members_meet_no_word_of_a_library_they_lack(self):
+        for name, groups in [("videos+comics", [VIDEOS, COMICS]), ("books+audiobooks", [BOOKS, AUDIOBOOKS]),
+                             ("books+contributors", [BOOKS, CONTRIBUTORS]),
+                             ("comics+audiobooks+contributors", [COMICS, AUDIOBOOKS, CONTRIBUTORS]),
+                             ("videos+books", [VIDEOS, BOOKS])]:
+            held = {LIBRARY_OF_GROUP[g] for g in groups}
+            header = [(GROUPS_HEADER, "|".join([BASELINE] + groups))]
+            for route in ROUTES + ["/definitely-not-a-route"]:
+                r = request(route, header)
+                if r.status not in (200, 404) or not r.body or route == "/healthz":
+                    continue
+                text = html.unescape(r.text)
+                for lib, rx in VOCABULARY.items():
+                    if lib in held:
+                        continue
+                    with self.subTest(member=name, route=route, other_library=lib):
+                        self.assertIsNone(rx.search(text), rx.pattern)
+                for sname, (rx, owners) in SHARED_VOCABULARY.items():
+                    if not held & owners:
+                        with self.subTest(member=name, route=route, implied=sname):
+                            self.assertIsNone(rx.search(text), rx.pattern)
+
+    def test_vocabulary_is_not_vacuous(self):
+        """Every library's words really do appear for a member who holds it, and the checker
+        would have caught the original defect and its siblings."""
+        everything = "\n".join(self.pages("all_members").values())
+        for lib, rx in VOCABULARY.items():
+            with self.subTest(library=lib):
+                self.assertIsNotNone(rx.search(everything))
+                own = [i for i in SINGLE_LIBRARY if libraries_of(i) == {lib}][0]
+                self.assertIsNotNone(rx.search("\n".join(self.pages(own).values())))
+        self.assertTrue(foreign_hits("books", "Comics & ebooks"))     # the AVR-430 subtitle
+        self.assertTrue(foreign_hits("comics", "Comics & ebooks"))
+        self.assertTrue(foreign_hits("books", "Ask for an ebook or audiobook"))
+        self.assertTrue(foreign_hits("audiobooks", "Ask for an ebook or audiobook"))
+        self.assertTrue(foreign_hits("videos", "settings: playback, reading position, kindle"))
+        self.assertTrue(foreign_hits("audiobooks", '<span class="label">Books</span>'))
+        self.assertTrue(foreign_hits("videos", '<a href="/requestabook">'))
+        self.assertEqual([], foreign_hits("all_members", everything))
+
+    def test_every_string_class_is_rendered_for_the_audit(self):
+        """The audit covers tiles, choosers, help index and topics, account, interstitial, 404,
+        footers, titles and aria-labels. Make sure each class is present in what is scanned."""
+        text = "\n".join(self.pages("all_members").values())
+        for needle in ("<title>", 'aria-label="', "<footer>", "Open Books", "Your access",
+                       "Before you continue", "That page does not exist.", "All help",
+                       'class="tile"'):
+            with self.subTest(needle=needle):
+                self.assertIn(needle, text)
 
 
 class AccountTests(unittest.TestCase):

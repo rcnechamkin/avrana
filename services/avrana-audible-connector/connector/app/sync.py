@@ -121,23 +121,41 @@ async def apply_mode_after_scan(
 async def finalize_once_mode(
     conn: sqlite3.Connection, client: CompanionClient, connection_row: sqlite3.Row, sub: str
 ) -> bool:
-    """For 'once' mode: if all selected imports succeeded, revoke auth. Returns True if revoked."""
+    """For 'once' mode: if every chosen book is in (none failed or pending), revoke auth.
+    Returns True only for the one caller that revoked.
+
+    Concurrent callers (two Refreshes, or Refresh and the scheduler) are safe: the connection is
+    claimed with a single conditional UPDATE ('connected' -> 'finishing') before revoking, so
+    exactly one caller revokes and audits; the others see rowcount 0 and do nothing."""
     cid = connection_row["id"]
     if connection_row["sync_mode"] != "once":
         return False
     if not jobs.all_selected_done(conn, cid):
         return False
+    claimed = conn.execute(
+        "UPDATE connection SET state='finishing' WHERE id=? AND state='connected' AND sync_mode='once'",
+        (cid,),
+    ).rowcount
+    if claimed != 1:
+        return False
     try:
         await client.revoke(connection_row["profile_id"])
     except CompanionError as exc:
-        # Keep the connection so the user can retry disconnect; record sanitized failure.
+        # Release the claim so the user (or the next tick) can retry; record sanitized failure.
         conn.execute(
-            "UPDATE connection SET failure=? WHERE id=?", (redact(exc.user_message), cid)
+            "UPDATE connection SET state='connected', failure=? WHERE id=? AND state='finishing'",
+            (redact(exc.user_message), cid),
         )
         return False
-    from .repo import set_connection_state
-
-    set_connection_state(conn, cid, "disconnected")
+    except BaseException:
+        conn.execute("UPDATE connection SET state='connected' WHERE id=? AND state='finishing'", (cid,))
+        raise
+    # Conditional on our claim: if the member disconnected manually meanwhile, that path already
+    # recorded it, so do not audit a second time.
+    if conn.execute(
+        "UPDATE connection SET state='disconnected', failure=NULL WHERE id=? AND state='finishing'", (cid,)
+    ).rowcount != 1:
+        return False
     audit.record(conn, audit.ACCOUNT_DISCONNECTED, sub=sub, connection_id=cid,
                  detail="one-time import complete; auth revoked")
     return True

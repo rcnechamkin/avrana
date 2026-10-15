@@ -30,6 +30,13 @@ duplicates (including case variants of the header name) are visible.
 | malformed | non-string; control, format or unassigned characters; leading or trailing whitespace in the username; `|`, `,` or newline in the username; username not in Unicode NFC |
 | oversized | username over 150 characters; groups header over 4096 characters, over 64 groups, or a group over 128 characters |
 
+**UNVERIFIED (identity inputs).** The 150-character username limit is this layer's own bound taken
+from Authentik's documented user model as remembered, not checked against the deployed Authentik.
+The `|` group separator, and the `,` also accepted, follow `services/avrana-portal/portal.py::parse_groups`
+and the repository's notes about the outpost header; the exact form the deployed outpost sends has
+not been observed by this work. Both belong to the recorded read-only check before any real header is
+parsed.
+
 Groups are parsed like `services/avrana-portal/portal.py::parse_groups` (split on `|` and `,`,
 strip, drop empties) and compared **exactly and case-sensitively**; there is no prefix matching.
 
@@ -54,6 +61,10 @@ Rules for the rest of the application:
   form decodes strictly: names must be ASCII, and the identity headers must be pure ASCII, so any
   non-ASCII or non-UTF-8 value (including latin-1 mojibake) yields no principal. This is deliberately
   stricter than Authentik allows; relaxing it for non-ASCII usernames is an owner decision.
+- **Framework header-mapping behaviour is UNVERIFIED.** The statement that a framework's header
+  mapping merges duplicates and decodes as latin-1 is recalled from Starlette's documented behaviour,
+  not tested here (no framework is installed in this offline work). It is why section 10 requires the
+  raw header list; if a framework turns out to preserve duplicates, the raw form is still the safe one.
 - The trust in these headers exists only because of G1. A shared-secret header from the outpost
   (decision D-3) is the planned second layer and is out of scope here.
 
@@ -122,12 +133,17 @@ Each public method runs these steps, in this order, in the shared base class
 - Mapping outcomes are cached per member for **60 s**, found, absent or ambiguous alike (a negative
   result is cached too). This bounds how long a renamed, swapped or deleted upstream account can
   keep serving the old mapping. Jellyfin item responses carry no user name, so there is no stronger
-  evidence to check; the residual window is therefore up to 60 s. A 404 on a later member-scoped call
-  with a cached mapping drops it so it is resolved again.
+  evidence to check; the residual window is therefore up to 60 s. A 404 on a later route addressed by
+  the bound user, with a cached mapping, drops the mapping so it is resolved again (section 6, what a
+  404 means).
 - **Single-flight.** The sections of one page run concurrently and would both miss the mapping cache
   on a cold page. The mapping lookup is single-flight per (adapter, member): one page is one
   mapping call and, in an outage, one counted failure; the follower sections share the leader's
-  answer and are not counted again.
+  answer and are not counted again. A follower waits at most what is left of its own request
+  budget (never the hard cap); a flight older than one budget is abandoned and the next caller leads
+  afresh; a follower never accepts an answer older than the mapping TTL; every follower gets its own
+  new exception instance, never the leader's. A follower also knows its mapping was just confirmed by
+  the leader, so it never drops a mapping the leader has just confirmed.
 - A `/Users` list that is non-empty but has **no parsable entry** (schema drift) is `UpstreamMalformed`
   (`UNAVAILABLE`, counted, not cached), never "everyone is unlinked". An empty list is legitimately
   unlinked.
@@ -182,7 +198,10 @@ template must escape them.
 `listen.avrana.net`, `read.avrana.net`, `books.avrana.net`) plus an upstream id that must fully
 match a strict per-service pattern (Jellyfin: 32 lowercase hex characters). An invalid id drops the
 item; it is never interpolated. An upstream-supplied URL is never used, so there is no open redirect.
-The path templates are **unverified against the live apps**.
+The path templates are **unverified against the live apps**, and so are the Audiobookshelf
+(`li_` plus 6 to 40 lowercase alphanumerics) and Komga (6 to 32 alphanumerics) id patterns in
+`contract.py`: they are placeholders written from memory so that a typo cannot become a URL, not
+observed ids. Only the Jellyfin pattern (32 lowercase hex) is a documented format.
 
 **Artwork** is an opaque `ref` (`"jellyfin/primary/<id>"`). The home fetches it server-side via
 `fetch_artwork`, which first confirms the item is visible to the mapped member, then fetches the
@@ -220,18 +239,37 @@ a 404 or the sign-in flow, never a partial page. These are listed so the UI team
 
 ## 5. Cache rules
 
-**One mechanism, following the approved design.** `MEDIA-2.0.md` section 3 approves "a small SQLite
-file ... disposable". The reference implements exactly that, once: `DisposableCache` over stdlib
-`sqlite3` (`MemberCache` and `SharedCache` are thin facades with the interfaces the adapters use).
-There is no second cache mechanism in the tree.
+**One mechanism, following the approved design.** `MEDIA-2.0.md` section 3, "Cache", says in full:
+"A small SQLite file in the container's own volume, holding catalogue metadata and resized artwork with
+short lifetimes. It is disposable: deleting it costs a slower first page, nothing else." The reference
+implements one SQLite mechanism, once: `DisposableCache` over stdlib `sqlite3` (`MemberCache` and
+`SharedCache` are thin facades; only `MemberCache` has a member API, `SharedCache` has none). There is
+no second cache mechanism in the tree.
+
+**Where this implementation is stricter than, or deviates from, the charter text.**
+
+- *Artwork in memory only is a deviation.* The charter names catalogue metadata **and resized artwork**
+  as the file's content. This implementation's conservative default keeps artwork out of the file
+  (it is visibility-checked per member, so it is member data); artwork reaches a file only if the
+  application widens `persist_classes`. That is a deviation from the charter text, flagged for the
+  owner (decision below), not something the charter asked for.
+- *"Deleted and recreated at every start" is this implementation's stricter reading of "disposable",
+  not the charter's wording.* The charter only says deleting it costs nothing; recreating it at
+  every start is a choice that keeps the file from ever becoming a store.
+- *Per-member progress and the per-member mapping are not in the charter's list at all.* They are
+  cached in memory because the home page needs them; whether they may ever touch a file is the open
+  owner decision below.
 
 | | Default (tests, local development, and until the owner decides) | Configured file path (the deployment the charter describes) |
 |---|---|---|
 | Database | `:memory:` | a file in the application's own volume |
-| Created | in memory | **deleted and recreated at every start**, mode 0600, never migrated, never backed up, never a system of record |
-| Pragmas | `secure_delete=ON` | `secure_delete=ON`, rollback journal kept in memory (no sidecar files), `synchronous=OFF` |
-| Schema | `user_version` = 1 | the same; a different or unreadable file is replaced, not repaired |
-| Errors | any sqlite error is a **miss** and the cache is rebuilt; no database exception reaches a caller | the same; an unusable path degrades to memory |
+| Created | in memory | **deleted and recreated at every start**, mode 0600, created with `O_EXCL` (and `O_NOFOLLOW` where the platform has it), never migrated, never backed up, never a system of record |
+| Pragmas | `secure_delete=ON`, `temp_store=MEMORY` | the same plus rollback journal kept in memory (no sidecar or temp files) and `synchronous=OFF`; `application_id` marks the file as ours |
+| Schema | `user_version` = 2 | the same |
+| Existing file at the path | n/a | replaced **only** if it is a regular file that is empty or carries this cache's `application_id`. Anything else (another program's file, a symlink, a directory) is **refused**: one log line by reason class only (`cache_path_refused`), the file is left untouched, and the cache runs in memory |
+| Two caches, one path | n/a | the second is refused with `CachePathInUseError` (raised at construction) |
+| Shutdown | nothing to do | `close()` closes the connection and removes the file |
+| Errors | no database, encoder or decoder exception reaches a caller: a sqlite error is a **miss** and the cache is rebuilt; an undecodable or type-invalid row is a miss and is deleted; a value that cannot be encoded is simply not stored | the same; an unusable path degrades to memory |
 
 Two databases are attached to one connection under one lock and one quota code path: `main` (the
 file, when configured) and `member` (always `:memory:`). Each write declares a data class, and one
@@ -249,15 +287,23 @@ member-keyed entry can never be filed under `catalogue`. The application may wid
 that is the owner decision below.
 
 **Keys and values.** Every partition key and entry key is an HMAC-SHA256 under a random key
-generated at start and never stored, so neither a file nor a memory dump contains usernames,
+generated at start and never stored (every part is length-prefixed, so no two part lists can give
+one input), so neither a file nor a memory dump contains usernames,
 service names, item ids or artwork references as key material, and a file left behind is useless
 after a restart. **Values are plaintext JSON** (titles, progress, image bytes): that is why member
 classes stay out of the file by default. Stored types are a whitelist of immutable domain types.
 
 Bounds (a member over quota evicts only their own oldest entries; under global pressure the member
 holding the most bytes loses entries first; an entry larger than the per-member byte quota is not
-stored): 2048 entries and 32 MiB in total; per member 128 entries and 8 MiB. `purge_member(principal)`
-removes everything cached for one member (offboarding). Concurrent use is safe (one connection, one lock).
+stored): 2048 entries and 32 MiB in total; per member 128 entries and 8 MiB. **All byte bounds are in
+STORED bytes**: the cache measures the encoded payload itself (text column plus any binary column plus
+a fixed 200-byte per-row overhead) and ignores any size a caller declares (the old `size` argument
+is accepted and ignored). Artwork is stored as a BLOB, not base64. Inside one member, eviction goes by
+class (artwork first, then section data, the mapping last) and then oldest first, in one pass.
+`purge_member(principal)` (a `MemberCache` method) removes everything cached for one member from both
+databases (offboarding). Concurrent use is safe (one connection, one lock). A write that is refused
+(non-positive, NaN or infinite TTL; unencodable; over quota) also removes any previous value under
+that key.
 
 | Data | Shared across members? | Key | TTL |
 |---|---|---|---|
@@ -298,8 +344,10 @@ behind `persist_classes` but is not enabled. This document does not edit `MEDIA-
 ## 6. Failure handling
 
 - **One deadline per request.** A request has a 2 s budget shared by the mapping and the work
-  (`REQUEST_BUDGET`); each transport call gets what is left, so a request that respects its budget
-  can never reach the 3 s hard cap in `gather` (which is always above the budget).
+  (`REQUEST_BUDGET`, or the `timeout` an adapter is built with); each transport call gets what is
+  left, so a request that respects its budget can never reach the hard cap in `gather`. The hard cap
+  is **derived**: the longest request timeout among the adapters passed to `gather` plus 1 s (3 s with
+  the defaults); `derive_hard_cap(adapters)` computes it and an explicit `hard_cap` still overrides.
 - **No retries** in the request path.
 - **The circuit is shared by every member of an adapter.** Policy, exactly:
   1. Counts toward it (service-wide evidence): timeouts, connection errors (including
@@ -308,11 +356,18 @@ behind `persist_classes` but is not enabled. This document does not edit `MEDIA-
      (the credential lacks rights), malformed or oversized payloads, total schema drift (section 9),
      and `UpstreamMisbehaved`. 401/403 semantics are **unverified** against the deployed Jellyfin.
   2. Does not count (about one member's or one item's request): other 4xx; **403 on a member-scoped
-     call** (that member gets `UNAVAILABLE`); and a 404 with a *cached* mapping (the user is gone:
-     `NOT_LINKED`, reason `upstream_user_not_found`, that member's mapping dropped).
-  3. A 404 right after the mapping was freshly confirmed against the upstream, or on the user-list
-     call, is **route drift** and counts (`UNAVAILABLE`). A 404 for one image is handled inside the
-     adapter and is simply "no artwork".
+     call** (that member gets `UNAVAILABLE`); and the two member-specific kinds of 404 below.
+  3. **What a 404 means is declared by the ROUTE** (each allow-listed route names its class; a bare
+     404 from a transport is converted by the guard):
+     - *user route* (addressed by the bound user: resume, latest, items for Jellyfin) = `UserGone`.
+       With a *cached* mapping the account is gone: `NOT_LINKED`, reason `upstream_user_not_found`,
+       that member's mapping dropped, not counted. Right after the mapping was freshly confirmed (by
+       this call or by the single-flight leader it followed) it is contradictory, so it is drift:
+       `UNAVAILABLE` reason `UserGone`, counted, mapping kept.
+     - *item route* (the image of one item) = `ItemGone`: an `EMPTY` result (reason `item_not_found`,
+       artwork `EMPTY`), never counted, never cached.
+     - *fixed route* (the user list) = `RouteMissing`: the route is gone, service-wide drift,
+       `UNAVAILABLE`, counted. A 404 nobody classified is treated the same way.
   4. Only calls that actually reached the upstream report to the breaker. A mapping served from the
      cache (found, absent or ambiguous) is neutral: it can neither reset a failure run nor hold a
      failing service open.
@@ -327,7 +382,8 @@ behind `persist_classes` but is not enabled. This document does not edit `MEDIA-
   can provoke) are not swallowed: the method raises, so tests see them; under `gather` that section
   is `UNAVAILABLE`, is logged by class only, and that adapter's circuit is force-opened.
 - **Hung adapters.** Python cannot kill a hung thread, so concurrency is bounded instead. `gather()`
-  runs sections on one shared 48-thread pool with a hard wall-clock cap (3 s); an adapter that
+  runs sections on one shared 48-thread pool of daemon threads (so a hung call cannot keep a shutting
+  down process alive) with a hard wall-clock cap (derived, 3 s with the defaults); an adapter that
   exceeds it has its circuit force-opened and reports `UNAVAILABLE` (`hard_cap`). Each adapter allows
   8 in-flight calls and 2 per member; beyond that, `busy` / `member_busy` immediately. Work that
   never started when the cap hits is cancelled and reported `queued`, and touches no circuit. This
@@ -335,7 +391,9 @@ behind `persist_classes` but is not enabled. This document does not edit `MEDIA-
   the in-flight caps, the per-request deadline and the epoch protection, but no hard cap.
 - **Boundary.** Anything an upstream or transport can provoke (`RecursionError` from nested JSON,
   numeric overflow, `http.client` errors, wrong types) becomes an `UpstreamError`; a public method
-  returns a state and never raises for upstream-controlled input.
+  returns a state and never raises for upstream-controlled input. The same holds for the cache: no
+  exception from encoding, decoding or sqlite escapes it (a failure is a miss), and a clock that
+  raises cannot leak an in-flight slot.
 - Logging: `adapter_failure service=<name> error=<ExceptionClass>`. Never member identity, titles,
   URLs, exception messages or credentials. Reprs of principals, users and transports are redacted.
 - **Health vocabulary** (`AdapterHealth.state`, rendered by the app's readiness check):
@@ -367,6 +425,13 @@ behind `persist_classes` but is not enabled. This document does not edit `MEDIA-
 5. The credential lives only inside the transport. It is in no result, repr or log line. The
    guard also refuses to bind anything that is not a 32-hex user id.
 6. The service credential is never used to produce an "everyone" or admin view as a fallback.
+
+**UNVERIFIED Jellyfin behaviours this isolation relies on** (all part of the recorded read-only check):
+(a) `GET /Items?userId=..&ids=..` returns an **empty list**, not a 404, for an item the user cannot see
+(if it returns 404 instead, `ItemGone`/`UserGone` classification of that route must be revisited);
+(b) `userId` is **honoured** when the request is authenticated with an API key;
+(c) API keys are administrator-equivalent, with no scopes; (d) the image route honours `maxWidth` and
+`quality`.
 
 The image route cannot carry a `userId`, so the guard cannot bind it to the member. Its member
 scoping rests on the adapter first running a `userId`-scoped lookup of the same item

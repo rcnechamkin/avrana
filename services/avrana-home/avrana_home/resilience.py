@@ -76,7 +76,22 @@ class UpstreamAuthError(UpstreamHTTPError):
 
 
 class UpstreamNotFound(UpstreamHTTPError):
-    """404. Benign for a single item; does not trip the circuit."""
+    """A bare 404 from a transport. What it MEANS is declared by the route it came from (see the
+    three subclasses); a 404 nobody classified is treated as route drift and counts."""
+
+
+class UserGone(UpstreamNotFound):
+    """404 on a route addressed by the bound upstream USER: that account no longer exists. One
+    member's problem: never counted."""
+
+
+class ItemGone(UpstreamNotFound):
+    """404 on a route addressed by one ITEM: that item is absent (or hidden). Never counted."""
+
+
+class RouteMissing(UpstreamNotFound):
+    """404 on a FIXED route (no user, no item in the address): the route itself is gone, which is
+    service-wide drift. Counted."""
 
 
 class UpstreamMalformed(UpstreamError):
@@ -126,7 +141,7 @@ class UrllibTransport:
             raise ValueError("base_url must be http(s) without a trailing slash")
         self._base = base_url
         self._headers = dict(auth_headers)
-        self._opener = opener or urllib.request.build_opener(_NoRedirect)
+        self._opener = opener if opener is not None else urllib.request.build_opener(_NoRedirect)
 
     def __repr__(self) -> str:
         return "UrllibTransport(<redacted>)"
@@ -167,12 +182,15 @@ def counts_toward_breaker(exc: BaseException, member_scoped: bool = False) -> bo
     """Shared-circuit policy. Only SERVICE-WIDE evidence counts: timeouts, connection errors,
     5xx, 429, unexpected 3xx, 401 (the service credential is refused), malformed or oversized
     payloads, and responses that contradict the request scope. A 404 and other 4xx describe one
-    member's or one item's request, so they never open the circuit that every member shares.
+    member's or one item's request, so they never open the circuit that every member shares (a 404 counts only when the ROUTE
+    declares it means the route is gone: RouteMissing or unclassified).
     A 403 counts only when it is not on a member-scoped call (403 on the user list means the
     service credential lacks rights; 403 on one member's call is about that member). Both auth
     behaviours are UNVERIFIED against a real Jellyfin."""
-    if isinstance(exc, UpstreamNotFound):
+    if isinstance(exc, (UserGone, ItemGone)):
         return False
+    if isinstance(exc, UpstreamNotFound):
+        return True              # RouteMissing, or a 404 nobody classified: drift
     if isinstance(exc, UpstreamAuthError):
         return not (member_scoped and exc.status == 403)
     if isinstance(exc, UpstreamHTTPError):

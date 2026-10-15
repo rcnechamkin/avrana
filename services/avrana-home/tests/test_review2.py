@@ -203,7 +203,7 @@ class F6RouteVersusUserNotFound(JF):
     def test_404_with_a_freshly_confirmed_mapping_is_route_drift(self):
         self.fake.overrides["/UserItems/Resume"] = ("status", 404)
         r = self.adapter.continue_items(self.a)
-        self.assertEqual((r.state, r.reason), (SectionState.UNAVAILABLE, "UpstreamNotFound"))
+        self.assertEqual((r.state, r.reason), (SectionState.UNAVAILABLE, "UserGone"))
         for _ in range(2):
             self.clock.advance(61)                                            # mapping expires: fresh each time
             self.adapter.continue_items(self.a)

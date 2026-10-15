@@ -11,12 +11,17 @@ import tempfile
 import threading
 import unittest
 
-from avrana_home.cache import (KNOWN_CLASSES, SCHEMA_VERSION, DisposableCache, MemberCache,
-                               SharedCache)
+from avrana_home.cache import (KNOWN_CLASSES, SCHEMA_VERSION, STORED_OVERHEAD, DisposableCache,
+                               MemberCache, SharedCache)
 from avrana_home.contract import (ArtworkRef, ArtworkResult, Kind, MediaItem, SectionResult,
                                   SectionState, Service, UpstreamUser)
 from avrana_home.resilience import FakeClock
 from tests.helpers import make_principal
+
+
+def pad_for(total):
+    """A string whose STORED size (measured payload plus the fixed overhead) is exactly `total`."""
+    return "x" * (total - STORED_OVERHEAD - 2)
 
 
 class Cases:
@@ -96,7 +101,7 @@ class Cases:
         for name in ("member-a", "member-b", "member-c"):
             s = small.for_member(make_principal(name))
             for i in range(3):
-                s.set("jellyfin", f"k{i}", i, ttl=100, size=300)
+                s.set("jellyfin", f"k{i}", pad_for(300), ttl=100)
         self.assertLessEqual(small.total_bytes(), 1000)
         self.assertLessEqual(len(small), 3)
 
@@ -104,19 +109,19 @@ class Cases:
         c = self.make(max_bytes=10_000, member_max_bytes=1000, member_max_entries=100,
                       path=(self.path + "q") if self.use_file else None)
         b = c.for_member(make_principal("member-b"))
-        b.set("jellyfin", "mine", "B", ttl=100, size=300)
+        b.set("jellyfin", "mine", pad_for(300), ttl=100)
         a = c.for_member(make_principal("member-a"))
         for i in range(20):
-            a.set("jellyfin", f"k{i}", i, ttl=100, size=300)
-        self.assertEqual(b.get("jellyfin", "mine"), "B")
+            a.set("jellyfin", f"k{i}", pad_for(300), ttl=100)
+        self.assertEqual(b.get("jellyfin", "mine"), pad_for(300))
         self.assertLessEqual(sum(1 for i in range(20) if a.get("jellyfin", f"k{i}") is not None), 3)
 
     def test_oversize_entry_boundary(self):
         c = self.make(member_max_bytes=1000, path=(self.path + "o") if self.use_file else None)
         s = c.for_member(make_principal("member-a"))
-        s.set("jellyfin", "exact", "v", ttl=100, size=1000)
-        s.set("jellyfin", "over", "v", ttl=100, size=1001)
-        self.assertEqual(s.get("jellyfin", "exact"), "v")
+        s.set("jellyfin", "exact", pad_for(1000), ttl=100)
+        s.set("jellyfin", "over", pad_for(1001), ttl=100)
+        self.assertEqual(s.get("jellyfin", "exact"), pad_for(1000))
         self.assertIsNone(s.get("jellyfin", "over"))
 
     def test_one_member_cannot_evict_everyone_else(self):
@@ -360,18 +365,18 @@ class FileCacheTests(Cases, unittest.TestCase):
         with open(self.path + "re", "rb") as fh:
             self.assertNotIn(b"OLD", fh.read())
 
-    def test_corrupt_or_foreign_file_is_replaced_at_start(self):
+    def test_corrupt_or_foreign_file_is_refused_not_replaced(self):
+        junk = b"this is not a sqlite database" * 100
         with open(self.path + "bad", "wb") as fh:
-            fh.write(b"this is not a sqlite database" * 100)
-        c = SharedCache(self.clock, path=self.path + "bad")
+            fh.write(junk)
+        with self.assertLogs("avrana_home", "WARNING"):
+            c = SharedCache(self.clock, path=self.path + "bad")
         self.made.append(c)
+        self.assertIsNone(c.path)                                  # memory only
         c.set("public", "k", "v", 100)
         self.assertEqual(c.get("public", "k"), "v")
-        con = self.ro(self.path + "bad")
-        try:
-            self.assertEqual(con.execute("PRAGMA user_version").fetchone()[0], SCHEMA_VERSION)
-        finally:
-            con.close()
+        with open(self.path + "bad", "rb") as fh:
+            self.assertEqual(fh.read(), junk)                      # somebody else's file is untouched
 
     def test_secure_delete_and_no_sidecar_files(self):
         self.assertEqual(self.cache._conn.execute("PRAGMA secure_delete").fetchone()[0], 1)

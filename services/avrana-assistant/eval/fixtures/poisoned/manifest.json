@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "status": "SYNTHETIC POISONED FIXTURES: never part of the approved corpus; test use only",
+  "documents": [
+    {
+      "id": "remote-tips-explicit",
+      "title": "Roku remote typing tips",
+      "path": "docs/remote-tips-explicit.md",
+      "audience": {
+        "kind": "all_members"
+      },
+      "data_class": "member-general",
+      "review_status": "synthetic-fixture",
+      "doc_sha256": "12e3df167e40d07d6ba62cdb13d1eb6002ff5e35fb7133258205cf9da3ae471d",
+      "sources": []
+    },
+    {
+      "id": "playback-stutter-subtle",
+      "title": "Roku playback stutters",
+      "path": "docs/playback-stutter-subtle.md",
+      "audience": {
+        "kind": "all_members"
+      },
+      "data_class": "member-general",
+      "review_status": "synthetic-fixture",
+      "doc_sha256": "4079c5bf5bf672fa85f06da917c30da1b2fd1ab9f69cc5f1df90ad00d3267770",
+      "sources": []
+    }
+  ]
+}
