@@ -17,9 +17,10 @@ import a11y_helpers as A
 from app.config import Settings
 from app.main import create_app
 from conftest import FakeCompanion
-from helpers import connect, csrf, hdr
+from helpers import connect, csrf, hdr, refresh
 
 PROGRESS = "/contribute/audible/progress"
+REFRESH = "/contribute/audible/progress/refresh"
 GET_PAGES = {"/contribute/audible", "/contribute/audible/library", "/contribute/audible/mode", PROGRESS}
 
 
@@ -105,29 +106,39 @@ def pages(site):
     for j in fake.jobs.values():
         if "asin" in j:
             j["status"] = "running"
+    refresh(client, app, "run")
     keep("progress, running", "run", _get(client, "run", PROGRESS))
 
     fake.fail_backup_all = True
     connect(client, app, "bad")
     _select_and_start(client, app, "bad")
     fake.fail_backup_all = False
+    refresh(client, app, "bad")
     keep("progress, failed", "bad", _get(client, "bad", PROGRESS))
 
     connect(client, app, "ok")
     _select_and_start(client, app, "ok")
+    refresh(client, app, "ok")
     keep("progress, succeeded", "ok", _get(client, "ok", PROGRESS))
 
     connect(client, app, "non")
-    # In the default one-time mode, opening the progress page with nothing selected would finish the
-    # import and disconnect (existing behaviour, left alone), so this user chooses "ask" first.
+    # One-time mode refuses an empty selection, so this user chooses "ask" first.
     client.post("/contribute/audible/mode", data={"mode": "ask", "csrf_token": csrf(app, "non")},
                 headers=hdr("non"), follow_redirects=False)
     keep("progress, nothing queued", "non", _get(client, "non", PROGRESS))
 
-    # one-time import finished: the "disconnected, nothing kept" notice, then the disconnect page
+    # one-time import finished: the "disconnected, nothing kept" notice, then the disconnect page.
+    # Earlier users in this module imported these books, so the scan marks them already in Avrana;
+    # this user's books are made choosable again, or there would be nothing to choose (one-time
+    # mode now refuses an empty choice instead of finishing).
     connect(client, app, "once")
+    db = dbc(app.state.settings.db_path)
+    db.execute("UPDATE book SET status='available' WHERE status='already' AND connection_id="
+               "(SELECT id FROM connection WHERE authentik_sub='once')")
+    db.close()
     _select_and_start(client, app, "once", mode="once")
-    keep("progress, finished once", "once", _get(client, "once", PROGRESS))
+    # the Refresh that finishes the import answers with the result itself: the connection is gone
+    keep("progress, finished once", "once", refresh(client, app, "once"))
 
     connect(client, app, "bye")
     r = client.post("/contribute/audible/disconnect", data={"csrf_token": csrf(app, "bye")},
@@ -172,13 +183,14 @@ def test_progress_has_a_status_region_and_a_manual_refresh_control(state, pages,
     status = [e for e in main.all_descendants() if e.attrs.get("role") == "status" and "alert" not in e.classes]
     assert status, "no role=status region with the current import status"
     assert status[0].all_text, "status region is empty"
-    refresh = [a for a in main.all_descendants() if a.tag == "a" and a.all_text.strip() == "Refresh"]
-    assert len(refresh) == 1
-    assert refresh[0].attrs["href"] == PROGRESS, "Refresh must be a GET to the same page"
-    assert "target" not in refresh[0].attrs and "download" not in refresh[0].attrs
-    # not a form, not a button: a plain link (no JavaScript, no POST)
-    assert not any(f for f in d.find("form") if f.attrs.get("action") == PROGRESS)
-    assert "refresh" not in (refresh[0].attrs.get("onclick") or "")
+    # Refresh does work (polls, dispatches, may finish a one-time import), so it is a CSRF POST
+    # (owner decision, 2026-10-15); loading the page itself is a GET that changes nothing.
+    buttons = [b for b in main.all_descendants() if b.tag == "button" and b.all_text.strip() == "Refresh"]
+    assert len(buttons) == 1
+    forms = [f for f in d.find("form") if f.attrs.get("action") == REFRESH]
+    assert len(forms) == 1 and forms[0].attrs.get("method") == "post"
+    assert not any(a for a in d.find("a") if a.attrs.get("href") in (PROGRESS, REFRESH))
+    assert "onclick" not in buttons[0].attrs
 
 
 def test_status_region_says_how_many_are_done_and_failed(pages, docs):
@@ -214,7 +226,6 @@ def _snapshot(app):
 def test_following_refresh_twice_changes_nothing_and_starts_no_work(state, site, pages, docs):
     client, app, fake = site
     sub = pages[state][0]
-    href = [a for a in docs[state].find("a") if a.all_text.strip() == "Refresh"][0].attrs["href"]
     started = []
     real_backup = fake.backup
 
@@ -224,13 +235,22 @@ def test_following_refresh_twice_changes_nothing_and_starts_no_work(state, site,
     fake.backup = counting_backup
 
     before = _snapshot(app)
-    first = client.get(href, headers=hdr(sub), follow_redirects=False)
-    second = client.get(href, headers=hdr(sub), follow_redirects=False)
-    after = _snapshot(app)
+    first = client.get(PROGRESS, headers=hdr(sub), follow_redirects=False)
+    second = client.get(PROGRESS, headers=hdr(sub), follow_redirects=False)
     assert first.status_code == second.status_code == 200
-    assert after == before, "following Refresh changed stored state"
-    assert started == [], "following Refresh started a download"
+    assert _snapshot(app) == before, "loading the progress page changed stored state"
+    assert started == [], "loading the progress page started a download"
     A.check_no_auto_navigation(A.Doc(second.text), second)
+    # Refresh twice: each answers with a redirect back to the page (no resubmit on reload), and the
+    # second changes nothing the first did not
+    r1 = refresh(client, app, sub)
+    once = _snapshot(app)
+    r2 = refresh(client, app, sub)
+    assert (r1.status_code, r1.headers["location"]) == (r2.status_code, r2.headers["location"]) == (303, PROGRESS)
+    assert _snapshot(app) == once, "a second Refresh changed what the first left"
+    assert started == [], "Refresh started a second download of something already running or done"
+    # without its token Refresh does nothing
+    assert client.post(REFRESH, data={}, headers=hdr(sub), follow_redirects=False).status_code in (400, 403)
     # same page, same rows
     rows = lambda t: [e.own_text for e in A.Doc(t).all if "pt" in e.classes]
     assert rows(first.text) == rows(second.text) == rows(pages[state][1].text)
@@ -241,7 +261,7 @@ def test_finished_one_time_import_has_a_status_but_no_refresh_to_nowhere(site, p
     connect page (existing behaviour). So that page announces the result and offers no Refresh."""
     client, app, fake = site
     d = docs["progress, finished once"]
-    assert [a for a in d.find("a") if a.all_text.strip() == "Refresh"] == []
+    assert [b for b in d.find("button") if b.all_text.strip() == "Refresh"] == []
     assert any("disconnected" in e.all_text for e in d.all if "alert" in e.classes)
     assert any(e.attrs.get("role") == "status" for e in d.all)
     r = client.get(PROGRESS, headers=hdr(pages["progress, finished once"][0]), follow_redirects=False)
@@ -273,9 +293,9 @@ def test_state_changing_actions_are_still_the_same_posts(docs):
     assert actions["paste"] == ["/contribute/audible/complete"]
     assert actions["library"] == ["/contribute/audible/scan", "/contribute/audible/select"]
     assert actions["mode"] == ["/contribute/audible/disconnect", "/contribute/audible/mode"]
-    assert actions["progress, failed"] == ["/contribute/audible/disconnect", "/contribute/audible/retry",
+    assert actions["progress, failed"] == ["/contribute/audible/disconnect", REFRESH, "/contribute/audible/retry",
                                            "/contribute/audible/retry"]
-    assert actions["progress, running"] == ["/contribute/audible/disconnect"]
+    assert actions["progress, running"] == ["/contribute/audible/disconnect", REFRESH]
     assert actions["disconnected"] == []
 
 
@@ -442,13 +462,13 @@ def test_alert_roles_are_exact_for_error_and_notice(site):
     assert roles == {("alert", "error"): "alert", ("alert", "notice"): "status"}
 
 
-def test_the_not_updating_hint_goes_with_the_refresh_link(docs):
+def test_the_not_updating_hint_goes_with_the_refresh_control(docs):
     for name, d in docs.items():
         if not name.startswith("progress"):
             continue
-        has_link = any(a.all_text.strip() == "Refresh" for a in d.find("a"))
+        has_link = any(b.all_text.strip() == "Refresh" for b in d.find("button"))
         hint = [e for e in d.all if "hint" in e.classes and "does not update by itself" in e.all_text]
-        assert bool(hint) == has_link, f"{name}: Refresh link and its explanation must appear together"
+        assert bool(hint) == has_link, f"{name}: Refresh and its explanation must appear together"
         if hint:
             assert "Refresh" in hint[0].all_text
 

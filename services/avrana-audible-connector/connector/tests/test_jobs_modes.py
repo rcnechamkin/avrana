@@ -1,7 +1,7 @@
 """Job dedup/idempotency, retry, sync modes, one-time revocation, scheduler."""
 import asyncio
 
-from helpers import connect, csrf, hdr
+from helpers import connect, csrf, hdr, refresh
 
 
 def _select_and_start(client, app, sub, mode, asins=None):
@@ -46,8 +46,8 @@ def test_job_dedup_is_refresh_safe(client, app):
 
 def test_once_mode_revokes_after_success(client, app):
     _select_and_start(client, app, "alice", "once")
-    # Progress page polls + dispatches + finalizes.
-    client.get("/contribute/audible/progress", headers=hdr("alice"))
+    # Refresh (a CSRF POST) polls + dispatches + finalizes.
+    refresh(client, app, "alice")
     # All succeeded (fake succeeds) => revoke called, connection disconnected.
     assert len(app.state.companion.revoked) == 1
     from app.db import connect as dbc
@@ -60,7 +60,7 @@ def test_once_mode_revokes_after_success(client, app):
 def test_once_mode_retains_on_failure(client, app):
     app.state.companion.fail_backup_all = True
     _select_and_start(client, app, "alice", "once")
-    client.get("/contribute/audible/progress", headers=hdr("alice"))
+    refresh(client, app, "alice")
     assert app.state.companion.revoked == []  # not revoked while failures remain
     books = _books(app)
     assert "failed" in books.values()
@@ -69,14 +69,14 @@ def test_once_mode_retains_on_failure(client, app):
 def test_retry_failed(client, app):
     app.state.companion.fail_backup_asins = {"B000000AA1"}
     _select_and_start(client, app, "alice", "once", asins=["B000000AA1"])
-    client.get("/contribute/audible/progress", headers=hdr("alice"))
+    refresh(client, app, "alice")
     assert _books(app)["B000000AA1"] == "failed"
     # Fix the fault and retry.
     app.state.companion.fail_backup_asins = set()
     client.post("/contribute/audible/retry",
                 data={"asin": "B000000AA1", "csrf_token": csrf(app, "alice")},
                 headers=hdr("alice"), follow_redirects=False)
-    client.get("/contribute/audible/progress", headers=hdr("alice"))
+    refresh(client, app, "alice")
     assert _books(app)["B000000AA1"] == "imported"
 
 

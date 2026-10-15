@@ -195,24 +195,22 @@ It is not a browser: layout, 200% text zoom and screen reader speech still need 
 ### Import progress page
 
 The page no longer reloads itself. It shows the current status in a `role="status"` line ("2 of 5 imported,
-1 failed, 2 still in progress.") and a plain **Refresh** link to the same page: a `GET`, no JavaScript, no
-form. In-place polling is deferred to Media 2.0 M3. After a one-time import has finished the page shows the
-result (as the page's single status region) and no Refresh link, because the next visit goes to the connect page.
+1 failed, 2 still in progress.") and a **Refresh** button. In-place polling is deferred to Media 2.0 M3.
 
-**The Refresh link is an idempotent `GET`, not a side-effect-free one.** Opening `/contribute/audible/progress`
-runs the same work the old meta refresh ran: it dispatches queued jobs, polls running ones and, in one-time
-mode, finalises the import, which can revoke the stored Audible authorization and write an audit row.
-Repeating it changes nothing further (the tests follow it twice and compare every connection, book and job row
-and the audit count), and it never starts a download twice, but it is not a pure read. This was already true of
-the page and is unchanged.
+**Loading the page changes nothing** (owner decision, 2026-10-15). `GET /contribute/audible/progress` only
+reads: it never dispatches, polls, finalises or revokes. **Refresh** is a CSRF-protected
+`POST /contribute/audible/progress/refresh`. It dispatches queued jobs, polls running ones and, in one-time
+mode, finishes the import (revokes the stored Audible authorization and records it) once every book the
+member chose is in. It answers with a `303` back to the page, so reloading never resubmits it; a second
+Refresh changes nothing the first did not. The background scheduler does the same work every five minutes,
+so an import still finishes when the browser is closed. When Refresh finishes a one-time import it shows the
+result itself (the connection is gone afterwards) and no further Refresh.
 
-**Known behaviour, owner decision (not changed here).**
-1. Refresh, and any other visit to the progress page, can disconnect the account: in one-time mode, once no
-   selected book remains unfinished the page revokes the authorization (`sync.finalize_once_mode`).
-2. Opening the progress page with nothing selected in one-time mode (the default mode) also disconnects the
-   account: books already in the library count as done, so the "all selected done" test passes with nothing
-   selected. The test fixtures choose "ask" mode first to avoid it. Options for the owner: leave it, require at
-   least one selected book, or make the finalise step a `POST`.
+**An empty choice finishes nothing.** Selecting no book is refused with "Choose at least one book to import.",
+and one-time mode cannot be chosen with nothing selected. Only books the member chose (they have a job) count
+towards "all done": books a scan found already in Avrana no longer do, so they alone can never revoke the
+authorization. A chosen book that turns out to be present still counts, so the one-time promise holds.
+`tests/test_once_lifecycle.py` covers the whole lifecycle, including CSRF and isolation between members.
 
 ### Credential-free UI walkthrough (mock companion)
 ```bash
