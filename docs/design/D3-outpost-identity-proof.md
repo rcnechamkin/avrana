@@ -73,6 +73,13 @@ Proof of concept: `services/avrana-home/avrana_home/outpost_jwt.py` (stdlib only
 - Proxy providers also allow the password and client-credentials grants (`set_oauth_defaults`). With the
   client secret, those can obtain tokens for that provider's client. That is another reason to keep the
   secret out of anything members or other services can read.
+- Requests the outpost authenticates by `Authorization: Bearer`/`Basic` (always attempted in 2026.5.6, review
+  finding F9) carry a different token in `X-authentik-jwt`: an introspected access token, not the session's
+  ID token, so its `aud`, claims and signature may not satisfy the verifier. In enforce mode those API
+  clients would be locked out. Log-only rollout must show zero such requests (or a decision on them) first.
+- Group names are refused if they contain `|` or `,` or start or end with whitespace, because the backends
+  and OliveTin would split them differently. Names with inner spaces (`authentik Admins`) are kept whole by
+  the verifier, but OliveTin splits on spaces; see the OliveTin row below.
 
 ### Per service
 

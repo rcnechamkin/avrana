@@ -187,7 +187,12 @@ class RejectTests(unittest.TestCase):
             "bad_claims": [claims(exp=...), claims(exp="9999999999"), claims(exp=True), claims(nbf="0"),
                            claims(preferred_username=...), claims(preferred_username=""),
                            claims(preferred_username=["member-a"]), claims(groups=...),
-                           claims(groups="authentik Admins"), claims(groups=["ok", 5])],
+                           claims(groups="authentik Admins"), claims(groups=["ok", 5]),
+                           claims(groups=[""]), claims(groups=["avrana-users|authentik Admins"]),
+                           claims(groups=["avrana-users,authentik Admins"]), claims(groups=[" authentik Admins"]),
+                           claims(groups=["authentik Admins\t"]), claims(exp=float("nan")),
+                           claims(exp=float("inf")), claims(iat=float("-inf")),
+                           claims(sub=float("nan"))],
         }
         for reason, payloads in cases.items():
             for payload in payloads:
@@ -200,6 +205,35 @@ class RejectTests(unittest.TestCase):
                     good[:-2] + "+/", "é" + good, "x" * (oj.MAX_TOKEN_LEN + 1)):
             with self.subTest(bad=str(bad)[:20]):
                 self.rejects(bad, "malformed_token")
+
+    def test_group_names_with_inner_spaces_are_kept_whole(self):
+        got = verifier().verify(sign(KEY_A, HDR_A, claims(groups=["authentik Admins"])))
+        self.assertEqual(got["groups"], ["authentik Admins"])
+
+    def test_non_finite_numbers_spelled_as_json_overflow(self):
+        raw = json.dumps(claims())[:-1] + ', "nbf": 1e999}'
+        self.rejects(sign(KEY_A, HDR_A, None, raw_claims=b64(raw.encode())), "bad_claims")
+
+    def test_non_canonical_base64_is_refused(self):
+        good = sign(KEY_A, HDR_A, claims())
+        h, c, s = good.split(".")
+        alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
+        checked = []
+        for name, seg in (("header", h), ("claims", c), ("signature", s)):
+            if len(seg) % 4 == 0:
+                continue  # no spare bits in this segment
+            spare = 2 if len(seg) % 4 == 2 else 4  # unused low bits in the last character
+            i = alphabet.index(seg[-1])
+            twin = seg[:-1] + alphabet[i | ((1 << spare) - 1)] if i & ((1 << spare) - 1) == 0 else None
+            if twin is None:
+                continue
+            self.assertEqual(base64.urlsafe_b64decode(twin + "=" * (-len(twin) % 4)),
+                             base64.urlsafe_b64decode(seg + "=" * (-len(seg) % 4)))
+            parts = {"header": (twin, c, s), "claims": (h, twin, s), "signature": (h, c, twin)}[name]
+            checked.append(name)
+            with self.subTest(segment=name):
+                self.rejects(".".join(parts), "malformed_token")
+        self.assertIn("signature", checked)  # a 2048-bit signature always has spare bits
 
     def test_duplicate_json_keys_and_non_objects(self):
         dup = b'{"alg":"RS256","alg":"none"}'

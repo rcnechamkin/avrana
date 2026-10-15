@@ -15,7 +15,8 @@ member (the outpost puts it in the browser's sign-out redirect); an HMAC does no
 constant secret header carried in the token would have leaked, which is why that option was rejected.
 
 Rules, all fail closed with a fixed reason code (never token content):
-  * compact JWS only, ASCII base64url, bounded size, exactly three non-empty segments;
+  * compact JWS only, canonical unpadded ASCII base64url, bounded size, exactly three non-empty segments;
+    JSON without NaN/Infinity;
   * header: alg must equal the verifier's one configured algorithm (HS256 or RS256, never chosen by the
     token); `crit`, `jku`, `jwk`, `x5u`, `x5c` are refused (never fetch or accept a key from the token);
   * HS256: HMAC-SHA256 with the pinned client secret(s), constant-time comparison;
@@ -23,7 +24,8 @@ Rules, all fail closed with a fixed reason code (never token content):
     kid; RSASSA-PKCS1-v1_5 with SHA-256, signature length equal to the modulus length, representative < n,
     full encoded-message comparison in constant time (no partial parsing of the padding);
   * claims: iss and aud must match the provider, exp required, nbf/iat honoured with a small leeway,
-    preferred_username a non-empty string, groups a list of strings; duplicate JSON keys are refused.
+    preferred_username a non-empty string, groups a list of non-empty names without "|", "," or edge
+    whitespace; exp/nbf/iat finite numbers; duplicate JSON keys are refused.
 Rotation: pin the new secret or key next to the old one, then remove the old one after the session lifetime.
 """
 from __future__ import annotations
@@ -33,6 +35,7 @@ import binascii
 import hashlib
 import hmac
 import json
+import math
 import re
 import time
 from typing import Callable, Iterable, Mapping, Optional
@@ -60,9 +63,17 @@ def _b64url_decode(segment: str, reason: str) -> bytes:
     if not segment or not _B64URL.fullmatch(segment) or len(segment) % 4 == 1:
         raise JwtRejected(reason)
     try:
-        return base64.urlsafe_b64decode(segment + "=" * (-len(segment) % 4))
+        raw = base64.urlsafe_b64decode(segment + "=" * (-len(segment) % 4))
     except (binascii.Error, ValueError):
         raise JwtRejected(reason) from None
+    # Canonical form only: non-zero trailing bits would let two strings carry the same bytes.
+    if base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii") != segment:
+        raise JwtRejected(reason)
+    return raw
+
+
+def _no_constants(name):
+    raise ValueError("non-finite number")
 
 
 def _no_duplicates(pairs):
@@ -76,7 +87,7 @@ def _no_duplicates(pairs):
 
 def _json_object(raw: bytes, reason: str) -> dict:
     try:
-        value = json.loads(raw.decode("utf-8"), object_pairs_hook=_no_duplicates)
+        value = json.loads(raw.decode("utf-8"), object_pairs_hook=_no_duplicates, parse_constant=_no_constants)
     except (UnicodeDecodeError, ValueError):
         raise JwtRejected(reason) from None
     if not isinstance(value, dict):
@@ -222,12 +233,20 @@ class OutpostJwtVerifier:
         groups = claims.get("groups")
         if not isinstance(user, str) or not user:
             raise JwtRejected("bad_claims")
-        if not isinstance(groups, list) or not all(isinstance(g, str) for g in groups):
+        if not isinstance(groups, list) or not all(_is_group_name(g) for g in groups):
             raise JwtRejected("bad_claims")
 
 
+def _is_group_name(value) -> bool:
+    # A name that contains a separator or edge whitespace would split differently in the "|"-joined header
+    # and in OliveTin's space/comma handling, so it could become a different group: refuse it.
+    return (isinstance(value, str) and value != "" and value == value.strip()
+            and not any(sep in value for sep in "|,"))
+
+
 def _is_number(value) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
+    return (isinstance(value, (int, float)) and not isinstance(value, bool)
+            and math.isfinite(value))
 
 
 def principal_from_outpost(headers, verifier: OutpostJwtVerifier):
