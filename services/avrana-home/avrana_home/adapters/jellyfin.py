@@ -13,26 +13,25 @@ below is the one place to change.
 """
 from __future__ import annotations
 
-import json
 import re
-import unicodedata
-from typing import Any, List, Mapping, Optional, Tuple
+from typing import Any, Mapping, Optional, Tuple
 
-from ..contract import (ArtworkRef, ArtworkResult, AmbiguousMappingError, ForbiddenRequest, Kind,
-                        MappingFailed, MediaAdapter, MediaItem, SectionResult, SectionState,
-                        Service, UpstreamUser, build_handoff_url, clean_text)
-from ..resilience import (MAX_IMAGE_BYTES, MAX_JSON_BYTES, CallBudget, DEFAULT_TIMEOUT,
-                          Transport, TransportResponse, UpstreamMalformed, UpstreamMisbehaved,
-                          UpstreamNotFound, UpstreamTooLarge)
+from ..contract import (ArtworkRef, ArtworkResult, Kind, MappingFailed, MediaItem, SectionResult,
+                        SectionState, Service, UpstreamUser, build_handoff_url, clean_text)
+from ..resilience import (DEFAULT_TIMEOUT, ItemGone, RouteMissing, Transport, UpstreamMalformed,
+                          UpstreamMisbehaved, UserGone)
+from . import _base
+from ._base import GuardedAdapter, Route, bounded_int, image_magic_ok, match_exactly_one
 
 TICKS_PER_SECOND = 10_000_000
 _GUID = re.compile(r"[0-9a-fA-F]{8}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{12}")
 _HEX32 = r"[0-9a-f]{32}"
 _BOUND_ID = re.compile(_HEX32)
-MAX_INT = 2 ** 63
+MAX_INT = _base.MAX_INT
 _ARTWORK_REF = re.compile(r"jellyfin/primary/(" + _HEX32 + r")")
-_IMAGE_TYPES = ("image/jpeg", "image/png", "image/webp")
 _ITEM_FIELDS = "PrimaryImageAspectRatio"
+_int = bounded_int                    # names kept for the tests and for older importers
+_image_magic_ok = image_magic_ok
 
 
 def normalise_guid(value: Any) -> Optional[str]:
@@ -43,79 +42,40 @@ def normalise_guid(value: Any) -> Optional[str]:
 
 
 # ---- the read-only allow-list -------------------------------------------------------------
-class Route:
-    def __init__(self, name: str, pattern: str, query_keys: Tuple[str, ...], user_scoped: bool,
-                 needs_user: bool = True):
-        self.name = name
-        self.pattern = re.compile(pattern)
-        self.query_keys = frozenset(query_keys)
-        self.user_scoped = user_scoped      # the userId query value must equal the bound user
-        self.needs_user = needs_user        # a mapped user must exist before this route is used
-
-
+# The user id travels in the QUERY (`userId`) on every user-scoped Jellyfin route. What a 404 means is
+# declared per route: the user routes say "that user is gone", the image route "that item is gone",
+# the user list "that route is gone" (drift).
 ALLOWED_ROUTES = (
-    Route("users", r"/Users", (), user_scoped=False, needs_user=False),
+    Route("users", r"/Users", (), user_scoped=False, needs_user=False, not_found=RouteMissing),
     Route("resume", r"/UserItems/Resume",
           ("userId", "limit", "mediaTypes", "fields", "enableUserData", "enableImageTypes",
-           "enableTotalRecordCount"), user_scoped=True),
+           "enableTotalRecordCount"), user_scoped=True, not_found=UserGone),
     Route("latest", r"/Items/Latest",
           ("userId", "limit", "includeItemTypes", "groupItems", "fields", "enableImageTypes",
-           "enableUserData"), user_scoped=True),
+           "enableUserData"), user_scoped=True, not_found=UserGone),
     Route("items", r"/Items", ("userId", "ids", "fields", "enableUserData", "enableImageTypes"),
-          user_scoped=True),
+          user_scoped=True, not_found=UserGone),
     # The image route cannot carry a userId, so ITS member scoping is not enforced here: it rests on
     # the adapter calling `_visible_item` (a userId-scoped lookup) for the same item first.
     Route("image", r"/Items/" + _HEX32 + r"/Images/Primary", ("maxWidth", "quality"),
-          user_scoped=False),
+          user_scoped=False, not_found=ItemGone),
 )
 
 
 def check_request(method: Any, path: Any, query: Optional[Mapping[str, str]],
                   bound_user_id: Optional[str]) -> Route:
     """Raise ForbiddenRequest unless this is an allow-listed read-only request for the bound user."""
-    if method != "GET":
-        raise ForbiddenRequest("method")
-    if not isinstance(path, str):
-        raise ForbiddenRequest("path")
-    route = next((r for r in ALLOWED_ROUTES if r.pattern.fullmatch(path)), None)
-    if route is None:
-        raise ForbiddenRequest("path")
-    if bound_user_id is not None and (not isinstance(bound_user_id, str)
-                                      or _BOUND_ID.fullmatch(bound_user_id) is None):
-        raise ForbiddenRequest("bound user id")
-    query = dict(query or {})
-    if not all(isinstance(k, str) and isinstance(v, str) for k, v in query.items()):
-        raise ForbiddenRequest("query")
-    if not set(query) <= route.query_keys:
-        raise ForbiddenRequest("query")
-    if route.needs_user and bound_user_id is None:
-        raise ForbiddenRequest("no mapped user")
-    if route.user_scoped and query.get("userId") != bound_user_id:
-        raise ForbiddenRequest("user scope")
-    if not route.user_scoped and "userId" in query:
-        raise ForbiddenRequest("user scope")
-    return route
+    return _base.check_request(ALLOWED_ROUTES, _BOUND_ID, method, path, query, bound_user_id)
 
 
-class GuardedTransport:
-    """Wraps an inner Transport. Same `request` signature; checks first, then delegates."""
+class GuardedTransport(_base.GuardedTransport):
+    """The Jellyfin allow-list around an inner Transport."""
 
-    def __init__(self, inner: Transport, bound_user_id: Optional[str] = None):
-        if bound_user_id is not None and (not isinstance(bound_user_id, str)
-                                          or _BOUND_ID.fullmatch(bound_user_id) is None):
-            raise ForbiddenRequest("bound user id")        # defence in depth: never bind a non-GUID
-        self._inner = inner
-        self._bound = bound_user_id
+    def __init__(self, inner, bound_user_id: Optional[str] = None):
+        super().__init__(inner, ALLOWED_ROUTES, _BOUND_ID, bound_user_id)
 
-    def bind(self, user_id: Optional[str]) -> "GuardedTransport":
+    def _clone(self, user_id):
         return GuardedTransport(self._inner, user_id)
-
-    def request(self, method, path, query, timeout, max_bytes) -> TransportResponse:
-        check_request(method, path, query, self._bound)
-        return self._inner.request(method, path, query, timeout, max_bytes)
-
-    def __repr__(self) -> str:
-        return "GuardedTransport(<redacted>)"
 
 
 # ---- adapter ------------------------------------------------------------------------------
@@ -123,36 +83,14 @@ def _norm_name(value: str) -> str:
     return unicodedata.normalize("NFKC", value).casefold().strip()
 
 
-class JellyfinAdapter(MediaAdapter):
+class JellyfinAdapter(GuardedAdapter):
     service = Service.JELLYFIN
 
     def __init__(self, transport: Transport, timeout: float = DEFAULT_TIMEOUT, **kw):
-        super().__init__(**kw)
-        self._guard = GuardedTransport(transport)
-        self._timeout = timeout
+        super().__init__(GuardedTransport(transport), timeout, **kw)
 
     def __repr__(self) -> str:
         return "JellyfinAdapter(<redacted>)"
-
-    # -- low level -----------------------------------------------------------------------
-    def _get(self, guard: GuardedTransport, budget: CallBudget, path: str,
-             query: Optional[Mapping[str, str]], max_bytes: int = MAX_JSON_BYTES) -> TransportResponse:
-        timeout = min(budget.remaining(), self._timeout)
-        resp = guard.request("GET", path, query, timeout, max_bytes)
-        budget.remaining()                      # a response that arrives past the budget is too late
-        if len(resp.body) > max_bytes:
-            raise UpstreamTooLarge()
-        return resp
-
-    def _get_json(self, guard, budget, path, query) -> Any:
-        resp = self._get(guard, budget, path, query)
-        try:
-            return json.loads(resp.body.decode("utf-8"))
-        except (UnicodeDecodeError, ValueError, RecursionError, MemoryError):
-            raise UpstreamMalformed() from None
-
-    def _budget(self) -> CallBudget:
-        return CallBudget(self.clock, self._timeout)
 
     # -- mapping -------------------------------------------------------------------------
     def _resolve_user(self, principal) -> UpstreamUser:
@@ -160,24 +98,13 @@ class JellyfinAdapter(MediaAdapter):
         users = self._get_json(guard, self._budget(), "/Users", None)
         if not isinstance(users, list):
             raise UpstreamMalformed()
-        wanted_exact = principal.username
-        wanted_loose = _norm_name(principal.username)
-        exact, loose = {}, {}
-        for raw in users:
+
+        def extract(raw):
             if not isinstance(raw, dict):
-                continue
+                return None
             name, uid = raw.get("Name"), normalise_guid(raw.get("Id"))
-            if not isinstance(name, str) or uid is None:
-                continue
-            if _norm_name(name) == wanted_loose:
-                loose[uid] = raw
-                if name == wanted_exact:
-                    exact[uid] = raw
-        if len(exact) > 1 or (len(exact) == 1 and len(loose) > 1):
-            raise AmbiguousMappingError()
-        if not exact:
-            raise MappingFailed("case_or_unicode_mismatch" if loose else "unmapped")
-        (uid, raw), = exact.items()
+            return (name, uid) if isinstance(name, str) and uid is not None else None
+        uid, raw = match_exactly_one(principal.username, users, extract)
         policy = raw.get("Policy")
         if isinstance(policy, dict) and policy.get("IsDisabled") is True:
             raise MappingFailed("disabled")
@@ -196,6 +123,7 @@ class JellyfinAdapter(MediaAdapter):
         data = raw.get("UserData")
         data = data if isinstance(data, dict) else {}
         # Scope tripwire: a response that names another user, or another item, is hostile or broken.
+        # UserData.UserId may well be absent from real responses (UNVERIFIED); checked only if present.
         if "UserId" in data and normalise_guid(data["UserId"]) != user_id:
             raise UpstreamMisbehaved()
         if "ItemId" in data and normalise_guid(data["ItemId"]) != item_id:
@@ -249,22 +177,8 @@ class JellyfinAdapter(MediaAdapter):
 
     def _parse_list(self, raws: Any, user_id: str, limit: int, kinds, want_progress,
                     require_progress) -> Tuple[MediaItem, ...]:
-        if not isinstance(raws, list):
-            raise UpstreamMalformed()
-        if len(raws) > limit:
-            raise UpstreamMisbehaved()            # limit ignored: possibly an unscoped listing
-        out: List[MediaItem] = []
-        seen = set()
-        bad = 0
-        for raw in raws:
-            item, status = self._parse_item(raw, user_id, kinds, want_progress, require_progress)
-            bad += status == "bad"
-            if item is not None and item.id not in seen:
-                seen.add(item.id)
-                out.append(item)
-        if raws and bad == len(raws):
-            raise UpstreamMalformed()             # total schema drift: never cache it as "empty"
-        return tuple(out)
+        return self._parse_many(raws, limit, lambda raw: self._parse_item(
+            raw, user_id, kinds, want_progress, require_progress))
 
     # -- hooks ---------------------------------------------------------------------------
     def _continue_items(self, user: UpstreamUser, limit: int) -> SectionResult:
@@ -316,24 +230,5 @@ class JellyfinAdapter(MediaAdapter):
         visible = self._visible_item(guard, budget, user, item_id)   # member-scoped permission check
         if visible is None or visible.artwork is None:
             return ArtworkResult(SectionState.EMPTY)
-        try:
-            resp = self._get(guard, budget, f"/Items/{item_id}/Images/Primary",
-                             {"maxWidth": "400", "quality": "80"}, MAX_IMAGE_BYTES)
-        except UpstreamNotFound:
-            return ArtworkResult(SectionState.EMPTY)
-        ctype = resp.content_type.split(";")[0].strip().lower()
-        if ctype not in _IMAGE_TYPES or not resp.body:
-            raise UpstreamMalformed()
-        return ArtworkResult(SectionState.OK, ctype, resp.body)
-
-
-def _int(value: Any) -> Optional[int]:
-    """A bounded integer from upstream JSON, or None. Hostile magnitudes are rejected here so
-    later arithmetic can neither overflow nor divide by something absurd."""
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        return None
-    try:
-        number = int(value)
-    except (OverflowError, ValueError):
-        return None
-    return number if -MAX_INT < number < MAX_INT else None
+        return self._fetch_image(guard, budget, f"/Items/{item_id}/Images/Primary",
+                                 {"maxWidth": "400", "quality": "80"})

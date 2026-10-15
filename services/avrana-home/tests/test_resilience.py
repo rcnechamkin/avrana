@@ -1,3 +1,8 @@
+import os as _os
+import sys as _sys
+
+_sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+from tests import _netguard  # noqa: E402,F401  (installs the network guard, also when run directly)
 import io
 import logging
 import unittest
@@ -58,7 +63,8 @@ class AdapterResilienceTests(unittest.TestCase):
     def test_health_has_no_member_data(self):
         self.adapter.continue_items(self.p)
         h = self.adapter.health().to_dict()
-        self.assertEqual(sorted(h), ["last_error_class", "retry_in_seconds", "service", "state"])
+        self.assertEqual(sorted(h), ["consecutive_failures", "last_error_class", "retry_in_seconds",
+                                     "service", "state"])
         self.assertEqual(h["state"], "cooling_off")
         self.assertNotIn("member", repr(h))
 

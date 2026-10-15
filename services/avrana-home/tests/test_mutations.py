@@ -1,4 +1,9 @@
 """Tests that pin behaviours a plausible code mutation would otherwise break silently."""
+import os as _os
+import sys as _sys
+
+_sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+from tests import _netguard  # noqa: E402,F401  (installs the network guard, also when run directly)
 import copy
 import io
 import json
@@ -29,7 +34,8 @@ class Base(unittest.TestCase):
 
 class GuidAndMappingTests(Base):
     def test_user_id_with_trailing_path_is_not_a_valid_account(self):
-        self.fake.users = [dict(self.fake.users[0], Id="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/../x")]
+        self.fake.users = [dict(self.fake.users[0], Id="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/../x"),
+                           self.fake.users[1]]               # one parsable entry: not wholesale drift
         r = self.adapter.continue_items(self.a)
         self.assertEqual((r.state, r.reason), (SectionState.NOT_LINKED, "unmapped"))
         self.assertEqual(self.fake.paths(), ["/Users"])

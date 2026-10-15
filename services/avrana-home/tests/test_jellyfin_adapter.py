@@ -1,4 +1,9 @@
 """Jellyfin adapter against SYNTHETIC fixtures and a fake transport. No sockets, no real server."""
+import os as _os
+import sys as _sys
+
+_sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+from tests import _netguard  # noqa: E402,F401  (installs the network guard, also when run directly)
 import json
 import unittest
 
@@ -255,7 +260,7 @@ class IsolationTests(Base):
         self.assertNone(as_json(a1, a2), B_MARKERS)
         self.assertIsNot(a1, b1)
         n = len(self.fake.requests)
-        self.assertIs(self.adapter.continue_items(self.a), a1)         # own cache hit
+        self.assertEqual(self.adapter.continue_items(self.a), a1)    # own cache hit (equal, rebuilt from the store)
         self.assertEqual(len(self.fake.requests), n)
         self.assertEqual(self.adapter.item(self.a, "bbbb0000000000000000000000000001").items, ())
 
@@ -347,7 +352,7 @@ class UpstreamFailureTests(Base):
             self.assertNotIn("member-a", logs, label)
             self.assertNotIn("Synthetic", logs, label)
             self.assertIn("service=jellyfin", logs, label)
-            if label == "400":                      # a per-request 4xx never counts toward the circuit
+            if label in ("400", "403"):             # per-request 4xx / member-scoped 403: never counted
                 self.assertNotEqual(self.adapter.health().state, "cooling_off", label)
             else:
                 self.assertEqual(self.adapter.health().state, "cooling_off", label)
