@@ -12,7 +12,9 @@ All time comes from an injectable clock so tests never sleep.
 from __future__ import annotations
 
 import http.client
+import io
 import logging
+import math
 import socket
 import threading
 import time
@@ -134,6 +136,7 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 READ_CHUNK = 16 * 1024
+MAX_TRANSPORT_TIMEOUT = 30.0     # a larger (finite) timeout is capped; a non-finite one is refused
 
 
 class _Abort:
@@ -141,10 +144,12 @@ class _Abort:
     kernel (a slow-drip upstream that sends a byte just often enough to keep a per-socket timeout from
     ever firing) is interrupted instead of holding the worker. `fired` tells the caller why it failed."""
 
-    def __init__(self) -> None:
+    def __init__(self, deadline: float = float("inf"), now=time.monotonic) -> None:
         self._lock = threading.Lock()
         self._sock = None
         self.fired = False
+        self.deadline = deadline
+        self.now = now
 
     def attach(self, sock) -> None:
         with self._lock:
@@ -158,15 +163,6 @@ class _Abort:
             if self._sock is not None:
                 self._kill(self._sock)
 
-    def set_timeout(self, seconds: float) -> None:
-        with self._lock:
-            sock = self._sock
-        if sock is not None:
-            try:
-                sock.settimeout(seconds)
-            except (OSError, ValueError):
-                pass
-
     @staticmethod
     def _kill(sock) -> None:
         for fn in (lambda: sock.shutdown(socket.SHUT_RDWR), sock.close):
@@ -174,6 +170,71 @@ class _Abort:
                 fn()
             except (OSError, ValueError):
                 pass
+
+
+class _DeadlineRaw(io.RawIOBase):
+    """Reads a socket so that EVERY blocking receive is bounded by what is left of the request deadline: the
+    socket timeout is set to the time left before each `recv_into`, and a passed deadline raises
+    TimeoutError. This is what bounds the status line, the headers and a silent upstream (a timer that merely
+    shuts the socket down from another thread is not reliable on every platform, notably Windows)."""
+
+    def __init__(self, sock, abort: _Abort, on_close=None):
+        super().__init__()
+        self._sock = sock
+        self._abort = abort
+        self._on_close = on_close
+
+    def readable(self) -> bool:
+        return True
+
+    def close(self) -> None:
+        was_open = not self.closed
+        super().close()
+        if was_open and self._on_close is not None:
+            self._on_close()
+
+    def readinto(self, buffer) -> int:
+        left = self._abort.deadline - self._abort.now()
+        if left <= 0 or self._abort.fired:
+            raise TimeoutError("deadline")
+        self._sock.settimeout(left)
+        return self._sock.recv_into(buffer)
+
+
+class _DeadlineSocket:
+    """The connection's socket as http.client sees it: reads go through `_DeadlineRaw`, everything else
+    (sendall, close, shutdown, ...) is the real socket's."""
+
+    def __init__(self, sock, abort: _Abort):
+        self._s = sock
+        self._abort = abort
+        self._refs = 0                  # readers handed out; like socket.makefile, they keep the socket open
+        self._closed = False
+        self._lock = threading.Lock()
+
+    def makefile(self, mode="rb", buffering=None, **kw):
+        if mode != "rb":
+            return self._s.makefile(mode, buffering, **kw)
+        with self._lock:
+            self._refs += 1
+        return io.BufferedReader(_DeadlineRaw(self._s, self._abort, self._release), READ_CHUNK)
+
+    def close(self) -> None:
+        with self._lock:
+            self._closed = True
+            last = self._refs == 0
+        if last:
+            self._s.close()
+
+    def _release(self) -> None:
+        with self._lock:
+            self._refs -= 1
+            last = self._closed and self._refs == 0
+        if last:
+            self._s.close()
+
+    def __getattr__(self, name):
+        return getattr(self._s, name)
 
 
 def _tracked(base, abort: _Abort):
@@ -187,7 +248,8 @@ def _tracked(base, abort: _Abort):
 
         def connect(self):
             super().connect()
-            abort.attach(self.sock)
+            abort.attach(self.sock)                      # the real socket, for the timer to close
+            self.sock = _DeadlineSocket(self.sock, abort)
     return Tracked
 
 
@@ -224,7 +286,10 @@ class UrllibTransport:
     the connection at the deadline so a read blocked on a slow-drip upstream is interrupted. The caller
     (and its in-flight slots) therefore get control back at about the deadline. Not covered: name
     resolution and the TLS handshake, which Python cannot interrupt (each is bounded only by the
-    per-operation timeout). With an injected opener the deadline is checked between chunks only."""
+    per-operation timeout). With an injected opener the deadline is checked between chunks only.
+    Every blocking receive (status line, headers, body) has its socket timeout set to the time LEFT, so the
+    bound does not depend on the timer interrupting a blocked call. A finite timeout is capped at
+    MAX_TRANSPORT_TIMEOUT; NaN and infinities are refused (UpstreamTimeout, no I/O)."""
 
     def __init__(self, base_url: str, auth_headers: Mapping[str, str], opener=None):
         if not base_url.startswith(("http://", "https://")) or base_url.endswith("/"):
@@ -240,10 +305,12 @@ class UrllibTransport:
         from urllib.parse import urlencode
         url = self._base + path + (("?" + urlencode(query)) if query else "")
         req = urllib.request.Request(url, method=method, headers=self._headers)
-        if not isinstance(timeout, (int, float)) or isinstance(timeout, bool) or not timeout > 0:
-            raise UpstreamTimeout()
+        if (not isinstance(timeout, (int, float)) or isinstance(timeout, bool) or not math.isfinite(timeout)
+                or not timeout > 0):
+            raise UpstreamTimeout()                      # NaN, infinities, zero, negatives, bools, non-numbers
+        timeout = min(float(timeout), MAX_TRANSPORT_TIMEOUT)
         deadline = time.monotonic() + timeout
-        abort = _Abort()
+        abort = _Abort(deadline)
         opener = self._opener or urllib.request.build_opener(
             _NoRedirect, _TrackedHTTP(abort), _TrackedHTTPS(abort))
         timer = threading.Timer(timeout, abort.fire)
@@ -262,13 +329,14 @@ class UrllibTransport:
                     left = deadline - time.monotonic()
                     if left <= 0 or abort.fired:
                         raise UpstreamTimeout()
-                    abort.set_timeout(left)
                     part = read(min(READ_CHUNK, max_bytes + 1 - size))
                     if not part:
                         break
                     parts.append(part)
                     size += len(part)
                 body = b"".join(parts)
+                if abort.fired:                          # never a truncated success when the timer fired
+                    raise UpstreamTimeout()
         except UpstreamTimeout:
             raise
         except urllib.error.HTTPError as exc:
