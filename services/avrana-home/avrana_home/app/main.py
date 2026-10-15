@@ -32,6 +32,7 @@ from ..cache import MemberCache
 from ..resilience import SystemClock, UrllibTransport
 from . import catalogue as catalogue_mod
 from .catalogue import Trusted
+from . import artwork as artwork_mod
 from .identity import Viewer, get_viewer, has_identity_headers
 from .logsafe import app_log, log_event, silence_uvicorn_access
 from .middleware import HygieneMiddleware
@@ -153,6 +154,18 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
                 return respond(not_found())
             scope["avrana_route"] = "/home.json"
             return JSONResponse(await _gather(viewer))
+
+        if route.startswith(artwork_mod.PREFIX):
+            ref = artwork_mod.ref_from_route(route)
+            result = None
+            if ref is not None and settings.home_sections and adapter_list:
+                result = await run_in_threadpool(artwork_mod.fetch, viewer.principal, adapter_list, ref)
+            if result is None:           # unknown service, bad ref, no group, not visible, upstream
+                scope["avrana_route"] = "not_found"          # trouble: one and the same 404
+                return respond(not_found())
+            scope["avrana_route"] = "/art/{ref}"
+            return Response(result.data, media_type=result.content_type,
+                            headers={"Cache-Control": artwork_mod.CACHE_CONTROL})
 
         p = viewer.principal
         facts = AccountFacts(name=(p.name or "").strip(), username=p.username,

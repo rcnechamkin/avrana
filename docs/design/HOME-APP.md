@@ -84,7 +84,7 @@ behaviour, applied to the stricter parser.
 | I-5 | Non-ASCII username (UTF-8, latin-1 or mojibake) | Latin-1 decoded and shown | No principal (adapter layer: `principal_from_raw_headers` refuses any non-ASCII username) | **Keep (owner decision).** Non-ASCII usernames get no principal, so a mojibake name can never map to another account. A non-ASCII display name is shown only if it is valid UTF-8. Tested over a real socket. |
 | I-6 | Display name or e-mail that is duplicated, over 254 characters or contains control characters | Shown, whitespace-stripped | Omitted from `/account` | **Keep.** Display-only values never decide anything. |
 | I-7 | Method other than GET and HEAD | 501 from `http.server`, before routing, body echoes the method | 501 from the middleware, before routing and identity, fixed body that does **not** echo the method | **Chosen: 501, not 405.** 501 is what members' clients see today; FastAPI's native 405 would differ per path and add an `Allow` header. Identical for every identity and path; same hygiene headers. |
-| I-8 | Every response | Cache-Control, Referrer-Policy, X-Content-Type-Options (`nosniff`, asserted on every response) | Those three **plus** `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'` (no script source) | **Keep.** Inline `<style>` is how the portal is built today; dropping it needs a stylesheet route and the design team's agreement. |
+| I-8 | Every response | Cache-Control, Referrer-Policy, X-Content-Type-Options (`nosniff`, asserted on every response) | Those three **plus** `Content-Security-Policy: default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'` (no script source) | **Keep.** Inline `<style>` is how the portal is built today; dropping it needs a stylesheet route and the design team's agreement. |
 | I-9 | Protocol-level problems (malformed request line, unknown HTTP version, oversized headers) | Python `http.server` replies (400/505) with the three headers | uvicorn/h11 replies **before the application runs**: 400/431 with no application headers; `HTTP/9.9` is accepted | **Accept.** These replies carry no application data. Documented, tested to contain no page. |
 | I-10 | Connection reuse | HTTP/1.0, one request per connection (pinned by the portal tests so a connection never carries two identities) | uvicorn keeps connections alive | **Accept.** Identity is read per request and no state is per connection; pipelined and reused connections are tested with different identities. |
 | I-11 | `/readyz`, `/home.json`, `/_dev/*` | 404 | `/readyz`: loopback peer only, else 404. `/home.json`: only with `HOME_SECTIONS` on and a valid principal, else 404. `/_dev/*`: 404 (the shim is not part of the app) | **Keep.** Unchanged for anyone who is not an operator on the host or a member with the flag on. |
@@ -213,8 +213,7 @@ One example per state (synthetic, produced by the tests' mock):
 {"sections": []}      <- not_permitted: the section is omitted, so a member without the group gets this
 ```
 
-`artwork.ref` is opaque and **there is no artwork route yet**: images are omitted from the HTML, and
-serving them (member-scoped, through `fetch_artwork`) is a later change.
+`artwork.ref` is opaque. `GET /art/<ref>` (for example `/art/komga/book/<id>`) serves it, member-scoped: `app/artwork.py` is the one module that calls `fetch_artwork`, with the verified principal and a ref of the exact shape `service/word/id` (`[A-Za-z0-9_-]` only). Unknown service, bad ref, missing group, an item the member may not see, an upstream failure and a refused content type are all the same standard 404. Responses carry `Cache-Control: private, no-store`, `nosniff`, and only `image/jpeg|png|webp` of at most 5 MiB (never SVG or HTML). Section items render `<img src="/art/..." alt=<title> width="80" height="120" loading="lazy">` only when a valid ref exists.
 
 ## 6. Logging
 
@@ -372,7 +371,7 @@ then reload as a member whose cache is cold (the cache keeps a warm member's pag
 | S-1 | The portal's `STYLE` is copied into `templates/style.css` and the CSP allows inline styles | Keep until design phase 2 (one shared stylesheet) |
 | C-1 | At cut-over, move the tables into the app and retire the by-path load | After the a11y branch merges |
 | P-1 | Plain `uvicorn==0.34.0` (no `[standard]`: no uvloop, httptools, websockets, watchfiles) run with `--http h11`; `requirements.lock` pins everything with hashes for Linux x86_64 cp312 | Keep; one HTTP implementation under test. The lock is UNTESTED on Linux |
-| L-1 | Serving artwork needs a member-scoped route | Separate slice (M3.3) |
+| L-1 | Serving artwork needs a member-scoped route | Done: `/art/<ref>` (AVR-382) |
 
 ## 13. Known gaps
 
