@@ -44,13 +44,30 @@ REF_COLOURS = ("surface", "on_surface", "on_surface_muted", "outline_quiet", "ou
 EXTRA_PALETTE = {"#333333"}
 
 # where each service draws the shared components
-SELECTORS = {
 # "mark" is which of DESIGN.md's two wordmark sizes the service draws: the full one on the portal home,
-# the compact one on every inner page. Sizes are compared within a kind; the tracking across all.
+# the compact one on every inner page. Each size is compared with its own kind and anchored to the
+# value DESIGN.md gives it; the tracking is compared across all.
+SELECTORS = {
     "portal": {"column": ".page", "wordmark": "h1", "mark": "full", "button": None, "field": None},
     "kindle": {"column": ".page", "wordmark": "h1", "mark": "compact", "button": "button", "field": "input[type=email]"},
     "audible": {"column": ".wrap", "wordmark": ".wordmark", "mark": "compact", "button": "button", "field": "input[type=email]"},
 }
+
+
+DESIGN_MD = REPO_ROOT / "docs/design/DESIGN.md"
+MARKS = {"full": "wordmark", "compact": "wordmark-compact"}   # kind -> DESIGN.md typography key
+
+
+def design_wordmarks(path: Path = DESIGN_MD) -> dict:
+    """kind -> DESIGN.md's normalised wordmark font-size, read from its front matter (no YAML needed)."""
+    text = Path(path).read_text(encoding="utf-8")
+    out = {}
+    for kind, key in MARKS.items():
+        m = re.search(rf'^  {re.escape(key)}:\n(?:    .*\n)*?    fontSize: "([^"]+)"', text, re.M)
+        if not m:
+            raise LookupError(f"DESIGN.md defines no {key} fontSize")
+        out[kind] = _norm_ws(m.group(1))
+    return out
 
 
 def inline_style(path: Path) -> str:
@@ -127,6 +144,8 @@ def extract(text):
 def extract_service(service, text):
     tokens, sheet = extract(text)
     sel = SELECTORS[service]
+    if sel["mark"] not in MARKS:
+        raise ValueError(f"{service}: unknown wordmark kind {sel['mark']!r}")
     col = _find(sheet, sel["column"], "max-width")
     if col:
         tokens["layout.column"] = _norm_ws(col)
@@ -205,6 +224,15 @@ def compare(per_service, reference=None):
             if lit not in palette:
                 divergences.append({"token": "literal.colour", "service": svc, "value": lit,
                                     "expected": "a palette colour", "reference": "palette"})
+    # each wordmark size against DESIGN.md: the service's value must be DESIGN.md's, or wrap it (the
+    # portal home guards the full size with min(..., calc(...)) so it never outgrows a narrow screen)
+    marks = design_wordmarks()
+    for svc in SERVICES:
+        for tok, have in per_service[svc].items():
+            kind = tok[len("wordmark."):-len(".size")] if tok.startswith("wordmark.") and tok.endswith(".size") else None
+            if kind and marks[kind] not in have:
+                divergences.append({"token": tok, "service": svc, "value": have, "expected": marks[kind],
+                                    "reference": "DESIGN.md"})
     for tok in sorted(t for t in ref if t not in tokens):
         undefined.append(tok)
     return divergences, undefined, src
