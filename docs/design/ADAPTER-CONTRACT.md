@@ -349,6 +349,16 @@ behind `persist_classes` but is not enabled. This document does not edit `MEDIA-
   is **derived**: the longest request timeout among the adapters passed to `gather` plus 1 s (3 s with
   the defaults); `derive_hard_cap(adapters)` computes it and an explicit `hard_cap` still overrides.
 - **No retries** in the request path.
+- **The transport deadline is total** (AVR-385). `UrllibTransport` treats `timeout` as a monotonic deadline for the
+  whole request, not a per-socket-operation timeout: the body is read in chunks against the deadline and a timer
+  closes the connection when it passes, so a slow-drip upstream (a byte just often enough to keep a socket timeout
+  from firing) returns `UpstreamTimeout` at about the deadline and the adapter's in-flight and per-member slots are
+  released then, not at the page's hard cap. Not covered: name resolution and the TLS handshake (Python cannot
+  interrupt them; each is bounded only by the per-operation timeout); with an injected opener the deadline is
+  checked between chunks. Proven by a loopback slow-drip test run in a subprocess (`tests/test_slowdrip.py`).
+- **Not-offered sections.** An adapter lists the sections it deliberately does not offer in `not_offered`;
+  `gather` does not request them (so the member view carries no empty noise), and the methods still answer
+  `EMPTY` with reason `not_offered` for a direct caller. The `member_view()` keys are unchanged.
 - **The circuit is shared by every member of an adapter.** Policy, exactly:
   1. Counts toward it (service-wide evidence): timeouts, connection errors (including
      `http.client` errors and any other surprise exception class a transport raises), HTTP 5xx,
