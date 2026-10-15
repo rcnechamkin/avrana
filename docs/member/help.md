@@ -40,7 +40,7 @@ to type and the steps. Open Help from your home page and choose a topic. Only yo
 On a topic page, a device that has more than one app lists them with the first marked Recommended and
 the others marked Alternative. A device that has only one app lists it without a tag. The list below is
 the short version. For the steps, open the topic page.
-<!-- src: services/avrana-portal/portal.py:691 (tag is added only when a device has more than one client) -->
+<!-- src: services/avrana-portal/portal.py:698 (tag is added only when a device has more than one client) -->
 
 <!-- if: avrana-videos -->
 **Movies and TV.** iPhone and iPad: Swiftfin. Android: Jellyfin. Roku: Jellyfin. Apple TV: Swiftfin.

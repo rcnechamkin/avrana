@@ -130,7 +130,7 @@ ALLOWED_COMMITMENTS = {
 # written, repo file, line, text that line must contain). Kills a wrong line number that still falls
 # inside the file, and code drift under a cited line.
 PINNED_CITES = [
-    (MEMBER / 'help.md', 'portal.py:691', 'services/avrana-portal/portal.py', 691, 'Recommended'),
+    (MEMBER / 'help.md', 'portal.py:698', 'services/avrana-portal/portal.py', 698, 'Recommended'),
     (MEMBER / 'help.md', 'portal.py:293-316', 'services/avrana-portal/portal.py', 293, 'avrana-videos'),
     (MEMBER / 'help.md', ':56 (tile gated', 'services/avrana-portal/portal.py', 56, 'avrana-videos'),
     (MEMBER / 'welcome.md', 'portal.py:378-379', 'services/avrana-portal/portal.py', 379, 'sign_out'),
