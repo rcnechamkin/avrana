@@ -71,8 +71,12 @@ class DeviceHelp(unittest.TestCase):
             for p in t['platforms']:
                 self.assertTrue(p['clients'], f'{name}: platform {p["name"]!r} has no client')
                 for c in p['clients']:
-                    self.assertEqual({'store': 'none', 'url': 'none'}, c['meta'],
-                                     f'{name}: {c["name"]!r}: store and url must be none (no verified app links)')
+                    self.assertEqual({'store', 'url'}, set(c['meta']), f'{name}: {c["name"]!r}: store and url')
+                    for key, val in c['meta'].items():
+                        self.assertTrue(val == 'none' or re.fullmatch(r'https://[A-Za-z0-9.\-]+(/\S*)?', val),
+                                        f'{name}: {c["name"]!r}: {key} must be exactly none or an https URL')
+                    self.assertEqual(c['meta']['store'] == 'none', c['meta']['url'] == 'none',
+                                     f'{name}: {c["name"]!r}: store and url must be set together')
                     self.assertTrue(c['steps'], f'{name}: {c["name"]!r} has no steps')
                     self.assertEqual(list(range(1, len(c['steps']) + 1)), [s[1] for s in c['steps']],
                                      f'{name}: {c["name"]!r}: step numbers')

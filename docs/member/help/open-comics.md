@@ -10,7 +10,7 @@ url: none
 1. Open https://avrana.net and sign in. [UNVERIFIED on a real device]
 2. Choose Read and open the title you want. [UNVERIFIED on a real device]
 3. Avrana opens the page for that title on read.avrana.net. [UNVERIFIED on a real device]
-4. If a sign-in screen appears, sign in. Come back to Avrana with the Back button when you are done. [UNVERIFIED on a real device]
+4. If a sign-in screen appears, sign in. To come back to Avrana, use the Back button. If that does not work, close the tab or app, or open Avrana again from your Home Screen or https://avrana.net. [UNVERIFIED on a real device]
 
 ## If it does not open
 ### Try these in order

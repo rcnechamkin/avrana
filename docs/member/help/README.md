@@ -32,3 +32,9 @@ Open decisions that these topics wait on: D-1 support contact, D-12 television a
 recovery, D-15 unavailable wording (all in `docs/member/DECISIONS-NEEDED.md` on the AVR-361 branch).
 Install prompts also depend on the web app manifest in AVR-364, which is not built. Until it is, a home
 screen icon is only a shortcut.
+
+## For whoever wires these into the shell
+- Convert `none` store and url values to an empty value. The template shows a store button only when both are set.
+- Strip every `[UNVERIFIED on a real device]` and `[OWNER DECISION ...]` marker from step text.
+- The Computer platform in `home-screen` has more than one client (Chrome or Edge, Safari on a Mac, Firefox), so the template will tag the first one "Recommended" and the others "Alternative". These are not alternatives to each other. Agent A decides how to handle that, for example one platform per browser.
+- `store` and `url` here are either exactly `none` or a real https URL. A test enforces this.

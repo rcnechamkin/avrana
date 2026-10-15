@@ -8,10 +8,11 @@ host: avrana.net
 store: none
 url: none
 1. Open https://avrana.net in Safari and sign in. [UNVERIFIED on a real device]
-2. Tap the Share button, the square with an arrow. [UNVERIFIED on a real device]
-3. Scroll down and tap Add to Home Screen. [UNVERIFIED on a real device]
-4. Keep the name Avrana and tap Add. [UNVERIFIED on a real device]
-5. Open Avrana from your Home Screen. If it asks you to sign in, sign in again. [UNVERIFIED on a real device]
+2. Find the Share button, the square with an arrow. On newer iOS it may be inside the three dots menu at the bottom right instead. [UNVERIFIED on a real device]
+3. Tap Add to Home Screen. If you do not see it, scroll down the list, or tap More first. [UNVERIFIED on a real device]
+4. Keep the name Avrana. If you see an Open as Web App switch (iOS 16.4 and later), leave it on to open Avrana as its own window, or turn it off to open it in Safari. [UNVERIFIED on a real device]
+5. Tap Add. [UNVERIFIED on a real device]
+6. Open Avrana from your Home Screen. If it asks you to sign in, sign in again. [UNVERIFIED on a real device]
 
 ## Android
 ### Chrome
@@ -36,5 +37,12 @@ url: none
 store: none
 url: none
 1. Open https://avrana.net and sign in. [UNVERIFIED on a real device]
-2. In the File menu, choose Add to Dock. [UNVERIFIED on a real device]
+2. In the File menu, choose Add to Dock. This needs macOS Sonoma or later. On older macOS, use a bookmark instead. [UNVERIFIED on a real device]
 3. Open Avrana from the Dock. [UNVERIFIED on a real device]
+
+### Firefox
+store: none
+url: none
+1. Firefox on a computer cannot install a site as an app. [UNVERIFIED on a real device]
+2. Open https://avrana.net and sign in, then bookmark the page with Ctrl+D (Command+D on a Mac). [UNVERIFIED on a real device]
+3. Open Avrana from your bookmarks. [UNVERIFIED on a real device]
