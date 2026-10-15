@@ -4,6 +4,8 @@
 [`design/MEDIA-2.0.md`](../design/MEDIA-2.0.md) section 4; forensic audit D4. Read
 [`DEPLOYMENT.md`](../DEPLOYMENT.md) and [`OPERATIONS.md`](../OPERATIONS.md) first. Steps marked
 **[CHANGES PRODUCTION]** need the owner's approval for this batch; everything else is read-only.
+What the owner approves, step by step, is in [`g1-approval-packet.md`](g1-approval-packet.md); the read-only
+checks before the window are automated by `scripts/g1-preflight.sh`.
 
 ## What changes
 
