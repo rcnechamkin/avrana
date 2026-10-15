@@ -18,6 +18,13 @@ def csrf(app, sub: str) -> str:
     return app.state.csrf.issue(sub)
 
 
+def refresh(client, app, sub):
+    """The progress page's Refresh: a CSRF-protected POST that polls, dispatches and, in one-time
+    mode, finishes the import. Loading the page itself (GET) changes nothing."""
+    return client.post("/contribute/audible/progress/refresh", data={"csrf_token": csrf(app, sub)},
+                       headers=hdr(sub), follow_redirects=False)
+
+
 def connect(client, app, sub, email=None, marketplace="us", response_url="https://amazon.example/maplanding?code=abc"):
     """Drive the full connect handshake for `sub`; leaves them connected with a library."""
     email = email or f"{sub}@audible.example"

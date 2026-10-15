@@ -15,8 +15,9 @@ outpost** → the `avrana-portal` service. The outpost authenticates (applicatio
 avrana-audiobooks→Listen, avrana-comics/avrana-books→Read, library-contributors→Contribute). Service subdomains stay as-is for native clients.
 
 **Service** (`services/avrana-portal/`): a tiny stdlib Python server, no deps, digest-pinned,
-read-only/non-root, on Authentik's `frontend` network with **no published port**: reachable only
-via the outpost, so auth can't be bypassed.
+read-only/non-root, with **no published port**: reachable only via the outpost, so auth can't be bypassed.
+On Authentik's shared `frontend` network today; G1 (staged, not applied, see
+`docs/runbooks/g1-network-isolation.md`) moves it to the private network `authentik_portal`.
 
 **Authentik**: proxy provider `avrana-portal-proxy` (external avrana.net → internal
 avrana-portal:8095) + app `avrana-portal` gated by `avrana-users`, added to the embedded outpost
@@ -64,7 +65,7 @@ native clients and old links still work.
 ### Playback warning before Jellyfin
 
 `/watch` shows a short page firs: *the Jellyfin app gives the most stable playback*, then
-**I understand** (continue) or **Set up the app** (the help page). Built as a general
+**Understood** (continue) or **Set up the app** (the help page). Built as a general
 `path -> warning` table.
 
 **Only the portal route is intercepted.** `watch.avrana.net` goes cloudflared -> Jellyfin
@@ -117,9 +118,59 @@ Two rules for any future copy here:
 2. **Never name a service the viewer might not reach.** The gating model is 404-not-403; a
    subtitle listing media types undermines it.
 
-A structural fix — deriving subtitles from `chooser_members()` so they can never drift from
-permissions — was offered and **declined**: comics and ebooks always share an access level, so
-`Read`'s "Comics & ebooks" is not a leak in this deployment.
+**AVR-430 (2026-10-11): the structural fix was made after all.** The earlier decision rested on
+comics and ebooks always sharing an access level, which is not true of the groups (`avrana-comics`
+and `avrana-books` are separate). Copy that depends on the viewer is now computed from what they
+may open: `chooser_subtitle()` builds the Read subtitle from `chooser_members()` ("Comics",
+"Ebooks", or "Comics & ebooks"), and `service_copy()` picks the Request Books label and subtitle
+by which of its two groups the viewer holds ("Books / Ask for an ebook", "Audiobooks / Ask for an
+audiobook", or the full "Ask for an ebook or audiobook" for both). The account note no longer
+lists "playback, reading position". `tests/test_portal_authz.py` (`LibraryVocabularyTests`) checks
+every page for every identity against a word list per library, written out independently of
+`portal.py`.
+
+## Accessibility (AVR-357, 2026-10-11)
+
+Markup and CSS only (sprint item S1-4, `docs/design/DESIGN.md`); routes, gating, statuses,
+redirects and headers are unchanged. Interactive edges use the Control Rule (`--rule-control`,
+#6e6e6e) and dividers keep `--rule-quiet` (#474747). Every link shows one two-ring focus indicator
+(`a:focus-visible`) and no rule removes the outline. `color-scheme: dark` is declared. Footer,
+account and store links are 44px targets (padding offset by a negative margin, so the layout does
+not move). Pages are `header` / `main` / `footer` with labelled `nav`s, one `h1` (the wordmark),
+and help topics open with an `h2` topic headline before their `h3` platforms. Notices carry
+no `role="status"` or `role="alert"` (the portal has no live updates: every message is present at
+page load, so the 404 line and the empty-state notes are plain paragraphs and the interstitial
+warning is `role="note"`); store links that open a new tab say so in a visually hidden span. The account
+note and interstitial lose their em dash and first person ("I understand" is now "Understood"), the
+interstitial's continue link is named "Understood, continue to watch.avrana.net" (`aria-label`), the
+footer `nav` is labelled "Footer", and the store links keep a 44px target without reaching into the
+app name above them.
+`tests/test_portal_a11y.py` pins all of this for every identity and render function; the axe-core
+and screen-width checks wait for the browser harness (S1-5).
+
+### Open for design review
+
+Decisions the accessibility pass left alone because they are composition or token choices owned by
+the design team. Nothing here was changed.
+
+- **No topic headline on home, chooser, help index or account.** `docs/design/DESIGN.md` asks for
+  one `h1` headline per page; on these pages the wordmark is the `h1` and there is no topic headline
+  under it (help topic pages do have an `h2` topic headline).
+- **Font stack.** It lacks the metric-compatible fallbacks named in the design tokens.
+- **Status colour claim.** DESIGN.md says the status colours are "all above 10:1", but `#ff8b8b` on
+  black is 9.32:1. The portal itself uses no status colours.
+- **Platform jump-links row.** Raised in review; undecided.
+- **Compact wordmark.** Raised in review; undecided.
+- **Route name "requestabook".** A member in only the audiobooks group sees a Request tile
+  ("Audiobooks / Ask for an audiobook") that links to `/requestabook`. The route name contains
+  "book"; it is kept for old links and is not shown as text.
+- **Duplicate entries on the account page (pre-existing).** "Your access" lists the label of every
+  permitted service, and the Request service for a library reuses that library's label. A member in
+  `avrana-books` therefore sees "Books" twice (the Books service and Request Books; the list is
+  Books, Kindle, Books). The same happens for `avrana-comics` ("Comics" twice), and for a member
+  in both `avrana-books` and `avrana-audiobooks` ("Books" twice, from the Books service and the
+  combined Request Books). A member in `avrana-audiobooks` only, or `avrana-videos` only, sees no
+  duplicate (Listen / Audiobooks, Watch / Movies & TV).
 
 ## SSO experience across services
 

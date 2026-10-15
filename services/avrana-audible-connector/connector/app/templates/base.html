@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
   <title>{% block title %}{{ brand }} · Contribute audiobooks{% endblock %}</title>
   <link rel="stylesheet" href="/static/style.css?v={{ asset_v }}">
 </head>
@@ -12,8 +13,8 @@
     <span class="sub">Audible contribution</span>
   </header>
   <main class="wrap">
-    {% if error %}<div class="alert error">{{ error }}</div>{% endif %}
-    {% if notice %}<div class="alert notice">{{ notice }}</div>{% endif %}
+    {% if error %}<div class="alert error" role="alert">{{ error }}</div>{% endif %}
+    {% if notice %}<div class="alert notice" role="status">{{ notice }}</div>{% endif %}
     {% block content %}{% endblock %}
   </main>
   <footer class="foot">

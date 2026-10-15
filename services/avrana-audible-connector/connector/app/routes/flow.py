@@ -212,9 +212,20 @@ async def select(
         if connection is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "No connection")
         if select_all:
-            catalog.select_all_new(conn, connection["id"])
+            chosen = catalog.select_all_new(conn, connection["id"])
         else:
-            catalog.select_books(conn, connection["id"], asins)
+            chosen = catalog.select_books(conn, connection["id"], asins)
+        already = conn.execute(
+            "SELECT COUNT(*) c FROM book WHERE connection_id=? AND status='selected'", (connection["id"],)
+        ).fetchone()["c"]
+        if not chosen and not already:
+            # An empty selection goes no further: in one-time mode it could otherwise end the import
+            # before anything was chosen.
+            from ..repo import books_for_connection
+
+            books = books_for_connection(conn, connection["id"])
+            return _render(request, "library.html", ident, connection=connection, books=books,
+                           counts=_counts(books), error="Choose at least one book to import.")
     finally:
         conn.close()
     return RedirectResponse("/contribute/audible/mode", status_code=302)
@@ -251,6 +262,15 @@ async def set_mode(
         if connection is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "No connection")
         cid = connection["id"]
+        if mode == "once":
+            chosen = conn.execute(
+                "SELECT COUNT(*) c FROM book WHERE connection_id=? "
+                "AND status IN ('selected','queued','importing')",
+                (cid,),
+            ).fetchone()["c"]
+            if not chosen:
+                return _render(request, "mode.html", ident, connection=connection, selected=0,
+                               error="Choose at least one book before importing once.")
         set_sync_mode(conn, cid, mode)
         audit.record(conn, audit.SYNC_MODE_CHANGED, sub=ident.sub, connection_id=cid, detail=mode)
         # Queue everything currently selected (idempotent).
@@ -268,23 +288,8 @@ async def set_mode(
     return RedirectResponse("/contribute/audible/progress", status_code=302)
 
 
-@router.get("/contribute/audible/progress", response_class=HTMLResponse)
-async def progress_page(request: Request, ident: Identity = Depends(get_identity)):
-    conn = _db(request)
-    try:
-        connection = get_connection_for_sub(conn, ident.sub)
-        if connection is None:
-            return RedirectResponse("/contribute/audible", status_code=302)
-        cid = connection["id"]
-        # Poll running jobs and dispatch anything still queued; both are idempotent.
-        await jobs.dispatch_queued(conn, request.app.state.companion, connection["profile_id"], cid)
-        await jobs.poll_jobs(conn, request.app.state.companion, connection["profile_id"], cid, ident.sub)
-        # Re-read the possibly-updated row before finalize.
-        connection = get_connection_for_sub(conn, ident.sub)
-        revoked = False
-        if connection is not None:
-            revoked = await sync.finalize_once_mode(conn, request.app.state.companion, connection, ident.sub)
-        rows = conn.execute(
+def _progress_rows(conn, cid):
+    return conn.execute(
             "SELECT b.asin, b.title, b.status AS book_status, j.status AS job_status, j.failure "
             "FROM book b LEFT JOIN job j ON j.connection_id=b.connection_id AND j.asin=b.asin "
             "AND j.id=(SELECT id FROM job WHERE connection_id=b.connection_id AND asin=b.asin "
@@ -293,9 +298,47 @@ async def progress_page(request: Request, ident: Identity = Depends(get_identity
             "('selected','queued','importing','imported','failed') ORDER BY b.title",
             (cid,),
         ).fetchall()
+
+
+@router.get("/contribute/audible/progress", response_class=HTMLResponse)
+async def progress_page(request: Request, ident: Identity = Depends(get_identity)):
+    """Read only (owner decision, 2026-10-15): loading this page never polls, dispatches, finalises
+    or revokes. The scheduler advances imports in the background; Refresh is the POST below."""
+    conn = _db(request)
+    try:
+        connection = get_connection_for_sub(conn, ident.sub)
+        if connection is None:
+            return RedirectResponse("/contribute/audible", status_code=302)
+        rows = _progress_rows(conn, connection["id"])
     finally:
         conn.close()
-    return _render(request, "progress.html", ident, connection=connection, rows=rows, revoked=revoked)
+    return _render(request, "progress.html", ident, connection=connection, rows=rows, revoked=False)
+
+
+@router.post("/contribute/audible/progress/refresh", response_class=HTMLResponse)
+async def progress_refresh(request: Request, ident: Identity = Depends(get_identity)):
+    """Check now: poll and dispatch this member's imports and, in one-time mode, finish the import
+    (revoke the Audible authorization) once every chosen book is in. CSRF-protected, idempotent."""
+    await require_csrf(request, ident.sub)
+    conn = _db(request)
+    try:
+        connection = get_connection_for_sub(conn, ident.sub)
+        if connection is None:
+            return RedirectResponse("/contribute/audible", status_code=303)
+        cid = connection["id"]
+        await jobs.dispatch_queued(conn, request.app.state.companion, connection["profile_id"], cid)
+        await jobs.poll_jobs(conn, request.app.state.companion, connection["profile_id"], cid, ident.sub)
+        connection = get_connection_for_sub(conn, ident.sub)
+        revoked = False
+        if connection is not None:
+            revoked = await sync.finalize_once_mode(conn, request.app.state.companion, connection, ident.sub)
+        if not revoked:
+            return RedirectResponse("/contribute/audible/progress", status_code=303)
+        # The connection is gone after revoking, so the result is said here, once.
+        rows = _progress_rows(conn, cid)
+    finally:
+        conn.close()
+    return _render(request, "progress.html", ident, connection=None, rows=rows, revoked=True)
 
 
 @router.post("/contribute/audible/retry", response_class=HTMLResponse)
