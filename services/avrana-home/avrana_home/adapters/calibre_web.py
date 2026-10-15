@@ -47,6 +47,7 @@ _ARTWORK_REF = re.compile(r"calibre-web/cover/([0-9]{1,9})")
 _COVER_HREF = re.compile(r"/opds/(?:cover|thumb_cover)/([0-9]{1,9})")
 _DOWNLOAD_HREF = re.compile(r"/opds/download/([0-9]{1,9})/[a-z0-9]{1,10}/?")
 MAX_ENTRIES = 100                             # a feed with more entries than this is not a "new" feed
+MAX_ELEMENTS = 5000                           # every element in the document, so deep or wide nesting is bounded
 _FORBIDDEN_XML = re.compile(rb"<!\s*(DOCTYPE|ENTITY|ELEMENT|ATTLIST)", re.IGNORECASE)
 
 ALLOWED_ROUTES = (
@@ -67,12 +68,19 @@ class GuardedTransport(_Guard):
 
 def parse_feed(body: bytes) -> ET.Element:
     """The root of an Atom feed, or UpstreamMalformed. Never raises anything else."""
-    if _FORBIDDEN_XML.search(body):
+    # Only ASCII-compatible UTF-8 is accepted (an optional UTF-8 BOM, then "<"). UTF-16/32 bodies would hide a
+    # DOCTYPE from the byte check below between NUL bytes (review of #39), so they are refused outright.
+    text = body[3:] if body.startswith(b"\xef\xbb\xbf") else body
+    if b"\x00" in text or not text.lstrip(b" \t\r\n").startswith(b"<"):
+        raise UpstreamMalformed()
+    if _FORBIDDEN_XML.search(text):
         raise UpstreamMalformed()             # entity expansion and external subsets are never parsed
     try:
-        root = ET.fromstring(body)
+        root = ET.fromstring(text)
     except (ET.ParseError, ValueError, RecursionError, MemoryError):
         raise UpstreamMalformed() from None
+    if sum(1 for _ in root.iter()) > MAX_ELEMENTS:
+        raise UpstreamMalformed()
     if root.tag != _ATOM + "feed":
         raise UpstreamMalformed()             # for example an HTML login page
     return root
@@ -88,7 +96,13 @@ def _relative(href: Any) -> Optional[str]:
 class CalibreWebAdapter(GuardedAdapter):
     service = Service.CALIBRE_WEB
 
-    def __init__(self, transport: Transport, timeout: float = DEFAULT_TIMEOUT, **kw):
+    def __init__(self, transport: Transport, timeout: float = DEFAULT_TIMEOUT, *,
+                 owner_confirms_no_member_restrictions: bool = False, **kw):
+        # A shared view (contract 13.2): every member sees what the viewer account sees, so Calibre-Web's own
+        # per-member restrictions are NOT applied. The owner must opt in on purpose, and only while no member
+        # has a Calibre-Web restriction.
+        if owner_confirms_no_member_restrictions is not True:
+            raise ValueError("Calibre-Web adapter is a shared view; the owner must confirm no member is restricted")
         super().__init__(GuardedTransport(transport), timeout, **kw)
 
     def __repr__(self) -> str:

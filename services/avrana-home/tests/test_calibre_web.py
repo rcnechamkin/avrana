@@ -32,7 +32,7 @@ class Base(unittest.TestCase):
         self.clock = FakeClock()
         self.fake = FakeCalibreWeb(self.clock)
         self.transport = FakeTransport(self.fake)
-        self.adapter = CalibreWebAdapter(self.transport, clock=self.clock)
+        self.adapter = CalibreWebAdapter(self.transport, clock=self.clock, owner_confirms_no_member_restrictions=True)
         self.a = make_principal("member-a", GROUPS)
         self.b = make_principal("member-b", GROUPS)
         self.c = make_principal("member-c", GROUPS)
@@ -281,7 +281,7 @@ class GuardAndSecrets(Base):
     def test_the_credential_is_never_in_a_repr_a_result_a_health_report_or_a_log_line(self):
         opener = FakeOpener(self.fake)
         transport = UrllibTransport("https://books.invalid", {"Authorization": "Basic " + TOKEN}, opener=opener)
-        ad = CalibreWebAdapter(transport, clock=self.clock)
+        ad = CalibreWebAdapter(transport, clock=self.clock, owner_confirms_no_member_restrictions=True)
         with self.assertLogs("avrana_home", level=logging.WARNING) as logs:
             logging.getLogger("avrana_home").warning("probe")
             ok = ad.recent_items(self.a)
@@ -311,6 +311,41 @@ class GuardAndSecrets(Base):
             self.assertIn("NOT confirmed", doc["_target_version"], f.name)
             self.assertIn("SYNTHETIC assumption", doc["_provenance"], f.name)
             self.assertIn("UNPROVEN", doc["_provenance"], f.name)
+
+
+
+class ReviewOf39(Base):
+    """Independent review of #39: UTF-16 hid a DOCTYPE from the byte check; nesting was unbounded; the
+    shared-view invariant lived only in docs; a query string on /opds/new was never tested."""
+
+    DOCTYPE = ('<?xml version="1.0" encoding="utf-16"?><!DOCTYPE f [<!ENTITY a "EXPANDED">]>'
+               '<feed xmlns="http://www.w3.org/2005/Atom"><title>&a;</title></feed>')
+
+    def test_utf16_and_nul_bodies_are_refused_before_parsing(self):
+        for body in (self.DOCTYPE.encode("utf-16"), self.DOCTYPE.encode("utf-16-le"),
+                     self.DOCTYPE.encode("utf-16-be"), self.DOCTYPE.encode("utf-32"), b"<feed>\x00</feed>"):
+            with self.assertRaises(UpstreamMalformed):
+                parse_feed(body)
+
+    def test_a_utf8_bom_is_still_accepted(self):
+        body = b"\xef\xbb\xbf" + b'<feed xmlns="http://www.w3.org/2005/Atom"></feed>'
+        self.assertTrue(parse_feed(body).tag.endswith("feed"))
+
+    def test_deep_nesting_is_bounded(self):
+        body = (b'<feed xmlns="http://www.w3.org/2005/Atom">' + b"<x>" * 6000 + b"</x>" * 6000 + b"</feed>")
+        with self.assertRaises(UpstreamMalformed):
+            parse_feed(body)
+
+    def test_the_adapter_refuses_to_exist_without_the_owner_confirming_the_shared_view(self):
+        for value in (False, None, 1, "yes"):
+            with self.assertRaises(ValueError):
+                CalibreWebAdapter(self.transport, clock=self.clock, owner_confirms_no_member_restrictions=value)
+        with self.assertRaises(ValueError):
+            CalibreWebAdapter(self.transport, clock=self.clock)
+
+    def test_a_query_string_on_the_new_feed_is_forbidden(self):
+        with self.assertRaises(ForbiddenRequest):
+            GuardedTransport(self.transport).request("GET", "/opds/new", {"q": "x"}, 2.0, MAX_JSON_BYTES)
 
 
 if __name__ == "__main__":

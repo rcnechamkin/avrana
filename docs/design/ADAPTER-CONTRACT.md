@@ -676,6 +676,10 @@ it (not implemented). Titles are text, never HTML; no download link is exposed; 
 
 ### 13.2 This is a SHARED VIEW (owner invariant)
 
+Enforced in code: `CalibreWebAdapter(..., owner_confirms_no_member_restrictions=True)` is required, and any other
+value raises `ValueError`, so the adapter cannot be constructed without the owner's deliberate opt-in. This was
+added after the review of #39.
+
 Calibre-Web's public interface is OPDS over HTTP Basic. The home holds one dedicated local viewer account (no
 upload, edit, download-of-others or admin rights) and never a member's password; **no per-member credential is
 needed, so there is no key-scope decision to stop on.** The consequences are explicit:
