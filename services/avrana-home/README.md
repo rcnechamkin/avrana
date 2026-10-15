@@ -13,7 +13,7 @@ Part of [Avrana Media 2.0](../../docs/design/MEDIA-2.0.md). The written contract
 - `avrana_home/resilience.py`: timeouts, circuit cool-off, transport interface, safe logging.
 - `avrana_home/cache.py`: disposable in-memory TTL cache, member-partitioned by API shape.
 - `avrana_home/aggregate.py`: independent sections, health summary.
-- `avrana_home/adapters/`: one module per upstream (Jellyfin only so far).
+- `avrana_home/adapters/`: one module per upstream (Jellyfin, Komga).
 
 Standard library only. Run the tests with `python -B tests/run_offline.py` from the repository
 root. No test opens a network socket; upstreams are replaced by a fake transport that serves

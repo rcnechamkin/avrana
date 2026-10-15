@@ -1,0 +1,152 @@
+{
+  "_synthetic": "Hand-written SYNTHETIC fixture, written from recollection of the public Komga API. Hand-written, unverified against the deployed version; a recorded read-only contract check is a separate owner-approved step before any real data is read. Invented users, ids and titles.",
+  "_schema": "Shaped like GET /api/v1/books/{id}, keyed here by book id. Unverified.",
+  "_target_version": "Komga 1.x REST API (v1 books and series, v2 users); the deployed version is not recorded in this repository and was NOT confirmed",
+  "_provenance": "GET /api/v1/books/{id}: id, seriesId, seriesTitle, libraryId, name, number, deleted, media.status, media.pagesCount, metadata.title and metadata.number are recalled from the public API documentation and not re-checked. readProgress belongs to the credential's user and is present only so tests prove it is never read. SYNTHETIC assumptions: the book carries libraryId and seriesTitle; media.status READY means readable. Live compatibility is UNPROVEN until the owner's recorded read-only capture is compared (ADAPTER-CONTRACT.md section 12.5).",
+  "response": {
+    "BOOKAAAA0001": {
+      "id": "BOOKAAAA0001",
+      "seriesId": "SERIESAAA001",
+      "seriesTitle": "Synthetic 001",
+      "libraryId": "LIBCOMICS1",
+      "name": "Synthetic Comic One",
+      "number": 1,
+      "deleted": false,
+      "media": {
+        "status": "READY",
+        "mediaType": "application/zip",
+        "pagesCount": 24
+      },
+      "metadata": {
+        "title": "Synthetic Comic One",
+        "number": "1",
+        "tags": []
+      },
+      "readProgress": {
+        "page": 77,
+        "completed": false,
+        "readDate": "2026-01-01T00:00:00Z"
+      }
+    },
+    "BOOKAAAA0002": {
+      "id": "BOOKAAAA0002",
+      "seriesId": "SERIESAAA001",
+      "seriesTitle": "Synthetic 001",
+      "libraryId": "LIBCOMICS1",
+      "name": "Synthetic Comic Two",
+      "number": 2,
+      "deleted": false,
+      "media": {
+        "status": "READY",
+        "mediaType": "application/zip",
+        "pagesCount": 24
+      },
+      "metadata": {
+        "title": "Synthetic Comic Two",
+        "number": "2",
+        "tags": []
+      },
+      "readProgress": {
+        "page": 77,
+        "completed": false,
+        "readDate": "2026-01-01T00:00:00Z"
+      }
+    },
+    "BOOKBBBB0003": {
+      "id": "BOOKBBBB0003",
+      "seriesId": "SERIESBBB002",
+      "seriesTitle": "Synthetic 002",
+      "libraryId": "LIBMANGA02",
+      "name": "Synthetic Manga One",
+      "number": 1,
+      "deleted": false,
+      "media": {
+        "status": "READY",
+        "mediaType": "application/zip",
+        "pagesCount": 24
+      },
+      "metadata": {
+        "title": "Synthetic Manga One",
+        "number": "1",
+        "tags": []
+      },
+      "readProgress": {
+        "page": 77,
+        "completed": false,
+        "readDate": "2026-01-01T00:00:00Z"
+      }
+    },
+    "BOOKCCCC0004": {
+      "id": "BOOKCCCC0004",
+      "seriesId": "SERIESCCC003",
+      "seriesTitle": "Synthetic 003",
+      "libraryId": "LIBCOMICS1",
+      "name": "Synthetic Mature One",
+      "number": 1,
+      "deleted": false,
+      "media": {
+        "status": "READY",
+        "mediaType": "application/zip",
+        "pagesCount": 24
+      },
+      "metadata": {
+        "title": "Synthetic Mature One",
+        "number": "1",
+        "tags": []
+      },
+      "readProgress": {
+        "page": 77,
+        "completed": false,
+        "readDate": "2026-01-01T00:00:00Z"
+      }
+    },
+    "BOOKDDDD0005": {
+      "id": "BOOKDDDD0005",
+      "seriesId": "SERIESDDD004",
+      "seriesTitle": "Synthetic 004",
+      "libraryId": "LIBMANGA02",
+      "name": "Synthetic Kids One",
+      "number": 1,
+      "deleted": false,
+      "media": {
+        "status": "READY",
+        "mediaType": "application/zip",
+        "pagesCount": 24
+      },
+      "metadata": {
+        "title": "Synthetic Kids One",
+        "number": "1",
+        "tags": []
+      },
+      "readProgress": {
+        "page": 77,
+        "completed": false,
+        "readDate": "2026-01-01T00:00:00Z"
+      }
+    },
+    "BOOKEEEE0006": {
+      "id": "BOOKEEEE0006",
+      "seriesId": "SERIESEEE005",
+      "seriesTitle": "Synthetic 005",
+      "libraryId": "LIBCOMICS1",
+      "name": "Synthetic Teen One",
+      "number": 1,
+      "deleted": false,
+      "media": {
+        "status": "READY",
+        "mediaType": "application/zip",
+        "pagesCount": 24
+      },
+      "metadata": {
+        "title": "Synthetic Teen One",
+        "number": "1",
+        "tags": []
+      },
+      "readProgress": {
+        "page": 77,
+        "completed": false,
+        "readDate": "2026-01-01T00:00:00Z"
+      }
+    }
+  }
+}
