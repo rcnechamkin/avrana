@@ -31,7 +31,7 @@ BLOCK = re.compile(r'<!--\s*if:\s*([^>]*?)\s*-->(.*?)<!--\s*endif\s*-->', re.S)
 SOURCE_PATH = re.compile(
     r'\b((?:docs|services|scripts|deploy|tests)/[A-Za-z0-9_./\-]+?\.(?:md|py|sh|yaml|yml|txt|json))')
 # path:line, path:a-b and continuations such as "path:12-14, :20" or "path:12, 30-31". A bare file name
-# (portal.py:627) is resolved against the unique file of that name under docs, services, scripts, deploy
+# (portal.py:691) is resolved against the unique file of that name under docs, services, scripts, deploy
 # and tests.
 CITE = re.compile(
     r'(?P<path>(?:(?:docs|services|scripts|deploy|tests)/[A-Za-z0-9_./\-]+?'
@@ -55,13 +55,13 @@ EXPECTED_MARKERS = {
 EXPECTED_RUNBOOK_IDS = {'D-17': 4, 'U-2': 2, 'U-5': 1, 'U-8': 1, 'U-14': 1, 'U-17': 2, 'U-18': 2, 'U-20': 2}
 
 # Groups a member-facing block may name. Cross-checked against the portal in a test.
-MEMBER_GROUPS = {'avrana-videos', 'avrana-audiobooks', 'avrana-books', 'avrana-comics', 'avrana-requests',
+MEMBER_GROUPS = {'avrana-videos', 'avrana-audiobooks', 'avrana-books', 'avrana-comics',
                  'library-contributors'}
 
 # Pinned topic -> group table, in document order: (first heading or bold label in the block, groups).
-# 'avrana-requests' on the help.md Requests block documents the OPEN state of decision D-14: on main the
-# portal gates the Requests help topic on avrana-requests; PR #4 proposes avrana-videos. Changing either
-# side silently must fail. When the owner decides, change this table and the block together.
+# The help.md Requests block follows main for decision D-14: the portal gates the Requests help topic on
+# avrana-videos (PR #4 merged). The owner has not confirmed the rule. Changing either side silently must
+# fail. When the owner decides, change this table and the block together.
 BLOCK_GROUPS = {
     'welcome.md': [
         ('Movies and TV', ('avrana-videos',)),
@@ -78,7 +78,7 @@ BLOCK_GROUPS = {
         ('Audiobooks', ('avrana-audiobooks',)),
         ('Books', ('avrana-books',)),
         ('Comics', ('avrana-comics',)),
-        ('Requests', ('avrana-requests',)),
+        ('Requests', ('avrana-videos',)),
         ('Audiobooks', ('avrana-audiobooks',)),
         ('Comics, in a browser', ('avrana-comics',)),
         ('Books', ('avrana-books',)),
@@ -130,10 +130,10 @@ ALLOWED_COMMITMENTS = {
 # written, repo file, line, text that line must contain). Kills a wrong line number that still falls
 # inside the file, and code drift under a cited line.
 PINNED_CITES = [
-    (MEMBER / 'help.md', 'portal.py:627', 'services/avrana-portal/portal.py', 627, 'Recommended'),
-    (MEMBER / 'help.md', 'portal.py:272-295', 'services/avrana-portal/portal.py', 272, 'avrana-requests'),
+    (MEMBER / 'help.md', 'portal.py:691', 'services/avrana-portal/portal.py', 691, 'Recommended'),
+    (MEMBER / 'help.md', 'portal.py:293-316', 'services/avrana-portal/portal.py', 293, 'avrana-videos'),
     (MEMBER / 'help.md', ':56 (tile gated', 'services/avrana-portal/portal.py', 56, 'avrana-videos'),
-    (MEMBER / 'welcome.md', 'portal.py:357-358', 'services/avrana-portal/portal.py', 358, 'sign_out'),
+    (MEMBER / 'welcome.md', 'portal.py:378-379', 'services/avrana-portal/portal.py', 379, 'sign_out'),
     (RUNBOOK, 'scripts/offboard.py:99-102', 'scripts/offboard.py', 101, "'{username}'"),
     (RUNBOOK, 'offboard.py:99-102, 203-204', 'scripts/offboard.py', 204, "'{u}'"),
     (RUNBOOK, 'scripts/offboard.py:218-220', 'scripts/offboard.py', 218, 'authentik_user'),
@@ -146,7 +146,7 @@ ALLOWED_EMAIL_DOMAINS = {'example.invalid', 'example.com'}
 ALLOWED_EMAILS = set()
 # Capitalised word pairs are skipped when either word is a product, place or interface term used in the
 # documents, or when the first word is an ordinary sentence opener. "Ask Cody" is the existing portal copy
-# quoted in the register (services/avrana-portal/portal.py:562).
+# quoted in the register (services/avrana-portal/portal.py:626).
 PAIR_PRODUCT_WORDS = {
     'Avrana', 'Authentik', 'Jellyfin', 'Seerr', 'Audible', 'Amazon', 'Kindle', 'Komga', 'Shelfarr',
     'Omnibus', 'Swiftfin', 'Wholphin', 'Quick', 'Connect', 'Media', 'Player', 'Account', 'Help', 'Request',
@@ -464,16 +464,16 @@ class MemberContent(unittest.TestCase):
         section = text.split('### D-14', 1)[1].split('\n### ', 1)[0]
         flat = re.sub(r'\s+', ' ', section)
         # One statement per state, each naming its own group, so dropping either state fails.
-        self.assertRegex(flat, r'on `main`, the Requests help topic is gated on `avrana-requests`')
-        self.assertRegex(flat, r'PR #4 \([^)]*\)[^.]*gates the topic on `avrana-videos`')
-        self.assertRegex(flat, r'(?i)owner has not decided')
+        self.assertRegex(flat, r'on `main` the Requests help topic is now gated on `avrana-videos`')
+        self.assertRegex(flat, r'before it, the topic was gated on `avrana-requests`')
+        self.assertRegex(flat, r'(?i)owner has not confirmed')
 
     def test_help_requests_block_follows_the_pinned_group(self):
         """The Requests help block and the portal on main agree today; the pin makes any change deliberate."""
         portal = portal_text()
         m = re.search(r'\(\s*"(avrana-[a-z]+)",\s*"Requests"', portal)
         self.assertIsNotNone(m)
-        self.assertEqual('avrana-requests', m.group(1),
+        self.assertEqual('avrana-videos', m.group(1),
                          'the portal changed which group gates the Requests help topic: update D-14, the '
                          'help.md block and BLOCK_GROUPS together')
 
@@ -533,7 +533,7 @@ class MemberContent(unittest.TestCase):
         """Every path:line citation: the file exists, each line number is inside it and not blank.
 
         A range must lie inside the file and contain at least one non-blank line. A bare file name
-        (portal.py:627) is resolved against the files of that name under docs, services, scripts, deploy
+        (portal.py:691) is resolved against the files of that name under docs, services, scripts, deploy
         and tests; it passes when at least one of them satisfies the citation. LIMIT: this proves the line
         exists, not that it says what the sentence claims; PINNED_CITES covers the ones that matter most.
         """

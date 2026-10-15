@@ -31,14 +31,14 @@ Sources (repo paths):
 
 The help topics are the libraries you have. Each topic page lists the apps for each device, the address
 to type and the steps. Open Help from your home page and choose a topic. Only your own topics are listed.
-<!-- src: services/avrana-portal/portal.py:100-103 (help tile), :596-600, :610-618 -->
+<!-- src: services/avrana-portal/portal.py:103-124 (help tile), :596-600, :610-618 -->
 
 ## Which app on which device
 
 On a topic page, a device that has more than one app lists them with the first marked Recommended and
 the others marked Alternative. A device that has only one app lists it without a tag. The list below is
 the short version. For the steps, open the topic page.
-<!-- src: services/avrana-portal/portal.py:627 (tag is added only when a device has more than one client) -->
+<!-- src: services/avrana-portal/portal.py:691 (tag is added only when a device has more than one client) -->
 
 <!-- if: avrana-videos -->
 **Movies and TV.** iPhone and iPad: Swiftfin. Android: Jellyfin. Roku: Jellyfin. Apple TV: Swiftfin.
@@ -46,31 +46,31 @@ Windows: Jellyfin Media Player. Fire TV, Google TV, Android TV and NVIDIA Shield
 [OWNER DECISION D-12: Jellyfin or Wholphin as the one recommended television app]. Samsung and LG: Jellyfin
 if the television's store has it, otherwise use another device or cast from a phone. A browser works but
 is the least reliable option.
-<!-- src: services/avrana-portal/portal.py:156-234; docs/onboarding/welcome.md:35-41 -->
+<!-- src: services/avrana-portal/portal.py:177-255; docs/onboarding/welcome.md:35-41 -->
 <!-- endif -->
 
 <!-- if: avrana-audiobooks -->
 **Audiobooks.** iPhone and iPad: AudioBooth. Android: Absorb. Any browser also works.
-<!-- src: services/avrana-portal/portal.py:118-154 -->
+<!-- src: services/avrana-portal/portal.py:139-175 -->
 <!-- endif -->
 
 <!-- if: avrana-books -->
 **Books.** Any browser for the library. To read on a Kindle, use the Send to Kindle steps below.
 iPhone, iPad and Android: the Kindle app receives what you send. On Android, ReadEra opens downloaded
 files if you prefer to download.
-<!-- src: services/avrana-portal/portal.py:236-270 -->
+<!-- src: services/avrana-portal/portal.py:257-291 -->
 <!-- endif -->
 
 <!-- if: avrana-comics -->
 **Comics.** Any browser. iPhone and iPad: Panels. Android: Moon+ Reader.
-<!-- src: services/avrana-portal/portal.py:297-331 -->
+<!-- src: services/avrana-portal/portal.py:318-352 -->
 <!-- endif -->
 
-<!-- if: avrana-requests -->
+<!-- if: avrana-videos -->
 **Requests.** iPhone and iPad: Pocket for Seerr. Android has no recommended app yet; use a browser and
 add it to the home screen.
-[OWNER DECISION D-14: which group shows the Requests help topic. On main the topic is gated on avrana-requests; PR #4 proposes avrana-videos. This block follows main until the owner decides]
-<!-- src: services/avrana-portal/portal.py:272-295 (topic gated on avrana-requests on main) versus :56 (tile gated on avrana-videos); PR #4 branch avr-352-portal-authz-suite re-gates the topic on avrana-videos -->
+[OWNER DECISION D-14: which group shows the Requests help topic. Main now gates it on avrana-videos, the same group as the Request tile (PR #4 merged). Owner to confirm this is the intended rule]
+<!-- src: services/avrana-portal/portal.py:293-316 (topic gated on avrana-videos on main since PR #4) and :56 (tile gated on avrana-videos) -->
 <!-- endif -->
 
 ## Why signing in is not the same everywhere
@@ -78,12 +78,12 @@ add it to the home screen.
 Avrana is one account. What a sign-in screen looks like depends on where you sign in, and the notes
 below describe what to expect for what you can use. A sign-in screen that looks unfamiliar is expected,
 not a fault.
-<!-- src: docs/services/sso-architecture.md:14-36; services/avrana-portal/portal.py:108-114 -->
+<!-- src: docs/services/sso-architecture.md:14-36; services/avrana-portal/portal.py:129-135 -->
 
 <!-- if: avrana-audiobooks -->
 - **Audiobooks:** choose the Avrana sign-in button, in the browser and in the apps. Your Avrana password
   applies at once.
-<!-- src: docs/services/authentik.md:14, :21; portal.py:109-110 -->
+<!-- src: docs/services/authentik.md:14, :21; portal.py:130-131 -->
 <!-- endif -->
 
 <!-- if: avrana-comics -->
@@ -91,7 +91,7 @@ not a fault.
 - **Comics, in a reader app:** the app asks for your e-mail address and password. The comics service keeps
   its own copy of the password from when your account was created, so changing your Avrana password later
   does not change it.
-<!-- src: docs/services/komga.md:13-31; portal.py:298-302, :309-331 -->
+<!-- src: docs/services/komga.md:13-31; portal.py:319-323, :330-352 -->
 <!-- endif -->
 
 <!-- if: avrana-books -->
@@ -106,7 +106,7 @@ not a fault.
   show an Avrana button, so this service holds its own copy of the password from when your account was
   created. If you change your Avrana password later, the Movies and TV password stays as it was.
   [OWNER DECISION D-13: what members are told to do to change or reset that separate password]
-<!-- src: docs/services/jellyfin.md:11-31; docs/services/authentik.md:18-21; portal.py:110-114 -->
+<!-- src: docs/services/jellyfin.md:11-31; docs/services/authentik.md:18-21; portal.py:131-135 -->
 <!-- endif -->
 
 <!-- if: avrana-videos -->
@@ -144,7 +144,7 @@ it is changed there too.
 <!-- endif -->
 
 To change your password while you are signed in, open Account, then Manage account.
-<!-- src: services/avrana-portal/portal.py:574-583 -->
+<!-- src: services/avrana-portal/portal.py:638-647 -->
 
 ## Something is missing from your home page
 
@@ -162,7 +162,7 @@ describe your own account.
 - **Films and shows:** Request on your home page, then the film and show option. Search for the title and
   choose Request.
   [UNVERIFIED U-6: whether a film or show request needs approval, and the usual wait]
-<!-- src: portal.py:288-294; docs/onboarding/welcome.md:45-46 -->
+<!-- src: portal.py:309-315; docs/onboarding/welcome.md:45-46 -->
 <!-- endif -->
 
 <!-- if: avrana-books | avrana-audiobooks -->
@@ -195,14 +195,14 @@ in the Kindle section. Two things cause most problems.
 
 The address is saved in each of your libraries that can send to a Kindle. To remove it, use the remove
 button on the same page.
-<!-- src: docs/services/calibre-web-automated.md:90-114; services/avrana-kindle-connector/README.md (Address validation, The Amazon half); services/avrana-kindle-connector/kindle.py:198-199; portal.py:244-250 -->
+<!-- src: docs/services/calibre-web-automated.md:90-114; services/avrana-kindle-connector/README.md (Address validation, The Amazon half); services/avrana-kindle-connector/kindle.py:311-312; portal.py:265-271 -->
 <!-- endif -->
 
 ## What "unavailable" means
 
 Today, when a service is switched off, an app shows its own error and a page can show "That page does
 not exist". Neither tells you whether the service is down or whether it is not set up for you.
-<!-- src: services/avrana-portal/portal.py:678-687 -->
+<!-- src: services/avrana-portal/portal.py:744-753 -->
 
 [OWNER DECISION D-15: the member wording for "this service is unavailable right now", and where an operator notice appears. The charter plans one sentence on the home page, which is not built yet]
 

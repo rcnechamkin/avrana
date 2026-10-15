@@ -43,7 +43,7 @@ On a shared or borrowed device, signing out of an app does not sign you out of A
 on your home page has a Sign out link and a Manage account link. Avrana's own documentation points to
 the account settings page, opened with Manage account, for signing out of Avrana itself.
 [UNVERIFIED U-19: what the Sign out link on the Account page actually ends]
-<!-- src: docs/services/sso-architecture.md:142-150 (sign out at the Authentik settings page); services/avrana-portal/portal.py:357-358, :580-583 (Manage account links to Authentik; Sign out is an outpost endpoint, not shown to end the Authentik session) -->
+<!-- src: docs/services/sso-architecture.md:142-150 (sign out at the Authentik settings page); services/avrana-portal/portal.py:378-379, :644-647 (Manage account links to Authentik; Sign out is an outpost endpoint, not shown to end the Authentik session) -->
 
 ## What you can use
 
@@ -74,7 +74,7 @@ are in Help, under Movies and TV.
 One thing to know: the Movies and TV password is a separate copy made when your account was created. If
 you later change your Avrana password, the Movies and TV password stays as it was.
 [OWNER DECISION D-13: what members are told to do to change or reset that separate password]
-<!-- src: services/avrana-portal/portal.py:156-234 (recommended = first listed, per render_help_page :627); docs/onboarding/welcome.md:35-43; docs/services/jellyfin.md:19-31; docs/services/authentik.md:21 -->
+<!-- src: services/avrana-portal/portal.py:177-255 (recommended = first listed, per render_help_page :627); docs/onboarding/welcome.md:35-43; docs/services/jellyfin.md:19-31; docs/services/authentik.md:21 -->
 <!-- endif -->
 
 <!-- if: avrana-audiobooks -->
@@ -83,7 +83,7 @@ you later change your Avrana password, the Movies and TV password stays as it wa
 App to install: AudioBooth on iPhone and iPad, Absorb on Android. In a browser, open the audiobook
 library and choose the Avrana sign-in button. In the apps, add the server address from Help and choose
 the Avrana sign-in option. Password changes made on your Avrana account apply here straight away.
-<!-- src: services/avrana-portal/portal.py:118-154; docs/services/authentik.md:12-21 -->
+<!-- src: services/avrana-portal/portal.py:139-175; docs/services/authentik.md:12-21 -->
 <!-- endif -->
 
 <!-- if: avrana-books -->
@@ -94,7 +94,7 @@ shows a username and password form, not an Avrana button. To read on a Kindle or
 your Kindle address once on the Kindle setup page (the Read tile on your home page leads to it).
 That page also tells you which sender address to approve in your Amazon account. Without that approval,
 Amazon silently drops the book.
-<!-- src: services/avrana-portal/portal.py:236-270; docs/services/calibre-web-automated.md:12, :90-114; services/avrana-kindle-connector/kindle.py:198-199 -->
+<!-- src: services/avrana-portal/portal.py:257-291; docs/services/calibre-web-automated.md:12, :90-114; services/avrana-kindle-connector/kindle.py:311-312 -->
 <!-- endif -->
 
 <!-- if: avrana-comics -->
@@ -104,7 +104,7 @@ In a browser, open the comics library and choose the Avrana sign-in button. In a
 use Panels on iPhone and iPad or Moon+ Reader on Android, add the catalog address from Help, and sign
 in with your Avrana e-mail address and password.
 [UNVERIFIED U-3: whether every comics member has the separate app password that catalog sign-in needs]
-<!-- src: services/avrana-portal/portal.py:297-331; docs/services/komga.md:13-53 -->
+<!-- src: services/avrana-portal/portal.py:318-352; docs/services/komga.md:13-53 -->
 <!-- endif -->
 
 <!-- if: avrana-videos -->
@@ -112,7 +112,7 @@ in with your Avrana e-mail address and password.
 
 Choose Request on your home page, then the film and show option. Search for the title and request it.
 It appears in Movies and TV once it has been added.
-<!-- src: services/avrana-portal/portal.py:56, :97-98; docs/onboarding/welcome.md:45-46 -->
+<!-- src: services/avrana-portal/portal.py:56, :100-101; docs/onboarding/welcome.md:45-46 -->
 <!-- endif -->
 
 <!-- if: avrana-books | avrana-audiobooks -->
@@ -161,6 +161,6 @@ contact route above.
 Your name, username, e-mail address and the list of what you can use are on the Account page. Your
 password, passkeys and active sessions are managed there too. What Avrana records about your use, and
 how to leave, are in [House rules and privacy](house-rules-and-privacy.md).
-<!-- src: services/avrana-portal/portal.py:533-590; docs/member/house-rules-and-privacy.md -->
+<!-- src: services/avrana-portal/portal.py:597-654; docs/member/house-rules-and-privacy.md -->
 
 Forgot your password? [OWNER DECISION D-13: current reset route, e-mail reset or contact the owner]

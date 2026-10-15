@@ -92,7 +92,7 @@ Deactivation can be upgraded to removal later; the reverse is impossible.
   - Audible connector: the member presses Disconnect, which deletes their stored Audible sign-in
     details and records (`services/avrana-audible-connector/README.md:138-144`).
   - Kindle address: the member presses Remove on the Kindle setup page, which clears both libraries
-    (`services/avrana-kindle-connector/README.md:97`).
+    (`services/avrana-kindle-connector/README.md:245-246`).
 - [ ] Note the member's e-mail address privately from the Authentik admin UI (Directory, Users). The
       dry run prints the username and name but not the e-mail address, and Komga and the audiobook
       library match on e-mail (`scripts/offboard.py:124-127`, `docs/services/komga.md:25-27`).

@@ -10,13 +10,24 @@ Identifier scheme: `D-n` owner decision (D-1 to D-10 are the charter's numbers i
 Nothing below has been checked on the host. Linear: AVR-361 is the parent; AVR-363, AVR-366, AVR-367
 and AVR-346 are named where they own the blocker.
 
+## Where these are asked (AVR-458, Todo)
+
+AVR-458, "Decide Media's support contact, privacy and member test rules", is still Todo, so nothing in the
+drafts is approved. It asks the owner for: the support contact (D-1); whether the new portal may ever show
+another person's watch or listen history (recommended: no; this register has no entry for it, and the drafts
+say nothing that depends on it); which de-identified usage facts may be collected, who sees them, and
+whether members opt in (D-7); a maintenance window for network isolation (D-2, not member content);
+and whether the read-only test workflow runs on every PR (D-8, not member content). D-9 to D-17 below are
+not in AVR-458 and need their own answers. Treat every privacy and house-rules sentence as DRAFT until D-1
+and D-7 are answered.
+
 ## Owner decisions
 
 ### D-1
 - **Question:** the support contact route.
 - **Options in the repo:** a plain address first, a form only if spam-free delivery is easy
   (`docs/design/MEDIA-2.0.md:295`). Existing member copy says "Message the admin who invited you"
-  (`docs/onboarding/welcome.md:55`) and "Ask Cody to add what you need" (`services/avrana-portal/portal.py:562`).
+  (`docs/onboarding/welcome.md:55`) and "Ask Cody to add what you need" (`services/avrana-portal/portal.py:626`).
 - **Changes in the drafts:** the contact line in welcome, help (twice) and the leaving section of the privacy page.
 - **Blocked:** welcome, help, privacy. Related: D-1; AVR-367, AVR-361. E-mail delivery also depends on M0 (AVR-346).
 
@@ -38,7 +49,7 @@ and AVR-346 are named where they own the blocker.
 
 ### D-11
 - **Question:** which address members are told is the home page.
-- **Options:** `avrana.net`, the portal and Media 2.0 single front door (`services/avrana-portal/portal.py:356`,
+- **Options:** `avrana.net`, the portal and Media 2.0 single front door (`services/avrana-portal/portal.py:377`,
   `MEDIA-2.0.md:15-16`, `docs/audits/2026-10-11-web-interface-audit.md:50-56`); or `auth.avrana.net`, as
   the existing welcome guide says (`docs/onboarding/welcome.md:18`), which is Authentik's own library page.
 - **Changes:** the first sign-in step in welcome. The Authentik post-login landing is a separate approved change.
@@ -48,7 +59,7 @@ and AVR-346 are named where they own the blocker.
 - **Question:** the one recommended television app for Fire TV, Google TV, Android TV and NVIDIA Shield.
 - **Options:** Wholphin (`docs/onboarding/welcome.md:35-39`; used by the owner per
   `docs/findings/2026-09-23-jellyfin-artwork.md:1`, `docs/ARCHITECTURE.md:20`); or Jellyfin
-  (`services/avrana-portal/portal.py:188-201`, `docs/services/jellyfin.md:33-38`).
+  (`services/avrana-portal/portal.py:209-222`, `docs/services/jellyfin.md:33-38`).
 - **Changes:** one table cell in welcome and one sentence in help. If Wholphin wins, the portal HELP table
   needs a Wholphin entry too (a code change, not made here).
 - **Blocked:** welcome, help. Related: AVR-363.
@@ -67,24 +78,23 @@ and AVR-346 are named where they own the blocker.
 
 ### D-14
 - **Question:** which group shows the Requests help topic.
-- **State of the code:** on `main`, the Requests help topic is gated on `avrana-requests`
-  (`services/avrana-portal/portal.py:272`, `:600`) while the Request tile is gated on `avrana-videos`
-  (`:56`), so a member with videos but not `avrana-requests` sees the tile and gets no help page. PR #4 (the
-  portal authorization suite, branch `avr-352-portal-authz-suite`, not merged; its `portal.py:272`) gates
-  the topic on `avrana-videos`. The owner has not decided; this register does not resolve it.
+- **State of the code:** on `main` the Requests help topic is now gated on `avrana-videos`
+  (`services/avrana-portal/portal.py:293`), the same group as the Request tile (`:56`). PR #4 (the portal
+  authorization suite) merged and changed this; before it, the topic was gated on `avrana-requests`. The
+  owner has not confirmed the rule, so the help block stays marked.
 - **Other evidence:** the Authentik doc says `avrana-requests` is reserved and gates nothing
   (`docs/services/authentik.md:48`); the admin guide treats it as a real group granted together with videos
   (`docs/onboarding/admin-onboarding.md:14-21, :26`).
-- **Options:** keep `avrana-requests` (matches `main`), or `avrana-videos` (matches PR #4 and the tile).
-- **Changes:** the group name on one block in help. That block currently follows `main`
-  (`avrana-requests`); `tests/test_member_content.py` pins it so a silent change to either group fails.
-- **Blocked:** help. A portal code change may follow (S1-1 route-matrix tests will expose it).
+- **Options:** keep `avrana-videos` (matches `main` and the tile), or give requests its own group again.
+- **Changes:** the group name on one block in help. That block follows `main` (`avrana-videos`);
+  `tests/test_member_content.py` pins it so a silent change fails.
+- **Blocked:** help, until the owner confirms the rule.
 
 ### D-15
 - **Question:** the member wording for an unavailable service and where an operator notice appears.
 - **Options:** the charter plans one sentence on the home page set from an OliveTin action and per-section
   messages such as "Movies and TV are unavailable right now" (`MEDIA-2.0.md:48-60, :150-158`); neither is
-  built. Today the only copy is the portal 404 and each app's own error (`portal.py:678-687`).
+  built. Today the only copy is the portal 404 and each app's own error (`portal.py:744-753`).
 - **Changes:** welcome and help "unavailable" passages.
 - **Blocked:** welcome, help. Related: M1 operator notices.
 
@@ -181,7 +191,7 @@ table is not mentioned). Check: connector database row counts before and after a
 
 ### U-14
 What service and proxy logs contain about members and how long they last. The repo only shows size caps
-(for example `services/avrana-portal/docker-compose.yml:31`, `services/authentik/docker-compose.yml:35`).
+(for example `services/avrana-portal/docker-compose.yml:32`, `services/authentik/docker-compose.yml:35`).
 Check: log driver settings per container; read-only look at one log for member identifiers.
 
 ### U-15
@@ -206,7 +216,7 @@ deleted user remain. Check: disposable account. Changes: runbook Step 5 and the 
 
 ### U-19
 What the Account page Sign out link actually ends: unverified. The portal links it to the outpost endpoint
-`/outpost.goauthentik.io/sign_out` (`services/avrana-portal/portal.py:358`, `:580-583`). Nothing in the
+`/outpost.goauthentik.io/sign_out` (`services/avrana-portal/portal.py:379`, `:580-583`). Nothing in the
 repository shows that this ends the Authentik session; `docs/services/sso-architecture.md:146-150` points to
 the Authentik settings page for that. Check: on a disposable account, press Sign out, then open another
 Avrana app and see whether it signs in without a prompt; compare with signing out at the Authentik settings
@@ -250,14 +260,14 @@ These files were not edited. `file:line` is the statement; the contradiction fol
 | Statement | Contradicted by |
 |---|---|
 | `docs/onboarding/welcome.md:13, :31` ("Submi:", "differen") | Text truncated during the BookStack promotion. The same truncation appears at `docs/onboarding/admin-onboarding.md:72, :80, :81`, `docs/services/authentik.md:26, :102`, `docs/services/komga.md:75`, `docs/services/jellyfin.md:79, :119` |
-| `welcome.md:18` home is auth.avrana.net | `portal.py:356`, `MEDIA-2.0.md:15-16`, audit A1: home is avrana.net (D-11) |
-| `welcome.md:35-39` Wholphin recommended | `portal.py:188-201`, `jellyfin.md:33-38` list Jellyfin (D-12) |
+| `welcome.md:18` home is auth.avrana.net | `portal.py:377`, `MEDIA-2.0.md:15-16`, audit A1: home is avrana.net (D-11) |
+| `welcome.md:35-39` Wholphin recommended | `portal.py:209-222`, `jellyfin.md:33-38` list Jellyfin (D-12) |
 | `welcome.md:38` Quick Connect | No other file confirms it is enabled (U-1) |
 | `welcome.md:45-46` one request site | `portal.py:56-59`: three request services |
 | `welcome.md:51-52`, `admin-onboarding.md:74-75`, `:79` no recovery flow | `services/authentik/blueprints/avrana-recovery.yaml` exists; `docs/services/sso-architecture.md:130` mentions `avrana-recovery`; mail rotation pending (`docs/ROADMAP.md:31-33`) |
 | `welcome.md:10-15` account creation steps | `docs/services/authentik.md:50-64`: e-mail verification and optional passkey steps now exist |
 | `welcome.md:54-55` "message the admin who invited you" | D-1 |
-| `welcome.md:27-28` comics sign-in | `portal.py:298-302`, `komga.md:13-31`: reader apps need e-mail and password |
+| `welcome.md:27-28` comics sign-in | `portal.py:319-323`, `komga.md:13-31`: reader apps need e-mail and password |
 | `admin-onboarding.md:14-21, :26` Requests tile gated on `avrana-requests` | `portal.py:56` gates on `avrana-videos`; `authentik.md:48` says reserved, gates nothing (D-14) |
 | `admin-onboarding.md:23` blueprints gitignored (also `services/authentik/blueprints/avrana-recovery.yaml:13`, `docs/services/omnibus.md:238`) | `docs/DECISIONS.md:38`: tracked in Git since 2026-10-06 |
 | `admin-onboarding.md:38` single-use invites | `authentik.md:43` recommends reusable and expiring for non-technical invitees (D-9) |
@@ -266,9 +276,8 @@ These files were not edited. `file:line` is the statement; the contradiction fol
 | `admin-onboarding.md:105-109` Komga account only created at first SSO login | `komga.md:19-27`: enrollment creates it with a copy of the password |
 | `docs/services/shelfarr.md:12-13, :29-31, :63, :78-86` not in service, LAN only, no OIDC | `portal.py:57-58`, `deploy/host/cloudflared/config.yml:22`, `services/authentik/blueprints/shelfarr.yaml:22, :41`, `sso-architecture.md:33` (U-7) |
 | `docs/services/tracearr.md:65` not in backups | `services/backups/README.md:14-16`, `required-artifacts.txt` (`tracearr.pgdump.zst`), `avrana-backup.sh:267-279` |
-| `docs/services/calibre-web-automated.md:9` (Gmail), `:35-44` (Postmark), `:112-114` (SMTP2GO, sender address) | Three different mail stories; `services/avrana-kindle-connector/kindle.py:44` and the blueprints use the SMTP2GO sender |
+| `docs/services/calibre-web-automated.md:9` (Gmail), `:35-44` (Postmark), `:112-114` (SMTP2GO, sender address) | Three different mail stories; `services/avrana-kindle-connector/kindle.py:48` and the blueprints use the SMTP2GO sender |
 | `docs/services/sso-architecture.md:73-80` | Lists individual members' names in a tracked document; against the no-personal-data rule (`docs/SECURITY.md:13`). Also describes a user divergence measured 2026-08-28 |
-| `services/avrana-kindle-connector/README.md:98-99` non-member gets 403 | Design rule is 404 (audit A5; Sprint 1 S1-2) |
-| `services/avrana-portal/portal.py:562` first name in copy; `:575` em dash | `docs/design/DESIGN.md:312`; audit P3 |
+| `services/avrana-portal/portal.py:626` first name in copy; `:575` em dash | `docs/design/DESIGN.md:312`; audit P3 |
 | `docs/services/avrana-portal.md` go-live status of 2026-08-16 ("only remaining: restart") | Superseded by later operation; kept as history |
 | `docs/services/authentik.md:170-174` click-through of the verification e-mail never verified | Open owner item before invites (AVR-363) |
