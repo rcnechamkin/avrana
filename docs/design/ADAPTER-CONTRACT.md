@@ -500,3 +500,160 @@ upgrade, remains the Media 2.0 plan (section 7 of `MEDIA-2.0.md`) and is an owne
   see `member_busy` beyond the per-member cap; the image route should serialise or retry, not treat it
   as an error page.
 - **Never call an adapter without a principal**, and never pass a username from anywhere else.
+
+## 11. Audiobookshelf adapter (AVR-378)
+
+Status: **proposed, not deployed.** `services/avrana-home/avrana_home/adapters/audiobookshelf.py`,
+standard library only, proven only against fixtures that are **hand-written, unverified against the
+deployed version**; a recorded read-only contract check is a separate owner-approved step before any
+real data is read. Every fixture file under `tests/fixtures/audiobookshelf/` carries that sentence in
+its `_synthetic` field. The adapter contacts no server in any test (the network guard is on).
+
+**What it offers.** One section, "Continue listening": the member's in-progress audiobooks, read-only.
+`recent_items`, `item` and `fetch_artwork` return `EMPTY` (reason `not_offered`) with no upstream call
+and nothing cached; ask `gather` for `sections=("continue",)` so the UI does not render an empty
+"recent" for this service. Covers are **left out** (a cover route cannot be bound to the member), so
+`artwork` is `null` on every item.
+
+### 11.1 How it stays member-scoped with an admin-capable token
+
+Audiobookshelf has no impersonation, so the credential is admin-capable and the isolation is the
+adapter's job:
+
+1. **Token inside the transport only.** The adapter takes a `Transport`; the token is in the
+   transport's headers (for example `UrllibTransport(base, {"Authorization": "Bearer <token>"})`). It is
+   in no repr, result, health report, log line or cache row (tested with a sentinel).
+2. **GET only, explicit route list**, enforced by the shared guard before any I/O: the user list
+   `/api/users` (mapping only, no query), the member's record `/api/users/{id}` and one item
+   `/api/items/{id}` (query key `expanded` only). Nothing else, in particular no "me" route.
+3. **The bound user id travels in the PATH** of the member route and the guard compares it with the id
+   the adapter bound (a 36-character lowercase UUID, validated before binding). Another member's id, a
+   traversal, an encoded slash, an upper-cased id or no bound id is `ForbiddenRequest`.
+4. **Identity is checked in the response, and is mandatory.** The record's own `id` must equal the
+   bound id, and **every** progress entry must carry a `userId` equal to it. An entry that names another
+   user, **or names nobody**, is `UpstreamMisbehaved` and the whole section is discarded (counted toward
+   the circuit). An item lookup that answers with a different item id is `UpstreamMisbehaved` too.
+5. **Permissions come from the user's own record, before any item is fetched.** Item metadata fetched
+   with an admin token is not member-scoped, so an item is shown only if it passes that user's library
+   access list (or "can access all libraries"), the explicit-content flag and the tag allow or deny
+   list. Every permission field must be present and correctly typed: a malformed permission record makes
+   the section `UNAVAILABLE` (`UpstreamMalformed`) and no item is fetched; a malformed item is left out;
+   if items were looked up, none could be shown and at least one was unusable, the section is
+   `UNAVAILABLE` with the drift reason, never an empty or unfiltered list.
+6. **Never the token owner's view.** The only request not carrying the bound id is the user list used
+   for mapping; the tests assert that no other request ever goes out.
+7. **Tokens in upstream responses are never retained.** The user list and the user record may contain
+   per-user tokens; the adapter reads only whitelisted fields (id, name, active flag, permissions,
+   progress), stores only the opaque id, and never logs a body.
+8. Item 404 = omitted and neutral (`ItemGone`); user-route 404 = `NOT_LINKED` with a cached mapping,
+   drift when the mapping was just confirmed; the user-list 404 = route drift (section 6).
+
+### 11.2 Mapping, and the owner decision it needs
+
+The principal's **username** is matched to the Audiobookshelf `username` with the shared
+exact-or-refuse helper: exact and case-sensitive; a case, Unicode or whitespace difference is
+`NOT_LINKED` (`case_or_unicode_mismatch`); two matches are `NOT_LINKED` (`ambiguous`); an inactive
+account is `NOT_LINKED` (`disabled`); no match is `NOT_LINKED` (`unmapped`). **The e-mail is never used
+for mapping** (tested: an account whose e-mail equals the member's but whose username differs is not
+linked).
+
+**Conflict to decide (owner).** `docs/services/sso-architecture.md` and the Authentik blueprint record
+that Audiobookshelf matches existing users **by e-mail** (`authOpenIDMatchExistingBy: email`), so an
+account that predates OIDC may carry a username different from the Authentik username.
+
+| Option | Consequence |
+|---|---|
+| A. Username, exact (implemented, the default) | Safe against an e-mail claimed by another member. An account whose ABS username differs (case, spelling) stays `NOT_LINKED` until the operator reconciles it. Whether OIDC-created accounts carry the Authentik username is **unverified** (assumption 9). |
+| B. E-mail | Only as trustworthy as the e-mail: if members can edit their e-mail in Authentik, or it is unverified, one member could be mapped to another's account. Needs the owner to confirm e-mails are immutable and verified. Not implemented. |
+| C. Owner-maintained link list (username to ABS user id), outside Git | Strongest, as the assessment recommends; costs a maintained list and a load-time duplicate check. Not implemented; fits behind the same `_resolve_user` hook. |
+
+Until the owner decides, only A exists. Note the assessment recommended excluding the user-list route
+and using a link list; this adapter does list users (option A needs it) and mitigates by parsing only
+`username`, `id` and `isActive` and retaining only the id.
+
+### 11.3 Fixed behaviour
+
+- Group gate: `avrana-audiobooks`; without it, `NOT_PERMITTED` with no upstream call and no cache read.
+- Excluded from the section: finished entries, entries the member hid from continue listening, podcast
+  episodes, items marked missing or invalid, non-book media.
+- Progress fraction is clamped to 0 to 1 (a non-positive progress is "not started"); positions and
+  durations are bounded integers; the list is newest-first by `lastUpdate`; at most 24 item lookups per
+  request however long the list is, each under the shared 2 s request budget.
+- Cache writes use member classes only (`member_progress`, `member_mapping`); a file-backed cache holds
+  zero rows of them by default (tested).
+- Hand-off URL: `https://listen.avrana.net/item/<id>` from the fixed host table; the id must match the
+  `li_` pattern (assumption 6).
+
+### 11.4 Example, "ok"
+
+All titles are invented.
+
+```json
+{"service": "audiobookshelf", "section": "continue", "state": "ok", "items": [
+  {"id": "audiobookshelf:li_book000001", "service": "audiobookshelf", "kind": "audiobook",
+   "title": "Synthetic Audiobook One", "subtitle": "Synthetic Author", "series": "Synthetic Saga #1",
+   "progress": {"fraction": 0.42, "percent": 42, "position_seconds": 15120, "duration_seconds": 36000},
+   "artwork": null, "handoff_url": "https://listen.avrana.net/item/li_book000001"}]}
+```
+
+The other states are as in section 4: `empty` (nothing in progress), `unavailable` (upstream down, slow,
+misbehaving or malformed), `not_linked` (no exact match), `not_permitted` (omitted by the app). Render
+the text equivalent of the progress as for Jellyfin.
+
+### 11.5 Residual risks
+
+- An upstream that ignores the user id in the path and returns another member's record **with that
+  member's id** is caught; one that returns the right id with wrong data cannot be detected.
+- Permission fields are read from the user record: if Audiobookshelf changes their names or meaning,
+  the adapter fails closed (`UNAVAILABLE`) rather than showing unfiltered items, at the cost of an
+  outage until the field map is updated (it is one class, `_Access`).
+- The token is admin-capable: a bug in the allow-list would be a bug with admin reach. The allow-list
+  has three entries and no write method.
+- No per-member rate limit yet (as for Jellyfin).
+
+### 11.6 Unverified upstream assumptions (every one)
+
+Every fixture file carries `_target_version` (Audiobookshelf 2.36, the version the contract says is deployed, not confirmed) and `_provenance`, which separates the shapes recalled from the public API documentation (not re-checked) from the SYNTHETIC assumptions below, and states that live compatibility is unproven. A test enforces both fields.
+
+1. Authentication is `Authorization: Bearer <token>` with an admin-capable API token or JWT, and that
+   token can call the three routes below. (Which form 2.36 accepts is unknown.)
+2. `GET /api/users` returns `{"users": [ ... ]}` with `id`, `username`, `isActive` per user.
+3. `GET /api/users/{id}` returns one user with `id`, `isActive`, `permissions` (`accessAllLibraries`,
+   `accessAllTags`, `accessExplicitContent`, `selectedTagsNotAccessible`), `librariesAccessible`,
+   `itemTagsSelected` and `mediaProgress`.
+4. `selectedTagsNotAccessible: true` means the selected tags are a **deny** list, `false` an **allow**
+   list (the adapter's reading; inverted would show forbidden items, so this is a first contract-check item).
+5. Each `mediaProgress` entry carries `userId`, `libraryItemId`, `episodeId`, `progress` (0 to 1),
+   `currentTime`, `duration`, `isFinished`, `hideFromContinueListening` and `lastUpdate` (ms). The
+   adapter **requires** `userId`: if the real API omits it the section is `UNAVAILABLE` until the
+   fixture and adapter are changed on evidence.
+6. `GET /api/items/{id}?expanded=1` returns `id`, `libraryId`, `mediaType` (`book` for audiobooks),
+   `isMissing`, `isInvalid` and `media` with `metadata` (`title`, `authorName`, `seriesName`,
+   `explicit` as a **boolean**) and `tags` (list of text) and `duration`. Library item ids match
+   `li_` plus 6 to 40 lowercase alphanumerics; user ids are 36-character lowercase UUIDs; the
+   hand-off path `/item/<id>` exists.
+7. An unknown user or item gives HTTP 404 (not 200 with an empty body or 400).
+8. Missing explicit flag handling: the adapter treats an item with no boolean `explicit` as unusable;
+   if the real API omits it for some items, those items will be left out (fail closed).
+9. OIDC-created accounts carry the Authentik username as the Audiobookshelf `username`.
+10. The user list and user record may contain per-user tokens (the adapter never retains them).
+
+### 11.7 Recorded read-only contract check (checklist, owner-approved, NOT run by this work)
+
+Nothing here is a script and nothing touches the host. When the owner approves a check, a human does
+the following with a dedicated, rotatable, read-only-by-habit token and records the results:
+
+1. **Request, read-only (GET), one at a time:** `/api/users` (once); `/api/users/{id}` for **two**
+   members with different library or tag access and an explicit-content difference; `/api/items/{id}?expanded=1`
+   for one item in each of: an accessible library, an inaccessible library, an explicit item, a tagged item.
+2. **Compare:** each assumption in 11.6 against the real response (field names, types, presence of
+   `userId` on every progress entry, boolean `explicit`, deny versus allow list meaning, 404 behaviour for
+   an unknown id, the id formats); that the user record and the progress entries differ per member;
+   that the admin token reads `/api/users/{id}` without needing `?include=`.
+3. **Do not request:** any POST, PATCH or DELETE; sessions, e-reader device settings, backups, libraries
+   listings, covers, or any "me" route.
+4. **Redact before anything is stored or shared:** all tokens and API keys (the user list may contain
+   them), e-mail addresses, real usernames (replace by `member-a`, `member-b`), real titles, authors and
+   series, library and item ids (replace consistently), IP addresses and device names, timestamps (shift).
+5. **Record:** the Audiobookshelf version, the date, which assumptions held and which did not, and
+   update the fixtures and the adapter from the evidence in a separate reviewed change.

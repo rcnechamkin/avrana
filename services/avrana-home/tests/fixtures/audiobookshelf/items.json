@@ -1,0 +1,146 @@
+{
+  "_synthetic": "Hand-written SYNTHETIC fixture, written from recollection of the public Audiobookshelf API. Hand-written, unverified against the deployed version; a recorded read-only contract check is a separate owner-approved step before any real data is read. Invented users, ids and titles.",
+  "_schema": "Shaped like GET /api/items/{id}?expanded=1, keyed here by library item id. Unverified.",
+  "_target_version": "Audiobookshelf 2.36 (the version the contract says is deployed; NOT confirmed against the deployed server)",
+  "_provenance": "GET /api/items/{id}?expanded=1: id, libraryId, mediaType, isMissing, isInvalid, media.metadata.{title,authorName,seriesName,explicit}, media.tags and media.duration are recalled from the public API documentation and not re-checked. SYNTHETIC assumptions: explicit is a boolean on every book; the li_ plus 6-40 lowercase alphanumeric id pattern; HTTP 404 for an unknown item. Live compatibility is UNPROVEN until the owner's recorded read-only capture is compared (ADAPTER-CONTRACT.md 11.7).",
+  "response": {
+    "li_book000001": {
+      "id": "li_book000001",
+      "libraryId": "lib_aaa",
+      "mediaType": "book",
+      "isMissing": false,
+      "isInvalid": false,
+      "media": {
+        "metadata": {
+          "title": "Synthetic Audiobook One",
+          "authorName": "Synthetic Author",
+          "seriesName": "Synthetic Saga #1",
+          "explicit": false
+        },
+        "tags": [],
+        "duration": 36000.0
+      }
+    },
+    "li_book000002": {
+      "id": "li_book000002",
+      "libraryId": "lib_aaa",
+      "mediaType": "book",
+      "isMissing": false,
+      "isInvalid": false,
+      "media": {
+        "metadata": {
+          "title": "Synthetic Audiobook Two",
+          "authorName": "Synthetic Author",
+          "seriesName": null,
+          "explicit": false
+        },
+        "tags": [],
+        "duration": 32000.0
+      }
+    },
+    "li_book000003": {
+      "id": "li_book000003",
+      "libraryId": "lib_bbb",
+      "mediaType": "book",
+      "isMissing": false,
+      "isInvalid": false,
+      "media": {
+        "metadata": {
+          "title": "Synthetic Audiobook Three",
+          "authorName": "Synthetic Author",
+          "seriesName": null,
+          "explicit": false
+        },
+        "tags": [],
+        "duration": 36000.0
+      }
+    },
+    "li_book000004": {
+      "id": "li_book000004",
+      "libraryId": "lib_aaa",
+      "mediaType": "book",
+      "isMissing": false,
+      "isInvalid": false,
+      "media": {
+        "metadata": {
+          "title": "Synthetic Audiobook Four",
+          "authorName": "Synthetic Author",
+          "seriesName": null,
+          "explicit": true
+        },
+        "tags": [],
+        "duration": 30000.0
+      }
+    },
+    "li_book000005": {
+      "id": "li_book000005",
+      "libraryId": "lib_aaa",
+      "mediaType": "book",
+      "isMissing": false,
+      "isInvalid": false,
+      "media": {
+        "metadata": {
+          "title": "Synthetic Audiobook Five",
+          "authorName": "Synthetic Author",
+          "seriesName": null,
+          "explicit": false
+        },
+        "tags": [
+          "mature"
+        ],
+        "duration": 36000.0
+      }
+    },
+    "li_book000006": {
+      "id": "li_book000006",
+      "libraryId": "lib_aaa",
+      "mediaType": "book",
+      "isMissing": false,
+      "isInvalid": false,
+      "media": {
+        "metadata": {
+          "title": "Synthetic Audiobook Six",
+          "authorName": "Synthetic Author",
+          "seriesName": null,
+          "explicit": false
+        },
+        "tags": [],
+        "duration": 36000.0
+      }
+    },
+    "li_book000007": {
+      "id": "li_book000007",
+      "libraryId": "lib_aaa",
+      "mediaType": "book",
+      "isMissing": false,
+      "isInvalid": false,
+      "media": {
+        "metadata": {
+          "title": "Synthetic Audiobook Seven",
+          "authorName": "Synthetic Author",
+          "seriesName": null,
+          "explicit": false
+        },
+        "tags": [],
+        "duration": 35000.0
+      }
+    },
+    "li_book000010": {
+      "id": "li_book000010",
+      "libraryId": "lib_aaa",
+      "mediaType": "book",
+      "isMissing": false,
+      "isInvalid": false,
+      "media": {
+        "metadata": {
+          "title": "Synthetic Audiobook Ten",
+          "authorName": "Synthetic Author",
+          "seriesName": null,
+          "explicit": false
+        },
+        "tags": [],
+        "duration": 40000.0
+      }
+    }
+  }
+}
