@@ -1,11 +1,24 @@
 {% extends "base.html" %}
-{% from "_parts.html" import tile %}
+{% from "_parts.html" import tile, mast %}
+{% block style_extra %}{% if home %}{{ home_stylesheet }}{% endif %}{% endblock %}
+{% block masthead %}{% if home %}{{ mast(home, account_menu) }}{% else %}{{ super() }}{% endif %}{% endblock %}
 {% block heading %}AVRANA{% endblock %}
 {% block body %}
-{% if sections %}{% include "_sections.html" %}{% endif %}
+{% if home %}
+{% if home.no_library %}
+  <section class="shelf" aria-labelledby="h-none">
+    <h2 id="h-none">No library yet</h2>
+    <p class="said">{{ no_library_said }}</p>
+  </section>
+{% else %}
+{% include "_sections.html" %}
+{% endif %}
+{% else %}
   <nav class="tiles" aria-label="Your Avrana services">
 {% for path, label, desc in tiles %}{{ tile(path, label, desc) }}
 {% endfor %}
   </nav>
+{% endif %}
 {% endblock %}
-{% block footer %}    <a class="account" href="/account">Account &amp; sign&#8209;in</a>{% endblock %}
+{% block footer %}{% if home %}    <a class="link" href="/account">Account and security</a>
+    <a class="link" href="/help">Help</a>{% else %}    <a class="account" href="/account">Account &amp; sign&#8209;in</a>{% endif %}{% endblock %}

@@ -1,16 +1,38 @@
-{# Deliberately plain, unstyled markup for the design team to REPLACE. No classes, no images,
-   no script. Titles are escaped by autoescape; hrefs are the contract's handoff_url. #}
-{% for s in sections %}
-  <section aria-labelledby="home-{{ loop.index }}">
-    <h2 id="home-{{ loop.index }}">{{ s.heading }}</h2>
-{% if s.state == "ok" %}
-    <ul>
-{% for it in s.items %}
-      <li>{% if it.image %}<img src="{{ it.image }}" alt="{{ it.title }}" width="80" height="120" loading="lazy"> {% endif %}<a href="{{ it.href }}">{{ it.title }}</a>{% if it.detail %} <span>{{ it.detail }}</span>{% endif %}{% if it.progress %} <span>({{ it.progress }})</span>{% endif %}</li>
+{# The Home sections, from the approved design: Continue, then New this week. Everything comes from the
+   view-model (`home`); titles are escaped by autoescape; hrefs are https hand-off URLs only. #}
+{% from "_parts.html" import card %}
+{% for line in home.notices %}
+  <p class="banner" role="status">{{ line }}</p>
+{% endfor %}
+{% if home.show_continue %}
+  <section class="shelf" aria-labelledby="h-continue">
+    <h2 id="h-continue">Continue</h2>
+{% if home.continue_items %}
+    <ul class="rail">
+{% for c in home.continue_items %}{{ card(c) }}
 {% endfor %}
     </ul>
-{% else %}
-    <p role="status">{{ s.message }}</p>
+{% elif home.continue_said %}
+    <p class="said">{{ home.continue_said }}</p>
 {% endif %}
   </section>
+{% endif %}
+{% if home.show_new %}
+  <section class="shelf" aria-labelledby="h-new">
+    <h2 id="h-new">New this week</h2>
+    <nav class="tabs" aria-label="New, by library">
+{% for key, name, current in home.new_tabs %}
+      <a href="/{% if key != 'all' %}?new={{ key }}{% endif %}#h-new"{% if current %} aria-current="true"{% endif %}>{{ name }}</a>
 {% endfor %}
+    </nav>
+{% if home.new_said %}
+    <p class="said">{{ home.new_said }}</p>
+{% endif %}
+{% if home.new_items %}
+    <ul class="rail tall">
+{% for c in home.new_items %}{{ card(c) }}
+{% endfor %}
+    </ul>
+{% endif %}
+  </section>
+{% endif %}

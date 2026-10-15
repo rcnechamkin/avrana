@@ -59,6 +59,20 @@ async def get_viewer(request: Request) -> Viewer:
     return viewer_from_scope(request.scope)
 
 
+def new_tab_from_scope(scope) -> Optional[str]:
+    """The one display preference a member may ask for in the address: `?new=<library>` (which New this week
+    tab to show). Bounded text only; the view-model checks it against the member's own allowlist and
+    never echoes it. It confers no identity and no access."""
+    from urllib.parse import parse_qsl
+    raw = scope.get("query_string") or b""
+    if not isinstance(raw, (bytes, bytearray)) or len(raw) > 512:
+        return None
+    for key, value in parse_qsl(bytes(raw).decode("ascii", "ignore"), keep_blank_values=False):
+        if key == "new":
+            return value[:32]
+    return None
+
+
 def has_identity_headers(scope) -> bool:
     """True when ANY header looks like an outpost identity header (used only to refuse the
     operator detail view; it grants nothing)."""

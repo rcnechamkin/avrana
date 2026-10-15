@@ -1,0 +1,77 @@
+  /* Home (AVR-374/452/478): the approved preview's rules (tests/ui/home_preview/static/home.css, PR #26) adapted
+     to this shell's tokens (ink=--bg, paper=--fg, ash=--dim). Added to the page ONLY when the home sections render,
+     so no other page and no sections-off page changes (portal parity). Search, title and wall rules stay out. */
+  body:has(.mast){flex-direction:column;align-items:center;}
+  body:has(.mast) .page{max-width:none;min-width:0;padding:0;gap:0;}
+  body:has(.mast) header{display:block;text-align:left;}
+  body:has(.mast) main{gap:1.75rem;}
+  .mast,.places,main,footer{width:100%;max-width:45rem;margin-inline:auto;padding-inline:1.25rem;}
+  .mast{padding-top:0.5rem;display:flex;flex-direction:column;align-items:center;gap:0.625rem;text-align:center;}
+  .mast h1{font-size:clamp(1.75rem,6vw,2.5rem);}
+  .mast a{text-decoration:none;display:inline-flex;align-items:center;min-height:2.75rem;}
+  .mast .rule{margin-top:0;}
+  .id{align-self:stretch;display:flex;justify-content:flex-end;align-items:center;min-height:2.75rem;}
+  details.account{position:relative;}
+  .account summary{list-style:none;display:inline-flex;align-items:center;gap:0.5rem;min-height:2.75rem;min-width:2.75rem;
+    padding:0 0.25rem;cursor:pointer;font-size:0.92rem;letter-spacing:0.03em;}
+  .account summary::-webkit-details-marker{display:none;}
+  .account summary:focus-visible,.menu a:focus-visible{outline:2px solid transparent;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--fg);}
+  .mono{display:inline-flex;align-items:center;justify-content:center;width:1.75rem;height:1.75rem;
+    border:1px solid var(--rule-control);font-size:0.95rem;letter-spacing:0;}
+  .account[open] .mono{background:var(--fg);color:var(--bg);border-color:var(--fg);}
+  .menu{position:absolute;right:0;top:100%;z-index:2;text-align:left;background:var(--bg);border:1px solid var(--rule-control);
+    padding:0.25rem 0;width:max-content;min-width:min(14rem,calc(100vw - 2.5rem));max-width:calc(100vw - 2.5rem);}
+  .menu .as{margin:0;padding:0.5rem 1rem;color:var(--dim);font-size:0.92rem;border-bottom:1px solid var(--rule-quiet);overflow-wrap:anywhere;}
+  .menu ul{list-style:none;margin:0;padding:0;}
+  .menu a{display:flex;align-items:center;min-height:2.75rem;padding:0 1rem;text-decoration:none;color:var(--fg);}
+  .menu a:hover{text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:0.25em;}
+  .menu a:focus-visible{box-shadow:inset 0 0 0 2px var(--fg);}
+  .places{display:flex;flex-wrap:wrap;justify-content:space-between;gap:0 0.25rem;margin-top:1rem;padding-inline:0.75rem;
+    max-width:43.5rem;border-top:1px solid var(--rule-quiet);border-bottom:1px solid var(--rule-quiet);}
+  .places>*{display:inline-flex;align-items:center;justify-content:center;min-height:2.75rem;min-width:2.75rem;
+    padding:0 0.5rem;font-size:1.0625rem;letter-spacing:0.03em;text-decoration:none;color:var(--fg);}
+  .places a:hover{text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:0.25em;}
+  .places .off{color:var(--dim);}
+  .places .off s{text-decoration-color:var(--rule-strong);}
+  main{padding-top:1.5rem;padding-bottom:2rem;}
+  .shelf{display:flex;flex-direction:column;gap:0.75rem;min-width:0;}
+  .shelf h2{margin:0;font-weight:400;font-size:0.9rem;line-height:1.3;letter-spacing:0.22em;text-transform:uppercase;color:var(--dim);}
+  .link{color:var(--fg);text-decoration:underline;text-decoration-color:var(--rule-strong);text-decoration-thickness:1px;
+    text-underline-offset:0.2em;font-size:0.92rem;display:inline-flex;align-items:center;justify-content:center;
+    min-height:2.75rem;min-width:2.75rem;}
+  .link:hover{text-decoration-color:var(--fg);}
+  .link:focus-visible{outline:2px solid transparent;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--fg);}
+  .said{margin:0;color:var(--dim);max-width:34rem;line-height:1.55;}
+  .banner{margin:0;padding:0.75rem 1rem;border:1px solid var(--rule-strong);color:var(--fg);}
+  .tabs{display:flex;gap:0.25rem;margin:-0.25rem -1.25rem 0;padding:0 1.25rem;overflow-x:auto;scrollbar-width:none;
+    border-bottom:1px solid var(--rule-quiet);}
+  .tabs::-webkit-scrollbar{display:none;}
+  .tabs a{position:relative;flex:none;display:inline-flex;align-items:center;justify-content:center;min-height:2.75rem;
+    min-width:2.75rem;padding:0 0.5rem;font-size:0.92rem;color:var(--dim);text-decoration:none;}
+  .tabs a:first-child{margin-left:-0.5rem;}
+  .tabs a:hover,.tabs a[aria-current]{color:var(--fg);}
+  .tabs a[aria-current]::after{content:"";position:absolute;left:0.5rem;right:0.5rem;bottom:0;height:1px;background:var(--fg);}
+  .tabs a:focus-visible{box-shadow:inset 0 0 0 2px var(--fg);}
+  .art{width:100%;height:auto;border:1px solid var(--rule-quiet);background:var(--bg);transition:border-color 160ms ease;}
+  .w-still .art{aspect-ratio:16/9;}
+  .w-poster .art,.w-book .art{aspect-ratio:2/3;}
+  .w-square .art{aspect-ratio:1;}
+  .w-comic .art{aspect-ratio:13/20;}
+  img{display:block;max-width:100%;}
+  .card{display:flex;flex-direction:column;gap:0.125rem;text-decoration:none;color:var(--fg);}
+  .card .art{margin-bottom:0.5rem;}
+  .t{font-size:1rem;line-height:1.25;overflow-wrap:anywhere;}
+  .d{font-size:0.92rem;line-height:1.35;color:var(--dim);overflow-wrap:anywhere;}
+  .card:hover .art,.card:focus-visible .art{border-color:var(--fg);}
+  .card:hover .t{text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:0.2em;}
+  .rail{list-style:none;margin:-0.25rem -1.25rem;padding:0.25rem 1.25rem;display:flex;align-items:flex-start;gap:0.875rem;
+    overflow-x:auto;overscroll-behavior-x:contain;scroll-snap-type:x proximity;scroll-padding-inline:1.25rem;scrollbar-width:none;}
+  .rail::-webkit-scrollbar{display:none;}
+  .rail>li{flex:none;scroll-snap-align:start;min-width:0;}
+  .rail .w-still{width:9rem;}
+  .rail .w-square{width:5.75rem;}
+  .rail .w-poster,.rail .w-book,.rail .w-comic{width:6.25rem;}
+  .rail.tall .w-square{width:8rem;}
+  @media (min-width:45rem){.rail{margin:-0.25rem;padding:0.25rem;overflow:visible;}.tabs{margin-inline:0;padding-inline:0;overflow:visible;}}
+  footer{display:flex;justify-content:center;gap:1.625rem;flex-wrap:wrap;padding-bottom:2.5rem;}
+  @media (prefers-reduced-motion:reduce){.art{transition:none;}}

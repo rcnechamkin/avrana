@@ -64,7 +64,7 @@ class RecentComicsTests(Fixture):
         c = self.client()
         r = c.get("/", headers=A)
         self.assertEqual(200, r.status_code)
-        self.assertIn("Recently added to Comics", r.text)
+        self.assertIn("New this week", r.text)
         for title in A_BOOKS:
             self.assertIn(title, r.text)
         sec = self.recent(c, A)

@@ -35,12 +35,12 @@ from ..resilience import SystemClock, UrllibTransport
 from . import catalogue as catalogue_mod
 from .catalogue import Trusted
 from . import artwork as artwork_mod
-from .identity import Viewer, get_viewer, has_identity_headers
+from .identity import Viewer, get_viewer, has_identity_headers, new_tab_from_scope
 from .logsafe import app_log, log_event, silence_uvicorn_access
 from .middleware import HygieneMiddleware
 from .routing import AccountFacts, Decision, decide, normalise_target, not_found
 from .settings import Settings
-from .viewmodel import build_sections
+from .viewmodel import ACCOUNT_MENU, NO_LIBRARY, build_home
 
 TEMPLATES = Path(__file__).resolve().parent / "templates"
 HTML = "text/html; charset=utf-8"
@@ -59,6 +59,11 @@ def make_environment() -> Environment:
     # The one stylesheet lives in templates/style.css (a copy of the portal's; the parity test
     # fails if the portal's changes, which is the cue to update this file).
     env.globals["stylesheet"] = Markup("\n" + (TEMPLATES / "style.css").read_text(encoding="utf-8"))
+    # The Home design's rules (home.css) are added to the page ONLY when the home sections render, so every
+    # other page, and Home with sections off, stays byte-identical to the portal (the parity test).
+    env.globals["home_stylesheet"] = Markup("\n" + (TEMPLATES / "home.css").read_text(encoding="utf-8"))
+    env.globals["account_menu"] = ACCOUNT_MENU
+    env.globals["no_library_said"] = NO_LIBRARY
     return env
 
 
@@ -189,9 +194,10 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
         scope["avrana_route"] = decision.label
         extra = {}
         if decision.label == "/" and settings.home_sections and p is not None and adapter_list:
-            extra["sections"] = build_sections(await _gather(viewer))
-        elif decision.label == "/":
-            extra["sections"] = ()
+            extra["home"] = build_home(await _gather(viewer), decision.context["tiles"],
+                                       new_tab=new_tab_from_scope(scope),
+                                       limit=settings.section_limit,
+                                       member_name=(facts.name or facts.username))
         return respond(decision, **extra)
 
     async def _gather(viewer: Viewer) -> dict:

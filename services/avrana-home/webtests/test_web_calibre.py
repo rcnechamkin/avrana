@@ -47,7 +47,7 @@ class RecentBooksTests(Fixture):
         c = self.client()
         r = c.get("/", headers=BOOKS)
         self.assertEqual(200, r.status_code)
-        self.assertIn("Recently added to Books", r.text)
+        self.assertIn("New this week", r.text)
         for title in TITLES:
             self.assertIn(title, r.text)
         view = c.get("/home.json", headers=BOOKS).json()
@@ -57,7 +57,7 @@ class RecentBooksTests(Fixture):
             self.assertTrue(it["handoff_url"].startswith("https://"))
             self.assertIn(f'href="{it["handoff_url"]}"', r.text)
         self.assertNotIn("Continue reading", r.text)             # per-member read state is not offered
-        self.assertIn('<img src="/art/calibre-web/cover/103" alt="Synthetic Book Three"', r.text)
+        self.assertIn('<img class="art" src="/art/calibre-web/cover/103" alt=""', r.text)
 
     def test_every_books_member_sees_the_same_shared_catalogue(self):
         c = self.client()

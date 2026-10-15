@@ -78,8 +78,8 @@ class ArtworkRouteTests(Fixture):
 
     def test_pages_embed_covers_as_same_origin_lazy_images_with_escaped_alt(self):
         html = self.client().get("/", headers=JF_A).text
-        self.assertRegex(html, r'<img src="/art/jellyfin/primary/aaaa0000000000000000000000000001" '
-                               r'alt="Synthetic Film One" width="80" height="120" loading="lazy">')
+        self.assertRegex(html, r'<img class="art" src="/art/jellyfin/primary/aaaa0000000000000000000000000001" '
+                               r'alt="" width="160" height="240" loading="lazy">')
 
     def test_another_members_cover_is_the_standard_404(self):
         c = self.client()

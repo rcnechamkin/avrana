@@ -27,8 +27,13 @@ B_ONLY = ["Synthetic Film Two", "Synthetic Documentary B", "Synthetic Film Four"
 
 
 def region(text):
-    """The part of the page above the navigation (where sections live)."""
-    return text.split('<nav class="tiles" aria-label="Your Avrana services">')[0]
+    """The part of the page that holds the sections (the one <main>)."""
+    return text.split("<main>")[1].split("</main>")[0]
+
+
+def cards(text):
+    """(class, href) of every card on the page."""
+    return re.findall(r'<li class="(w-[a-z]+)"><a class="card" href="([^"]*)">', text)
 
 
 class Fixture(unittest.TestCase):
@@ -69,59 +74,75 @@ class SectionRenderingTests(Fixture):
         self.assertEqual(404, self.off.get("/home.json", headers=A).status_code)
         self.assertEqual([], self.mock.paths())
 
-    def test_flag_on_renders_plain_semantic_sections_above_the_unchanged_navigation(self):
+    def test_flag_on_renders_the_home_design_and_flag_off_stays_the_portal_page(self):
         flag_off = self.off.get("/", headers=A).text
+        self.assertIn('<nav class="tiles" aria-label="Your Avrana services">', flag_off)
+        self.assertNotIn('class="mast"', flag_off)
         r = self.on.get("/", headers=A)
         self.assertEqual(200, r.status_code)
-        above, nav = r.text.split('<nav class="tiles" aria-label="Your Avrana services">')
-        self.assertIn("<h2", above)
-        # the navigation block and everything after it are byte-identical to flag-off output
-        self.assertEqual(flag_off.split('<nav class="tiles" aria-label="Your Avrana services">')[1], nav)
-        for token in ("Synthetic Film One", "Synthetic Pilot", "Synthetic Series Alpha", "Synthetic Film Three"):
+        self.assertEqual(1, r.text.count('<nav class="places" aria-label="Avrana">'))
+        self.assertNotIn('class="tiles"', r.text)
+        above = region(r.text)
+        for token in ("Synthetic Film One", "Synthetic Pilot", "Synthetic Film Three"):
             self.assertIn(token, above)
         self.assertIn('href="https://watch.avrana.net/web/#/details?id=aaaa0000000000000000000000000001"', above)
-        self.assertIn("(1 hour 10 minutes left)", above)
-        self.assertRegex(r.text, r'<a class="tile" href="/watch">')
-        self.assertRegex(r.text, r'<a class="tile" href="/request">')
-        self.assertRegex(r.text, r'<a class="tile" href="/help">')
+        self.assertIn("1 hour 10 minutes left", above)
+        places = re.search(r'<nav class="places".*?</nav>', r.text, flags=re.S).group(0)
+        for place in ("/watch", "/request", "/help"):
+            self.assertIn(f'<a href="{place}">', places)
 
-    def test_section_markup_is_plain(self):
-        above = region(self.on.get("/", headers=A).text).split("</header>")[1]
-        self.assertNotRegex(above, r"class=|style=|<svg|<picture|<script|<progress|<canvas|on\w+=")
-        # the only image markup: a same-origin /art/ URL with alt, size and lazy loading (artwork route)
-        for tag in re.findall(r"<img[^>]*>", above):
-            self.assertRegex(tag, r'^<img src="/art/[A-Za-z0-9_/-]+" alt="[^"<>]*" width="80" height="120" loading="lazy">$')
-        self.assertEqual(2, above.count("<section"))
+    def test_home_markup_follows_the_design(self):
+        text = self.on.get("/", headers=A).text
+        above = region(text)
+        self.assertEqual(1, text.count("<main>"))
+        self.assertEqual(1, text.count("<h1>"))
+        self.assertNotRegex(above, r"style=|<svg|<picture|<script|<canvas|on\w+=")
         self.assertEqual(2, above.count("<h2"))
-        self.assertEqual(2, above.count("<ul>"))
+        # Continue is bounded (at most four); artwork is decoration (alt="") from the artwork route only
+        self.assertLessEqual(len(re.findall(r'class="card"', above.split('id="h-new"')[0])), 4)
+        for tag in re.findall(r"<img[^>]*>", above):
+            self.assertRegex(tag, r'^<img class="art" src="/art/[A-Za-z0-9_/-]+" alt="" width="160" height="240" loading="lazy">$')
+        self.assertRegex(text, r'<details class="account">\s*<summary>')
+        self.assertNotIn(">Search<", text)           # no search page yet (TODO AVR-383)
 
     def test_navigation_stays_reachable_for_every_state(self):
         for headers in (A, B, C, D, NOLIB, ADMIN):
-            tiles = re.findall(r'<a class="tile" href="/([^"]*)"', self.on.get("/", headers=headers).text)
-            self.assertIn("help", tiles)
+            places = re.findall(r'<nav class="places".*?</nav>', self.on.get("/", headers=headers).text, flags=re.S)
+            self.assertEqual(1, len(places))
+            self.assertIn('href="/help"', places[0])
 
-    def test_not_permitted_is_byte_identical_to_flag_off(self):
-        for headers in (NOLIB, ADMIN):
-            self.mock.reset()
-            on = self.on.get("/", headers=headers)
-            off = self.off.get("/", headers=headers)
-            self.assertEqual(off.content, on.content)
-            self.assertEqual([], self.mock.paths(), "NOT_PERMITTED must make no upstream call")
+    def test_a_member_with_no_library_sees_nothing_to_show_and_no_upstream_call(self):
+        self.mock.reset()
+        page = self.on.get("/", headers=ADMIN).text
+        self.assertIn("No library yet", page)
+        self.assertNotIn('class="rail', page)
+        self.assertNotIn("Movies and TV", page)
+        self.assertEqual([], self.mock.paths(), "NOT_PERMITTED must make no upstream call")
+
+    def test_a_library_the_member_cannot_use_leaves_no_trace(self):
+        self.mock.reset()
+        page = self.on.get("/", headers=NOLIB).text
+        for needle in ("Movies and TV", "/watch", "Synthetic Film", "Watch"):
+            self.assertNotIn(needle, page)
+        self.assertEqual([], self.mock.paths())
 
     def test_not_linked_member_gets_a_neutral_sentence_naming_only_their_library(self):
         for headers in (C, D):
             r = self.on.get("/", headers=headers)
             above = region(r.text)
-            self.assertIn('<p role="status">Movies and TV are not set up for your account yet.</p>', above)
-            self.assertNotIn("<li>", above)
+            self.assertIn('<p class="banner" role="status">Movies and TV are not set up for your account yet.</p>', above)
+            self.assertEqual([], cards(above))
             self.assertNotIn("error", above.lower())
+            self.assertEqual(200, r.status_code)
 
-    def test_empty_state_renders_nothing(self):
+    def test_empty_state_says_so_in_a_sentence(self):
         empty = StubAdapter({"member-a": []})
         client = make_client(make_settings(home_sections=True), adapters=[empty])
         r = client.get("/", headers=A)
-        self.assertEqual(self.off.get("/", headers=A).content, r.content)
-        self.assertEqual(0, r.text.count("role=\"status\""))
+        self.assertEqual(200, r.status_code)
+        self.assertEqual([], cards(r.text))
+        self.assertIn("Nothing in progress.", r.text)
+        self.assertIn("Nothing new this week.", r.text)
 
     def test_hostile_titles_are_escaped_and_bidi_controls_removed(self):
         hostile = ['<script>alert(1)</script>', '"><img src=x onerror=alert(1)>', "' onmouseover='x",
@@ -139,8 +160,10 @@ class SectionRenderingTests(Fixture):
         self.assertNotIn(chr(0x202e), page)
         self.assertNotRegex(page, r"""<[^>]*\sonerror=""")
         self.assertNotRegex(page, r"""<[^>]*\sonmouseover=""")
-        # hrefs are only ever the contract's fixed hand-off hostnames
-        for href in re.findall(r'<a href="([^"]*)">', region(page)):
+        # card hrefs are only ever the contract's fixed https hand-off hostnames
+        found = cards(region(page))
+        self.assertTrue(found)
+        for _cls, href in found:
             self.assertTrue(href.startswith("https://watch.avrana.net/web/#/details?id="), href)
 
     def test_account_page_escapes_identity_fields(self):
@@ -155,27 +178,26 @@ class SectionRenderingTests(Fixture):
 
 class NavigationAndCallPatternTests(Fixture):
     NAV = '<nav class="tiles" aria-label="Your Avrana services">'
+    PLACES = '<nav class="places" aria-label="Avrana">'
 
-    def test_navigation_landmark_is_present_once_and_after_the_sections_in_every_state(self):
-        """Watch/Request/Help/Account stay reachable whatever the sections do; the app never moves
-        navigation, it only inserts plain sections above it."""
-        scenarios = [("flag off", self.off, A), ("ok", self.on, A), ("not_linked", self.on, D),
-                     ("not_permitted", self.on, NOLIB), ("no principal", self.on, [])]
+    def test_places_and_footer_are_present_once_in_every_state(self):
+        """Watch/Request/Help/Account stay reachable whatever the sections do."""
+        scenarios = [("ok", self.on, A), ("not_linked", self.on, D),
+                     ("no library", self.on, ADMIN), ("no principal", self.on, [])]
         failing = self.fresh()
         self.mock.set_mode("500")
         scenarios.append(("unavailable", failing, A))
         for label, client, headers in scenarios:
             with self.subTest(state=label):
                 text = client.get("/", headers=headers).text
-                self.assertEqual(1, text.count(self.NAV))
-                before, after = text.split(self.NAV)
-                self.assertNotIn("<nav", before)
-                self.assertIn('href="/help"', after)
-                self.assertIn('href="/account"', text.split("</nav>")[1])
+                if label == "no principal":
+                    self.assertEqual(1, text.count(self.NAV))      # not a member: the portal page
+                    continue
+                self.assertEqual(1, text.count(self.PLACES))
                 self.assertEqual(1, text.count("<footer>"))
-                if headers is A or label == "ok":
-                    self.assertIn('href="/watch"', after)
-                    self.assertIn('href="/request"', after)
+                self.assertEqual(1, text.count("<main>"))
+                self.assertIn('href="/help"', text.split("</nav>")[1])
+                self.assertIn('href="/account"', text.split("<footer>")[1])
         self.mock.set_mode("ok")
 
     def test_one_cold_page_makes_one_mapping_call(self):
@@ -197,7 +219,7 @@ class NavigationAndCallPatternTests(Fixture):
             replies = list(pool.map(lambda _i: client.get("/", headers=A), range(6)))
         self.assertEqual({200}, {r.status_code for r in replies})
         for r in replies:
-            self.assertEqual(1, r.text.count(self.NAV))
+            self.assertEqual(1, r.text.count(self.PLACES))
             self.assertIn("unavailable right now", r.text)
         self.mock.set_mode("ok")
 
@@ -251,18 +273,21 @@ class JsonViewTests(Fixture):
     def test_json_and_html_agree(self):
         doc = self.on.get("/home.json", headers=A).json()
         page = self.on.get("/", headers=A).text
-        for s in doc["sections"]:
-            for it in s["items"]:
-                self.assertIn(it["handoff_url"], page)
+        urls = {it["handoff_url"] for s in doc["sections"] for it in s["items"]}
+        shown = [href for _cls, href in cards(page)]
+        self.assertTrue(shown)
+        self.assertTrue(set(shown) <= urls)           # the page is a bounded subset of the JSON, never more
 
 
 class DegradationTests(Fixture):
     def assert_degraded_page(self, r, started):
         self.assertEqual(200, r.status_code)
-        self.assertIn('<p role="status">Movies and TV are unavailable right now.</p>', r.text)
-        for tile in ("/watch", "/request", "/help"):
+        self.assertIn('<p class="banner" role="status">Movies and TV are unavailable right now.</p>', r.text)
+        self.assertIn('<s>Watch</s><span class="sr">, unavailable</span>', r.text)    # struck, kept in place
+        for tile in ("/request", "/help"):
             self.assertIn(f'href="{tile}"', r.text)
-        self.assertNotIn("<li><a", region(r.text))
+        self.assertEqual([], cards(region(r.text)))
+        self.assertNotIn("error", region(r.text).lower())
         self.assertLess(time.monotonic() - started, 2.5)
 
     def test_each_failure_mode_costs_only_the_section(self):
@@ -281,9 +306,7 @@ class DegradationTests(Fixture):
         self.mock.set_mode("wrong-user")
         r = self.fresh().get("/", headers=A)
         above = region(r.text)
-        first = above.split('<section aria-labelledby="home-1">')[1].split("</section>")[0]
-        self.assertIn("Continue watching", first)
-        self.assertIn('<p role="status">Movies and TV are unavailable right now.</p>', first)
+        self.assertIn('<p class="banner" role="status">Movies and TV are unavailable right now.</p>', above)
         self.assertIn("Synthetic Film Three", above)
         self.assertNotIn("Synthetic Film Two", r.text)
 

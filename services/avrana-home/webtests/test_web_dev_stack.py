@@ -72,7 +72,6 @@ class DevStackTests(unittest.TestCase):
         self.assertIn("are not set up for your account yet", self.page("member-d").text)
         nolib = self.page("member-nolib").text
         self.assertNotIn("Movies", nolib)
-        self.assertNotIn("<h2", nolib.split("</header>")[1].split("<nav")[0])
         admin = self.page("synthetic-admin").text
         self.assertIn('href="/ops"', admin)
 
