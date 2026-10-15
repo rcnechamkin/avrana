@@ -237,19 +237,22 @@ class _DeadlineSocket:
         return getattr(self._s, name)
 
 
-def _tracked(base, abort: _Abort):
-    """A connection class that tells `abort` which socket it is using (before and after any TLS wrap).
-    The TLS handshake itself is bounded only by the per-operation timeout."""
+def _tracked(base, slot):
+    """A connection class that tells the CURRENT request's `_Abort` which socket it is using (before and
+    after any TLS wrap). `slot` is the transport's thread-local holder: `do_open` builds the connection in
+    the calling thread, so it finds the abort of the request that thread is running, which lets one opener
+    serve every request. The TLS handshake itself is bounded only by the per-operation timeout."""
     class Tracked(base):
         def __init__(self, *a, **kw):
             super().__init__(*a, **kw)
+            self._abort = abort = slot.abort
             create = self._create_connection
             self._create_connection = lambda *ca, **ck: _attached(abort, create(*ca, **ck))
 
         def connect(self):
             super().connect()
-            abort.attach(self.sock)                      # the real socket, for the timer to close
-            self.sock = _DeadlineSocket(self.sock, abort)
+            self._abort.attach(self.sock)                # the real socket, for the timer to close
+            self.sock = _DeadlineSocket(self.sock, self._abort)
     return Tracked
 
 
@@ -259,21 +262,21 @@ def _attached(abort: _Abort, sock):
 
 
 class _TrackedHTTP(urllib.request.HTTPHandler):
-    def __init__(self, abort: _Abort):
+    def __init__(self, slot):
         super().__init__()
-        self._abort = abort
+        self._slot = slot
 
     def http_open(self, req):
-        return self.do_open(_tracked(http.client.HTTPConnection, self._abort), req)
+        return self.do_open(_tracked(http.client.HTTPConnection, self._slot), req)
 
 
 class _TrackedHTTPS(urllib.request.HTTPSHandler):
-    def __init__(self, abort: _Abort):
+    def __init__(self, slot):
         super().__init__()
-        self._abort = abort
+        self._slot = slot
 
     def https_open(self, req):
-        return self.do_open(_tracked(http.client.HTTPSConnection, self._abort), req,
+        return self.do_open(_tracked(http.client.HTTPSConnection, self._slot), req,
                             context=self._context)
 
 
@@ -296,7 +299,11 @@ class UrllibTransport:
             raise ValueError("base_url must be http(s) without a trailing slash")
         self._base = base_url
         self._headers = dict(auth_headers)
-        self._opener = opener
+        self._slot = threading.local()        # the abort of the request the calling thread is running
+        # Built ONCE: urllib's build_opener costs ~25 ms on Windows (proxy discovery, handler scan), which
+        # per request ate a fifth of a 0.6 s section budget that spans a member's sequential calls.
+        self._opener = opener if opener is not None else urllib.request.build_opener(
+            _NoRedirect, _TrackedHTTP(self._slot), _TrackedHTTPS(self._slot))
 
     def __repr__(self) -> str:
         return "UrllibTransport(<redacted>)"
@@ -311,8 +318,7 @@ class UrllibTransport:
         timeout = min(float(timeout), MAX_TRANSPORT_TIMEOUT)
         deadline = time.monotonic() + timeout
         abort = _Abort(deadline)
-        opener = self._opener or urllib.request.build_opener(
-            _NoRedirect, _TrackedHTTP(abort), _TrackedHTTPS(abort))
+        self._slot.abort = abort
         timer = threading.Timer(timeout, abort.fire)
         timer.daemon = True
         timer.start()
@@ -320,7 +326,7 @@ class UrllibTransport:
         def late() -> bool:
             return abort.fired or time.monotonic() >= deadline
         try:
-            with opener.open(req, timeout=timeout) as resp:
+            with self._opener.open(req, timeout=timeout) as resp:
                 status = resp.status
                 ctype = resp.headers.get("Content-Type", "") if resp.headers else ""
                 read = getattr(resp, "read1", None) or resp.read
@@ -352,6 +358,7 @@ class UrllibTransport:
             raise (UpstreamTimeout() if late() else UpstreamMalformed()) from None
         finally:
             timer.cancel()
+            self._slot.abort = None
         if len(body) > max_bytes:
             raise UpstreamTooLarge()
         return TransportResponse(status, body, ctype)
