@@ -31,7 +31,7 @@ class TokenDriftTests(unittest.TestCase):
         per = T.run()["per_service"]
         for svc in T.SERVICES:
             for tok in ("color.surface", "color.on_surface", "color.on_surface_muted", "color.outline_quiet",
-                        "font.family", "wordmark.tracking"):
+                        "font.family", "wordmark.tracking", "layout.column"):
                 self.assertIn(tok, per[svc], f"{svc} no longer yields {tok}: has the stylesheet moved or the reader broken?")
 
     def test_no_new_divergence(self):
@@ -63,8 +63,8 @@ class TokenDriftTests(unittest.TestCase):
 
     def test_negative_a_new_divergence_is_caught(self):
         src = T.load_sources()
-        # the dim text colour drifts in Kindle: #9a9a9a -> #999999
-        drifted = src["kindle"].replace("--dim:#9a9a9a", "--dim:#999999")
+        # the muted text colour drifts in Kindle: #9a9a9a -> #999999
+        drifted = src["kindle"].replace("--ash:#9a9a9a", "--ash:#999999")
         self.assertNotEqual(drifted, src["kindle"])
         r = T.run(overrides={"kindle": drifted})
         self.assertIn(("color.on_surface_muted", "kindle"), [(d["token"], d["service"]) for d in r["new"]])
@@ -76,7 +76,7 @@ class TokenDriftTests(unittest.TestCase):
         tokens = {"themes": {"media": {"color": {"surface": "#000000", "on_surface": "#ffffff",
                                                  "on_surface_muted": "#aaaaaa", "outline_quiet": "#474747",
                                                  "outline_control": "#6e6e6e", "outline_strong": "#999999"},
-                                       "type": {"interface": "Times New Roman, Times, serif"}}}}
+                                       "type": {"interface": "Times New Roman, Times, Liberation Serif, Tinos, Noto Serif, serif"}}}}
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / "tokens.json"
             p.write_text(json.dumps(tokens), encoding="utf-8")
@@ -84,7 +84,9 @@ class TokenDriftTests(unittest.TestCase):
         self.assertEqual(r["source"], "tokens.json")
         muted = [d for d in r["divergences"] if d["token"] == "color.on_surface_muted"]
         self.assertEqual({d["service"] for d in muted}, set(T.SERVICES))      # every service differs from the file
-        self.assertIn("color.outline_control", r["undefined"])               # no service defines the Control Rule yet
+        # since the accessibility repairs every service defines the Control Rule colour, and agrees with the file
+        self.assertNotIn("color.outline_control", r["undefined"])
+        self.assertFalse([d for d in r["divergences"] if d["token"] == "color.outline_control"])
         self.assertFalse([d for d in r["divergences"] if d["token"] == "font.family"])
 
     def test_missing_tokens_file_falls_back_to_peers(self):

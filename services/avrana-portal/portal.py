@@ -383,7 +383,7 @@ STYLE = """
     --rule-control:#6e6e6e;--rule-strong:#999999;--dim-on-fg:#333333;}
   *{box-sizing:border-box;}
   html,body{margin:0;padding:0;}
-  body{background:var(--bg);color:var(--fg);font-family:"Times New Roman",Times,serif;
+  body{background:var(--bg);color:var(--fg);font-family:"Times New Roman",Times,"Liberation Serif",Tinos,"Noto Serif",serif;
     -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;min-height:100vh;
     display:flex;justify-content:center;}
   .page{width:100%;max-width:720px;padding:12vh 24px 8vh;display:flex;flex-direction:column;gap:44px;}

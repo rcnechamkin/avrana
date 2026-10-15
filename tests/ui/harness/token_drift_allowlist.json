@@ -12,12 +12,6 @@
   {"token": "wordmark.tracking", "service": "audible", "value": "0.3em", "reference": "any", "issue": "AVR-362",
    "reason": "Audit A2: the Audible topbar tracks at 0.3em; the house style is 0.34em."},
   {"token": "literal.colour", "service": "audible", "value": "#141414", "reference": "any", "issue": "AVR-362",
-   "reason": "rgba(255,255,255,0.08) behind cover placeholders in style.css; not a palette colour in DESIGN.md."},
-  {"token": "font.family", "service": "portal", "value": "times new roman,times,serif", "reference": "tokens.json", "issue": "AVR-362",
-   "reason": "Audit P3 and DESIGN.md Typography: the stack lacks Liberation Serif, Tinos and Noto Serif."},
-  {"token": "font.family", "service": "kindle", "value": "times new roman,times,serif", "reference": "tokens.json", "issue": "AVR-362",
-   "reason": "Audit P3 and DESIGN.md Typography: the stack lacks Liberation Serif, Tinos and Noto Serif."},
-  {"token": "font.family", "service": "audible", "value": "times new roman,times,serif", "reference": "tokens.json", "issue": "AVR-362",
-   "reason": "Audit P3 and DESIGN.md Typography: the stack lacks Liberation Serif, Tinos and Noto Serif."}
+   "reason": "rgba(255,255,255,0.08) behind cover placeholders in style.css; not a palette colour in DESIGN.md."}
  ]
 }

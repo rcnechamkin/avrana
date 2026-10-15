@@ -33,7 +33,10 @@ GROUND = (0, 0, 0, 1.0)
 # service variable name -> design role
 VAR_ROLE = {"bg": "surface", "fg": "on_surface", "dim": "on_surface_muted", "line": "outline_quiet",
             "line-strong": "outline_strong", "strong": "outline_strong", "control": "outline_control",
-            "line-control": "outline_control", "err": "status_error", "ok": "status_ok", "warn": "status_warn"}
+            "line-control": "outline_control", "err": "status_error", "ok": "status_ok", "warn": "status_warn",
+            # names the accessibility repairs (AVR-357/358/359) gave the same roles
+            "ink": "surface", "paper": "on_surface", "ash": "on_surface_muted", "rule-quiet": "outline_quiet",
+            "rule-control": "outline_control", "rule-strong": "outline_strong"}
 # reference: tokens.json "color" keys we compare
 REF_COLOURS = ("surface", "on_surface", "on_surface_muted", "outline_quiet", "outline_control", "outline_strong",
                "status_ok", "status_warn", "status_error")
@@ -42,8 +45,8 @@ EXTRA_PALETTE = {"#333333"}
 
 # where each service draws the shared components
 SELECTORS = {
-    "portal": {"column": "main", "wordmark": "h1", "button": None, "field": None},
-    "kindle": {"column": "main", "wordmark": "h1", "button": "button", "field": "input[type=email]"},
+    "portal": {"column": ".page", "wordmark": "h1", "button": None, "field": None},
+    "kindle": {"column": ".page", "wordmark": "h1", "button": "button", "field": "input[type=email]"},
     "audible": {"column": ".wrap", "wordmark": ".brand", "button": "button", "field": "input[type=email]"},
 }
 
