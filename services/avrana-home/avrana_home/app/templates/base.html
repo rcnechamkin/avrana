@@ -9,12 +9,13 @@
 <style>{{ stylesheet }}</style>
 </head>
 <body>
+<a class="skip-link" href="#main">Skip to main content</a>
 <div class="page">
   <header>
     <h1>{% block heading %}<a href="/">AVRANA</a>{% endblock %}</h1>
     <div class="rule"></div>
   </header>
-  <main>
+  <main id="main" tabindex="-1">
 {% block body %}{% endblock %}
   </main>
   <footer>

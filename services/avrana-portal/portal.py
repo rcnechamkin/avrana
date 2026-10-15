@@ -437,6 +437,12 @@ STYLE = """
     .page{padding:9vh 20px 7vh;gap:36px;}main{gap:36px;}
     dl.facts{grid-template-columns:1fr;gap:4px 0;}dl.facts dd{margin-bottom:10px;}}
   @media (prefers-reduced-motion:reduce){a.tile,a.tile .desc{transition:none;}}
+  .skip-link{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;
+    clip:rect(0,0,0,0);clip-path:inset(50%);white-space:nowrap;border:0;}
+  .skip-link:focus-visible{position:fixed;top:8px;left:8px;z-index:1000;width:auto;height:auto;
+    margin:0;padding:12px 20px;overflow:visible;clip:auto;clip-path:none;white-space:normal;
+    min-height:44px;background:var(--fg);color:var(--bg);text-decoration:none;line-height:1.5;}
+  main:focus{outline:2px solid transparent;}
 """
 
 SHELL = """<!doctype html>
@@ -450,12 +456,13 @@ SHELL = """<!doctype html>
 <style>{style}</style>
 </head>
 <body>
+<a class="skip-link" href="#main">Skip to main content</a>
 <div class="page">
   <header>
     <h1>{heading}</h1>
     <div class="rule"></div>
   </header>
-  <main>
+  <main id="main" tabindex="-1">
 {body}
   </main>
   <footer>

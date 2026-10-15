@@ -296,6 +296,11 @@ Cover art in lists is a square crop with no rounding.
 - Paper text with a 1px Strong Rule underline offset 2px; underline turns Paper on hover; focus
   ring on focus. In footers, links get 12px of vertical padding so the target reaches 44px.
 
+### Skip link
+- Canonical definition: `docs/design/components/skip-link.html` (markup) and `docs/design/components/skip-link.css` (styles). Portal (`portal.SHELL`, `portal.STYLE`) and Home (`templates/base.html`, `templates/style.css`) carry byte-identical copies; `tests/test_skip_link.py` fails on drift.
+- Markup contract: the first element in `<body>` is `<a class="skip-link" href="#main">Skip to main content</a>`; the target is the page's single `<main id="main" tabindex="-1">`.
+- Hidden with the clip pattern (not `display:none`), visible on `:focus-visible` as an inverted Paper-on-Ink block, fixed at top left so a sticky header cannot cover it, with the shared two-ring focus ring from `a:focus-visible`. Existing tokens only; no transition, so nothing to gate on reduced motion. Works without JavaScript.
+
 ### Help page (signature component)
 - Headline names the topic ("Movies and TV"). Under it, a row of platform links that jump to each
   section, so a member with a Roku does not scroll past six other devices.
