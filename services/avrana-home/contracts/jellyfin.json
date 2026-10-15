@@ -1,0 +1,29 @@
+{
+  "_status": "Proposed contract (AVR-376/AVR-386). Written from the public Jellyfin 10.10/10.11 OpenAPI shapes and from the fields avrana_home/adapters/jellyfin.py reads. NOT verified against a real server: recordings under tests/fixtures/jellyfin/recorded/ need owner approval to capture and sanitise.",
+  "routes": {
+    "users":  {"path": "/Users",             "envelope": "list",  "entity": "user"},
+    "resume": {"path": "/UserItems/Resume",  "envelope": "items", "entity": "item"},
+    "latest": {"path": "/Items/Latest",      "envelope": "list",  "entity": "item"},
+    "items":  {"path": "/Items",             "envelope": "items", "entity": "item"}
+  },
+  "entities": {
+    "user": {
+      "Id": "string", "Name": "string", "Policy": "object"
+    },
+    "user.Policy": {
+      "IsDisabled": "boolean", "IsAdministrator": "boolean"
+    },
+    "item": {
+      "Id": "string", "Name": "string", "Type": "string", "SeriesName": "string",
+      "ParentIndexNumber": "integer", "IndexNumber": "integer", "ProductionYear": "integer",
+      "RunTimeTicks": "integer", "UserData": "object", "ImageTags": "object"
+    },
+    "item.UserData": {
+      "PlaybackPositionTicks": "integer", "PlayedPercentage": "number", "Played": "boolean",
+      "ItemId": "string", "UserId": "string", "Key": "string"
+    },
+    "item.ImageTags": {
+      "Primary": "string"
+    }
+  }
+}

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Run only explicitly selected stdlib tests; never discover live service tests."""
 import importlib.util
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -8,7 +9,19 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def yaml_guard():
+    """The G1 compose and bypass-path tests need PyYAML and skip without it (AVR-386). Say so loudly,
+    and fail when AVRANA_REQUIRE_YAML=1 so a gate that relies on them cannot pass by skipping."""
+    if importlib.util.find_spec('yaml') is not None:
+        return
+    message = 'PyYAML not importable: G1 compose-declaration and bypass-path tests will be SKIPPED'
+    if os.environ.get('AVRANA_REQUIRE_YAML') == '1':
+        sys.exit(f'FAIL {message} (AVRANA_REQUIRE_YAML=1)')
+    print(f'WARN {message}', file=sys.stderr)
+
+
 def main():
+    yaml_guard()
     subprocess.run([sys.executable, '-B', '-m', 'unittest', 'discover', '-s', str(ROOT / 'tests'), '-p', 'test_*.py'], check=True)
     subprocess.run([sys.executable, '-B', str(ROOT / 'services/avrana-imax-verify/tests/test_classify.py')], check=True)
     path = ROOT / 'services/avrana-kindle-connector/tests/test_kindle.py'
