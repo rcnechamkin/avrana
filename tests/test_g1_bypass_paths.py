@@ -233,8 +233,8 @@ class ProxyProviderModeTests(unittest.TestCase):
             self.assertNotRegex(body, r"^\s*skip_path_regex:\s*\S", f"{path.name}: unauthenticated paths carry no identity")
 
     def test_no_proxy_provider_enables_basic_auth_injection(self):
-        # basic_auth_enabled defaults to false in Authentik 2026.5.6. intercept_header_auth defaults to TRUE
-        # (bearer/basic credentials are verified by the outpost, not forged); finding F9 in the review.
+        # basic_auth_enabled defaults to false in Authentik 2026.5.6. Bearer/Basic credentials are verified by
+        # the outpost whatever intercept_header_auth says (finding F9); that is not a forgery path.
         for path in self.blueprints():
             match = re.search(r"^\s*basic_auth_enabled:\s*(\S+)", path.read_text(encoding="utf-8"), re.M)
             if match:
@@ -247,7 +247,7 @@ class ProxyProviderModeTests(unittest.TestCase):
         for path in sorted((ROOT / "services/authentik/blueprints").glob("*.yaml")):
             body = path.read_text(encoding="utf-8")
             self.assertNotIn("additionalHeaders", body, path.name)
-            self.assertNotRegex(body, r"field_key:\s*attributes\.", f"{path.name}: prompts must not write attributes")
+            self.assertNotRegex(body, r"field_key:\s*[\"']?attributes\.",f"{path.name}: prompts must not write attributes")
 
 
 # ------------------------------------------------------------------ header-name variants
