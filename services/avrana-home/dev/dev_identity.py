@@ -48,6 +48,14 @@ DEV_IDENTITIES: Mapping[str, dict] = {
     "member-nolib": {"name": "Member NoLib", "email": "member-nolib@example.test",
                      "groups": "avrana-users|avrana-comics",
                      "note": "No Movies and TV permission: that section is absent"},
+    # Komga links a member only when the Authentik username equals the Komga login exactly
+    # (ADAPTER-CONTRACT 12.2, open owner decision), so these usernames are the fixtures' logins.
+    "member-a@synthetic.invalid": {"name": "Comics A", "email": "comics-a@example.test",
+                                   "groups": "avrana-users|avrana-comics",
+                                   "note": "Comics: sees the unrestricted recent books"},
+    "member-b@synthetic.invalid": {"name": "Comics B", "email": "comics-b@example.test",
+                                   "groups": "avrana-users|avrana-comics",
+                                   "note": "Comics, age restricted (12 and under, no 'adult' label)"},
     "synthetic-admin": {"name": "Synthetic Admin", "email": "admin@example.test",
                         "groups": "authentik Admins",
                         "note": "Operations tile only; no library permission"},
@@ -78,6 +86,10 @@ def check_startup(*, enabled: bool, host: str, settings) -> _Checked:
     if settings.audiobookshelf_base_url and not is_loopback_host(
             url_host(settings.audiobookshelf_base_url) or ""):
         raise DevIdentityRefused("the development identity needs a loopback mock upstream URL")
+    if settings.komga_base_url and not is_loopback_host(url_host(settings.komga_base_url) or ""):
+        raise DevIdentityRefused("the development identity needs a loopback mock upstream URL")
+    if settings.komga_token not in ("", MOCK_API_KEY):
+        raise DevIdentityRefused("the development identity refuses a non-mock upstream key")
     if settings.audiobookshelf_token not in ("", MOCK_API_KEY):
         raise DevIdentityRefused("the development identity refuses a non-mock upstream key")
     if settings.jellyfin_api_key != MOCK_API_KEY:

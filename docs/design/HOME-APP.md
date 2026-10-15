@@ -246,6 +246,7 @@ variables (never the values).
 | `HOME_GATES_VERIFIED` | unset | Real mode requires the literal `yes`: an operator's statement that G1 and G2 are applied and verified. |
 | `AUDIOBOOKSHELF_BASE_URL` | unset (adapter not built) | Optional. Same URL rules as Jellyfin. Mock mode: loopback only. Real mode: needs the token too, and the same gates. |
 | `AUDIOBOOKSHELF_TOKEN` / `AUDIOBOOKSHELF_TOKEN_FILE` | none | Real mode only, with the URL, exactly one of the two; a token in mock mode is an error. Never in a repr, log line or error message. |
+| `KOMGA_BASE_URL` / `KOMGA_TOKEN` (`_FILE`) | unset (adapter not built) | Optional, **mock mode only**: loopback URL, the token is fixed and fake. In real mode setting either is a startup error until the owner decides the key scope and member mapping (ADAPTER-CONTRACT 12.2). |
 | `HOME_TIMEOUT` | `2.0` | Per-call seconds, 0.1 to 10. |
 | `HOME_SECTION_LIMIT` | `12` | Items per section, 1 to 50. |
 | `HOME_HEALTH_DETAIL` | `loopback` | `loopback` or `off`. |
@@ -259,6 +260,8 @@ transport or adapter is even constructed. The development identity is deliberate
 setting.
 
 Audiobookshelf (AVR-381): the adapter is registered next to Jellyfin only when `AUDIOBOOKSHELF_BASE_URL` is set; it adds one *Continue listening* section (the adapter offers no recent list, so that section is `empty` and renders nothing). Dev: `run_dev.py --abs-mock-port 18097` starts `dev/mock_audiobookshelf.py`, which serves the adapter's own synthetic fixtures (`tests/fake_abs.py`, loaded by path, read-only). `member-a` and `member-b` carry the audiobooks group in the dev identities.
+
+Komga (AVR-382): registered the same way, from `KOMGA_BASE_URL`; it adds one *Recently added to Comics* section (Komga read progress belongs to the key's user, so no Continue). Dev: `run_dev.py --komga-mock-port 18098` runs `dev/mock_komga.py` over `tests/fake_komga.py`. Members link only when the Authentik username equals the Komga login exactly, so the dev identities `member-a@synthetic.invalid` and `member-b@synthetic.invalid` exist for it. `dev/` is never imported by the package (`webtests/test_dev_isolation.py`).
 
 ## 8. Development stack and the identity shim
 
