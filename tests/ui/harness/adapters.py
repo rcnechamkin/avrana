@@ -17,7 +17,9 @@ import io
 import os
 import re
 import sys
+import types
 import urllib.parse
+import urllib.request
 from email.message import Message
 from pathlib import Path
 
@@ -338,12 +340,27 @@ class _KindleFakes(contextlib.AbstractContextManager):
             return self.devices
         m.abs_set = abs_set
         m.abs_call = lambda *a, **k: {}
+        # Guard: a back-end helper this list does not know about must fail the render, not reach the real
+        # database or network.
+        def refuse(*a, **k):
+            raise AssertionError("Kindle render touched SQLite or the network; add the helper to _KindleFakes")
+        self._guards = [(m, "sqlite3", getattr(m, "sqlite3", None)), (urllib.request, "urlopen", urllib.request.urlopen)]
+        m.sqlite3 = types.SimpleNamespace(connect=refuse)
+        urllib.request.urlopen = refuse
         return self
 
     def __exit__(self, *exc):
         for n, v in self._orig.items():
-            if v is not None:
+            if v is None:
+                if hasattr(self.mod, n):
+                    delattr(self.mod, n)  # it did not exist before: do not leave the fake behind
+            else:
                 setattr(self.mod, n, v)
+        for owner, name, value in self._guards:
+            if value is None:
+                delattr(owner, name)
+            else:
+                setattr(owner, name, value)
 
 
 def _kindle_ident(groups=(G_BOOKS,)):
