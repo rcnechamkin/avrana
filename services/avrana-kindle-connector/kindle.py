@@ -412,11 +412,13 @@ def outcome(verb, written, failed, audiobooks, sender):
     saving = verb == "save"
     if failed:
         if sw and sf:
-            return "err", ("Saved to " if saving else "Removed from ") + " and ".join(sw) +                 "; failed for " + " and ".join(sf) + "."
+            return "err", ("Saved to " if saving else "Removed from ") + " and ".join(sw) +
+                    "; failed for " + " and ".join(sf) + "."
         return "err", f"Something went wrong while {'saving' if saving else 'removing'}. Try again."
     if written:
         if saving:
-            return "ok", ("Saved to " + " and ".join(sw) if sw else "Saved") +                 ". Remember to approve " + sender + " on Amazon."
+            return "ok", ("Saved to " + " and ".join(sw) if sw else "Saved") +
+                  ". Remember to approve " + sender + " on Amazon."
         return "ok", "Removed from " + " and ".join(sw) + "." if sw else "Removed."
     if saving:
         return "err", "No library account was found for this sign-in."
