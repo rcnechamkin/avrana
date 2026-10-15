@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}{{ svc.label|trusted }} · Avrana{% endblock %}
+{% block body %}
+  <section class="block">
+    <h2>Before you continue</h2>
+    <p class="note msg" role="note">{{ warning|trusted }}</p>
+  </section>
+  <nav class="tiles" aria-label="Continue">
+    <a class="tile" href="https://{{ svc.host }}" aria-label="Understood, continue to {{ svc.host }}">
+      <span class="label">Understood</span>
+      <span class="desc">Continue to <span class="host">{{ svc.host }}</span></span>
+    </a>
+    <a class="tile" href="{{ help_path }}">
+      <span class="label">Set up the app</span>
+      <span class="desc">Apps and setup for {{ svc.label|trusted }}</span>
+    </a>
+  </nav>
+{% endblock %}

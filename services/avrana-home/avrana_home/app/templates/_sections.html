@@ -1,0 +1,16 @@
+{# Deliberately plain, unstyled markup for the design team to REPLACE. No classes, no images,
+   no script. Titles are escaped by autoescape; hrefs are the contract's handoff_url. #}
+{% for s in sections %}
+  <section aria-labelledby="home-{{ loop.index }}">
+    <h2 id="home-{{ loop.index }}">{{ s.heading }}</h2>
+{% if s.state == "ok" %}
+    <ul>
+{% for it in s.items %}
+      <li><a href="{{ it.href }}">{{ it.title }}</a>{% if it.detail %} <span>{{ it.detail }}</span>{% endif %}{% if it.progress %} <span>({{ it.progress }})</span>{% endif %}</li>
+{% endfor %}
+    </ul>
+{% else %}
+    <p role="status">{{ s.message }}</p>
+{% endif %}
+  </section>
+{% endfor %}
