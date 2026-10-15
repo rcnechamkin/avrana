@@ -671,7 +671,7 @@ class Style(unittest.TestCase):
         for n, d, s, e in self.each_interactive():
             with self.subTest(page=n, el=f"{e.tag}.{'.'.join(sorted(e.classes))}"):
                 if e.tag == "a" and e.parent.tag == "h1":
-                    continue  # the wordmark: a 32 to 48px line of display type, above the 24px minimum
+                    continue  # the wordmark: a 28 to 40px line of display type, above the 24px minimum
                 m = px(s.declared(e, "min-height"))
                 self.assertIsNotNone(m, "no min-height")
                 self.assertGreaterEqual(m, 44.0)

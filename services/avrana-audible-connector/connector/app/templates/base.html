@@ -8,9 +8,9 @@
   <link rel="stylesheet" href="/static/style.css?v={{ asset_v }}">
 </head>
 <body>
-  <header class="topbar">
-    <span class="brand">{{ brand }}</span>
-    <span class="sub">Audible contribution</span>
+  <header class="mast">
+    <p class="wordmark"><a href="https://avrana.net">{{ brand }}</a></p>
+    <div class="rule"></div>
   </header>
   <main class="wrap">
     {% if error %}<div class="alert error" role="alert">{{ error }}</div>{% endif %}

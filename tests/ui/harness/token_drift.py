@@ -45,9 +45,11 @@ EXTRA_PALETTE = {"#333333"}
 
 # where each service draws the shared components
 SELECTORS = {
-    "portal": {"column": ".page", "wordmark": "h1", "button": None, "field": None},
-    "kindle": {"column": ".page", "wordmark": "h1", "button": "button", "field": "input[type=email]"},
-    "audible": {"column": ".wrap", "wordmark": ".brand", "button": "button", "field": "input[type=email]"},
+# "mark" is which of DESIGN.md's two wordmark sizes the service draws: the full one on the portal home,
+# the compact one on every inner page. Sizes are compared within a kind; the tracking across all.
+    "portal": {"column": ".page", "wordmark": "h1", "mark": "full", "button": None, "field": None},
+    "kindle": {"column": ".page", "wordmark": "h1", "mark": "compact", "button": "button", "field": "input[type=email]"},
+    "audible": {"column": ".wrap", "wordmark": ".wordmark", "mark": "compact", "button": "button", "field": "input[type=email]"},
 }
 
 
@@ -128,7 +130,7 @@ def extract_service(service, text):
     col = _find(sheet, sel["column"], "max-width")
     if col:
         tokens["layout.column"] = _norm_ws(col)
-    for name, prop in (("wordmark.size", "font-size"), ("wordmark.tracking", "letter-spacing")):
+    for name, prop in ((f"wordmark.{sel['mark']}.size", "font-size"), ("wordmark.tracking", "letter-spacing")):
         v = _find(sheet, sel["wordmark"], prop)
         if v:
             tokens[name] = _norm_ws(v)
