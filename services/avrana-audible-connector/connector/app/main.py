@@ -50,6 +50,18 @@ class _RedactingFilter(logging.Filter):
         return True
 
 
+def _release_unfinished_claims(db_path: str) -> None:
+    """A one-time finish claims its connection ('finishing') while it revokes. If the process
+    stopped mid-revoke, hand the row back so the scheduler can try again."""
+    from .db import connect
+
+    conn = connect(db_path)
+    try:
+        conn.execute("UPDATE connection SET state='connected' WHERE state='finishing'")
+    finally:
+        conn.close()
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings.load()
 
@@ -68,6 +80,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.templates = templates
 
     migrate(settings.db_path)
+    _release_unfinished_claims(settings.db_path)
 
     app.mount("/static", StaticFiles(directory=str(_APP_DIR / "static")), name="static")
     app.include_router(health.router)

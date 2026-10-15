@@ -53,8 +53,8 @@ Not scripts:
   The metadata writes into the read-only Mylar library are an Omnibus library setting (owner).
 - Health check: `libation-status` dead-inode detection (risk 6).
 - smartd warnings through the alert script: staged as owner script 09 (A21).
-- Sibling header forgery on `authentik_frontend` (forensic audit D4, now Media 2.0 gate G1): isolation staged on branch
-  `batch6-authentik-isolation`, not applied (restarts the Authentik server).
+- Sibling header forgery on `authentik_frontend` (forensic audit D4, now Media 2.0 gate G1): isolation staged (branch `avr-355-g1-isolation-refresh`, runbook
+  `docs/runbooks/g1-network-isolation.md`), not applied (restarts the Authentik server).
 
 ## Done in Batch 4 (2026-10-06), for the record
 

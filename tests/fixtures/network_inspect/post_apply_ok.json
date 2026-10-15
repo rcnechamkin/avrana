@@ -1,0 +1,123 @@
+[
+  {
+    "Name": "bridge",
+    "Id": "17f29b073143d8cd97b5bbe492bdeffec1c5fee55cc1fe2112c8b9335f8b6121",
+    "Driver": "bridge",
+    "Containers": null
+  },
+  {
+    "Name": "none",
+    "Id": "140bedbf9c3f6d56a9846d2ba7088798683f4da0c248231336e6a05679e4fdfe",
+    "Driver": "bridge",
+    "Containers": null
+  },
+  {
+    "Name": "avrana-ldap",
+    "Id": "d38dbcb2fe1c74294daf2023caffda896f9caed117361ec4c87ce3b600c7e798",
+    "Driver": "bridge",
+    "Containers": {
+      "ca00a901c39b72db880fc9fa97aeab729f879b0e85737b05659bd95055bf6b7b": {
+        "Name": "authentik-ldap",
+        "IPv4Address": "172.30.0.2/24"
+      },
+      "5d97c19689a708c71014e3b2d3e3a18da15ef4fc59ffd1a990fa31f4b56fa445": {
+        "Name": "calibre-web-automated",
+        "IPv4Address": "172.30.0.3/24"
+      }
+    }
+  },
+  {
+    "Name": "authentik_backend",
+    "Id": "70e7f5e668e08fe2807ff5f26484c1316d4ec1441e3dfe79bf8af42655811265",
+    "Driver": "bridge",
+    "Containers": {
+      "bd6416049bdda2074694cfb56cf5d3fb5d5ad7def4598debe5c140a9c25032ee": {
+        "Name": "authentik-postgresql",
+        "IPv4Address": "172.30.0.2/24"
+      },
+      "1143c2b08641bd12f4276f908394ccd52d23608d123e856143adde7f98a9ca89": {
+        "Name": "authentik-server",
+        "IPv4Address": "172.30.0.3/24"
+      },
+      "2510a202be3408c19a988466a0550ab836dca44529868d97a19ed326db6ad1d2": {
+        "Name": "authentik-worker",
+        "IPv4Address": "172.30.0.4/24"
+      }
+    }
+  },
+  {
+    "Name": "komga_default",
+    "Id": "044d3c9ef6cb3509151ba39b0e639ff88119bf209a63ef0fd0889fee8dbf3b34",
+    "Driver": "bridge",
+    "Containers": {
+      "4cd2f62071e5ce041b5cb49ca7f1a5b6b95e472c205a2cbf625dc06734971307": {
+        "Name": "komga",
+        "IPv4Address": "172.30.0.2/24"
+      }
+    }
+  },
+  {
+    "Name": "authentik_frontend",
+    "Id": "fd3e0037e39bf1fb4a931c650cfae5c13dc4669ef859e1f465e84c3239145685",
+    "Driver": "bridge",
+    "Containers": {
+      "7a202e5a399c5f7c9725824f12aad4dbe3c299f25a63ad99748faa3e8667ba84": {
+        "Name": "authentik-server",
+        "IPv4Address": "172.30.0.2/24"
+      },
+      "d720b01162be3df086dc98b15a284fc004b32c3a4a44b53db47f5f3540b7b90f": {
+        "Name": "authentik-worker",
+        "IPv4Address": "172.30.0.3/24"
+      },
+      "82f06a5b0b5c6acf557a9b7c53f4a493dfa3624d4e7191c9a6eb5d5d02b9f886": {
+        "Name": "authentik-ldap",
+        "IPv4Address": "172.30.0.4/24"
+      }
+    }
+  },
+  {
+    "Name": "authentik_portal",
+    "Id": "b410626139e8181313e5e55d89dbe3cf936dfb3d1053d6e6bba9eef7479a6240",
+    "Driver": "bridge",
+    "Containers": {
+      "7e75db2158550350ccd25d4a28f7ce655ee80073647c83177eff73954d732942": {
+        "Name": "authentik-server",
+        "IPv4Address": "172.30.0.2/24"
+      },
+      "501dfeaa5acf6e4263a96a48e26e1a2a96442056d0da3a5efb770802979eee40": {
+        "Name": "avrana-portal",
+        "IPv4Address": "172.30.0.3/24"
+      }
+    }
+  },
+  {
+    "Name": "authentik_kindle",
+    "Id": "6e42c2cf941febb5b54ca6ab0824e253bbaeb18e85a779150c81fb07ebc8ffd4",
+    "Driver": "bridge",
+    "Containers": {
+      "33ea467c3e882a9ad6a159c99bb42f257c4564041093b3e7c2b8929e5372806b": {
+        "Name": "authentik-server",
+        "IPv4Address": "172.30.0.2/24"
+      },
+      "4520411e46e103da9148299d5aeeae19ffec5f8f5d8e96864a666f30c5359941": {
+        "Name": "avrana-kindle-connector",
+        "IPv4Address": "172.30.0.3/24"
+      }
+    }
+  },
+  {
+    "Name": "authentik_olivetin",
+    "Id": "0bcfc20354f0ef2fbcd3e7bc04e031ff56e554f1577797b7cd9780addf0ace7f",
+    "Driver": "bridge",
+    "Containers": {
+      "3cd96c332c497a66157cfef80339cb3bcba78686514ea6da3740d381cb6eb9fc": {
+        "Name": "authentik-server",
+        "IPv4Address": "172.30.0.2/24"
+      },
+      "a7ce22ae3eb5d9dca98d31bda082fec30e9965eb10f970935c2a896f1027691d": {
+        "Name": "olivetin",
+        "IPv4Address": "172.30.0.3/24"
+      }
+    }
+  }
+]

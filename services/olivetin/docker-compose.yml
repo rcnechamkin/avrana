@@ -55,7 +55,7 @@ services:
       # 0700 and owned by cody, which is this container's uid.
       - ./docker-proxy-ro:/proxy-ro
       - ./docker-proxy-restart:/proxy-restart
-    networks: [authentik_frontend]
+    networks: [authentik_olivetin]
     read_only: true
     tmpfs:
       - /tmp:rw,noexec,nosuid,nodev,size=32m
@@ -158,6 +158,7 @@ services:
     restart: unless-stopped
 
 networks:
-  # Authentik's compose network, so the embedded outpost can reach olivetin by name.
-  authentik_frontend:
+  # Private network shared only with the Authentik server (its embedded outpost); defined in
+  # services/authentik/docker-compose.yml as "olivetin" (forensic audit D4).
+  authentik_olivetin:
     external: true

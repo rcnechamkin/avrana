@@ -20,7 +20,25 @@ python3 -B tests/run_offline.py
 
 Passed: five staged-content-gate unit tests, two Audible schema tests using SQLite `:memory:` only, 16 synthetic IMAX classification cases, and four offline Kindle checks (27 total). No live API, credentials, production database, media file or container was used by these tests. Python source was also parsed without importing applications.
 
+The portal authorization suite (`tests/test_portal_authz.py`, 83 tests on this branch, one documented `expectedFailure`) drives the real `services/avrana-portal/portal.py` handler. Most tests run it over an in-memory connection (no socket); about 260 requests go over a real loopback server (127.0.0.1, an ephemeral port in the test process) as an end-to-end subset (every route class against every identity class, HEAD, duplicate headers, pipelining, a stalled client and 60 concurrent requests). It checks the route matrix, leaks, near-miss, malformed and duplicated `X-authentik-groups` headers, fixed redirect targets, `/account` escaping, `/healthz` exactness and response headers against synthetic identities in `tests/fixtures/identities.py`. It makes no network call beyond 127.0.0.1 and uses no real member data. The count above predates it. The portal handler's 15 s socket timeout applies to each socket read (an idle or stalled connection is dropped); it is not a total request deadline, so a slow header trickle is bounded only by the outpost in front.
+
 The original Kindle live tests were omitted and its personal fixture replaced. Audible application/end-to-end tests were not imported because their shared fixture initializes application state; only the isolated in-memory schema invariants are tested here. CWA integration tests require its upstream package and were not executed. These boundaries are deliberate; passing local checks is not deployment validation.
+
+The day-to-day local workflow, fixture rules and how to add a suite are in [DEVELOPMENT.md](DEVELOPMENT.md).
+
+## UI harness (AVR-360)
+
+`python3 -B tests/run_offline.py` also renders every portal and Kindle page offline, from their own code
+with synthetic identities, and runs stdlib accessibility, copy and no-leak checks (`tests/test_ui_harness.py`)
+plus a design-token drift check (`tests/test_token_drift.py`). Known defects are listed in
+`tests/ui/harness/baseline.json`, each with the issue that fixes it; a finding outside that list fails the
+run, and the baseline may only shrink.
+
+The browser layer (Chromium, axe-core, Tab order, rendered target sizes, 200% text) is a development tool
+for a laptop, not part of the offline suite and never run against production:
+`python -B tests/ui/harness/run_ui.py`. It needs Node and a Playwright install kept outside the repository.
+What it does not cover (real phones, screen readers, Safari, Firefox, anything behind Authentik) and how to
+add pages are in [`tests/ui/README.md`](../tests/ui/README.md).
 
 ## Commit gates
 

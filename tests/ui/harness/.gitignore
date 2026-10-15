@@ -1,0 +1,5 @@
+# Browser-layer output: screenshots (this repository tracks no binary files), report.json, run logs.
+out/
+*.png
+*.log
+__pycache__/
