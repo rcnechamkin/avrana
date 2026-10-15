@@ -1,0 +1,18 @@
+{
+  "_synthetic": "Hand-written SYNTHETIC fixture. Not recorded from any server. Invented titles and ids.",
+  "_schema": "Shaped like the public Jellyfin 10.10/10.11 OpenAPI response for GET /UserItems/Resume (BaseItemDtoQueryResult) for member-b. Unverified against a real server.",
+  "response": {
+    "Items": [
+      {"Id": "bbbb0000000000000000000000000001", "Name": "Synthetic Film Two", "Type": "Movie",
+       "ProductionYear": 2005, "RunTimeTicks": 54000000000,
+       "UserData": {"PlaybackPositionTicks": 5400000000, "PlayedPercentage": 10.0, "Played": false,
+                    "ItemId": "bbbb0000000000000000000000000001"},
+       "ImageTags": {"Primary": "synthtagb1"}},
+      {"Id": "bbbb0000000000000000000000000002", "Name": "Synthetic Documentary B", "Type": "Movie",
+       "RunTimeTicks": 36000000000,
+       "UserData": {"PlaybackPositionTicks": 32400000000, "Played": false}}
+    ],
+    "TotalRecordCount": 2,
+    "StartIndex": 0
+  }
+}
