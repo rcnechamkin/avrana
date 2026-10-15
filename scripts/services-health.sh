@@ -242,6 +242,53 @@ else
   failures=$((failures + 1))
 fi
 
+# Gate G1 (forensic audit D4, docs/design/MEDIA-2.0.md section 4): avrana-portal,
+# avrana-kindle-connector and olivetin trust X-authentik-* headers, so none of them may share a
+# network with a sibling container; each sits on its own authentik_<name> network with the
+# Authentik server only. The decision is in check-network-isolation.py (tested offline). Until the
+# change is applied (the private networks do not exist) it prints WARN and passes; once they exist
+# any drift is a FAIL. The owner's sign-off marker (file g1-applied in the state directory, or
+# AVRANA_G1_APPLIED=1) turns "not applied" and "cannot check" into FAIL, so an applied gate cannot
+# pass silently. Runbook: docs/runbooks/g1-network-isolation.md. (Media 2.0, AVR-355.)
+# The block between the BEGIN/END lines is executed by tests/test_network_isolation.py.
+# BEGIN g1-isolation-hook
+isolation_script="$(dirname "$0")/check-network-isolation.py"
+g1_py="${AVRANA_PYTHON:-python3}"
+g1_marker="${AVRANA_G1_MARKER:-${AVRANA_STATE_DIR:-$HOME/.local/state/avrana}/g1-applied}"
+g1_args=""
+if [ "${AVRANA_G1_APPLIED:-0}" = 1 ] || [ -e "$g1_marker" ]; then
+  g1_args="--applied"
+fi
+g1_cannot_check() {   # g1_cannot_check <why>: WARN before sign-off, FAIL once the gate is marked applied
+  if [ -n "$g1_args" ]; then
+    printf 'FAIL network isolation (G1): %s (G1 is marked applied)
+' "$1" >&2
+    failures=$((failures + 1))
+  else
+    printf 'WARN network isolation (G1): %s
+' "$1" >&2
+  fi
+}
+if [ ! -f "$isolation_script" ]; then
+  printf 'FAIL check-network-isolation.py not found beside this script
+' >&2
+  failures=$((failures + 1))
+elif ! command -v "$g1_py" >/dev/null 2>&1; then
+  g1_cannot_check "$g1_py not found"
+else
+  net_ids=$(docker network ls -q 2>/dev/null)
+  net_json=""
+  [ -n "$net_ids" ] && net_json=$(printf '%s
+' "$net_ids" | xargs docker network inspect 2>/dev/null)
+  if [ -z "$net_json" ]; then
+    g1_cannot_check "could not read docker network data"
+  else
+    printf '%s
+' "$net_json" | "$g1_py" "$isolation_script" $g1_args || failures=$((failures + 1))
+  fi
+fi
+# END g1-isolation-hook
+
 # The recycle bin held 650 GB after the September Radarr grab loop (finding A13). Say so before
 # it fills the array. Two entries, so the walk is cheap.
 recycle_dir=/mnt/avrana_media/.recycle

@@ -1,0 +1,14 @@
+{
+  "_synthetic": "Hand-written SYNTHETIC fixture. Not recorded from any server. Invented users and ids.",
+  "_schema": "Shaped like the public Jellyfin 10.10/10.11 OpenAPI response for GET /Users (array of UserDto). Unverified against a real server.",
+  "response": [
+    {"Id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "Name": "member-a", "ServerId": "synthetic-server",
+     "Policy": {"IsAdministrator": false, "IsDisabled": false}},
+    {"Id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "Name": "member-b", "ServerId": "synthetic-server",
+     "Policy": {"IsAdministrator": false, "IsDisabled": false}},
+    {"Id": "cccccccc-cccc-4ccc-8ccc-cccccccccccc", "Name": "member-c", "ServerId": "synthetic-server",
+     "Policy": {"IsAdministrator": false, "IsDisabled": true}},
+    {"Id": "dddddddddddd4ddd8dddddddddddddd1", "Name": "synthetic-admin", "ServerId": "synthetic-server",
+     "Policy": {"IsAdministrator": true, "IsDisabled": false}}
+  ]
+}
