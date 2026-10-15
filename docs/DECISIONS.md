@@ -62,6 +62,11 @@ half the containers still carry its label).
 | Real-member acceptance testing joins automated accessibility, security and API contract tests | Testers, tasks and pass criteria in Section 7 of the charter |
 | Member and operator interfaces stay separate | Status reaches members only as an operator-set notice in plain language |
 
+## Owner decisions, 2026-10-14
+
+| Decision | Consequence |
+|---|---|
+| **D-8a**: CI may install exactly one hash-pinned PyYAML wheel, in CI only | `.github/requirements-ci.txt` holds one `==` pin with one sha256; `pip` runs `--require-hashes --only-binary=:all: --no-deps`. No secrets, read-only permissions, no deployment and the no-network second run are unchanged. `AVRANA_REQUIRE_YAML=1` makes a missing PyYAML fail the G1 security tests instead of skipping them. Any other dependency needs a new decision |
 ## Owner decisions, 2026-10-15: Media 2.0 review
 
 Recorded from the owner's message of 2026-10-15. None of these authorises a production change: live
@@ -71,7 +76,7 @@ their own explicit approval.
 
 | Decision | Consequence |
 |---|---|
-| **D-8a approved in principle** (PR #14): one hash-pinned PyYAML in CI so the required G1 security tests fail instead of skipping | Merged only after rebase onto main and independent review; no CI result is claimed while GitHub Actions billing is blocked |
+| **D-8a approved in principle** (PR #14): one hash-pinned PyYAML in CI so the required G1 security tests fail instead of skipping | Merged on 2026-10-15 after the update from main and an independent security review; no CI result is claimed while GitHub Actions billing is blocked |
 | **D-3: verified Authentik JWT identity is the architecture** (PR #19), not plain identity headers | Offline implementation and independent security review proceed; enforcement in production needs separate approval |
 | OliveTin: a dedicated, unambiguous authorisation group, not username lists | Compatibility, group mapping and migration are verified before any live change is proposed |
 | Audible one-time mode: a GET never changes state | Finalisation moves to a CSRF-protected POST; an empty selection cannot finalise; the whole lifecycle is tested |

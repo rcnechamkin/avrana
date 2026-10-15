@@ -95,7 +95,8 @@ VARIANT_USER_HEADERS = [
 ]
 
 
-@unittest.skipIf(yaml is None, "PyYAML missing: G1 bypass-path compose tests NOT RUN")
+@unittest.skipIf(yaml is None and os.environ.get("AVRANA_REQUIRE_YAML", "") in ("", "0"),
+                 "PyYAML missing: G1 bypass-path compose tests NOT RUN (AVRANA_REQUIRE_YAML=1 makes this fail)")
 class NamespaceSharingTests(unittest.TestCase):
     """`docker network inspect` does not list containers that borrow another's network namespace."""
 
@@ -150,7 +151,8 @@ class NamespaceSharingTests(unittest.TestCase):
         self.assertTrue("HostConfig.NetworkMode" in runbook and "result is void" in runbook, "runbook must check namespace sharing on the host")
 
 
-@unittest.skipIf(yaml is None, "PyYAML missing: G1 bypass-path compose tests NOT RUN")
+@unittest.skipIf(yaml is None and os.environ.get("AVRANA_REQUIRE_YAML", "") in ("", "0"),
+                 "PyYAML missing: G1 bypass-path compose tests NOT RUN (AVRANA_REQUIRE_YAML=1 makes this fail)")
 class DnsImpostorTests(unittest.TestCase):
     """Only the real backend may answer to its name on any network authentik-server joins."""
 
@@ -194,7 +196,8 @@ class DnsImpostorTests(unittest.TestCase):
                                       f"{key}: list form only, so no alias can be added silently")
 
 
-@unittest.skipIf(yaml is None, "PyYAML missing: G1 bypass-path compose tests NOT RUN")
+@unittest.skipIf(yaml is None and os.environ.get("AVRANA_REQUIRE_YAML", "") in ("", "0"),
+                 "PyYAML missing: G1 bypass-path compose tests NOT RUN (AVRANA_REQUIRE_YAML=1 makes this fail)")
 class IngressTests(unittest.TestCase):
     def cloudflared(self):
         return yaml.safe_load((ROOT / "deploy/host/cloudflared/config.yml").read_text(encoding="utf-8"))
