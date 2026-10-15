@@ -17,6 +17,8 @@ def load(name):
     doc = json.loads((FIXTURES / name).read_text(encoding="utf-8"))
     assert doc["_synthetic"].startswith("Hand-written SYNTHETIC"), name
     assert "unverified against the deployed version" in doc["_synthetic"], name
+    assert doc["_target_version"].startswith("Audiobookshelf 2.36") and "NOT confirmed" in doc["_target_version"], name
+    assert "SYNTHETIC assumption" in doc["_provenance"] and "UNPROVEN" in doc["_provenance"], name
     return doc["response"]
 
 

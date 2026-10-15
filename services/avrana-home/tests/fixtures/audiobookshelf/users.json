@@ -1,6 +1,8 @@
 {
   "_synthetic": "Hand-written SYNTHETIC fixture, written from recollection of the public Audiobookshelf API. Hand-written, unverified against the deployed version; a recorded read-only contract check is a separate owner-approved step before any real data is read. Invented users, ids and titles.",
   "_schema": "Shaped like GET /api/users (admin): {users: [user]}. Unverified.",
+  "_target_version": "Audiobookshelf 2.36 (the version the contract says is deployed; NOT confirmed against the deployed server)",
+  "_provenance": "GET /api/users: the wrapper {users:[...]} and the per-user fields id, username, type, isActive, permissions are recalled from the public API documentation and not re-checked. SYNTHETIC assumption: that the admin token may list users and that username equals the Authentik username for OIDC-created accounts. Live compatibility is UNPROVEN until the owner's recorded read-only capture is compared (ADAPTER-CONTRACT.md 11.7).",
   "response": {
     "users": [
       {

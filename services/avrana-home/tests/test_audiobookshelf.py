@@ -510,6 +510,92 @@ class CachePolicyAndSecrets(Base):
         self.assertIn("service=audiobookshelf", text)
 
 
+class AcceptanceScenarios(Base):
+    """AVR-378 acceptance scenarios, stated in one place (all against SYNTHETIC fixtures)."""
+
+    def test_two_members_never_see_each_others_progress_or_books(self):
+        ra, rb = self.adapter.continue_items(self.a), self.adapter.continue_items(self.b)
+        self.assertEqual((ra.state, rb.state), (SectionState.OK, SectionState.OK))
+        by_a = {i.id: i.progress_fraction for i in ra.items}
+        by_b = {i.id: i.progress_fraction for i in rb.items}
+        self.assertEqual(by_a["audiobookshelf:li_book000001"], 0.42)
+        self.assertEqual(by_b["audiobookshelf:li_book000001"], 0.07)     # the same book, the member's own progress
+        self.assertNotIn("Synthetic Audiobook Ten", titles(ra))
+        # every user-scoped request named the bound member of that call, never the other one
+        for path in self.fake.paths():
+            if path.startswith("/api/users/"):
+                self.assertIn(path.rsplit("/", 1)[1], (UA, UB))
+
+    def test_a_member_without_the_group_causes_no_upstream_call_and_leaks_nothing(self):
+        outsider = make_principal("member-b", ("avrana-users",))
+        for result in (self.adapter.continue_items(outsider), self.adapter.recent_items(outsider),
+                       self.adapter.item(outsider, "li_book000010")):
+            self.assertEqual((result.state, result.items), (SectionState.NOT_PERMITTED, ()))
+            self.assertNotIn("Ten", repr(result.to_dict()))
+        self.assertEqual(self.fake.requests, [])
+
+    def test_unreachable_costs_the_section_only_and_never_raises(self):
+        for exc in (ConnectionRefusedError("refused"), OSError("unreachable"), TimeoutError()):
+            self.fake.overrides["/api/users"] = ("raise", exc)
+            self.adapter.cache.clear()
+            r = self.adapter.continue_items(self.a)
+            self.assertIs(r.state, SectionState.UNAVAILABLE, exc)
+            self.assertEqual(r.items, ())
+            self.adapter.breaker.success(self.adapter.breaker.acquire())
+
+    def test_403_and_404_on_the_user_list_are_unavailable_and_401_on_a_member_route_too(self):
+        for path, code in (("/api/users", 403), ("/api/users", 404), (f"/api/users/{UA}", 401),
+                           (f"/api/items/li_book000001", 403)):
+            self.fake.overrides.clear()
+            self.adapter.cache.clear()
+            self.adapter.breaker.success(self.adapter.breaker.acquire())
+            self.fake.overrides[path] = ("status", code)
+            r = self.adapter.continue_items(self.a)
+            self.assertIs(r.state, SectionState.UNAVAILABLE, (path, code))
+
+    def test_an_oversized_body_is_unavailable_and_counted(self):
+        from avrana_home.resilience import MAX_JSON_BYTES
+        self.fake.overrides[f"/api/users/{UA}"] = ("body", b" " * (MAX_JSON_BYTES + 1))
+        r = self.adapter.continue_items(self.a)
+        self.assertEqual((r.state, r.reason), (SectionState.UNAVAILABLE, "UpstreamTooLarge"))
+        self.assertEqual(self.adapter.health().state, "failing")
+
+    def test_a_breaker_trip_stops_all_traffic_for_every_member_until_the_cool_off(self):
+        self.fake.overrides["/api/users"] = ("raise", ConnectionRefusedError())
+        for p in (self.a, self.b, self.c):
+            self.adapter.continue_items(p)
+        self.assertEqual(self.adapter.health().state, "cooling_off")
+        n = len(self.fake.requests)
+        self.assertEqual(self.adapter.continue_items(self.d).reason, "cooling_off")
+        self.assertEqual(len(self.fake.requests), n)
+        self.fake.overrides.clear()
+        self.clock.advance(61)
+        self.assertIs(self.adapter.continue_items(self.d).state, SectionState.EMPTY)    # the trial succeeds
+
+    def test_artwork_of_another_members_item_is_never_fetched_or_returned(self):
+        # member-b's private book, asked for by member-a under any plausible ref shape
+        for ref in ("audiobookshelf/cover/li_book000010", "li_book000010", f"/api/items/li_book000010/cover",
+                    "../../api/users/" + UB):
+            r = self.adapter.fetch_artwork(self.a, ref)
+            self.assertEqual((r.state, r.content_type, r.data), (SectionState.EMPTY, None, b""), ref)
+        self.assertEqual(self.fake.requests, [])
+        self.assertIsNone(self.adapter.continue_items(self.b).items[0].artwork)
+
+    def test_recently_added_is_not_offered_in_this_unit(self):
+        r = self.adapter.recent_items(self.a)
+        self.assertEqual((r.state, r.reason), (SectionState.EMPTY, "not_offered"))
+        self.assertEqual(self.fake.requests, [])
+
+    def test_fixtures_declare_their_target_version_and_which_shapes_are_synthetic(self):
+        from tests.fake_abs import FIXTURES
+        for f in sorted(FIXTURES.glob("*.json")):
+            doc = json.loads(f.read_text(encoding="utf-8"))
+            self.assertIn("2.36", doc["_target_version"], f.name)
+            self.assertIn("NOT confirmed", doc["_target_version"], f.name)
+            self.assertIn("SYNTHETIC assumption", doc["_provenance"], f.name)
+            self.assertIn("UNPROVEN", doc["_provenance"], f.name)
+
+
 class WithJellyfinThroughGather(unittest.TestCase):
     def setUp(self):
         self.clock = FakeClock()
