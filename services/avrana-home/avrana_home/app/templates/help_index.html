@@ -3,11 +3,11 @@
 {% block title %}Help · Avrana{% endblock %}
 {% block body %}
 {% if tiles %}
-  <nav aria-label="Help topics">
+  <nav class="tiles" aria-label="Help topics">
 {% for path, label, desc in tiles %}{{ tile(path, label, desc) }}
 {% endfor %}
   </nav>
 {% else %}
-  <section class="block"><p class="note">Nothing is set up on this account yet.</p></section>
+  <section class="block"><p class="note msg">Nothing is set up on this account yet.</p></section>
 {% endif %}
 {% endblock %}

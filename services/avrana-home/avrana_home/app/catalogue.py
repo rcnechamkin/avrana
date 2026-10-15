@@ -19,7 +19,8 @@ from pathlib import Path
 from typing import Dict, Tuple
 
 _REQUIRED = ("SERVICES", "CHOOSERS", "HELP", "INTERSTITIALS", "SSO_INIT", "HOME_ORDER",
-             "HELP_SLUGS", "ALIASES", "ACCOUNT_URL", "SIGNOUT_URL")
+             "HELP_SLUGS", "ALIASES", "ACCOUNT_URL", "SIGNOUT_URL", "SERVICE_VARIANTS",
+             "CHOOSER_PARTS")
 
 
 class CatalogueError(RuntimeError):
@@ -48,6 +49,7 @@ class ServiceEntry:
     desc: Trusted
     path: str
     host: str
+    grouped: bool = False            # the portal's table gave a tuple/list of groups (variants apply)
 
     def allows(self, groups) -> bool:
         return any(g in groups for g in self.groups)
@@ -81,6 +83,8 @@ class Catalogue:
     aliases: Dict[str, str]
     account_url: str
     signout_url: str
+    service_variants: Dict[str, Dict[Tuple[str, ...], Tuple[Trusted, Trusted]]]
+    chooser_parts: Dict[str, Dict[str, str]]
 
     # ---- lookups: same semantics as portal.by_path / chooser_by_path / chooser_members ----
     def service(self, path):
@@ -99,6 +103,31 @@ class Catalogue:
             if svc and svc.allows(groups):
                 out.append(svc)
         return out
+
+    def service_copy(self, svc: ServiceEntry, groups):
+        """(label, desc) of a service as THIS viewer should read it (portal.service_copy, AVR-430)."""
+        variants = self.service_variants.get(svc.path)
+        if variants and svc.grouped:
+            held = tuple(g for g in svc.groups if g in groups)
+            if held in variants:
+                return variants[held]
+        return svc.label, svc.desc
+
+    def chooser_subtitle(self, chooser: ChooserEntry, groups) -> Trusted:
+        """The chooser tile subtitle, built only from the members this viewer may open
+        (portal.chooser_subtitle, AVR-430)."""
+        parts = self.chooser_parts.get(chooser.path)
+        if parts is None:
+            return chooser.desc
+        words = []
+        for svc in self.chooser_members(chooser, groups):
+            word = parts.get(svc.path)
+            if word and word not in words:
+                words.append(word)
+        if not words:
+            return chooser.desc
+        text = " &amp; ".join(words)
+        return Trusted(text[0].upper() + text[1:])
 
     def help_permitted(self, groups):
         return [h for h in self.help_topics if h.group in groups]
@@ -133,7 +162,8 @@ def load(path) -> Catalogue:
     services = []
     for grp, label, desc, spath, host in module.SERVICES:
         groups = tuple(grp) if isinstance(grp, (tuple, list)) else (grp,)
-        services.append(ServiceEntry(groups, Trusted(label), Trusted(desc), spath, host))
+        services.append(ServiceEntry(groups, Trusted(label), Trusted(desc), spath, host,
+                                     isinstance(grp, (tuple, list))))
     choosers = tuple(ChooserEntry(Trusted(label), Trusted(desc), cpath, tuple(members))
                      for label, desc, cpath, members in module.CHOOSERS)
     slugs = module.HELP_SLUGS
@@ -147,4 +177,7 @@ def load(path) -> Catalogue:
         interstitials={k: (Trusted(v[0]), str(v[1])) for k, v in module.INTERSTITIALS.items()},
         sso_init=dict(module.SSO_INIT), home_order=tuple(module.HOME_ORDER),
         aliases=dict(module.ALIASES), account_url=str(module.ACCOUNT_URL),
-        signout_url=str(module.SIGNOUT_URL))
+        signout_url=str(module.SIGNOUT_URL),
+        service_variants={p: {tuple(k): (Trusted(v[0]), Trusted(v[1])) for k, v in d.items()}
+                          for p, d in module.SERVICE_VARIANTS.items()},
+        chooser_parts={p: dict(d) for p, d in module.CHOOSER_PARTS.items()})

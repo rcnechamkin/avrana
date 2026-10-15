@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{{ topic.label|trusted }} help · Avrana{% endblock %}
 {% block body %}
+  <h2 class="topic">{{ topic.label|trusted }}</h2>
 {% for pname, clients in topic.platforms %}
   <section class="platform">
     <h3>{{ pname|trusted }}</h3>
@@ -9,7 +10,7 @@
       <div class="client">
         <div><span class="cname">{{ cname|trusted }}</span>{% if tag %}<span class="tag">{{ tag }}</span>{% endif %}</div>
 {% if store and url %}
-        <a class="store" href="{{ url|trusted }}" target="_blank" rel="noopener noreferrer">{{ "Get it on the App Store" if store == "App Store" else ("Get it on Google Play" if store == "Google Play" else "Download from " ~ (store|trusted)) }}</a>
+        <a class="store" href="{{ url|trusted }}" target="_blank" rel="noopener noreferrer">{{ "Get it on the App Store" if store == "App Store" else ("Get it on Google Play" if store == "Google Play" else "Download from " ~ (store|trusted)) }}<span class="sr"> (opens in a new tab)</span></a>
 {% endif %}
         <ol>
 {% for st in steps %}          <li>{{ st|trusted }}</li>

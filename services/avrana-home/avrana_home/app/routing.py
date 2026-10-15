@@ -66,14 +66,15 @@ def decide(route: str, groups, cat: Catalogue, facts: Optional[AccountFacts] = N
             ch = cat.chooser(path)
             if ch:
                 if cat.chooser_members(ch, groups):
-                    tiles.append((ch.path, ch.label, ch.desc))
+                    tiles.append((ch.path, ch.label, cat.chooser_subtitle(ch, groups)))
                 continue
             if path == "help":
                 tiles.append(("help", Trusted("Help"), Trusted("Apps &amp; setup guides")))
                 continue
             svc = cat.service(path)
             if svc and svc.allows(groups):
-                tiles.append((svc.path, svc.label, svc.desc))
+                label, desc = cat.service_copy(svc, groups)
+                tiles.append((svc.path, label, desc))
         return Decision("/", 200, "home.html", {"tiles": tiles})
 
     if route == "/account":
@@ -87,7 +88,7 @@ def decide(route: str, groups, cat: Catalogue, facts: Optional[AccountFacts] = N
             rows.append(("Email", facts.email))
         if not rows:
             rows.append(("Signed in", "yes"))
-        mine = [s.label for s in cat.permitted(groups)]
+        mine = [cat.service_copy(s, groups)[0] for s in cat.permitted(groups)]
         return Decision("/account", 200, "account.html", {
             "facts": rows, "access": mine, "account_url": cat.account_url,
             "signout_url": cat.signout_url})
@@ -109,7 +110,7 @@ def decide(route: str, groups, cat: Catalogue, facts: Optional[AccountFacts] = N
         members = cat.chooser_members(ch, groups)
         if not members:
             return not_found()
-        tiles = [(m.path, m.label, m.desc) for m in members]
+        tiles = [(m.path, *cat.service_copy(m, groups)) for m in members]
         return Decision("/{chooser}", 200, "chooser.html", {"chooser": ch, "tiles": tiles})
 
     svc = cat.service(slug)

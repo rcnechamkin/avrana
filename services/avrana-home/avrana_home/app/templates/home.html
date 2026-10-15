@@ -3,7 +3,7 @@
 {% block heading %}AVRANA{% endblock %}
 {% block body %}
 {% if sections %}{% include "_sections.html" %}{% endif %}
-  <nav aria-label="Your Avrana services">
+  <nav class="tiles" aria-label="Your Avrana services">
 {% for path, label, desc in tiles %}{{ tile(path, label, desc) }}
 {% endfor %}
   </nav>
