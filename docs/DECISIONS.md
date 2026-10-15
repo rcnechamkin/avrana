@@ -61,3 +61,27 @@ half the containers still carry its label).
 | Upstream applications are preserved and unmodified; custom infrastructure is one small application | No frames, proxy injection, upstream patches, custom players or dedicated search engine |
 | Real-member acceptance testing joins automated accessibility, security and API contract tests | Testers, tasks and pass criteria in Section 7 of the charter |
 | Member and operator interfaces stay separate | Status reaches members only as an operator-set notice in plain language |
+
+## Owner decisions, 2026-10-15: Media 2.0 review
+
+Recorded from the owner's message of 2026-10-15. None of these authorises a production change: live
+host access, deployment, restarts, Docker networking, Authentik configuration, credentials,
+member-data inspection, G1 isolation, JWT enforcement, production validation and rollback each need
+their own explicit approval.
+
+| Decision | Consequence |
+|---|---|
+| **D-8a approved in principle** (PR #14): one hash-pinned PyYAML in CI so the required G1 security tests fail instead of skipping | Merged only after rebase onto main and independent review; no CI result is claimed while GitHub Actions billing is blocked |
+| **D-3: verified Authentik JWT identity is the architecture** (PR #19), not plain identity headers | Offline implementation and independent security review proceed; enforcement in production needs separate approval |
+| OliveTin: a dedicated, unambiguous authorisation group, not username lists | Compatibility, group mapping and migration are verified before any live change is proposed |
+| Audible one-time mode: a GET never changes state | Finalisation moves to a CSRF-protected POST; an empty selection cannot finalise; the whole lifecycle is tested |
+| PR #11 (shelves-first home) is closed as superseded by #23 | After checking that its still-relevant requirements are carried by the replacement |
+| CI: offline verification stays required; missing GitHub Actions and axe-core results are stated, never assumed | Billing is an owner dependency, not permission to weaken a check |
+| **Artwork keeps each library's natural shape** (posters, audiobook squares, books, comics, video stills) | DESIGN.md Shapes and Media components; replaces the one-square-crop rule for media artwork |
+| **Artwork keeps its original colour** inside the monochrome interface | No greyscale treatment of library artwork |
+| **Search gets a visible, labelled entry near the primary navigation** once search works | The Watch, Listen, Read, Request, Help order is kept |
+| **The 720px browsing column stays** for now, subject to a desktop review; **Kindle keeps its 640px form column** | Kindle's column becomes a named single-form variant, not drift |
+| **The account menu stays native and script-free** at first | Keyboard, Escape, outside tap, focus and VoiceOver are checked in Safari; a script, if shown to be needed for accessibility, comes as a narrowly scoped CSP exception for separate review |
+| **The compact Home stays**: bounded Continue and New rows, browsing on `/new` | As approved in AVR-452 |
+| Earlier approved direction is preserved | These decisions are not blanket visual approval |
+| **Visual approval of #23, #24, #26 and #27 is pending** (AVR-455): the direction is accepted | Reviewed on a real iPhone in Safari with VoiceOver from a private, fixture-only preview; no UI change that needs it merges before then |
