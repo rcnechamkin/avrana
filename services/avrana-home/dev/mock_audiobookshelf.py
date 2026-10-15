@@ -28,16 +28,16 @@ if str(HOME) not in sys.path:
     sys.path.insert(0, str(HOME))
 
 
-def _load_fake():
-    """Load tests/fake_abs.py BY PATH (read-only reuse of the adapter's fixtures). Importing it as
-    `tests.fake_abs` would run tests/__init__.py, which installs the adapter suite's socket guard."""
-    spec = importlib.util.spec_from_file_location("avrana_fake_abs", HOME / "tests" / "fake_abs.py")
+def load_fake(filename: str, cls: str):
+    """Load tests/<filename> BY PATH (read-only reuse of an adapter's fixtures). Importing it as
+    `tests.<name>` would run tests/__init__.py, which installs the adapter suite's socket guard."""
+    spec = importlib.util.spec_from_file_location("avrana_" + filename[:-3], HOME / "tests" / filename)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    return module.FakeAudiobookshelf
+    return getattr(module, cls)
 
 
-FakeAudiobookshelf = _load_fake()
+FakeAudiobookshelf = load_fake("fake_abs.py", "FakeAudiobookshelf")
 
 MOCK_KEY = "mock-api-key-not-real"
 MODES = ("ok", "slow", "down", "500", "malformed")
@@ -45,6 +45,10 @@ LOOPBACK = ("127.0.0.1", "::1")
 
 
 class MockAudiobookshelf:
+    FAKE = staticmethod(lambda: FakeAudiobookshelf())     # subclasses swap in another service's fake
+    MALFORMED = b'{"users": [{"id": "aaaa'
+    NAME = "audiobookshelf"
+
     def __init__(self, host: str = "127.0.0.1", port: int = 0, mode: str = "ok",
                  slow_seconds: float = 5.0, api_key: str = MOCK_KEY):
         if host not in LOOPBACK:
@@ -54,13 +58,13 @@ class MockAudiobookshelf:
         self.set_mode(mode)
         self.slow_seconds = slow_seconds
         self.api_key = api_key
-        self.fake = FakeAudiobookshelf()
+        self.fake = self.FAKE()
         self.requests = []
         mock = self
 
         class Handler(BaseHTTPRequestHandler):
             protocol_version = "HTTP/1.0"
-            server_version = "mock-audiobookshelf"
+            server_version = "mock-" + mock.NAME
 
             def log_message(self, *a):
                 pass
@@ -155,7 +159,7 @@ class MockAudiobookshelf:
             return self._send(h, 404, b"{}")
         with self._lock:
             self.requests.append((h.command, path))
-        if self.api_key not in h.headers.get("Authorization", ""):
+        if self.api_key not in (h.headers.get("Authorization", "") + h.headers.get("X-API-Key", "")):
             return self._send(h, 401, b"{}")
         if h.command != "GET":
             return self._send(h, 405, b"{}")
@@ -171,7 +175,7 @@ class MockAudiobookshelf:
         if mode == "500":
             return self._send(h, 500, b"{}")
         if mode == "malformed":
-            return self._send(h, 200, b'{"users": [{"id": "aaaa')
+            return self._send(h, 200, self.MALFORMED)
         status, body, _ctype = self.fake.handle("GET", path, query)
         self._send(h, status, body)
 

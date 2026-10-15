@@ -25,6 +25,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from ..adapters.audiobookshelf import AudiobookshelfAdapter
 from ..adapters.jellyfin import JellyfinAdapter
+from ..adapters.komga import KomgaAdapter
 from ..aggregate import gather, health_summary
 from ..contract import MediaAdapter
 from ..cache import MemberCache
@@ -77,6 +78,11 @@ def build_adapters(settings: Settings, cache: MemberCache) -> list:
         abs_adapter = AudiobookshelfAdapter(abs_transport, timeout=settings.timeout, cache=cache)
         abs_adapter.cache = cache
         adapters.append(abs_adapter)
+    if settings.komga_base_url:                   # off unless configured; mock mode only (settings.py)
+        komga_transport = UrllibTransport(settings.komga_base_url, {"X-API-Key": settings.komga_token})
+        komga_adapter = KomgaAdapter(komga_transport, timeout=settings.timeout, cache=cache)
+        komga_adapter.cache = cache
+        adapters.append(komga_adapter)
     return adapters
 
 
