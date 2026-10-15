@@ -210,6 +210,15 @@ result itself (the connection is gone afterwards) and no further Refresh.
 and one-time mode cannot be chosen with nothing selected. Only books the member chose (they have a job) count
 towards "all done": books a scan found already in Avrana no longer do, so they alone can never revoke the
 authorization. A chosen book that turns out to be present still counts, so the one-time promise holds.
+
+**A failed book keeps the authorization.** A chosen book that failed counts as unfinished, so the import is
+not finished and the member can still **Retry** it (or disconnect themselves). Once the retried book is in,
+the next Refresh or scheduler pass finishes the import.
+
+**Finishing happens once.** Before revoking, the finisher claims the connection with one conditional update
+(`connected` to `finishing`). Overlapping Refreshes, or Refresh and the scheduler, therefore revoke and audit
+exactly once; the others do nothing. A failed revoke hands the claim back (with the sanitized failure), and a
+claim left by a process that stopped mid-revoke is released when the connector starts.
 `tests/test_once_lifecycle.py` covers the whole lifecycle, including CSRF and isolation between members.
 
 ### Credential-free UI walkthrough (mock companion)

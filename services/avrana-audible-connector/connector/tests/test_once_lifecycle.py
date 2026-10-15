@@ -138,3 +138,158 @@ def test_the_scheduler_still_finishes_without_a_browser(client, app):
     asyncio.run(scheduler_tick(app.state))
     asyncio.run(scheduler_tick(app.state))
     assert len(app.state.companion.revoked) == 1 and _state(app, "alice") == "disconnected"
+
+
+# --- A failed book keeps the authorization (verifier finding M1) ----------------------------------
+
+def _retry(client, app, sub, asin):
+    return client.post("/contribute/audible/retry", data={"asin": asin, "csrf_token": csrf(app, sub)},
+                       headers=hdr(sub), follow_redirects=False)
+
+
+def test_a_failed_book_keeps_the_authorization_so_it_can_be_retried(client, app):
+    connect(client, app, "alice")
+    app.state.companion.fail_backup_asins = {"B000000AA2"}
+    _choose(client, app, "alice", asins=("B000000AA1", "B000000AA2"))
+    assert refresh(client, app, "alice").status_code == 303
+    from app.sync import scheduler_tick
+    asyncio.run(scheduler_tick(app.state))
+    assert app.state.companion.revoked == [], "one import failed, yet the authorization was removed"
+    assert _state(app, "alice") == "connected"
+    page = client.get(PROGRESS, headers=hdr("alice"))
+    assert "Retry" in page.text and "disconnected and nothing was kept" not in page.text
+    # the member can still retry, and the import finishes once the retried book is in
+    app.state.companion.fail_backup_asins = set()
+    assert _retry(client, app, "alice", "B000000AA2").status_code in (302, 303)
+    r = refresh(client, app, "alice")
+    assert r.status_code == 200 and "disconnected and nothing was kept" in r.text
+    assert len(app.state.companion.revoked) == 1 and _state(app, "alice") == "disconnected"
+
+
+def test_one_members_failure_does_not_hold_or_finish_anothers_import(client, app):
+    connect(client, app, "alice")
+    connect(client, app, "bob")
+    app.state.companion.fail_backup_asins = {"B000000AA1"}
+    _choose(client, app, "bob")          # bob's only book fails
+    app.state.companion.fail_backup_asins = set()
+    _choose(client, app, "alice")        # alice's succeeds
+    refresh(client, app, "bob")
+    refresh(client, app, "alice")
+    assert _state(app, "alice") == "disconnected"
+    assert _state(app, "bob") == "connected", "alice finishing removed bob's authorization"
+    assert len(app.state.companion.revoked) == 1
+
+
+# --- Concurrent finishes revoke exactly once (verifier finding M2) --------------------------------
+
+def _ready_to_finish(client, app, subs):
+    """Choose a book for each member in one-time mode and bring the imports in, without finishing."""
+    from app import jobs
+    from app.repo import get_connection_for_sub
+    for sub in subs:
+        connect(client, app, sub)
+        _choose(client, app, sub)
+    db = _db(app)
+    try:
+        for sub in subs:
+            row = get_connection_for_sub(db, sub)
+            asyncio.run(jobs.poll_jobs(db, app.state.companion, row["profile_id"], row["id"], sub))
+            assert jobs.all_selected_done(db, row["id"]) is True
+    finally:
+        db.close()
+
+
+def _slow_revoke(app):
+    fake = app.state.companion
+
+    async def revoke(profile_id):
+        await asyncio.sleep(0.02)   # a real companion yields here; overlapping callers interleave
+        fake.revoked.append(profile_id)
+        return {"status": "revoked"}
+    fake.revoke = revoke
+
+
+def _audits(app, sub):
+    db = _db(app)
+    try:
+        return db.execute("SELECT COUNT(*) FROM audit WHERE event='account_disconnected' AND authentik_sub=?",
+                          (sub,)).fetchone()[0]
+    finally:
+        db.close()
+
+
+def test_two_overlapping_finishes_revoke_and_audit_exactly_once(client, app):
+    from app.repo import get_connection_for_sub
+    from app.sync import finalize_once_mode
+    _ready_to_finish(client, app, ["alice"])
+    _slow_revoke(app)
+
+    async def finish():
+        db = _db(app)
+        try:
+            row = get_connection_for_sub(db, "alice")
+            return await finalize_once_mode(db, app.state.companion, row, "alice")
+        finally:
+            db.close()
+
+    async def both():
+        return await asyncio.gather(finish(), finish(), finish())
+    results = asyncio.run(both())
+    assert sorted(results) == [False, False, True]
+    assert len(app.state.companion.revoked) == 1 and _audits(app, "alice") == 1
+    assert _state(app, "alice") == "disconnected"
+
+
+def test_refresh_overlapping_the_scheduler_revokes_once_and_spares_other_members(client, app):
+    from app.repo import get_connection_for_sub
+    from app.sync import finalize_once_mode, scheduler_tick
+    _ready_to_finish(client, app, ["alice"])
+    connect(client, app, "bob")
+    _choose(client, app, "bob", asins=())   # bob is connected but chose nothing
+    _slow_revoke(app)
+
+    async def refresh_finish():
+        db = _db(app)
+        try:
+            row = get_connection_for_sub(db, "alice")
+            return await finalize_once_mode(db, app.state.companion, row, "alice")
+        finally:
+            db.close()
+
+    async def both():
+        await asyncio.gather(refresh_finish(), scheduler_tick(app.state))
+    asyncio.run(both())
+    assert len(app.state.companion.revoked) == 1 and _audits(app, "alice") == 1
+    assert _state(app, "alice") == "disconnected"
+    assert _state(app, "bob") == "connected" and _audits(app, "bob") == 0
+
+
+def test_a_failed_revoke_releases_the_claim_so_it_is_tried_again(client, app):
+    from app.companion_client import CompanionError
+    _ready_to_finish(client, app, ["alice"])
+    fake = app.state.companion
+    real = fake.revoke
+
+    async def broken(profile_id):
+        raise CompanionError("The Audible service is not responding.")
+    fake.revoke = broken
+    r = refresh(client, app, "alice")
+    assert r.status_code == 303 and _state(app, "alice") == "connected"
+    assert _audits(app, "alice") == 0
+    fake.revoke = real
+    assert refresh(client, app, "alice").status_code == 200
+    assert len(fake.revoked) == 1 and _state(app, "alice") == "disconnected"
+
+
+def test_a_claim_left_by_a_stopped_process_is_released_at_startup(settings, fake):
+    from app.main import create_app
+    from fastapi.testclient import TestClient
+    first = create_app(settings)
+    first.state.companion = fake
+    c = TestClient(first)
+    _ready_to_finish(c, first, ["alice"])
+    db = _db(first)
+    db.execute("UPDATE connection SET state='finishing' WHERE authentik_sub='alice'")
+    db.close()
+    second = create_app(settings)
+    assert _state(second, "alice") == "connected"

@@ -170,11 +170,13 @@ def retry_failed(conn: sqlite3.Connection, cid: str, asin: str) -> bool:
 
 
 def all_selected_done(conn: sqlite3.Connection, cid: str) -> bool:
-    """True when there are selected/active books and none remain unfinished."""
+    """True when the member chose books and every one is in. A failed book counts as unfinished,
+    so a one-time import keeps the Audible authorization and the member can still Retry it."""
     row = one(
         conn,
         "SELECT "
-        " SUM(CASE WHEN b.status IN ('selected','queued','importing') THEN 1 ELSE 0 END) AS pending,"
+        " SUM(CASE WHEN b.status IN ('selected','queued','importing','failed') THEN 1 ELSE 0 END)"
+        "   AS pending,"
         # 'already' counts as done: the book is in Avrana, which is what the user asked for.
         # Without it, a once-mode run whose only selection was already present would leave
         # pending=0/done=0 and never revoke the stored Audible authorization. Only books the
