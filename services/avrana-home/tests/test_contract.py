@@ -98,6 +98,21 @@ class ContractBehaviourTests(unittest.TestCase):
         self.assertIs(self.adapter.fetch_artwork(make_principal("member-a"), "r").state,
                       SectionState.OK)
 
+    def test_cached_artwork_is_refetched_once_artwork_ttl_passes(self):
+        """ARTWORK_TTL bounds how long artwork for an item hidden from a member can be served from
+        cache (review of #31: nothing pinned it)."""
+        from avrana_home.contract import ARTWORK_TTL
+        self.assertLessEqual(ARTWORK_TTL, 300.0)
+        who = make_principal("member-a")
+        self.adapter.fetch_artwork(who, "r")
+        first = self.adapter.calls
+        self.clock.advance(ARTWORK_TTL - 1)
+        self.adapter.fetch_artwork(who, "r")
+        self.assertEqual(self.adapter.calls, first, "artwork should be served from cache within the TTL")
+        self.clock.advance(2)
+        self.adapter.fetch_artwork(who, "r")
+        self.assertGreater(self.adapter.calls, first, "artwork outlived ARTWORK_TTL in the cache")
+
 
 if __name__ == "__main__":
     unittest.main()
