@@ -184,7 +184,7 @@ h3 { margin: 0; font-weight: 400; font-size: 1.35rem; line-height: 1.2; letter-s
 .row .meta { display: flex; flex-direction: column; gap: 0.125rem; min-width: 0; }
 .row:hover .t { text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 0.2em; }
 .row:hover .art { border-color: var(--paper); }
-@media (max-width: 35rem) { .row .art { width: 3rem; } }
+@media (max-width: 35rem) { .row .art, .w-still .row .art, .w-square .row .art { width: 3rem; } }
 
 /* ---- Title page (AVR-426): the cover beside the words where there is room, above them on a phone ---- */
 .title-page { display: grid; grid-template-columns: minmax(0, 11rem) minmax(0, 1fr); gap: 1.5rem; align-items: start; }

@@ -288,9 +288,16 @@ class HomePreviewTests(unittest.TestCase):
         for word in ('Movies and TV', 'movies and TV', 'Audiobooks', 'Comics'):
             self.assertNotIn(word, re.sub(r'<[^>]+>', ' ', books))
 
+    def test_a_restricted_member_finds_its_own_titles_with_or_without_accents(self):
+        for q in ('walden', 'WALDEN', 'bronte', 'jane eyre'):
+            text = self.body('healthy', '/search', q=q, who='books')
+            self.assertIn('href="/title/', text, q)
+            self.assertIn('1 found.', text, q)
+
     def test_every_result_says_where_it_lives_and_opens_its_title_page(self):
         text = self.body('healthy', '/search', q='the')
         rows = re.findall(r'<a class="row" href="([^"]+)">(.*?)</a>', text, re.S)
+        self.assertIn(f'{len(rows)} found.', text)                # the count is the number of rows
         self.assertGreater(len(rows), 4)
         for href, row in rows:
             self.assertTrue(href.startswith('/title/'), href)
@@ -300,6 +307,11 @@ class HomePreviewTests(unittest.TestCase):
     def test_search_says_what_could_not_be_searched_once(self):
         degraded = re.sub(r'<[^>]+>', ' ', self.body('degraded', '/search', q='the'))
         self.assertIn('Movies and TV were not searched', degraded)
+        self.assertEqual(1, degraded.count('Movies and TV'), 'the outage is said once on a search page')
+        # a library still answering: "nothing called" is only claimed for the libraries that did
+        slow = re.sub(r'<[^>]+>', ' ', self.body('slow', '/search', q='dracula'))
+        self.assertIn('in the libraries that answered', slow)
+        self.assertNotIn('in your libraries', slow)
         self.assertNotIn('Metropolis', degraded)
         slow = self.body('slow', '/search', q='the')
         self.assertIn('Audiobooks are taking longer than usual', slow)
@@ -337,6 +349,8 @@ class HomePreviewTests(unittest.TestCase):
         self.assertNotIn('class="button"', text)
         self.assertNotIn('Metropolis', re.sub(r'<[^>]+>', ' ', text.split('<main', 1)[1]))
         self.assertEqual(1, text.count('Movies and TV are unavailable right now.'))
+        # every library down: the operator's notice stays, it says more than the sentence
+        self.assertIn('offline this evening', self.body('unavailable', '/title/metropolis'))
         slow = self.body('slow', '/title/moby-dick')
         self.assertNotIn('class="button"', slow)
         self.assertIn('Try again', slow)

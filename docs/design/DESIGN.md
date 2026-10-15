@@ -382,7 +382,8 @@ The New page's grid of media cards: three columns on a phone, six at 720px. Same
 - Results grouped by library under Subtitle headings, each group a ruled list (List row). A row is
   one link: the cover at a fixed width (60px, 48px on phones) in its own shape, the title, its
   line, and "In Movies and TV", so a row read alone says where the title lives.
-- A count in words before the groups ("8 found."), announced as a status.
+- A count before the groups ("8 found."), announced as a status. Case, accents and punctuation do
+  not matter to a search ("bronte" finds Brontë).
 - Only libraries the member can use are searched. "Nothing called ... in your libraries" reads the
   same whether the title is in a library the member cannot use or nowhere at all.
 
@@ -414,7 +415,7 @@ seconds says so and offers "Try again", a plain link to the same page.
 | Continue | "Audiobooks are taking longer than usual." and Try again; other items shown | "Nothing in progress. Whatever you start in a library appears here, ready to pick up where you stopped." | Its items are left out; the banner says why | Not shown | Not shown | Not shown |
 | New row | The same sentence on that tab, and Try again | "Nothing new in audiobooks this week." or "Nothing new this week." | No tab for it | Not shown | Not shown | Not shown |
 | New page | The same sentence, and Try again | "Nothing new here this week." | No tab for it | "Movies and TV, audiobooks, books and comics are unavailable right now." | "No library is shared with this account yet. Ask the person who invited you, or read Help." | "Sign in to see the libraries shared with you." |
-| Search | "Audiobooks are taking longer than usual, so nothing from them is shown yet." and Try again; other results shown | "Nothing called "…" in your libraries. Check the spelling, or ask for it with Request." | "Movies and TV were not searched, because they are unavailable right now." | "… are unavailable right now, so nothing can be searched. Try again later, or read Help." Field and button disabled | As the New page | As the New page |
+| Search | "Audiobooks are taking longer than usual, so nothing from them is shown yet." and Try again; other results shown, or "Nothing called "…" in the libraries that answered." | "Nothing called "…" in your libraries. Check the spelling, or ask for it with Request." | "Movies and TV were not searched, because they are unavailable right now." (in place of the banner) | "… are unavailable right now, so nothing can be searched. Try again later, or read Help." Field and button disabled | As the New page | As the New page |
 | Title page | "Audiobooks are taking longer than usual." and Try again; no action | No progress: the action is the plain verb ("Watch in …") | "Movies and TV are unavailable right now. This title will be here when they are back." No title, no action | As one library down | Not Found | Not Found |
 | Places bar | Unchanged | Unchanged | Struck through, not a link | Every library struck through | Request and Help | Help, and Sign in in place of Account |
 

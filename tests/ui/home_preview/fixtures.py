@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import html
+import unicodedata
 
 STATES = {
     "healthy": "Healthy",
@@ -284,7 +285,9 @@ def _listed(keys) -> str:
 
 
 def _fold(text: str) -> str:
-    return " ".join("".join(c for c in text.casefold() if c.isalnum() or c.isspace()).split())
+    """Case, accents and punctuation do not matter: "bronte" finds "Brontë"."""
+    text = unicodedata.normalize("NFKD", text.casefold())
+    return " ".join("".join(c for c in text if c.isalnum() or c.isspace()).split())
 
 
 def search_page(state: str, query: str = "", who: str = "member") -> dict:
@@ -307,6 +310,7 @@ def search_page(state: str, query: str = "", who: str = "member") -> dict:
     said = []
     if gone:
         said.append(f"{_listed(gone)} were not searched, because they are unavailable right now.")
+        notice = None if state == "degraded" else notice   # said once: this sentence replaces the banner
     if slow:
         said.append(f"{_listed(slow)} are taking longer than usual, so nothing from them is shown yet.")
     if not query:
@@ -320,7 +324,9 @@ def search_page(state: str, query: str = "", who: str = "member") -> dict:
                 if t["lib"] == key and words and all(w in _fold(t["title"] + " " + t["line"]) for w in words)]
         if hits:
             groups.append({"key": key, "name": LIBRARY_NAMES[key], "items": sorted(hits, key=lambda t: t["title"])})
-    return dict(base, groups=groups, said=said, wait=bool(slow), none_found=not groups)
+    # with a library still to answer, "nothing called" is only true of the libraries that did
+    return dict(base, notice=notice, groups=groups, said=said, wait=bool(slow), none_found=not groups,
+                partial=bool(slow or gone), found=sum(len(g["items"]) for g in groups))
 
 
 def title_page(state: str, slug: str, who: str = "member") -> dict | None:
@@ -336,7 +342,11 @@ def title_page(state: str, slug: str, who: str = "member") -> dict | None:
             "slug": slug, "lib_name": LIBRARY_NAMES[lib], "item": None, "said": "", "wait": False}
     if status[lib] == "gone":
         # said once: the page's own sentence replaces the notice that says the same thing
-        return dict(base, notice=None, said=f"{GONE[lib]} This title will be here when they are back.")
+        # said once: the page's own sentence replaces the notice that says the same thing, but an
+        # operator's notice (every library down) says something more and stays
+        mine = [k for k, v in status.items() if v != "absent"]
+        keep = notice if all(status[k] == "gone" for k in mine) else None
+        return dict(base, notice=keep, said=f"{GONE[lib]} This title will be here when they are back.")
     if status[lib] == "slow":
         return dict(base, said=SLOW[lib], wait=True)
     resume = "done" in t and state != "empty"

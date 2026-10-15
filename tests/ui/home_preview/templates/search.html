@@ -45,9 +45,13 @@
   <section aria-labelledby="h-results">
     <h2 id="h-results" class="sr">Results</h2>
     {% if none_found %}
-    <p class="said" role="status">Nothing called &ldquo;{{ query }}&rdquo; in your libraries. Check the spelling, or ask for it with <a class="link" href="/stop?to=Request">Request</a>.</p>
+    {% if partial %}
+    <p class="said" role="status">Nothing called &ldquo;{{ query }}&rdquo; in the libraries that answered.</p>
     {% else %}
-    <p class="said" role="status">{{ groups | sum(attribute='items', start=[]) | length }} found.</p>
+    <p class="said" role="status">Nothing called &ldquo;{{ query }}&rdquo; in your libraries. Check the spelling, or ask for it with <a class="link" href="/stop?to=Request">Request</a>.</p>
+    {% endif %}
+    {% else %}
+    <p class="said" role="status">{{ found }} found.</p>
     {% for g in groups %}
     <section class="found" aria-labelledby="h-{{ g.key }}">
       <h3 id="h-{{ g.key }}">{{ g.name }}</h3>
