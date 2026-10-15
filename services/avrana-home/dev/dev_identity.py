@@ -34,10 +34,10 @@ LOOPBACK_LITERALS = ("127.0.0.1", "::1")
 # Invented members. Each exists in the mock Jellyfin fixtures (or deliberately does not).
 DEV_IDENTITIES: Mapping[str, dict] = {
     "member-a": {"name": "Member A", "email": "member-a@example.test",
-                 "groups": "avrana-users|avrana-videos",
-                 "note": "Movies and TV; has a Jellyfin account with items in progress"},
+                 "groups": "avrana-users|avrana-videos|avrana-audiobooks",
+                 "note": "Movies and TV plus Audiobooks; items in progress in both"},
     "member-b": {"name": "Member B", "email": "member-b@example.test",
-                 "groups": "avrana-users|avrana-videos|avrana-books|avrana-comics",
+                 "groups": "avrana-users|avrana-videos|avrana-audiobooks|avrana-books|avrana-comics",
                  "note": "Movies and TV (different items), books, comics"},
     "member-c": {"name": "Member C", "email": "member-c@example.test",
                  "groups": "avrana-users|avrana-videos",
@@ -75,6 +75,11 @@ def check_startup(*, enabled: bool, host: str, settings) -> _Checked:
         raise DevIdentityRefused("the development identity refuses a real upstream configuration")
     if not is_loopback_host(url_host(settings.jellyfin_base_url) or ""):
         raise DevIdentityRefused("the development identity needs a loopback mock upstream URL")
+    if settings.audiobookshelf_base_url and not is_loopback_host(
+            url_host(settings.audiobookshelf_base_url) or ""):
+        raise DevIdentityRefused("the development identity needs a loopback mock upstream URL")
+    if settings.audiobookshelf_token not in ("", MOCK_API_KEY):
+        raise DevIdentityRefused("the development identity refuses a non-mock upstream key")
     if settings.jellyfin_api_key != MOCK_API_KEY:
         raise DevIdentityRefused("the development identity refuses a non-mock upstream key")
     return _SEAL

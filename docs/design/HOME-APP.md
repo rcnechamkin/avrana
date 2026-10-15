@@ -244,6 +244,8 @@ variables (never the values).
 | `JELLYFIN_BASE_URL` | `http://127.0.0.1:18096` (mock mode only) | http(s), no credentials, query, fragment or trailing slash. Required in real mode. In mock mode a non-loopback host is an error. |
 | `JELLYFIN_API_KEY` / `JELLYFIN_API_KEY_FILE` | none | Real mode only; exactly one; the file form is preferred (`docs/SECRETS.md`). Never in a repr, log line or error message. |
 | `HOME_GATES_VERIFIED` | unset | Real mode requires the literal `yes`: an operator's statement that G1 and G2 are applied and verified. |
+| `AUDIOBOOKSHELF_BASE_URL` | unset (adapter not built) | Optional. Same URL rules as Jellyfin. Mock mode: loopback only. Real mode: needs the token too, and the same gates. |
+| `AUDIOBOOKSHELF_TOKEN` / `AUDIOBOOKSHELF_TOKEN_FILE` | none | Real mode only, with the URL, exactly one of the two; a token in mock mode is an error. Never in a repr, log line or error message. |
 | `HOME_TIMEOUT` | `2.0` | Per-call seconds, 0.1 to 10. |
 | `HOME_SECTION_LIMIT` | `12` | Items per section, 1 to 50. |
 | `HOME_HEALTH_DETAIL` | `loopback` | `loopback` or `off`. |
@@ -255,6 +257,8 @@ Real upstream adapters stay disabled unless `HOME_SECTIONS=on` **and** `HOME_UPS
 **and** `HOME_GATES_VERIFIED=yes` **and** an explicit URL and key are present. With the flag off no
 transport or adapter is even constructed. The development identity is deliberately **not** a
 setting.
+
+Audiobookshelf (AVR-381): the adapter is registered next to Jellyfin only when `AUDIOBOOKSHELF_BASE_URL` is set; it adds one *Continue listening* section (the adapter offers no recent list, so that section is `empty` and renders nothing). Dev: `run_dev.py --abs-mock-port 18097` starts `dev/mock_audiobookshelf.py`, which serves the adapter's own synthetic fixtures (`tests/fake_abs.py`, loaded by path, read-only). `member-a` and `member-b` carry the audiobooks group in the dev identities.
 
 ## 8. Development stack and the identity shim
 
