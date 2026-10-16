@@ -353,7 +353,7 @@ _URL_HOST = re.compile(r"(?i)\b(https?://)(?!" + _NS_HOSTS + r")([^/\s\"'<>?#]+)
 _HEX32 = re.compile(r"(?<![0-9A-Fa-f])[0-9a-f]{32}(?![0-9A-Fa-f])")
 _UUID = re.compile(r"(?<![0-9A-Fa-f])[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?![0-9A-Fa-f])")
 _ABS_ID = re.compile(r"\bli_[a-z0-9]{6,40}\b")
-_WIN_PATH = re.compile(r"[A-Za-z]:\\[^\s\"'<>|]*|\\\\[\w.$\-]+\\[^\s\"'<>]*"
+_WIN_PATH = re.compile(r"\\\\[?.]\\[^\s\"'<>]*|[A-Za-z]:\\[^\s\"'<>|]*|\\\\[\w.$\-]+\\[^\s\"'<>]*"
                        # also file:// URLs, forward-slash drive paths (c:/users/...) and //host/share UNC paths
                        r"|(?i:file:/{2,3})[^\s\"'<>]+|(?<![A-Za-z0-9])[A-Za-z]:/[^\s\"'<>|]+"
                        r"|(?<![:/\w])//[\w.$\-]+/[^\s\"'<>]+")
@@ -374,8 +374,10 @@ _TITLE_KEYS = frozenset({
     "publisher", "comment", "titlesort", "sorttitle", "forcedsorttitle", "artists", "albumartist", "label"})
 _PATH_KEYS = frozenset({"path", "paths", "folder", "folders", "rootfolder", "directory", "file", "filename",
                         "fullpath", "relpath", "libraryfolders", "url", "ffprobecache"})
+_PATH_KEY_SUFFIX = re.compile(r"(?i)(?:path|paths|folder|filename)$")     # coverPath, metadataPath, ...
+_TAG_KEY = re.compile(r"(?i)(?:tags?|labels?)(?:selected|allow|exclude|accessible)?$")   # member labels: free text
 _USER_KEYS = frozenset({"username", "username", "login", "displayname", "user", "owner", "createdby"})
-_ID_KEY = re.compile(r"(?i)(?:^|[a-z])ids?$")
+_ID_KEY = re.compile(r"(?i)(?:^|[a-z])ids?$|devices?$")
 
 
 def _label(n: int) -> str:
@@ -435,6 +437,11 @@ class Redactor:
     def _title(self, value: str) -> str:
         if value not in self.titles:
             self.titles[value] = f"Title {len(self.titles) + 1}"
+        return self.titles[value]
+
+    def _tag(self, value: str) -> str:
+        if value not in self.titles:
+            self.titles[value] = f"Tag {len(self.titles) + 1}"
         return self.titles[value]
 
     # ---- learning (before anything is written) ----
@@ -528,7 +535,7 @@ class Redactor:
         if key and _SENSITIVE_KEY.search(key):
             self.counts["secret"] += 1
             return REDACTED
-        if kl in _PATH_KEYS and not obj.lower().startswith(("http://", "https://")) and (
+        if (kl in _PATH_KEYS or _PATH_KEY_SUFFIX.search(key)) and not obj.lower().startswith(("http://", "https://")) and (
                 "/" in obj or "\\" in obj):
             self.counts["path"] += 1
             return "[path]"
@@ -540,6 +547,9 @@ class Redactor:
                 self.counts["username"] += 1
                 return pseudo
             return obj
+        if _TAG_KEY.search(key) and obj.strip():
+            self.counts["title"] += 1
+            return self._tag(obj)
         if kl in _TITLE_KEYS and obj.strip():
             self.counts["title"] += 1
             return self._title(obj)
@@ -571,7 +581,7 @@ _SCAN_PATTERNS: List[Tuple[str, "re.Pattern[str]"]] = [
                                          r"[^\s\"'&;,<>\]}]{3,}")),
     ("private-key", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")),
     ("host-in-url", re.compile(r"(?i)\bhttps?://(?!host\.invalid\b|" + _NS_HOSTS + r")[^/\s\"'<>?#]+")),
-    ("windows-path", re.compile(r"[A-Za-z]:\\{1,2}[^\s\"'<>|]+|\\\\{1,2}[\w.$\-]+\\{1,2}\w")),
+    ("windows-path", re.compile(r"[A-Za-z]:\\{1,2}[^\s\"'<>|]+|\\\\{1,2}[\w.$\-]+\\{1,2}\w|\\\\{1,2}[?.]\\{1,2}\w")),
     ("unix-path", _UNIX_PATH),
     ("file-url-or-slash-path", re.compile(r"(?i:file:/{2,3})[^\s\"'<>]+|(?<![A-Za-z0-9])[A-Za-z]:/[^\s\"'<>|]+"
                                           r"|(?<![:/\w])//[\w.$\-]+/[^\s\"'<>]+")),

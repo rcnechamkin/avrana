@@ -288,6 +288,19 @@ class FinalScan(unittest.TestCase):
         # URLs and API routes are not paths
         self.assertEqual([], cap.scan_for_secrets("https://host.invalid/x and /api/v1/books/ID00000001"))
 
+    def test_re_review_leaks_are_closed(self):
+        r = cap.Redactor([], [], "owner1", [])
+        body = {"media": {"coverPath": "/audiobooks/Author Name/Book Title/cover.jpg"},
+                "itemTagsSelected": ["Family Secret"], "Policy": {"BlockedTags": ["kids-only-ann"],
+                                                                  "EnabledDevices": ["deviceidABC123def456"]},
+                "labelsAllow": ["anns-shelf"], "note": "\\\\?\\UNC\\srv\\share\\ann.mkv"}
+        out = json.dumps(r.redact_json(body))
+        for bad in ("Author Name", "Book Title", "Family Secret", "kids-only-ann", "deviceidABC123def456",
+                    "anns-shelf", "srv", "ann.mkv"):
+            self.assertNotIn(bad, out)
+        self.assertEqual([], cap.scan_for_secrets(out))
+        self.assertIn("windows-path", cap.scan_for_secrets("x \\\\?\\UNC\\srv\\share\\f y"))
+
     def test_a_file_that_still_matches_is_refused_not_written(self):
         leak = "Zx9Qw8Er7Ty6Ui5Op4As3Df2Gh1Jk0LmNb"        # secret-like, under an innocent key
         resp = cap.Response(200, json.dumps({"Items": [{"Id": JF_ITEM, "Note": leak}]}).encode(), "application/json")
