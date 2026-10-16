@@ -1,4 +1,4 @@
-"""Audiobookshelf read-only member adapter: "Continue listening", covers and search.
+"""Audiobookshelf read-only member adapter: "Continue listening", covers, search and one title (title pages).
 
 Status: proposed, not deployed. Standard library only. Proven only against HAND-WRITTEN fixtures that
 are unverified against the deployed Audiobookshelf; a recorded, read-only contract check is a separate,
@@ -37,12 +37,14 @@ How it stays member-scoped with an ADMIN-capable token (Audiobookshelf has no im
     `GET /api/libraries/{id}/search?q=&limit=` and EVERY hit goes through `_visible` (library, tags,
     explicit, book, not missing or invalid), exactly as the section does. A hit from a library that
     was not searched, or more hits than asked for, is `UpstreamMisbehaved`; a non-object body or a
-    missing hit list is `UpstreamMalformed` (UNAVAILABLE, never an empty or unfiltered list). Results
-    are never cached (base class). UNVERIFIED response shape, recalled from the public API docs:
-    `{"book": [{"libraryItem": {expanded library item}, "matchKey": ..., "matchText": ...}], "tags":
-    [...], "authors": [...], "series": [...], "narrators": [...]}` for a book library (`podcast` in
-    place of `book` for a podcast library); `GET /api/libraries` as `{"libraries": [{"id", "name",
-    "mediaType"}, ...]}`.
+    missing hit list is `UpstreamMalformed` (UNAVAILABLE, never an empty or unfiltered list); if EVERY
+    library searched answers 404, nothing was searched and the group is UNAVAILABLE (`RouteMissing`), never
+    "no matches". Results are never cached (base class). Response shape doc-verified 2026-10-16 against the
+    server source (not live): `{"book": [{"libraryItem": {expanded library item}}], "narrators", "tags",
+    "genres", "series", "authors"}` for a book library; `GET /api/libraries` as `{"libraries": [{"id",
+    "name", "mediaType"}, ...]}` (UNVERIFIED).
+  * One title (`item`, for the title page): the member's own record first, then the item through
+    `_visible` exactly as a cover; a saved position only from that member's own progress entry.
 
 Route and field names are recalled from Audiobookshelf's public API documentation and are UNVERIFIED.
 """
@@ -57,7 +59,8 @@ from ..contract import (ArtworkRef, ArtworkResult, DEFAULT_LIMIT, Kind, MappingF
 from ..principal import MemberPrincipal
 from ..resilience import (DEFAULT_TIMEOUT, ItemGone, RouteMissing, Transport, UpstreamMalformed,
                           UpstreamMisbehaved, UserGone)
-from ._base import GuardedAdapter, Route, bounded_int, lookup_username, match_exactly_one, member_override
+from ._base import (GuardedAdapter, Route, bounded_int, lookup_username, match_exactly_one, member_override,
+                    year_from)
 from ._base import GuardedTransport as _Guard
 
 _UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
@@ -157,7 +160,7 @@ def _require_active(record: Dict[str, Any]) -> None:
 
 class AudiobookshelfAdapter(GuardedAdapter):
     service = Service.AUDIOBOOKSHELF
-    not_offered = frozenset({"recent", "item"})
+    not_offered = frozenset({"recent"})
     artwork_rechecks_visibility = True     # visibility is per member: re-checked before any cached cover
 
     def __init__(self, transport: Transport, timeout: float = DEFAULT_TIMEOUT, *,
@@ -173,9 +176,6 @@ class AudiobookshelfAdapter(GuardedAdapter):
     # -- what this adapter does not offer: no upstream call, nothing cached ----------------
     def recent_items(self, principal: MemberPrincipal, limit: int = DEFAULT_LIMIT) -> SectionResult:
         return self._not_offered(principal, "recent")
-
-    def item(self, principal: MemberPrincipal, item_id: str) -> SectionResult:
-        return self._not_offered(principal, "item")
 
     def fetch_artwork(self, principal: MemberPrincipal, ref: str) -> ArtworkResult:
         # Group first, then the ref's exact shape, both before any upstream call or cache read.
@@ -243,14 +243,17 @@ class AudiobookshelfAdapter(GuardedAdapter):
         page = min(MAX_SEARCH_PAGE, limit * 3)
         shown: List[MediaItem] = []
         bad = 0
-        for library_id in self._libraries(guard, budget, access)[:MAX_LIBRARIES]:
+        libraries = self._libraries(guard, budget, access)[:MAX_LIBRARIES]
+        answered = 0
+        for library_id in libraries:
             if len(shown) >= limit:
                 break
             try:
                 body = self._get_json(guard, budget, f"/api/libraries/{library_id}/search",
                                       {"q": query, "limit": str(page)})
             except ItemGone:
-                continue                                  # the library is gone: neutral
+                continue                                  # one library is gone: neutral
+            answered += 1
             if not isinstance(body, dict):
                 raise UpstreamMalformed()
             hits = body.get("book")
@@ -272,9 +275,34 @@ class AudiobookshelfAdapter(GuardedAdapter):
                 bad += status == "bad"
                 if media is not None and len(shown) < limit and all(m.id != media.id for m in shown):
                     shown.append(media)
+        if libraries and not answered:
+            # Every library the member may search answered 404: nothing was searched, so this is NOT "no
+            # matches" (review of #53). Most likely the search route itself changed: service-wide drift.
+            raise RouteMissing(404)
         if not shown and bad:
             raise UpstreamMalformed()                     # nothing usable and some drift: never "empty"
         return SectionResult.of(Service.AUDIOBOOKSHELF, "search", tuple(shown))
+
+    # -- one title, for the title page (AVR-384): the same checks as a cover --------------------
+    def _item(self, user: UpstreamUser, item_id: str) -> SectionResult:
+        """The item if THIS member may see it (`_visible` with the member's own permissions, exactly as
+        search and covers), else EMPTY. A saved position comes only from the member's own progress entry
+        in their own record (identity checked on every entry by `_candidates`); finished or hidden entries
+        are not a position."""
+        uid = user.upstream_id
+        guard = self._guard.bind(uid)
+        budget = self._budget()
+        record, access = self._member_access(guard, budget, uid)   # BEFORE the item is fetched
+        try:
+            raw = self._get_json(guard, budget, f"/api/items/{item_id}", {"expanded": "1"})
+        except ItemGone:
+            return SectionResult.of(Service.AUDIOBOOKSHELF, "item", ())
+        mine = next((e for e in self._candidates(record.get("mediaProgress"), uid) if e[1] == item_id), None)
+        fraction, position, duration = (mine[2], mine[3], mine[4]) if mine else (None, None, None)
+        media, _status = self._visible(raw, item_id, access, fraction, position, duration)
+        # A malformed item (a permission field missing or mistyped) is not shown: it fails closed to "hidden",
+        # the same as forbidden or unknown, so its existence is not revealed either.
+        return SectionResult.of(Service.AUDIOBOOKSHELF, "item", (media,) if media else ())
 
     def _libraries(self, guard, budget, access: _Access) -> List[str]:
         """The library ids to search: the member's own list, or (only when the member's record grants every
@@ -372,6 +400,8 @@ class AudiobookshelfAdapter(GuardedAdapter):
         if raw.get("id") != item_id:
             raise UpstreamMisbehaved()                    # the lookup answered with a different item
         library_id, media = raw.get("libraryId"), raw.get("media")
+        if isinstance(library_id, str) and access.libraries is not None and library_id not in access.libraries:
+            return None, "filtered"                       # a library this member may not use: first, whatever else is odd
         meta = media.get("metadata") if isinstance(media, dict) else None
         tags = media.get("tags") if isinstance(media, dict) else None
         if (not isinstance(library_id, str) or not isinstance(meta, dict) or not isinstance(tags, list)
@@ -393,4 +423,5 @@ class AudiobookshelfAdapter(GuardedAdapter):
                          handoff_url=build_handoff_url(Service.AUDIOBOOKSHELF, item_id),
                          subtitle=clean_text(meta.get("authorName")), series=clean_text(meta.get("seriesName")),
                          progress_fraction=fraction, position_seconds=position,
-                         duration_seconds=duration, artwork=artwork), "ok"
+                         duration_seconds=duration, artwork=artwork,
+                         creator=clean_text(meta.get("authorName")), year=year_from(meta.get("publishedYear"))), "ok"

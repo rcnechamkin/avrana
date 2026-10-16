@@ -84,7 +84,7 @@ behaviour, applied to the stricter parser.
 | I-5 | Non-ASCII username (UTF-8, latin-1 or mojibake) | Latin-1 decoded and shown | No principal (adapter layer: `principal_from_raw_headers` refuses any non-ASCII username) | **Keep (owner decision).** Non-ASCII usernames get no principal, so a mojibake name can never map to another account. A non-ASCII display name is shown only if it is valid UTF-8. Tested over a real socket. |
 | I-6 | Display name or e-mail that is duplicated, over 254 characters or contains control characters | Shown, whitespace-stripped | Omitted from `/account` | **Keep.** Display-only values never decide anything. |
 | I-7 | Method other than GET and HEAD | 501 from `http.server`, before routing, body echoes the method | 501 from the middleware, before routing and identity, fixed body that does **not** echo the method | **Chosen: 501, not 405.** 501 is what members' clients see today; FastAPI's native 405 would differ per path and add an `Allow` header. Identical for every identity and path; same hygiene headers. |
-| I-8 | Every response | Cache-Control, Referrer-Policy, X-Content-Type-Options (`nosniff`, asserted on every response) | Those three **plus** `Content-Security-Policy: default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'` (no script source) | **Keep.** Exception (AVR-383): `/search` alone sends `form-action 'self'` so its GET form can submit; every other page keeps `'none'`. Exception (Home 2.0, AVR-364): shell pages (Home with sections, Search, Account, Help) add `manifest-src 'self'` for the web app manifest (`app/install.py`); every other response keeps the CSP above unchanged. Inline `<style>` is how the portal is built today; dropping it needs a stylesheet route and the design team's agreement. |
+| I-8 | Every response | Cache-Control, Referrer-Policy, X-Content-Type-Options (`nosniff`, asserted on every response) | Those three **plus** `Content-Security-Policy: default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'` (no script source) | **Keep.** Exception (AVR-383): `/search` alone sends `form-action 'self'` so its GET form can submit; every other page keeps `'none'`, title pages (`/title/<service>/<id>`, AVR-384, no form) included. Exception (Home 2.0, AVR-364): every page that renders the shell (Home with sections, Search, title pages, Account, Help and help topics, and the Read, Request and Watch pages when they wear the shell) adds `manifest-src 'self'` for the web app manifest (`app/install.py`); `respond()` sets it whenever a shell is rendered. Every other response keeps the CSP above unchanged. Inline `<style>` is how the portal is built today; dropping it needs a stylesheet route and the design team's agreement. |
 | I-9 | Protocol-level problems (malformed request line, unknown HTTP version, oversized headers) | Python `http.server` replies (400/505) with the three headers | uvicorn/h11 replies **before the application runs**: 400/431 with no application headers; `HTTP/9.9` is accepted | **Accept.** These replies carry no application data. Documented, tested to contain no page. |
 | I-10 | Connection reuse | HTTP/1.0, one request per connection (pinned by the portal tests so a connection never carries two identities) | uvicorn keeps connections alive | **Accept.** Identity is read per request and no state is per connection; pipelined and reused connections are tested with different identities. |
 | I-11 | `/readyz`, `/home.json`, `/_dev/*` | 404 | `/readyz`: loopback peer only, else 404. `/home.json`: only with `HOME_SECTIONS` on and a valid principal, else 404. `/_dev/*`: 404 (the shim is not part of the app) | **Keep.** Unchanged for anyone who is not an operator on the host or a member with the flag on. |
@@ -214,6 +214,37 @@ One example per state (synthetic, produced by the tests' mock):
 ```
 
 `artwork.ref` is opaque. `GET /art/<ref>` (for example `/art/komga/book/<id>`) serves it, member-scoped: `app/artwork.py` is the one module that calls `fetch_artwork`, with the verified principal and a ref of the exact shape `service/word/id` (`[A-Za-z0-9_-]` only). Unknown service, bad ref, missing group, an item the member may not see, an upstream failure and a refused content type are all the same standard 404. Responses carry `Cache-Control: private, no-store`, `nosniff`, and only `image/jpeg|png|webp` of at most 5 MiB (never SVG or HTML). Section items render `<img src="/art/..." alt=<title> width="80" height="120" loading="lazy">` only when a valid ref exists.
+
+### Search results and title pages (AVR-383/384)
+
+`GET /search?q=` groups results by library, in member language, only for the member's own libraries. Each result
+shows its medium (Movie, Series, Episode, Audiobook, Book, Comic), title, creator and year when the adapter read one,
+and small artwork through `/art/` only. **One link per result**: to the title page for libraries whose adapter offers
+the member-scoped item lookup (Jellyfin, Audiobookshelf, Komga), otherwise (Calibre-Web, OPDS has no single-book
+route) straight to the library, marked "Opens in Books". The title link's accessible name is "<title>, <medium>".
+
+Truthful states, never mixed: results (`N results`, with a note for each library that could not answer); every
+library answered and none matched (`No results`, spelling hint, request offers); some answered with no match and
+some could not answer (`No results`, naming the libraries that could not be searched); **no library could answer**
+(`Not searched`, "could not be searched right now", Try again; never "no matches", never a request offer); only
+not-set-up libraries; no searchable library; invalid term.
+
+Request fallback: only when at least one library answered with no match, and only for the request service that
+fills that library **and** that the member's own catalogue holds (Seerr for Movies and TV; the books request service
+for Books and Audiobooks; the comics request service for Comics). Seerr gets the cleaned term through its documented
+search address (`https://<catalogue host>/search?query=<percent-encoded>`; host from the static catalogue only); the
+others link to their portal route (`/requestabook`, `/requestacomic`), which redirects by the fixed table. Nothing is
+submitted.
+
+`GET /title/<service>/<id>`: the shell masthead, `<h2>` title, artwork in its natural shape, medium and library,
+creator and year, series or episode, progress in words when the member has a saved position, and ONE primary action
+that opens the item in its library: Resume (saved position only) or Watch / Listen / Read. It never says playback
+started. Secondary: Back to search (only when the address carries a term that passes `clean_query`, re-encoded; no
+other query parameter is read), Home, Help. Not permitted, unknown, hidden, malformed or hostile ids and a missing
+identity are the standard 404, identical to an unknown route. An unavailable library is a 503 page "The ... library
+is unavailable right now" with Try again; it says nothing about whether the title exists. The strict CSP applies.
+Every view makes the permission-checked upstream lookup (no cache), so access removed upstream shows at once.
+Hand-off links (results and the primary action) must be on the item's own service host (`contract.HANDOFF_BASE`).
 
 ## 6. Logging
 

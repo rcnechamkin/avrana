@@ -66,7 +66,7 @@ class NotOffered(Setup):
 
     def test_the_declarations(self):
         self.assertEqual(self.jellyfin.not_offered, frozenset())
-        self.assertEqual(self.abs.not_offered, frozenset({"recent", "item"}))
+        self.assertEqual(self.abs.not_offered, frozenset({"recent"}))
         self.assertEqual(self.komga.not_offered, frozenset({"continue"}))
         cwa = CalibreWebAdapter(FakeTransport(FakeKomga(self.clock)), clock=self.clock,
                                 owner_confirms_no_member_restrictions=True)

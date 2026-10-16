@@ -2,7 +2,7 @@
   "_synthetic": "Hand-written SYNTHETIC fixture, written from recollection of the public Audiobookshelf API. Hand-written, unverified against the deployed version; a recorded read-only contract check is a separate owner-approved step before any real data is read. Invented users, ids and titles.",
   "_schema": "Shaped like GET /api/items/{id}?expanded=1, keyed here by library item id. Unverified.",
   "_target_version": "Audiobookshelf 2.36 (the version the contract says is deployed; NOT confirmed against the deployed server)",
-  "_provenance": "GET /api/items/{id}?expanded=1: id, libraryId, mediaType, isMissing, isInvalid, media.metadata.{title,authorName,seriesName,explicit}, media.tags and media.duration are recalled from the public API documentation and not re-checked. SYNTHETIC assumptions: explicit is a boolean on every book; the li_ plus 6-40 lowercase alphanumeric id pattern; HTTP 404 for an unknown item. Live compatibility is UNPROVEN until the owner's recorded read-only capture is compared (ADAPTER-CONTRACT.md 11.7). Covers: media.coverPath (a server path, or null when the item has no cover) and the cover route GET /api/items/{id}/cover?width=&format= (an image body; HTTP 404 without a cover) are also recalled, not re-checked; SYNTHETIC assumption: a null coverPath means no cover.",
+  "_provenance": "GET /api/items/{id}?expanded=1: id, libraryId, mediaType, isMissing, isInvalid, media.metadata.{title,authorName,seriesName,explicit}, media.tags and media.duration are recalled from the public API documentation and not re-checked. SYNTHETIC assumptions: explicit is a boolean on every book; the li_ plus 6-40 lowercase alphanumeric id pattern; HTTP 404 for an unknown item. media.metadata.publishedYear (a string year) was added 2026-10-16, recalled from the public API (SYNTHETIC value). Live compatibility is UNPROVEN until the owner's recorded read-only capture is compared (ADAPTER-CONTRACT.md 11.7). Covers: media.coverPath (a server path, or null when the item has no cover) and the cover route GET /api/items/{id}/cover?width=&format= (an image body; HTTP 404 without a cover) are also recalled, not re-checked; SYNTHETIC assumption: a null coverPath means no cover.",
   "response": {
     "li_book000001": {
       "id": "li_book000001",
@@ -15,6 +15,7 @@
           "title": "Synthetic Audiobook One",
           "authorName": "Synthetic Author",
           "seriesName": "Synthetic Saga #1",
+          "publishedYear": "2011",
           "explicit": false
         },
         "tags": [],

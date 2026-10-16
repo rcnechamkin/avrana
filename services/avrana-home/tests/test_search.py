@@ -185,12 +185,14 @@ class MemberSafety(Setup):
         self.assertEqual(group["state"], "ok")
         self.assertTrue(all(p.startswith("/api/") for p in self.ab.paths()))
 
-    def test_jellyfin_search_is_user_scoped_in_the_path_and_never_the_unbound_list(self):
+    def test_jellyfin_search_is_user_scoped_by_user_id_and_never_the_unbound_list(self):
         self.jellyfin.search(self.a, "Synthetic")
-        paths = self.jf.paths()
-        self.assertEqual(paths[0], "/Users")                                # the mapping list, once
-        self.assertRegex(paths[1], r"^/Users/[0-9a-f]{32}/Items$")
-        self.assertEqual(len(paths), 2)
+        reqs = self.jf.requests
+        self.assertEqual(reqs[0][1], "/Users")                              # the mapping list, once
+        self.assertEqual(reqs[1][1], "/Items")                              # 10.9+ form, not the legacy alias
+        self.assertRegex(reqs[1][2]["userId"], r"^[0-9a-f]{32}$")
+        self.assertEqual(reqs[1][2]["searchTerm"], "Synthetic")
+        self.assertEqual(len(reqs), 2)
 
 
 class NoCacheNoLog(Setup):
@@ -282,7 +284,7 @@ class Failures(Setup):
         self.assertLessEqual(len(self.komga.search(self.a, "Synthetic", limit=1).items), 1)
         self.assertLessEqual(len(self.jellyfin.search(self.a, "Synthetic", limit=10 ** 9).items), 50)
         many = {"Items": [{"Id": "aaaa%028d" % i, "Name": "Synthetic %d" % i, "Type": "Movie"} for i in range(60)]}
-        self.jf.overrides["/Users/aaaaaaaaaaaa4aaa8aaaaaaaaaaaaaaa/Items"] = ("body", json.dumps(many).encode())
+        self.jf.overrides["/Items"] = ("body", json.dumps(many).encode())
         r = self.jellyfin.search(self.a, "Synthetic", limit=3)
         self.assertEqual((r.state, r.reason), (SectionState.UNAVAILABLE, "UpstreamMisbehaved"))
 

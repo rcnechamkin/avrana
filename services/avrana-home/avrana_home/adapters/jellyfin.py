@@ -54,12 +54,13 @@ ALLOWED_ROUTES = (
     Route("latest", r"/Items/Latest",
           ("userId", "limit", "includeItemTypes", "groupItems", "fields", "enableImageTypes",
            "enableUserData"), user_scoped=True, not_found=UserGone),
-    Route("items", r"/Items", ("userId", "ids", "fields", "enableUserData", "enableImageTypes"),
+    # One route for the item lookup (`ids`) and search (`searchTerm`): both are user-scoped through the
+    # `userId` QUERY parameter. Search moved here from the legacy `/Users/{id}/Items`, which Jellyfin 10.9+
+    # keeps only as an obsolete, hidden alias (doc-verified against the 10.11 ItemsController source,
+    # 2026-10-16; not live-verified). The term travels only as `searchTerm`.
+    Route("items", r"/Items", ("userId", "ids", "fields", "enableUserData", "enableImageTypes",
+                               "searchTerm", "includeItemTypes", "recursive", "limit"),
           user_scoped=True, not_found=UserGone),
-    # Search is user-scoped through the PATH (/Users/{id}/Items); the term travels only as `searchTerm`.
-    Route("search", r"/Users/(?P<user>" + _HEX32 + r")/Items",
-          ("searchTerm", "includeItemTypes", "recursive", "limit", "fields", "enableImageTypes", "enableUserData"),
-          user_scoped=True, bind_in="path", not_found=UserGone),
     # The image route cannot carry a userId, so ITS member scoping is not enforced here: it rests on
     # the adapter calling `_visible_item` (a userId-scoped lookup) for the same item first.
     Route("image", r"/Items/" + _HEX32 + r"/Images/Primary", ("maxWidth", "quality"),
@@ -164,10 +165,10 @@ class JellyfinAdapter(GuardedAdapter):
             s, e = _int(raw.get("ParentIndexNumber")), _int(raw.get("IndexNumber"))
             if s is not None and e is not None and 0 <= s < 10000 and 0 <= e < 10000:
                 subtitle = f"S{s} E{e}"
-        else:
-            year = _int(raw.get("ProductionYear"))
-            if year is not None and 1800 <= year <= 2200:
-                subtitle = str(year)
+        year = _int(raw.get("ProductionYear"))
+        year = year if year is not None and 1800 <= year <= 2200 else None
+        if kind is not Kind.EPISODE and year is not None:
+            subtitle = str(year)
 
         artwork = None
         tags = raw.get("ImageTags")
@@ -179,7 +180,7 @@ class JellyfinAdapter(GuardedAdapter):
                          handoff_url=build_handoff_url(Service.JELLYFIN, item_id),
                          subtitle=subtitle, series=series, progress_fraction=fraction,
                          position_seconds=position, duration_seconds=duration,
-                         artwork=artwork), "ok"
+                         artwork=artwork, year=year), "ok"
 
     def _parse_list(self, raws: Any, user_id: str, limit: int, kinds, want_progress,
                     require_progress) -> Tuple[MediaItem, ...]:
@@ -212,8 +213,8 @@ class JellyfinAdapter(GuardedAdapter):
 
     def _search(self, user: UpstreamUser, query: str, limit: int) -> SectionResult:
         guard = self._guard.bind(user.upstream_id)
-        body = self._get_json(guard, self._budget(), f"/Users/{user.upstream_id}/Items", {
-            "searchTerm": query, "includeItemTypes": "Movie,Series,Episode", "recursive": "true",
+        body = self._get_json(guard, self._budget(), "/Items", {
+            "userId": user.upstream_id, "searchTerm": query, "includeItemTypes": "Movie,Series,Episode", "recursive": "true",
             "limit": str(limit), "fields": _ITEM_FIELDS, "enableImageTypes": "Primary",
             "enableUserData": "true"})
         if not isinstance(body, dict):

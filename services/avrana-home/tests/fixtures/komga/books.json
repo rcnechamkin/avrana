@@ -2,7 +2,7 @@
   "_synthetic": "Hand-written SYNTHETIC fixture, written from recollection of the public Komga API. Hand-written, unverified against the deployed version; a recorded read-only contract check is a separate owner-approved step before any real data is read. Invented users, ids and titles.",
   "_schema": "Shaped like GET /api/v1/books/{id}, keyed here by book id. Unverified.",
   "_target_version": "Komga 1.x REST API (v1 books and series, v2 users); the deployed version is not recorded in this repository and was NOT confirmed",
-  "_provenance": "GET /api/v1/books/{id}: id, seriesId, seriesTitle, libraryId, name, number, deleted, media.status, media.pagesCount, metadata.title and metadata.number are recalled from the public API documentation and not re-checked. readProgress belongs to the credential's user and is present only so tests prove it is never read. SYNTHETIC assumptions: the book carries libraryId and seriesTitle; media.status READY means readable. Live compatibility is UNPROVEN until the owner's recorded read-only capture is compared (ADAPTER-CONTRACT.md section 12.5).",
+  "_provenance": "GET /api/v1/books/{id}: id, seriesId, seriesTitle, libraryId, name, number, deleted, media.status, media.pagesCount, metadata.title and metadata.number are recalled from the public API documentation and not re-checked. readProgress belongs to the credential's user and is present only so tests prove it is never read. SYNTHETIC assumptions: the book carries libraryId and seriesTitle; media.status READY means readable. metadata.authors ({name, role}) and metadata.releaseDate (YYYY-MM-DD or null) were added 2026-10-16 from Komga BookMetadataDto as recalled (SYNTHETIC values). Live compatibility is UNPROVEN until the owner's recorded read-only capture is compared (ADAPTER-CONTRACT.md section 12.5).",
   "response": {
     "BOOKAAAA0001": {
       "id": "BOOKAAAA0001",
@@ -20,6 +20,8 @@
       "metadata": {
         "title": "Synthetic Comic One",
         "number": "1",
+        "authors": [{"name": "Synthetic Inker", "role": "inker"}, {"name": "Synthetic Writer", "role": "writer"}],
+        "releaseDate": "2019-04-01",
         "tags": []
       },
       "readProgress": {

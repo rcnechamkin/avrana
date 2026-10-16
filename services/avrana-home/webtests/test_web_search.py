@@ -123,7 +123,7 @@ class States(Fixture):
         self.jf.set_mode("down")
         r = self.search(A, "Synthetic")
         self.assertEqual(200, r.status_code)
-        self.assertIn("The Movies and TV library is unavailable right now", r.text)
+        self.assertIn("The Movies and TV library could not be searched right now", r.text)
         self.assertIn("Synthetic Book One", r.text)
         self.assertNotIn("No matches in Movies", r.text)
 
@@ -139,8 +139,13 @@ class States(Fixture):
         r = self.search(A, "Synthetic")
         self.assertEqual(200, r.status_code)
         self.assertNotIn("Check the spelling", r.text)
-        self.assertIn("Nothing found in the libraries that could be searched.", r.text)
-        self.assertEqual(2, r.text.count("is unavailable right now"))
+        self.assertNotIn("No results", r.text)                  # unavailable is not empty (review LOW on #53)
+        self.assertNotIn("No matches", r.text)
+        self.assertNotIn("Nothing found", r.text)
+        self.assertIn("Your libraries could not be searched right now.", r.text)
+        self.assertIn('href="/search?q=Synthetic">Try again', r.text)
+        self.assertNotIn("Request this title", r.text)
+        self.assertEqual(2, r.text.count("library could not be searched right now"))
 
     def test_not_set_up_is_its_own_state(self):
         view = {"status": "ok", "entitled": True,
@@ -166,7 +171,7 @@ class States(Fixture):
 
     def test_wildcards_do_not_widen_results(self):
         def titles(term):
-            return sorted(re.findall(r'<span class="t">([^<]*)</span>', self.search(A, term).text))
+            return sorted(re.findall(r'<a class="t" href="[^"]*">([^<]*)<', self.search(A, term).text))
 
         plain = titles("Synthetic Film")
         self.assertTrue(plain)
@@ -208,7 +213,8 @@ class Safety(Fixture):
         self.assertIn("&lt;img src=x onerror=alert(1)&gt;", r.text)
         for href in re.findall(r'href="([^"]*)"', r.text):
             self.assertTrue(href.startswith(("https://", "/", "#main")), href)
-        self.assertTrue(re.search(r'<a class="open" href="https://[^"]+"', r.text))
+        # StubAdapter offers no item lookup of its own here, so the one link goes straight to the library
+        self.assertTrue(re.search(r'<a class="t" href="(?:https://|/title/)[^"]+"', r.text))
 
     def test_only_https_handoffs_and_art_routes_survive_the_view_model(self):
         def item(url, art):
@@ -216,10 +222,11 @@ class Safety(Fixture):
 
         view = {"status": "ok", "entitled": True, "groups": [{"service": "jellyfin", "state": "ok", "items": [
             item("http://x.example/a", "jellyfin/primary/aaa"), item("javascript:alert(1)", None),
-            item("//x.example/b", None), item("https://x.example/c", "https://evil.example/x.png"),
-            item("https://x.example/d", "jellyfin/primary/ddd")]}]}
+            item("//x.example/b", None), item("https://x.example/e", None),      # https, but not the service's host
+            item("https://watch.avrana.net/c", "https://evil.example/x.png"),
+            item("https://watch.avrana.net/d", "jellyfin/primary/ddd")]}]}
         items = build_search(view, "tt").groups[0].items
-        self.assertEqual(["https://x.example/c", "https://x.example/d"], [i.href for i in items])
+        self.assertEqual(["https://watch.avrana.net/c", "https://watch.avrana.net/d"], [i.href for i in items])
         self.assertEqual([None, "/art/jellyfin/primary/ddd"], [i.image for i in items])
 
     def test_images_come_only_from_the_art_route(self):

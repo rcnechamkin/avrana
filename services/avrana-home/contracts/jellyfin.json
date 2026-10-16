@@ -4,8 +4,7 @@
     "users":  {"path": "/Users",             "envelope": "list",  "entity": "user"},
     "resume": {"path": "/UserItems/Resume",  "envelope": "items", "entity": "item"},
     "latest": {"path": "/Items/Latest",      "envelope": "list",  "entity": "item"},
-    "items":  {"path": "/Items",             "envelope": "items", "entity": "item"},
-    "search": {"path": "/Users/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/Items", "envelope": "items", "entity": "item"}
+    "items":  {"path": "/Items",             "envelope": "items", "entity": "item"}
   },
   "entities": {
     "user": {

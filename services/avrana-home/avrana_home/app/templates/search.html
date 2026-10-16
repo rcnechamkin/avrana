@@ -28,7 +28,14 @@
   <section class="shelf" aria-labelledby="h-outcome">
     <h2 id="h-outcome">{{ page.outcome }}</h2>
 {% if not page.found %}
-    <p class="said">{{ page.message }}</p>
+    <p class="said" role="status">{{ page.message }}{% if page.result_state == "unsearchable" and page.retry_href %} <a class="link" href="{{ page.retry_href }}">Try again<span class="sr"> searching your libraries</span></a>{% elif page.result_state == "not_set_up" %} <a class="link" href="/help">Help</a>{% endif %}</p>
+{% endif %}
+{% if page.requests %}
+    <ul class="asks">
+{% for r in page.requests %}
+      <li><a class="link" href="{{ r.href }}">{{ r.label }}</a></li>
+{% endfor %}
+    </ul>
 {% endif %}
 {% for g in page.groups %}
     <section class="found" aria-labelledby="g-{{ loop.index }}">
@@ -36,13 +43,14 @@
 {% if g.state == "ok" %}
       <ul class="hits">
 {% for it in g.items %}
-        <li class="w-poster">{{ frame(it.image, it.title) }}
-          <span class="meta"><span class="t">{{ it.title }}</span>{% if it.kind or it.detail %}<span class="d">{{ [it.kind, it.detail]|select|join(" · ") }}</span>{% endif %}</span>
-          <a class="open" href="{{ it.href }}" aria-label="Open {{ it.title }} in {{ g.label }}">Open</a></li>
+        <li class="w-{{ it.shape }}">{{ frame(it.image, it.title) }}
+          <span class="meta"><a class="t" href="{{ it.href }}">{{ it.title }}<span class="sr">, {{ it.medium }}{% if it.opens %}, opens {{ it.opens }}{% endif %}</span></a>{% if it.line %}<span class="d">{{ it.line }}</span>{% endif %}{% if it.opens %}<span class="d" aria-hidden="true">Opens in {{ it.opens }}</span>{% endif %}</span></li>
 {% endfor %}
       </ul>
+{% elif page.found or page.result_state != "unsearchable" %}
+      <p class="said" role="status">{{ g.message }}{% if g.retry and page.retry_href %} <a class="link" href="{{ page.retry_href }}">Try again<span class="sr"> searching {{ g.label }}</span></a>{% endif %}</p>
 {% else %}
-      <p class="said" role="status">{{ g.message }}{% if g.retry %} <a class="link" href="/search?q={{ page.term|urlencode }}">Try again<span class="sr"> searching {{ g.label }}</span></a>{% endif %}</p>
+      <p class="said">{{ g.message }}</p>
 {% endif %}
     </section>
 {% endfor %}

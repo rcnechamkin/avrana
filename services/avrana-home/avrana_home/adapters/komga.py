@@ -39,9 +39,9 @@ from ..contract import (ArtworkRef, ArtworkResult, DEFAULT_LIMIT, Kind, MediaIte
                         SectionState, Service, UpstreamUser, build_handoff_url, clean_text,
                         valid_upstream_id)
 from ..principal import MemberPrincipal
-from ..resilience import (DEFAULT_TIMEOUT, ItemGone, RouteMissing, Transport, UpstreamMalformed,
-                          UpstreamMisbehaved)
-from ._base import GuardedAdapter, Route
+from ..resilience import (DEFAULT_TIMEOUT, ItemGone, RouteMissing, Transport, UpstreamAuthError,
+                          UpstreamMalformed, UpstreamMisbehaved)
+from ._base import GuardedAdapter, Route, year_from
 from ._base import GuardedTransport as _Guard
 
 SHARED_VIEWER = "shared"                      # the fixed, non-member upstream "user": a shared view, by design
@@ -74,6 +74,16 @@ _RESERVED = frozenset({"latest", "updated", "ondeck"})     # Komga sub-routes th
 
 def _item_id(value: Any) -> bool:
     return valid_upstream_id(Service.KOMGA, value) and value not in _RESERVED
+
+
+def _creator(authors: Any) -> Optional[str]:
+    """`metadata.authors` is a list of {name, role} (Komga BookMetadataDto, recalled from the public API, not
+    live-verified). The first writer is the creator; failing that, the first named author. Anything else: None."""
+    if not isinstance(authors, list):
+        return None
+    named = [a for a in authors[:50] if isinstance(a, dict) and clean_text(a.get("name"))]
+    pick = next((a for a in named if a.get("role") == "writer"), named[0] if named else None)
+    return clean_text(pick.get("name")) if pick else None
 
 
 class KomgaAdapter(GuardedAdapter):
@@ -117,19 +127,28 @@ class KomgaAdapter(GuardedAdapter):
         info = raw.get("metadata") if isinstance(raw.get("metadata"), dict) else {}
         title = clean_text(info.get("title")) or clean_text(raw.get("name")) or "Untitled"
         number = clean_text(info.get("number"), 20)
-        return MediaItem(id=f"komga:{book_id}", service=Service.KOMGA, kind=Kind.COMIC, title=title,
+        return MediaItem(creator=_creator(info.get("authors")), year=year_from(info.get("releaseDate")),
+                         id=f"komga:{book_id}", service=Service.KOMGA, kind=Kind.COMIC, title=title,
                          handoff_url=build_handoff_url(Service.KOMGA, book_id),
                          subtitle=f"#{number}" if number else None, series=clean_text(raw.get("seriesTitle")),
                          artwork=ArtworkRef(f"komga/book/{book_id}", f"Cover of {title}")), "ok"
 
     def _visible_book(self, guard, budget, book_id: str) -> Optional[MediaItem]:
-        """The book if the shared account can see it (Komga answers 404 otherwise), else None."""
+        """The book if the shared account can see it, else None. Komga answers 404 for an unknown book and 403
+        for a book in a library or behind a content restriction the account may not use (BookController, from
+        the source; UNVERIFIED live). Both are the same "hidden" here, so a title page cannot tell them apart
+        (no existence oracle). The 403 is handled inside the hook, so it never reaches the shared circuit; a
+        refused credential (401) still does."""
         if not _item_id(book_id):
             return None
         try:
             raw = self._get_json(guard, budget, f"/api/v1/books/{book_id}", None)
         except ItemGone:
             return None
+        except UpstreamAuthError as exc:
+            if exc.status == 403:
+                return None
+            raise
         if isinstance(raw, dict) and raw.get("id") != book_id:
             raise UpstreamMisbehaved()
         item, status = self._book(raw)
