@@ -311,17 +311,12 @@ def capture_komga(c: Client, o: Options) -> List[Capture]:
     caps.append(Capture(c.name, "latest", "/api/v1/books/latest", lr, "json"))
     page = _json(lr) if not c.dry else {"content": [{"id": _DUMMY_KOMGA, "seriesId": _DUMMY_KOMGA}]}
     books = page.get("content") if isinstance(page, dict) else None
-    series_done: List[str] = []
+    # The shared view reads latest, a book and its thumbnail only (#50); series is not a route it uses.
     for b in (books if isinstance(books, list) else [])[:o.max_items]:
         if not isinstance(b, dict) or not _kg._item_id(b.get("id")):
             continue
         bid = b["id"]
         caps.append(Capture(c.name, "book", "/api/v1/books/{id}", c.get(f"/api/v1/books/{bid}", None, bound), "json"))
-        sid = b.get("seriesId")
-        if isinstance(sid, str) and _kg._item_id(sid) and sid not in series_done:
-            series_done.append(sid)
-            caps.append(Capture(c.name, "series", "/api/v1/series/{id}",
-                                c.get(f"/api/v1/series/{sid}", None, bound), "json"))
         if o.images:
             caps.append(Capture(c.name, "thumbnail", "/api/v1/books/{id}/thumbnail",
                                 c.get(f"/api/v1/books/{bid}/thumbnail", None, bound, MAX_IMAGE_BYTES), "image"))
@@ -666,7 +661,6 @@ ALLOWLIST: Dict[Tuple[str, str], Tuple[str, Any]] = {
     # checks (identity, library, deleted/ready state, title, number). No users, no restriction records.
     ("komga", "latest"): ("/api/v1/books/latest", {"content": _KG_BOOK}),
     ("komga", "book"): ("/api/v1/books/{id}", _KG_BOOK),
-    ("komga", "series"): ("/api/v1/series/{id}", {"id": _T, "libraryId": _T}),
 }
 # Opt-in extras for --keep-provider-ids (IMDb/TMDB/TVDB, ISBN, ASIN). Off by default.
 _JF_PROVIDERS = {"ProviderIds": {"Imdb": _T, "Tmdb": _T, "Tvdb": _T}}

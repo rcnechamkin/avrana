@@ -405,7 +405,7 @@ class Runs(unittest.TestCase):
             self.assertTrue({h[1] for h in stub.hits} <= allowed, {h[1] for h in stub.hits} - allowed)
             self.assertNotIn("/api/v2/users", {h[1] for h in stub.hits})
             for must in ("/Users", "/api/users", "/api/v1/books/latest", "/opds/new", f"/api/users/{ABS_ALICE}",
-                         f"/api/items/{ABS_ITEM}", f"/api/v1/books/{KG_BOOK}", f"/api/v1/series/{KG_SERIES}"):
+                         f"/api/items/{ABS_ITEM}", f"/api/v1/books/{KG_BOOK}"):
                 self.assertIn(must, {h[1] for h in stub.hits})
             files = outputs(target)
             self.assertIn("manifest.json", files)
@@ -516,9 +516,10 @@ class Allowlist(unittest.TestCase):
     def test_every_route_has_a_spec_and_only_the_adapter_fields(self):
         for key in (("jellyfin", "users"), ("jellyfin", "resume"), ("jellyfin", "latest"), ("jellyfin", "items"),
                     ("audiobookshelf", "users"), ("audiobookshelf", "user"), ("audiobookshelf", "item"),
-                    ("komga", "latest"), ("komga", "book"), ("komga", "series")):
+                    ("komga", "latest"), ("komga", "book")):
             self.assertIn(key, cap.ALLOWLIST)
         self.assertNotIn(("komga", "users"), cap.ALLOWLIST)
+        self.assertNotIn(("komga", "series"), cap.ALLOWLIST)        # not a shared-view route (#50)
         self.assertIsNone(cap.spec_for("komga", "users"))
 
     def test_a_route_without_an_allowlist_is_never_written(self):
@@ -533,7 +534,7 @@ class Allowlist(unittest.TestCase):
         self.assertEqual("not_parseable", manifest[0]["error"])
         files, manifest, _ = _built("jellyfin", "items", "/Items", "just a string")
         self.assertEqual("not_parseable", manifest[0]["error"])
-        files, manifest, _ = _built("komga", "series", "/api/v1/series/{id}", 42)
+        files, manifest, _ = _built("komga", "book", "/api/v1/books/{id}", 42)
         self.assertEqual({}, files)
         self.assertEqual("unexpected_shape", manifest[0]["error"])
 
@@ -616,11 +617,9 @@ class Allowlist(unittest.TestCase):
                            "url": "/data/comics/Cover Path With Spaces.cbz", "created": "2031-01-01T00:00:00Z",
                            "metadata": {"title": "T", "number": "1", "links": [{"url": "https://wikipedia.org/x"}],
                                         "tags": ["anns-shelf"], "isbn": "9780306406157"}}]}
-        kgs = {"id": KG_SERIES, "libraryId": "KGLIB1234567",
-               "metadata": {"title": "S", "sharingLabels": ["anns-shelf"], "links": [{"url": "https://wikipedia.org/x"}]}}
         built = [_built("jellyfin", "items", "/Items", jf), _built("jellyfin", "users", "/Users", users),
                  _built("audiobookshelf", "users", "/api/users", absu), _built("audiobookshelf", "item", "/api/items/{id}", absi),
-                 _built("komga", "latest", "/api/v1/books/latest", kg), _built("komga", "series", "/api/v1/series/{id}", kgs)]
+                 _built("komga", "latest", "/api/v1/books/latest", kg)]
         blob = "\n".join(v for files, _, _ in built for v in files.values())
         self.assertTrue(blob)
         for bad in LEAKS + ["en.wikipedia.org", "wikipedia.org", EMAIL, "SENTINEL-ABS-USERTOKEN", "lastSeen",
@@ -655,7 +654,8 @@ class Allowlist(unittest.TestCase):
             self.assertEqual(0, code, err)
             paths = {h[1] for h in stub.hits}
             self.assertNotIn("/api/v2/users", paths)
-            self.assertTrue({"/api/v1/books/latest", f"/api/v1/books/{KG_BOOK}", f"/api/v1/series/{KG_SERIES}"} <= paths)
+            self.assertTrue({"/api/v1/books/latest", f"/api/v1/books/{KG_BOOK}"} <= paths)
+            self.assertFalse(any(x.startswith("/api/v1/series") for x in paths), paths)
             self.assertNotIn("komga-users-01.json", outputs(Path(d) / "c"))
 
     def test_the_run_keeps_only_allowlisted_fields_end_to_end(self):
