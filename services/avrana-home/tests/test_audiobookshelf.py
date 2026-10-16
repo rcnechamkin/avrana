@@ -381,7 +381,8 @@ class GuardAttacks(unittest.TestCase):
     def test_only_get_on_listed_routes(self):
         for method in ("POST", "PUT", "PATCH", "DELETE", "HEAD", "get", None):
             self.refused(method, f"/api/users/{UA}")
-        for path in ("/api/me", "/api/authorize", "/api/libraries", "/api/users/", f"/api/users/{UA}/listening-stats",
+        for path in ("/api/me", "/api/authorize", "/api/libraries/lib_aaa", "/api/libraries/lib_aaa/items",
+                     "/api/users/", f"/api/users/{UA}/listening-stats",
                      "/api/items/li_book000001/cover/x", "/api/items/li_book000001/covers",
                      "/api/items/li_book000001/cover/", "/api/items", "/ping", "//api/users", "/api/users?x=1"):
             self.refused("GET", path)
@@ -412,7 +413,7 @@ class GuardAttacks(unittest.TestCase):
         self.refused("GET", "/api/users", {"x": "1"}, uid=None)
 
     def test_route_names(self):
-        self.assertEqual([r.name for r in ALLOWED_ROUTES], ["users", "user", "item", "cover"])
+        self.assertEqual([r.name for r in ALLOWED_ROUTES], ["users", "user", "item", "cover", "libraries", "search"])
 
 
 class FailureClasses(Base):
@@ -730,6 +731,147 @@ class Covers(Base):
         with self.assertRaises(ForbiddenRequest):                       # never without a mapped member
             GuardedTransport(FakeTransport(FakeAudiobookshelf()), None).request(
                 "GET", "/api/items/li_book000001/cover", None, 1.0, 10000)
+
+
+class Search(Base):
+    """Library search, every hit re-checked against the member's own permissions."""
+
+    def search_requests(self):
+        return [(p, q) for _m, p, q in self.fake.requests if p.endswith("/search")]
+
+    def test_visible_hits_are_shown_without_progress_and_with_a_cover_ref(self):
+        r = self.adapter.search(self.a, "Synthetic", limit=50)
+        self.assertIs(r.state, SectionState.OK)
+        self.assertEqual(sorted(titles(r)), ["Synthetic Audiobook Five", "Synthetic Audiobook One",
+                                             "Synthetic Audiobook Seven", "Synthetic Audiobook Six",
+                                             "Synthetic Audiobook Ten", "Synthetic Audiobook Two"])
+        one = next(i for i in r.items if i.id == "audiobookshelf:li_book000001")
+        self.assertIs(one.kind, Kind.AUDIOBOOK)
+        self.assertIsNone(one.progress_fraction)
+        self.assertIsNone(r.to_dict()["items"][0]["progress"])
+        self.assertEqual(one.artwork.ref, "audiobookshelf/cover/li_book000001")
+        self.assertEqual(one.handoff_url, "https://listen.avrana.net/item/li_book000001")
+        # member-a's record lists lib_aaa: that is the only library searched, and no library list is read
+        self.assertEqual(self.fake.paths(), ["/api/users", f"/api/users/{UA}", "/api/libraries/lib_aaa/search"])
+        self.assertEqual(self.search_requests()[0][1], {"q": "Synthetic", "limit": "50"})
+
+    def test_a_library_tag_or_explicit_rule_filters_hits(self):
+        self.assertEqual(titles(self.adapter.search(self.a, "Audiobook Three")), [])   # library not accessible
+        self.assertEqual(titles(self.adapter.search(self.a, "Audiobook Four")), [])    # explicit not allowed
+        self.assertEqual(titles(self.adapter.search(self.c, "Audiobook Five")), [])    # tag denied
+        for term, title in (("Audiobook Three", "Synthetic Audiobook Three"),
+                            ("Audiobook Four", "Synthetic Audiobook Four"),
+                            ("Audiobook Five", "Synthetic Audiobook Five")):
+            self.assertEqual(titles(self.adapter.search(self.b, term)), [title], term)
+
+    def test_a_filter_also_applies_when_the_upstream_returns_a_hidden_hit(self):
+        # Even if Audiobookshelf answered member-a's search with the explicit book, it is not shown.
+        body = {"book": [{"libraryItem": self.fake.items["li_book000004"]}], "tags": []}
+        self.fake.serve("/api/libraries/lib_aaa/search", body)
+        r = self.adapter.search(self.a, "anything")
+        self.assertEqual((r.state, r.items), (SectionState.EMPTY, ()))
+
+    def test_a_member_with_every_library_searches_the_listed_book_libraries_only(self):
+        self.adapter.search(self.b, "Synthetic")
+        self.assertIn("/api/libraries", self.fake.paths())
+        self.assertEqual([p for p, _q in self.search_requests()],
+                         ["/api/libraries/lib_aaa/search", "/api/libraries/lib_bbb/search"])
+
+    def test_library_ids_of_an_unexpected_shape_are_never_requested(self):
+        self.edit_record(UA, lambda rec: rec.update(librariesAccessible=["lib_aaa", "../users", "LIB_X", "lib_a/b"]))
+        self.adapter.search(self.a, "Synthetic")
+        self.assertEqual([p for p, _q in self.search_requests()], ["/api/libraries/lib_aaa/search"])
+        self.fake.overrides.clear()
+        self.fake.libraries_doc = {"libraries": [{"id": "../../users", "mediaType": "book"},
+                                                 {"id": "lib_bbb", "mediaType": "book"}]}
+        self.fake.requests.clear()
+        self.adapter.search(self.b, "Synthetic")
+        self.assertEqual([p for p, _q in self.search_requests()], ["/api/libraries/lib_bbb/search"])
+
+    def test_the_group_is_checked_first_with_no_upstream_call(self):
+        outsider = make_principal("member-a", ("avrana-users", "avrana-videos"))
+        r = self.adapter.search(outsider, "Synthetic")
+        self.assertEqual((r.state, r.items), (SectionState.NOT_PERMITTED, ()))
+        self.assertEqual(self.fake.requests, [])
+
+    def test_wildcards_are_neutralised_and_the_term_is_only_a_query_parameter(self):
+        for term in ("*", "%", "%%", "?", "a"):
+            r = self.adapter.search(self.a, term)
+            self.assertEqual((r.state, r.reason), (SectionState.EMPTY, "invalid_query"), term)
+        self.assertEqual(self.fake.requests, [])
+        for term, sent in (("Synth*", "Synth"), ("Synthetic%", "Synthetic"), ("Audio_book One", "Audio book One"),
+                           ("../users/" + UB, "../users/" + UB)):
+            self.fake.requests.clear()
+            self.adapter.search(self.a, term)
+            (path, query), = self.search_requests()
+            self.assertEqual(path, "/api/libraries/lib_aaa/search")
+            self.assertEqual(query["q"], sent)
+            for p in self.fake.paths():
+                self.assertNotIn(sent, p)
+
+    def test_malformed_answers_are_unavailable_never_empty(self):
+        for body in ({"authors": []}, ["x"], {"book": {"x": 1}}, {"book": [1, "x", {"libraryItem": None}]},
+                     {"book": [{"libraryItem": {"id": "li_book000001"}}]}):
+            self.fake.serve("/api/libraries/lib_aaa/search", body)
+            r = self.adapter.search(self.a, "Synthetic")
+            self.assertEqual((r.state, r.reason, r.items), (SectionState.UNAVAILABLE, "UpstreamMalformed", ()),
+                             body)
+            self.adapter.breaker.success(self.adapter.breaker.acquire())
+        self.fake.overrides.clear()
+        for libs in ({"libraries": "x"}, {"libraries": [1, "x"]}, "nope"):
+            self.fake.libraries_doc = libs
+            r = self.adapter.search(self.b, "Synthetic")
+            self.assertEqual((r.state, r.reason), (SectionState.UNAVAILABLE, "UpstreamMalformed"), libs)
+            self.adapter.breaker.success(self.adapter.breaker.acquire())
+
+    def test_a_malformed_permission_record_searches_nothing(self):
+        self.edit_record(UA, lambda rec: rec["permissions"].pop("accessAllTags"))
+        r = self.adapter.search(self.a, "Synthetic")
+        self.assertEqual((r.state, r.reason), (SectionState.UNAVAILABLE, "UpstreamMalformed"))
+        self.assertEqual(self.search_requests(), [])
+
+    def test_a_disabled_member_searches_nothing(self):
+        self.edit_record(UA, lambda rec: rec.update(isActive=False))
+        self.assertIsNot(self.adapter.search(self.a, "Synthetic").state, SectionState.OK)
+        self.assertEqual(self.search_requests(), [])
+
+    def test_a_hit_from_another_library_or_an_ignored_limit_is_misbehaviour(self):
+        foreign = {"book": [{"libraryItem": self.fake.items["li_book000003"]}]}
+        self.fake.serve("/api/libraries/lib_aaa/search", foreign)
+        r = self.adapter.search(self.a, "Synthetic")
+        self.assertEqual((r.state, r.reason, r.items), (SectionState.UNAVAILABLE, "UpstreamMisbehaved", ()))
+        self.adapter.breaker.success(self.adapter.breaker.acquire())
+        flood = {"book": [{"libraryItem": self.fake.items["li_book000001"]}] * 4}
+        self.fake.serve("/api/libraries/lib_aaa/search", flood)
+        r = self.adapter.search(self.a, "Synthetic", limit=1)                  # asked for 3 hits
+        self.assertEqual((r.state, r.reason), (SectionState.UNAVAILABLE, "UpstreamMisbehaved"))
+
+    def test_an_unknown_library_is_neutral_and_results_are_never_cached(self):
+        self.edit_record(UA, lambda rec: rec.update(librariesAccessible=["lib_gone", "lib_aaa"]))
+        r = self.adapter.search(self.a, "Audiobook One")
+        self.assertEqual(titles(r), ["Synthetic Audiobook One"])
+        n = len(self.search_requests())
+        self.adapter.search(self.a, "Audiobook One")
+        self.assertGreater(len(self.search_requests()), n)
+        self.assertEqual(self.adapter.health().state, "ok")
+
+    def test_the_guard_allows_only_the_search_route_shapes(self):
+        guard = GuardedTransport(FakeTransport(FakeAudiobookshelf()), UA)
+        guard.request("GET", "/api/libraries", None, 1.0, 10000)
+        guard.request("GET", "/api/libraries/lib_aaa/search", {"q": "ab", "limit": "3"}, 1.0, 10000)
+        for path, query in (("/api/libraries", {"include": "filterdata"}),
+                            ("/api/libraries/lib_aaa/search", {"q": "ab", "userId": UA}),
+                            ("/api/libraries/lib_aaa/search", {"q": "ab", "filter": "x"}),
+                            ("/api/libraries/LIB_AAA/search", {"q": "ab"}),
+                            ("/api/libraries/lib_a/search", {"q": "ab"}),
+                            ("/api/libraries/lib_aaa/../../users/" + UB + "/search", {"q": "ab"}),
+                            ("/api/libraries/lib_aaa/items", None),
+                            ("/api/libraries/lib_aaa/search/x", {"q": "ab"})):
+            with self.assertRaises(ForbiddenRequest, msg=path):
+                guard.request("GET", path, query, 1.0, 10000)
+        with self.assertRaises(ForbiddenRequest):
+            GuardedTransport(FakeTransport(FakeAudiobookshelf()), None).request(
+                "GET", "/api/libraries/lib_aaa/search", {"q": "ab"}, 1.0, 10000)
 
 
 class WithJellyfinThroughGather(unittest.TestCase):

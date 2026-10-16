@@ -534,7 +534,9 @@ adapter's job:
 2. **GET only, explicit route list**, enforced by the shared guard before any I/O: the user list
    `/api/users` (mapping only, no query), the member's record `/api/users/{id}`, one item
    `/api/items/{id}` (query key `expanded` only) and that item's cover `/api/items/{id}/cover` (query
-   keys `width` and `format` only). Nothing else, in particular no "me" route.
+   keys `width` and `format` only), and for search the library list `/api/libraries` (no query) and one
+   library's search `/api/libraries/{id}/search` (query keys `q` and `limit` only; library id `lib_` form or
+   UUID). Nothing else, in particular no "me" route.
 3. **The bound user id travels in the PATH** of the member route and the guard compares it with the id
    the adapter bound (a 36-character lowercase UUID, validated before binding). Another member's id, a
    traversal, an encoded slash, an upper-cased id or no bound id is `ForbiddenRequest`.
@@ -566,6 +568,16 @@ adapter's job:
    (jpeg/png/webp with a matching magic number, at most 5 MiB) and is cached per member only. Visibility
    is the member's Audiobookshelf rights, not their progress: a book two members can both open in
    Audiobookshelf has a cover for both.
+10. **Search is re-checked per member.** Group first (no upstream call, the term is not even read), then
+   the term is cleaned by `clean_query` (section 14.2) and sent only as `q`. The member's own record is
+   read and its permissions parsed before any library is searched. The libraries searched are the
+   member's `librariesAccessible` (ids of an unexpected shape are skipped), or, only when the record
+   grants every library, the book libraries of `/api/libraries`; at most 6 per search, at most 50 hits
+   asked per library. Every hit goes through the same visibility rules as the section. A hit from a
+   library that was not searched, or more hits than asked for, is `UpstreamMisbehaved`; a non-object
+   body, a missing or non-list `book`, or only unusable hits is `UpstreamMalformed`: `UNAVAILABLE`, never
+   an empty or unfiltered list. An unknown library (404) is skipped. Results carry no progress and are
+   never cached (section 14.4).
 
 ### 11.2 Mapping, and the owner decision it needs
 
@@ -628,7 +640,7 @@ the text equivalent of the progress as for Jellyfin.
   the adapter fails closed (`UNAVAILABLE`) rather than showing unfiltered items, at the cost of an
   outage until the field map is updated (it is one class, `_Access`).
 - The token is admin-capable: a bug in the allow-list would be a bug with admin reach. The allow-list
-  has four entries and no write method.
+  has six entries and no write method.
 - No per-member rate limit yet (as for Jellyfin).
 
 ### 11.6 Unverified upstream assumptions (every one)
@@ -660,6 +672,12 @@ Every fixture file carries `_target_version` (Audiobookshelf 2.36, the version t
 11. Covers: the expanded item carries `media.coverPath` (null when there is no cover; an absent field is
     treated as "maybe" and the cover route is asked), and `GET /api/items/{id}/cover?width=400&format=jpeg`
     returns an `image/jpeg` (or png/webp) body with the admin token, HTTP 404 when there is no cover.
+12. Search: `GET /api/libraries` returns `{"libraries": [{"id", "name", "mediaType"}]}` (all libraries for
+    the admin token); `GET /api/libraries/{id}/search?q=&limit=` returns `{"book": [{"libraryItem":
+    <expanded item as in 6>, "matchKey", "matchText"}], "authors", "series", "tags", "narrators"}` for a
+    book library (`podcast` in place of `book` for a podcast library), with `limit` bounding the `book`
+    list, HTTP 404 for an unknown library; library ids are `lib_` plus 3 to 40 lowercase alphanumerics or
+    UUIDs. If the admin token's search applies no filter of its own, the adapter's filter is the only one.
 
 ### 11.7 Recorded read-only contract check (checklist, owner-approved, NOT run by this work)
 
@@ -670,7 +688,8 @@ the following with a dedicated, rotatable, read-only-by-habit token and records 
    members with different library or tag access and an explicit-content difference; `/api/items/{id}?expanded=1`
    for one item in each of: an accessible library, an inaccessible library, an explicit item, a tagged item;
    `/api/items/{id}/cover?width=400&format=jpeg` for one item with a cover and one without (content type,
-   size, 404).
+   size, 404); `/api/libraries` once and `/api/libraries/{id}/search?q=<a known title>&limit=5` for one
+   book library (response keys, hit shape, whether `limit` is honoured).
 2. **Compare:** each assumption in 11.6 against the real response (field names, types, presence of
    `userId` on every progress entry, boolean `explicit`, deny versus allow list meaning, 404 behaviour for
    an unknown id, the id formats); that the user record and the progress entries differ per member;
@@ -892,7 +911,7 @@ harmless in a query value) and are URL-encoded by the transport.
 | Jellyfin | `GET /Users/{id}/Items?searchTerm=` (`includeItemTypes`, `recursive`, `limit`), id in the PATH bound by the guard | The upstream scopes by user; the usual scope tripwires apply; more items than `limit` is `UpstreamMisbehaved`. |
 | Komga | `GET /api/v1/books?search=` | The SAME listing code as recent: the shared regular-account view (section 12.2, owner decision 2026-10-15); Komga applies that one account's library sharing, no per-member filter. |
 | Calibre-Web | `GET /opds/search?query=` (OpenSearch form, UNVERIFIED) | Shared view under the section 13.2 invariant, exactly like recent; the constructor flag still applies. |
-| Audiobookshelf | **Not offered** (`not_offered`, no upstream call) | Its search is library-scoped and needs the admin key across libraries; there is no documented member-scoped route, and reproducing the member's library, tag and explicit rules for free text is not done here. |
+| Audiobookshelf | `GET /api/libraries/{id}/search?q=` (`limit`), per library the member may access (section 11.1, item 10) | The admin key is not member-scoped, so the member's own record decides which libraries are searched and every hit is re-checked with the section's library, tag and explicit rules. Response shape UNVERIFIED (section 11.6, assumption 12). |
 
 ### 14.4 Cache and logging
 

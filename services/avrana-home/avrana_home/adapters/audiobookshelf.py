@@ -1,4 +1,4 @@
-"""Audiobookshelf read-only member adapter: one section, "Continue listening".
+"""Audiobookshelf read-only member adapter: "Continue listening", covers and search.
 
 Status: proposed, not deployed. Standard library only. Proven only against HAND-WRITTEN fixtures that
 are unverified against the deployed Audiobookshelf; a recorded, read-only contract check is a separate,
@@ -10,7 +10,9 @@ How it stays member-scoped with an ADMIN-capable token (Audiobookshelf has no im
   * The token lives only inside the transport. Every request goes through `GuardedTransport`: GET
     only, an explicit route list, and the member's upstream user id carried in the PATH of every
     user route, which the guard compares with the bound id (never a different member's, never none).
-  * The only request that is not bound to a member is the user list used for mapping.
+  * The only request that is not bound to a member is the user list used for mapping. Item, cover,
+    library-list and library-search requests need a bound member but cannot carry one; everything they
+    return is re-checked against that member's own permissions before it is shown.
   * The member's own user record is read from `/api/users/{id}`; its id must equal the bound id, and
     every progress entry in it must name that same user (an entry that names another user, or names
     nobody, is `UpstreamMisbehaved` and the whole section is discarded).
@@ -27,6 +29,20 @@ How it stays member-scoped with an ADMIN-capable token (Audiobookshelf has no im
     An item the member may not see, an unknown item and an item without a cover are all the same
     neutral EMPTY. The bytes go through the shared image check (allowed raster type, magic number,
     MAX_IMAGE_BYTES) and are cached per member only.
+  * Search: group first (the base class, before the term is read), then the term is cleaned by the
+    contract's `clean_query` (wildcards neutralised) and sent ONLY as the `q` query parameter. The
+    member's own record is read and its permissions parsed BEFORE any library is searched. The
+    libraries searched are the member's own `librariesAccessible`, or, only when that record grants
+    every library, the upstream's library list (book libraries). Each library is searched with
+    `GET /api/libraries/{id}/search?q=&limit=` and EVERY hit goes through `_visible` (library, tags,
+    explicit, book, not missing or invalid), exactly as the section does. A hit from a library that
+    was not searched, or more hits than asked for, is `UpstreamMisbehaved`; a non-object body or a
+    missing hit list is `UpstreamMalformed` (UNAVAILABLE, never an empty or unfiltered list). Results
+    are never cached (base class). UNVERIFIED response shape, recalled from the public API docs:
+    `{"book": [{"libraryItem": {expanded library item}, "matchKey": ..., "matchText": ...}], "tags":
+    [...], "authors": [...], "series": [...], "narrators": [...]}` for a book library (`podcast` in
+    place of `book` for a podcast library); `GET /api/libraries` as `{"libraries": [{"id", "name",
+    "mediaType"}, ...]}`.
 
 Route and field names are recalled from Audiobookshelf's public API documentation and are UNVERIFIED.
 """
@@ -50,6 +66,10 @@ _ITEM_PATH = r"(?:li_[a-z0-9]{6,40}|" + _UUID + r")"   # old "li_" ids and curre
 _ARTWORK_REF = re.compile(r"audiobookshelf/cover/(" + _ITEM_PATH + r")")
 COVER_QUERY = {"width": "400", "format": "jpeg"}    # same size as Jellyfin's maxWidth; format UNVERIFIED
 MAX_LOOKUPS = 24                # item lookups per request, however long the progress list is
+_LIBRARY_PATH = r"(?:lib_[a-z0-9]{3,40}|" + _UUID + r")"   # old "lib_" ids and current UUID ids (UNVERIFIED)
+_LIBRARY_ID = re.compile(_LIBRARY_PATH)
+MAX_LIBRARIES = 6               # libraries searched per request (each is one upstream call)
+MAX_SEARCH_PAGE = 50            # hits asked for per library, whatever the limit
 
 ALLOWED_ROUTES = (
     Route("users", r"/api/users", (), user_scoped=False, needs_user=False, not_found=RouteMissing),
@@ -59,6 +79,12 @@ ALLOWED_ROUTES = (
     # The cover route cannot carry the member: ITS scoping rests on `_fetch_artwork` running `_visible`
     # for the same item, with that member's own permissions, first.
     Route("cover", r"/api/items/" + _ITEM_PATH + r"/cover", ("width", "format"), user_scoped=False,
+          not_found=ItemGone),
+    # Search. Neither route can carry the member: the library list is read only for a member whose OWN
+    # record grants every library, and every hit goes through `_visible` with that member's permissions.
+    # The term travels only as the `q` query parameter, already cleaned by the contract's `clean_query`.
+    Route("libraries", r"/api/libraries", (), user_scoped=False, not_found=RouteMissing),
+    Route("search", r"/api/libraries/" + _LIBRARY_PATH + r"/search", ("q", "limit"), user_scoped=False,
           not_found=ItemGone),
 )
 
@@ -150,12 +176,6 @@ class AudiobookshelfAdapter(GuardedAdapter):
     def item(self, principal: MemberPrincipal, item_id: str) -> SectionResult:
         return self._not_offered(principal, "item")
 
-    def search(self, principal: MemberPrincipal, query: str, limit: int = DEFAULT_LIMIT) -> SectionResult:
-        # Audiobookshelf's search is library-scoped and needs the admin key across libraries; there is no
-        # documented member-scoped route, and reproducing the member's library, tag and explicit rules for a
-        # free-text search is not done here. Not offered: no upstream call, the query is not even read.
-        return self._not_offered(principal, "search")
-
     def fetch_artwork(self, principal: MemberPrincipal, ref: str) -> ArtworkResult:
         # Group first, then the ref's exact shape, both before any upstream call or cache read.
         self._require_principal(principal)
@@ -209,6 +229,72 @@ class AudiobookshelfAdapter(GuardedAdapter):
         if visible is None or visible.artwork is None:
             return ArtworkResult(SectionState.EMPTY)      # not visible to THIS member, or no cover: neutral
         return self._fetch_image(guard, budget, f"/api/items/{item_id}/cover", COVER_QUERY)
+
+    # -- search: library by library, every hit re-checked for THIS member ------------------
+    def _search(self, user: UpstreamUser, query: str, limit: int) -> SectionResult:
+        uid = user.upstream_id
+        guard = self._guard.bind(uid)
+        budget = self._budget()
+        _record, access = self._member_access(guard, budget, uid)   # BEFORE any library is searched
+        page = min(MAX_SEARCH_PAGE, limit * 3)
+        shown: List[MediaItem] = []
+        bad = 0
+        for library_id in self._libraries(guard, budget, access)[:MAX_LIBRARIES]:
+            if len(shown) >= limit:
+                break
+            try:
+                body = self._get_json(guard, budget, f"/api/libraries/{library_id}/search",
+                                      {"q": query, "limit": str(page)})
+            except ItemGone:
+                continue                                  # the library is gone: neutral
+            if not isinstance(body, dict):
+                raise UpstreamMalformed()
+            hits = body.get("book")
+            if hits is None and isinstance(body.get("podcast"), list):
+                continue                                  # a podcast library: no books to show
+            if not isinstance(hits, list):
+                raise UpstreamMalformed()
+            if len(hits) > page:
+                raise UpstreamMisbehaved()                # the limit was ignored
+            for hit in hits:
+                raw = hit.get("libraryItem") if isinstance(hit, dict) else None
+                item_id = raw.get("id") if isinstance(raw, dict) else None
+                if not valid_upstream_id(Service.AUDIOBOOKSHELF, item_id):
+                    bad += 1
+                    continue
+                if isinstance(raw.get("libraryId"), str) and raw["libraryId"] != library_id:
+                    raise UpstreamMisbehaved()            # a hit from a library that was not searched
+                media, status = self._visible(raw, item_id, access, None, None, None)
+                bad += status == "bad"
+                if media is not None and len(shown) < limit and all(m.id != media.id for m in shown):
+                    shown.append(media)
+        if not shown and bad:
+            raise UpstreamMalformed()                     # nothing usable and some drift: never "empty"
+        return SectionResult.of(Service.AUDIOBOOKSHELF, "search", tuple(shown))
+
+    def _libraries(self, guard, budget, access: _Access) -> List[str]:
+        """The library ids to search: the member's own list, or (only when the member's record grants every
+        library) the upstream's library list, book libraries only. Ids of an unexpected shape are skipped."""
+        if access.libraries is not None:
+            return sorted(x for x in access.libraries if _LIBRARY_ID.fullmatch(x))
+        body = self._get_json(guard, budget, "/api/libraries", None)
+        raws = body.get("libraries") if isinstance(body, dict) else body
+        if not isinstance(raws, list):
+            raise UpstreamMalformed()
+        out, parsed = [], 0
+        for raw in raws:
+            lid = raw.get("id") if isinstance(raw, dict) else None
+            if not isinstance(lid, str) or not _LIBRARY_ID.fullmatch(lid):
+                continue
+            parsed += 1
+            kind = raw.get("mediaType")
+            if isinstance(kind, str) and kind != "book":
+                continue                                  # a podcast library
+            if lid not in out:
+                out.append(lid)
+        if raws and not parsed:
+            raise UpstreamMalformed()
+        return out
 
     # -- the one section ---------------------------------------------------------------------
     def _continue_items(self, user: UpstreamUser, limit: int) -> SectionResult:
@@ -274,7 +360,7 @@ class AudiobookshelfAdapter(GuardedAdapter):
         return out
 
     @staticmethod
-    def _visible(raw: Any, item_id: str, access: _Access, fraction: float, position: Optional[int],
+    def _visible(raw: Any, item_id: str, access: _Access, fraction: Optional[float], position: Optional[int],
                  duration: Optional[int]) -> Tuple[Optional[MediaItem], str]:
         """(item, status): "ok", "filtered" (a legitimate drop) or "bad" (unusable: fail closed)."""
         if not isinstance(raw, dict):

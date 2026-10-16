@@ -113,7 +113,7 @@ class HostileQueries(Setup):
                     self.assertNotIn(cleaned or "\x00", path, term)         # never interpolated
                     for ch in ("\r", "\n", "\x00", "*", "%", "‮", "​"):
                         self.assertNotIn(ch, path + json.dumps(query), repr(term))
-                    for key in ("searchTerm", "search", "query"):
+                    for key in ("searchTerm", "search", "query", "q"):
                         if key in query:
                             self.assertEqual(query[key], cleaned, term)
             self.assertIn(res.status, ("ok", "invalid_query"))
@@ -124,20 +124,19 @@ class HostileQueries(Setup):
             self.assertEqual(res.search_view(), {"status": "invalid_query", "entitled": True, "groups": []})
             for ad in self.adapters:
                 r = ad.search(self.a, term)
-                self.assertEqual((r.state, r.reason), (SectionState.EMPTY, "invalid_query")
-                                 if ad is not self.abs else (SectionState.EMPTY, "not_offered"))
+                self.assertEqual((r.state, r.reason), (SectionState.EMPTY, "invalid_query"))
         self.assertEqual(self.calls(), 0)
 
     def test_a_long_term_is_bounded_before_it_is_sent(self):
         search(self.a, self.adapters, "Synthetic " * 20)                   # 200 characters in, 100 out
-        sent = [q[k] for f in self.fakes for _, _, q in f.requests for k in ("searchTerm", "search", "query") if k in q]
+        sent = [q[k] for f in self.fakes for _, _, q in f.requests for k in ("searchTerm", "search", "query", "q") if k in q]
         self.assertTrue(sent)
         self.assertTrue(all(len(t) <= MAX_QUERY for t in sent))
 
     def test_unicode_terms_work_and_are_normalised(self):
         res = search(self.a, self.adapters, "café Synthetic")
         self.assertEqual(res.status, "ok")
-        sent = [q[k] for f in self.fakes for _, _, q in f.requests for k in ("searchTerm", "search", "query") if k in q]
+        sent = [q[k] for f in self.fakes for _, _, q in f.requests for k in ("searchTerm", "search", "query", "q") if k in q]
         self.assertTrue(all(t == "café Synthetic" for t in sent))
 
 
@@ -174,14 +173,17 @@ class MemberSafety(Setup):
         with self.assertRaises(ValueError):
             CalibreWebAdapter(FakeTransport(self.cw), clock=self.clock)
 
-    def test_audiobookshelf_search_is_not_offered_and_asks_nobody(self):
-        r = self.abs.search(self.a, "Synthetic")
-        self.assertEqual((r.state, r.reason), (SectionState.EMPTY, "not_offered"))
-        self.assertEqual(self.ab.requests, [])
+    def test_audiobookshelf_search_applies_each_members_own_rights(self):
+        # member-a: lib_aaa only, no explicit; member-b: everything; member-c: tag "mature" denied
+        self.assertNotIn("Synthetic Audiobook Three", names(self.abs.search(self.a, "Synthetic", limit=50)))
+        self.assertNotIn("Synthetic Audiobook Four", names(self.abs.search(self.a, "Synthetic", limit=50)))
+        self.assertIn("Synthetic Audiobook Three", names(self.abs.search(self.b, "Synthetic", limit=50)))
+        self.assertEqual(names(self.abs.search(self.c, "Audiobook Five")), [])
+        self.assertEqual(names(self.abs.search(self.b, "Audiobook Five")), ["Synthetic Audiobook Five"])
         res = search(self.a, self.adapters, "Synthetic")
-        self.assertEqual(self.ab.requests, [])
-        self.assertNotIn("audiobookshelf", [g["service"] for g in res.search_view()["groups"]
-                                           if g["items"]])
+        group = next(g for g in res.search_view()["groups"] if g["service"] == "audiobookshelf")
+        self.assertEqual(group["state"], "ok")
+        self.assertTrue(all(p.startswith("/api/") for p in self.ab.paths()))
 
     def test_jellyfin_search_is_user_scoped_in_the_path_and_never_the_unbound_list(self):
         self.jellyfin.search(self.a, "Synthetic")
@@ -233,7 +235,8 @@ class Failures(Setup):
 
     def test_no_match_is_empty_and_an_outage_is_unavailable_never_the_same(self):
         none = {g["service"]: g["state"] for g in search(self.a, self.adapters, "nomatchatall").search_view()["groups"]}
-        self.assertEqual({v for k, v in none.items() if k != "audiobookshelf"}, {"empty"})
+        self.assertEqual(set(none.values()), {"empty"})
+        self.assertIn("audiobookshelf", none)
         self.jellyfin.cache.clear()                                         # forget the cached mapping
         self.jf.overrides["/Users"] = ("status", 500)
         down = {g["service"]: g["state"] for g in search(self.a, self.adapters, "nomatchatall").search_view()["groups"]}
