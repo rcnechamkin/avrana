@@ -62,14 +62,18 @@ def build_trouble(groups) -> TroubleVM:
     held = _held(groups)
     sign_in = tuple(f"{label}: sign in with {how}." for _s, label, _p, how in held)
     places = tuple((f"Open {label}", place) for _s, label, place, _h in held)
-    no_progress = [label.lower() for svc, label, _p, _h in held if svc in (Service.KOMGA, Service.CALIBRE_WEB)]
-    open_only = (f"{' and '.join(no_progress).capitalize()} always say Open." if no_progress else "")
+    # The verbs a title page can show, only for the member's own kinds of library (a books-only member never
+    # reads "Listen"), then Open, which every library can show.
+    held_svcs = {svc for svc, _l, _p, _h in held}
+    verbs = [v for v, svcs in (("Watch", {Service.JELLYFIN}), ("Listen", {Service.AUDIOBOOKSHELF}),
+                               ("Read", {Service.KOMGA, Service.CALIBRE_WEB})) if held_svcs & svcs] + ["Open"]
+    verb_list = verbs[0] if len(verbs) == 1 else ", ".join(verbs[:-1]) + " and " + verbs[-1]
     sections = [
         TroubleSection("what", "What happens when you choose an item", (
             "Avrana opens the library's own website at that item. It does not start anything for you: "
             "start it in the library.",
-            ("Resume means the library saved where you stopped. Open means there is no saved place Avrana "
-             "can trust, so the library opens at the item's page. " + open_only).strip(),
+            "Resume means that library saved where you stopped. " + verb_list + " open the item's page in its "
+            "library. A card with no word on it opens the item too.",
             "Progress belongs to each library. Avrana shows it and does not copy it between libraries.",
         )),
         TroubleSection("sign-in", "If you are asked to sign in", (
@@ -93,7 +97,7 @@ def build_trouble(groups) -> TroubleVM:
         TroubleSection("unavailable", "If a library says it is unavailable", (
             "Avrana could not reach that library just now. Your other libraries keep working. This usually "
             "passes within a minute: choose Try again on Home.",
-            "You can still try opening the library itself from its place at the top of the page.",
+            "You can still try opening the library itself with the links below.",
             f"If it keeps happening, tell {WHO}.",
         ), links=places),
         TroubleSection("not-set-up", "If a library says it is not set up for your account", (
@@ -104,11 +108,11 @@ def build_trouble(groups) -> TroubleVM:
             "Use your browser's back button, or choose AVRANA at the top of any Avrana page.",
             "If the library opened in a separate window or tab, close it. If you opened Avrana from your Home "
             "Screen, you can also open it again from its icon.",
-        ), links=(("Back to home", "/"),)),
+        )),
     ]
     if not held:
         # A member with no library: nothing above is about anything they have. Say only what is true.
         sections = [TroubleSection("none", "Nothing is set up yet", (
             f"No library is shared with this account yet. Ask {WHO}.",
-        ), links=(("Back to home", "/"),))]
+        ))]
     return TroubleVM(TITLE, tuple(sections))

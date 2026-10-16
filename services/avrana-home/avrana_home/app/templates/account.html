@@ -8,7 +8,32 @@
 {% endfor %}
     </dl>
   </section>
-{% if access %}
+{% if shell and shell_access and (shell_access.libraries or shell_access.requests or shell_access.other) %}
+    <section class="block">
+      <h2>Your access</h2>
+{% if shell_access.libraries %}
+      <h3 class="sub">Libraries</h3>
+      <ul class="access">
+{% for label in shell_access.libraries %}        <li>{{ label }}</li>
+{% endfor %}
+      </ul>
+{% endif %}
+{% if shell_access.requests %}
+      <h3 class="sub">Requests</h3>
+      <ul class="access">
+{% for label in shell_access.requests %}        <li>{{ label }}</li>
+{% endfor %}
+      </ul>
+{% endif %}
+{% if shell_access.other %}
+      <h3 class="sub">Also</h3>
+      <ul class="access">
+{% for label in shell_access.other %}        <li>{{ label }}</li>
+{% endfor %}
+      </ul>
+{% endif %}
+    </section>
+{% elif access and not shell %}
     <section class="block">
       <h2>Your access</h2>
       <ul class="access">

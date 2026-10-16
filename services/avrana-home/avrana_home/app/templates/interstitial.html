@@ -3,7 +3,7 @@
 {% block body %}
   <section class="block">
     <h2>Before you continue</h2>
-    <p class="note msg" role="note">{{ warning|trusted }}</p>
+    <p class="note msg" role="note">{% if shell and shell_warning %}{{ shell_warning }}{% else %}{{ warning|trusted }}{% endif %}</p>
 {% if shell %}
     <p class="note">Continuing opens <span class="host">{{ svc.host }}</span>, a separate website with its own sign-in. Avrana does not start anything there for you. To come back, use your browser&#x27;s back button. If you opened Avrana from your Home Screen, close the library&#x27;s window or open Avrana again from its icon.</p>
 {% endif %}
@@ -15,7 +15,7 @@
     </a>
     <a class="tile" href="{{ help_path }}">
       <span class="label">Set up the app</span>
-      <span class="desc">Apps and setup for {{ svc.label|trusted }}</span>
+      <span class="desc">Apps and setup for {% if shell and library %}{{ library }}{% else %}{{ svc.label|trusted }}{% endif %}</span>
     </a>
 {% if shell %}
     <a class="tile" href="/help/trouble">

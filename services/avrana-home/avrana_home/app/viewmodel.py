@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from typing import Optional, Tuple
 from urllib.parse import quote
 
-from ..contract import HANDOFF_BASE, Service, clean_query, valid_upstream_id
+from ..contract import HANDOFF_BASE, MIN_QUERY, REQUIRED_GROUP, Service, clean_query, valid_upstream_id
 from .artwork import src_for
 
 SERVICE_LABEL = {"jellyfin": "Movies and TV", "audiobookshelf": "Audiobooks",
@@ -198,8 +198,8 @@ NOTHING_IN_PROGRESS = ("Nothing in progress. Whatever you start in a library app
                        "ready to pick up where you stopped.")
 NOTHING_NEW = "Nothing new this week."
 NO_LIBRARY = "No library is shared with this account yet. Ask the person who invited you, or read Help."
-# The account disclosure links only to pages that exist in this shell. Help is not repeated here: it is the
-# masthead link right beside the menu. The wording matches the Home footer link to the same page.
+# The account disclosure links only to pages that exist in this shell. Help is not repeated here: it is the last
+# place in the places bar on every shell page.
 ACCOUNT_MENU = (("Account and security", "/account"),)
 
 
@@ -239,7 +239,9 @@ class HomeVM:
     new_items: Tuple[CardVM, ...]
     new_said: Optional[str]
     retry_href: Optional[str] = None     # "Try again": the same page, when a library said unavailable
-    all_down: bool = False               # nothing answers: a calm page, not an error
+    all_down: bool = False               # nothing answers: a calm page, not an error (no per-library lines)
+    all_unset: bool = False              # every library is not set up yet: one block with the next step
+    setup_href: Optional[str] = None     # "What to do": a library is not set up for this member
 
 
 @dataclass(frozen=True)
@@ -251,6 +253,40 @@ class ShellVM:
     places: Tuple[PlaceVM, ...]
     can_search: bool                      # only a member with a searchable library is offered Search
     current: str                          # home | search | account | help | help-topic
+
+
+@dataclass(frozen=True)
+class AccessVM:
+    """Account's "Your access" on shell pages, in Home's member language, each name once."""
+    libraries: Tuple[str, ...]
+    requests: Tuple[str, ...]
+    other: Tuple[object, ...]        # catalogue text (Trusted) for the remaining services, or member language
+
+
+# The catalogue's direct library routes, named as Home names them (never the portal's "Watch" or "Movies &amp; TV").
+ACCOUNT_LIBRARY = {"watch": "jellyfin", "listen": "audiobookshelf", "comics": "komga", "books": "calibre-web"}
+ACCOUNT_OTHER = {"kindle": "Send to Kindle"}
+# The interstitial's advice in the shell's member language. The app is still named: it is what the member installs,
+# and the help topic's steps name it too. Sections off keeps the portal's own sentence (parity).
+INTERSTITIAL_SHELL = {"watch": "For the most stable playback, use the Jellyfin app on your device. "
+                               "Help has the steps for each device."}
+
+
+def account_access(services, groups) -> AccessVM:
+    """`services`: (route path, catalogue label) for each catalogue service this member may open (already group
+    filtered). A request service is named by the libraries it fills for THIS member (REQUEST_FOR and the library's
+    own group), so a books-only member never reads "Audiobooks". Nothing here can add a service."""
+    paths = [p for p, _l in services]
+    libraries = [SERVICE_LABEL[ACCOUNT_LIBRARY[p]] for p in paths if p in ACCOUNT_LIBRARY]
+    requests = []
+    for s in SERVICE_ORDER:
+        path = REQUEST_FOR[s][0]
+        if path in paths and REQUIRED_GROUP[Service(s)] in groups and SERVICE_LABEL[s] not in requests:
+            requests.append(SERVICE_LABEL[s])
+    fills = {REQUEST_FOR[s][0] for s in SERVICE_ORDER}
+    other = [ACCOUNT_OTHER.get(p, label) for p, label in services if p not in ACCOUNT_LIBRARY and p not in fills]
+    dedupe = lambda xs: tuple(dict.fromkeys(xs))   # noqa: E731
+    return AccessVM(dedupe(libraries), dedupe(requests), dedupe(other))
 
 
 def has_library(tiles) -> bool:
@@ -279,6 +315,10 @@ def _sections_by_service(view: dict) -> dict:
     return out
 
 
+SETUP_HELP = "/help/trouble#not-set-up"
+STALE_NOTE = " Anything shown from them may be out of date."
+
+
 def service_notice(service: str, state: str) -> Optional[str]:
     label = SERVICE_LABEL.get(service)
     if label is None:
@@ -290,14 +330,23 @@ def service_notice(service: str, state: str) -> Optional[str]:
     return None
 
 
+def library_down(secs) -> bool:
+    """One rule for "this library is unavailable", shared by the notice and the places bar (HOME-APP.md section 5):
+    ANY of its sections said unavailable. During an outage a section may still answer from the cache for up to
+    two minutes; the library is still not answering, so the place is struck and the notice says that what is
+    shown may be out of date, rather than a notice that contradicts a live-looking place."""
+    return any(sec["state"] == "unavailable" for sec in secs)
+
+
 def build_places(tiles, view: dict) -> Tuple[PlaceVM, ...]:
-    """The member's own places, in the catalogue's order. A library whose sections are all unavailable
-    stays, marked not up; a library the member cannot use is not in `tiles`, so it is absent."""
+    """The member's own places, in the catalogue's order. A place whose libraries are all down (`library_down`)
+    stays, marked not up (Read stays up while one of its two libraries answers); a library the member cannot use
+    is not in `tiles`, so it is absent."""
     held = _sections_by_service(view)
     out = []
     for path, label, _desc in tiles:
         services = [s for s in _PLACE_SERVICES.get(path, ()) if s in held]
-        down = bool(services) and all(sec["state"] == "unavailable" for s in services for sec in held[s])
+        down = bool(services) and all(library_down(held[s]) for s in services)
         out.append(PlaceVM("/" + path, label, not down))
     return tuple(out)
 
@@ -346,22 +395,32 @@ def build_home(view: dict, tiles, *, new_tab: Optional[str] = None, limit: int =
         return HomeVM(**base, no_library=True, notices=(), show_continue=False, continue_items=(),
                       continue_said=None, show_new=False, new_tabs=(), new_items=(), new_said=None)
 
-    notices, seen, retry = [], set(), False
+    notices, retry, unset = [], False, False
     for service in SERVICE_ORDER:
-        for sec in held.get(service, ()):
-            msg = service_notice(service, sec["state"])
-            if msg and msg not in seen:
-                seen.add(msg)
-                notices.append(msg)
-                retry = retry or any(sec["state"] == "unavailable" for sec in held.get(service, ()))
+        secs = held.get(service, ())
+        if library_down(secs):
+            stale = any(sec["state"] == "ok" for sec in secs)
+            notices.append(service_notice(service, "unavailable") + (STALE_NOTE if stale else ""))
+            retry = True
+        elif any(sec["state"] == "not_linked" for sec in secs):
+            notices.append(service_notice(service, "not_linked"))
+            unset = True
     retry_href = ("/" + (f"?new={new_tab}" if new_tab in SERVICE_LABEL else "")) if retry else None
+    setup_href = SETUP_HELP if unset else None
     all_secs = [sec for secs in held.values() for sec in secs]
     if all_secs and not any(sec["state"] in ("ok", "empty") for sec in all_secs):
-        # Nothing answers: say so once per library and stop. Never an error page.
+        # Nothing answers. Never an error page. Everything down: one calm block with one combined line. Everything
+        # not set up: one block with the next step. A mix: the lines, Try again and the next step.
+        all_down = all(sec["state"] == "unavailable" for sec in all_secs)
+        all_unset = all(sec["state"] == "not_linked" for sec in all_secs)
+        if all_down:     # one combined line inside the calm block, never a line per library
+            down = [SERVICE_LABEL[s] for s in SERVICE_ORDER if s in held]
+            notices = [f"{down[0]} are unavailable right now." if len(down) == 1
+                       else "None of your libraries is answering right now."]
         return HomeVM(**base, no_library=False, notices=tuple(notices), show_continue=False,
                       continue_items=(), continue_said=None, show_new=False, new_tabs=(),
                       new_items=(), new_said=None, retry_href=retry_href,
-                      all_down=all(sec["state"] == "unavailable" for sec in all_secs))
+                      all_down=all_down, all_unset=all_unset, setup_href=setup_href)
 
     def items_of(section: str, service: str):
         out = []
@@ -395,15 +454,15 @@ def build_home(view: dict, tiles, *, new_tab: Optional[str] = None, limit: int =
                   continue_items=_cards(cont, lambda it: it.detail, progress=True),
                   continue_said=continue_said, show_new=True,
                   new_tabs=tuple((k, n, k == tab) for k, n in tabs), new_items=new, new_said=new_said,
-                  retry_href=retry_href)
+                  retry_href=retry_href, setup_href=setup_href)
 
 
 # ---- search page (AVR-383) --------------------------------------------------------------------------------
 SEARCH_MAX_SHOWN = 100          # characters of the typed term put back in the box
-# What contract.clean_query neutralises into spaces, in the order a member can read it. A test pins this
-# list to the contract's own set, so the hint can never promise more or less than the code does.
-SEARCH_SPACED = "* % _ ? \\ [ ] { } ( ) | ^ ~ $ \" `"
-SEARCH_HINT = f"At least 2 characters. These are treated as spaces: {SEARCH_SPACED}"
+# Plain guidance only. Its one promise, the minimum length, is contract.MIN_QUERY. The wildcard and escape
+# characters clean_query turns into spaces are not listed to members: a test checks that none of them makes a
+# term unusable while letters remain, so there is nothing a member has to avoid.
+SEARCH_HINT = f"At least {MIN_QUERY} characters."
 SEARCH_IDLE_HINT = "Searches the libraries on your account. " + SEARCH_HINT
 SEARCH_MIN_HINT = SEARCH_HINT
 
@@ -416,7 +475,7 @@ ACTION = {"movie": "Watch", "episode": "Watch", "series": "Watch", "audiobook": 
 # Which request service (a catalogue route path) fills which library, and the noun a member reads for it. The
 # catalogue gates each request service on the same group as the library it fills (portal.py SERVICES).
 REQUEST_FOR = {"jellyfin": ("requests", "a film or show"), "audiobookshelf": ("requestabook", "an audiobook"),
-               "calibre-web": ("requestabook", "an ebook"), "komga": ("requestacomic", "a comic")}
+               "calibre-web": ("requestabook", "a book"), "komga": ("requestacomic", "a comic")}
 # Request services with a DOCUMENTED search address that takes the term (Seerr/Jellyseerr web route
 # `/search?query=`, UNVERIFIED live). Every other request service gets its home through our own route.
 REQUEST_SEARCH = {"requests": "/search?query="}
@@ -491,8 +550,8 @@ class SearchGroupVM:
 @dataclass(frozen=True)
 class RequestVM:
     href: str
-    label: str                    # "Request this title as a film or show"
-    leaves: bool                  # True: the link goes straight to the request service with the term
+    label: str                    # "Ask for a film or show"
+    leaves: bool                  # True: the link goes to the request website with the term (the page says so)
 
 
 @dataclass(frozen=True)
@@ -549,7 +608,7 @@ def request_options(empty_services, term: Optional[str], request_hosts) -> Tuple
         nouns = by_href.setdefault(href, (leaves, []))[1]
         if noun not in nouns:
             nouns.append(noun)
-    return tuple(RequestVM(href, "Request this title as " + " or ".join(nouns), leaves)
+    return tuple(RequestVM(href, "Ask for " + " or ".join(nouns), leaves)
                  for href, (leaves, nouns) in by_href.items())
 
 
@@ -615,7 +674,7 @@ def build_search(view: dict, raw_term: Optional[str], *, title_services=frozense
                 msg = "Your libraries could not be searched right now."
             return SearchVM("results", message=msg + " This usually passes within a minute.",
                             result_state="unsearchable", outcome="Not searched", **base)
-        return SearchVM("results", message="Search is not set up for your account yet. See Help for what to do.",
+        return SearchVM("results", message="Search is not set up for your account yet.",
                         result_state="not_set_up", outcome="Not searched", **base)
     reqs = request_options(empty, clean, request_hosts)
     if down:
@@ -637,8 +696,9 @@ class TitleVM:
     detail: Optional[str] = None       # series · episode
     shape: str = "poster"
     image: Optional[str] = None
-    progress: Optional[str] = None     # in words, only when the member has a saved position
-    action: Optional[str] = None       # Resume | Watch | Listen | Read: opens the upstream app, never "playing"
+    kicker: str = ""                   # "Episode · Movies and TV"; the medium only when the library name lacks it
+    progress: Optional[str] = None     # in words, whenever the upstream gave this member progress (not finished)
+    action: Optional[str] = None       # Resume | Open | Watch | Listen | Read: opens the item, never "playing"
     action_href: Optional[str] = None
     action_label: Optional[str] = None
     back_href: Optional[str] = None    # Back to search: only from a valid search term
@@ -646,15 +706,12 @@ class TitleVM:
     message: Optional[str] = None
 
 
-def _saved_position(progress) -> bool:
-    """A trustworthy saved position: a positive position not past the end, or a fraction strictly in (0, 1)."""
-    if not isinstance(progress, dict):
-        return False
-    pos, dur, frac = progress.get("position_seconds"), progress.get("duration_seconds"), progress.get("fraction")
-    ints = lambda v: isinstance(v, int) and not isinstance(v, bool)   # noqa: E731
-    if ints(pos) and pos > 0:
-        return not (ints(dur) and dur > 0 and pos >= dur)
-    return isinstance(frac, float) and 0.0 < frac < 1.0
+def kicker_of(medium: str, library: str) -> str:
+    """"Episode · Movies and TV", but only "Movies and TV" for a movie: the medium is left out when the library's
+    own name already says it (Movie/Movies, Audiobook/Audiobooks, Book/Books, Comic/Comics)."""
+    if not medium or (medium.lower() + "s") in library.lower().split():
+        return library
+    return f"{medium} · {library}"
 
 
 def build_title(section: dict, service: str, upstream_id: str, raw_term: Optional[str]) -> Optional[TitleVM]:
@@ -672,7 +729,7 @@ def build_title(section: dict, service: str, upstream_id: str, raw_term: Optiona
                        message=f"The {label} library is unavailable right now. This usually passes within a minute.")
     if state == "not_linked":
         return TitleVM("not_linked", label, back_href=back,
-                       message=f"The {label} library is not set up for your account yet. See Help for what to do.")
+                       message=f"The {label} library is not set up for your account yet.")
     if state != "ok":
         return None
     want = f"{service}:{upstream_id}"
@@ -687,10 +744,18 @@ def build_title(section: dict, service: str, upstream_id: str, raw_term: Optiona
     creator = _plain(it.get("creator") or "") or None
     year = _year_of(it.get("year"))
     medium = MEDIUM.get(kind, "")
-    resume = _saved_position(it.get("progress"))
-    progress = progress_words(kind, it.get("progress")) if resume else None
-    action = "Resume" if resume else ACTION.get(kind, "Open")
-    return TitleVM("ok", label, title=title, medium=medium,
+    # The same rule as a Continue card (continue_state): Resume only for a saved position in whole seconds.
+    # Progress the upstream reports without one (a fraction, no position) shows in words with the neutral
+    # "Open", exactly as Continue shows it; with no progress at all the verb says what the item is for.
+    finished, resume = continue_state(it.get("progress"))
+    progress = None if finished else progress_words(kind, it.get("progress"))
+    if resume:
+        action = "Resume"
+    elif progress:
+        action = "Open"
+    else:
+        action = ACTION.get(kind, "Open")
+    return TitleVM("ok", label, title=title, medium=medium, kicker=kicker_of(medium, label),
                    line=" · ".join(x for x in (creator, str(year) if year else None) if x) or None,
                    detail=_detail_of(it, creator, year), shape=SHAPE.get(kind, "poster"),
                    image=_image(it.get("artwork")), progress=progress, action=action, action_href=href,

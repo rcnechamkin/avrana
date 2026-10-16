@@ -207,7 +207,7 @@ class HandoffTests(unittest.TestCase):
     def test_hostile_ids_never_become_links(self):
         from avrana_home.contract import HandoffError, build_handoff_url
         hostile = ["", "../x", "//evil.example", "https://evil.example", "a b", "%2e%2e", "42?next=//e",
-                   "42#x", "@evil.example", "\evil", "A" * 33, FILM + "0", None, 42]
+                   "42#x", "@evil.example", "\\evil", "A" * 33, FILM + "0", None, 42]
         for service in Service:
             for bad in hostile:
                 with self.subTest(service=service, bad=bad):

@@ -28,12 +28,12 @@
   <section class="shelf" aria-labelledby="h-outcome">
     <h2 id="h-outcome">{{ page.outcome }}</h2>
 {% if not page.found %}
-    <p class="said" role="status">{{ page.message }}{% if page.result_state == "unsearchable" and page.retry_href %} <a class="link" href="{{ page.retry_href }}">Try again<span class="sr"> searching your libraries</span></a>{% elif page.result_state == "not_set_up" %} <a class="link" href="/help">Help</a>{% endif %}</p>
+    <p class="said" role="status">{{ page.message }}{% if page.result_state == "unsearchable" and page.retry_href %} <a class="link" href="{{ page.retry_href }}">Try again<span class="sr"> searching your libraries</span></a>{% elif page.result_state == "not_set_up" %} <a class="link" href="/help/trouble#not-set-up">What to do next</a>{% endif %}</p>
 {% endif %}
 {% if page.requests %}
     <ul class="asks">
 {% for r in page.requests %}
-      <li><a class="link" href="{{ r.href }}">{{ r.label }}</a></li>
+      <li><a class="link" href="{{ r.href }}">{{ r.label }}{% if r.leaves %}<span class="sr">, opens the request website</span>{% endif %}</a>{% if r.leaves %} <span class="hint" aria-hidden="true">Opens the request website</span>{% endif %}</li>
 {% endfor %}
     </ul>
 {% endif %}
@@ -44,13 +44,13 @@
       <ul class="hits">
 {% for it in g.items %}
         <li class="w-{{ it.shape }}">{{ frame(it.image, it.title) }}
-          <span class="meta"><a class="t" href="{{ it.href }}">{{ it.title }}<span class="sr">, {{ it.medium }}{% if it.opens %}, opens {{ it.opens }}{% endif %}</span></a>{% if it.line %}<span class="d">{{ it.line }}</span>{% endif %}{% if it.opens %}<span class="d" aria-hidden="true">Opens in {{ it.opens }}</span>{% endif %}</span></li>
+          <span class="meta"><a class="t" href="{{ it.href }}">{{ it.title }}<span class="sr">, {{ it.medium }}{% if it.opens %}, opens in {{ it.opens }}{% endif %}</span></a>{% if it.line %}<span class="d">{{ it.line }}</span>{% endif %}{% if it.opens %}<span class="d" aria-hidden="true">Opens in {{ it.opens }}</span>{% endif %}</span></li>
 {% endfor %}
       </ul>
 {% elif page.found or page.result_state != "unsearchable" %}
-      <p class="said" role="status">{{ g.message }}{% if g.retry and page.retry_href %} <a class="link" href="{{ page.retry_href }}">Try again<span class="sr"> searching {{ g.label }}</span></a>{% endif %}</p>
+      <p class="said" role="status">{{ g.message }}{% if g.retry and page.retry_href %} <a class="link" href="{{ page.retry_href }}">Try again<span class="sr"> searching {{ g.label }}</span></a>{% elif g.state == "not_linked" %} <a class="link" href="/help/trouble#not-set-up">What to do next<span class="sr"> about {{ g.label }}</span></a>{% endif %}</p>
 {% else %}
-      <p class="said">{{ g.message }}</p>
+      <p class="said">{{ g.message }}{% if g.state == "not_linked" %} <a class="link" href="/help/trouble#not-set-up">What to do next<span class="sr"> about {{ g.label }}</span></a>{% endif %}</p>
 {% endif %}
     </section>
 {% endfor %}

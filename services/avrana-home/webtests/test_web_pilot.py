@@ -189,15 +189,20 @@ class SearchBehaviourTests(Mocks):
         self.assertEqual(before, sum(len(m.paths()) for m in (self.jf, self.kg, self.cw)))
         self.assertNotIn('id="h-outcome"', t)
 
-    def test_the_hint_names_exactly_what_clean_query_turns_into_spaces(self):
-        neutral = set(contract._QUERY_NEUTRALISED)
-        listed = set(viewmodel.SEARCH_SPACED.replace(" ", ""))
-        self.assertEqual(neutral, listed)
-        for ch in sorted(neutral):
-            self.assertEqual("ab", contract.clean_query(f"a{ch}b").replace(" ", ""), ch)
+    def test_the_hint_promises_only_what_clean_query_does(self):
+        # #12: plain guidance, no list of regex characters. What it promises must still be exactly true:
+        hint = viewmodel.SEARCH_HINT
+        self.assertEqual(f"At least {contract.MIN_QUERY} characters.", hint)
+        self.assertIsNone(contract.clean_query("a" * (contract.MIN_QUERY - 1)))      # fewer is refused
+        self.assertEqual("ab", contract.clean_query("ab"))                            # that many is enough
+        # ...and it names no character a member must avoid, because none makes a term unusable while letters
+        # remain: each neutralised character becomes a space, the words around it are still searched.
+        for ch in sorted(contract._QUERY_NEUTRALISED):
+            self.assertNotIn(ch, hint, ch)
+            self.assertEqual("ab cd", contract.clean_query(f"ab{ch}cd"), ch)
         t = self.search(A, "").text
-        self.assertIn(viewmodel.SEARCH_SPACED.replace('"', "&#34;"), t)
-        self.assertIn("At least 2 characters", t)
+        self.assertIn(f'<p class="hint" id="q-hint">Searches the libraries on your account. {hint}</p>', t)
+        self.assertNotIn("treated as spaces", t)
 
     def test_a_member_without_a_searchable_library_is_told_calmly(self):
         t = self.search(NOTHING, "Synthetic").text

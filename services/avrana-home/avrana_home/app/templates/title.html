@@ -7,7 +7,7 @@
    opens the item in its own library (Resume only for a saved position); it never claims playback started. #}
 {% if page.state == "ok" %}
   <section class="shelf title-page" aria-labelledby="h-title">
-    <p class="kicker">{{ page.medium }}{% if page.medium %} · {% endif %}{{ page.library }}</p>
+    <p class="kicker">{{ page.kicker }}</p>
     <div class="title-body w-{{ page.shape }}">
       {{ frame(page.image, page.title) }}
       <div class="title-meta">
@@ -19,7 +19,7 @@
 {% if page.progress %}        <p class="d p">{{ page.progress }}</p>
 {% endif %}
         <p class="act"><a class="open" href="{{ page.action_href }}" aria-label="{{ page.action_label }}">{{ page.action }}</a></p>
-        <p class="hint">Opens in {{ page.library }}. If it does not open there, see <a class="link" href="/help">Help</a>.</p>
+        <p class="hint">Opens in {{ page.library }}. If it does not open there, see <a class="inline" href="/help/trouble">If something doesn&#x27;t open</a>.</p>
       </div>
     </div>
   </section>
@@ -27,9 +27,11 @@
   <section class="shelf" aria-labelledby="h-title">
     <h2 id="h-title">{{ page.library }}</h2>
     <p class="said" role="status">{{ page.message }}{% if page.retry_href %} <a class="link" href="{{ page.retry_href }}">Try again</a>{% endif %}</p>
+{% if page.state == "not_linked" %}
+    <p class="said"><a class="link" href="/help/trouble#not-set-up">What to do next</a></p>
+{% endif %}
   </section>
 {% endif %}
 {% endblock %}
 {% block footer %}{% if page.back_href %}    <a class="link" href="{{ page.back_href }}">Back to search</a>
-{% endif %}    <a class="link" href="/">Home</a>
-    <a class="link" href="/help">Help</a>{% endblock %}
+{% endif %}    <a class="link" href="/">Back to home</a>{% endblock %}

@@ -82,7 +82,14 @@ class TitlePage(Fixture):
         self.assertIn('<h2 id="h-title" class="t">Synthetic Film One</h2>', r.text)
         self.assertIn('aria-label="Resume Synthetic Film One in Movies and TV">Resume</a>', r.text)
         self.assertIn("left", r.text)                                    # progress in words
-        self.assertIn("Movie · Movies and TV", r.text)
+        self.assertIn('<p class="kicker">Movies and TV</p>', r.text)      # not "Movie · Movies and TV" (#13)
+        self.assertNotIn("Movie · Movies and TV", r.text)
+        # Return navigation like the other shell pages (#4): Back to home, no extra Help (it is in the places bar);
+        # the hint is an inline link to the trouble topic, not a padded block before an orphaned full stop.
+        foot = r.text.split("<footer>", 1)[1]
+        self.assertIn('<a class="link" href="/">Back to home</a>', foot)
+        self.assertNotIn('href="/help"', foot)
+        self.assertIn('see <a class="inline" href="/help/trouble">If something doesn&#x27;t open</a>.</p>', r.text)
         self.assertNotIn("playing", r.text.lower())
         self.assertNotIn("Back to search", r.text)                       # not reached from a search
         self.assertIn("form-action 'none'", r.headers["content-security-policy"])   # the strict default
@@ -281,16 +288,21 @@ class SearchLinks(Fixture):
     def test_no_matches_offers_request_only_for_the_members_own_request_services(self):
         c = self.client()
         r = c.get("/search", params={"q": "nomatch here"}, headers=A)
-        self.assertIn('href="https://request.avrana.net/search?query=nomatch%20here">Request this title as a film or show',
-                      r.text)
-        self.assertIn('href="/requestacomic">Request this title as a comic', r.text)
-        self.assertIn('href="/requestabook">Request this title as', r.text)
+        # The Seerr link leaves Avrana with the term: the page says so, visibly and to screen readers (#8).
+        self.assertIn('href="https://request.avrana.net/search?query=nomatch%20here">Ask for a film or show'
+                      '<span class="sr">, opens the request website</span></a> '
+                      '<span class="hint" aria-hidden="true">Opens the request website</span>', r.text)
+        self.assertIn('href="/requestacomic">Ask for a comic</a>', r.text)
+        self.assertIn('href="/requestabook">Ask for ', r.text)
+        self.assertEqual(1, r.text.count("Opens the request website</span>"))   # only the link that leaves
+        self.assertNotIn("Request this title", r.text)
+        self.assertNotIn("an ebook", r.text)
         v = c.get("/search", params={"q": "nomatch here"}, headers=A_VIDEO_ONLY).text
-        self.assertIn("Request this title as a film or show", v)
-        for word in ("requestabook", "requestacomic", "as a comic", "ebook", "audiobook"):
+        self.assertIn("Ask for a film or show", v)
+        for word in ("requestabook", "requestacomic", "a comic", "ebook", "audiobook"):
             self.assertNotIn(word, v, word)
         found = c.get("/search", params={"q": "Synthetic"}, headers=A).text
-        self.assertNotIn("Request this title", found)
+        self.assertNotIn("Ask for a", found)
 
 
 if __name__ == "__main__":
