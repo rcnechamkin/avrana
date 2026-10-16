@@ -101,7 +101,7 @@ class JellyfinArtworkRevocation(unittest.TestCase):
         # review of #57: a transient failure keeps the bytes (serving still needs a passing check) and artwork
         # failures never trip the circuit the sections use
         self.assertIsNotNone(self.adapter.cache.for_member(self.a).get("jellyfin", "art:" + A_FILM))
-        self.assertEqual(self.adapter.health().state, "ok")
+        self.assertIn(self.adapter.health().state, ("ok", "unknown"))     # covers alone say nothing either way
         self.assertIs(self.adapter.continue_items(self.a).state, SectionState.OK)
         self.fake.overrides.clear()
         n = len(image_calls(self.fake, "/Images/Primary"))
@@ -204,6 +204,62 @@ class CoverConcurrency(unittest.TestCase):
                          [getattr(s, "reason", None) for s in sections])
         self.assertTrue(all(r.state is SectionState.OK for r in results[:-2]),
                         [r.state for r in results[:-2]])
+
+
+class CoversNeverSteerTheCircuit(unittest.TestCase):
+    """Re-review of #57: artwork calls are neutral in BOTH directions. They cannot open the circuit, keep it closed,
+    or close it from half-open; and a mapping failure that a cover led is still counted for the sections."""
+
+    def setUp(self):
+        self.clock = FakeClock()
+        self.fake = FakeJellyfin(self.clock)
+        self.adapter = JellyfinAdapter(FakeTransport(self.fake), clock=self.clock)
+        self.a = make_principal("member-a", VIDEOS)
+        self.adapter.fetch_artwork(self.a, A_FILM)                  # warm cover, mapping cached
+
+    def test_section_failures_with_covers_in_between_still_open_the_circuit(self):
+        self.fake.overrides["/Items/Latest"] = ("status", 500)      # the sections fail, the cover route works
+        for _ in range(3):
+            self.clock.advance(31)
+            self.assertIs(self.adapter.recent_items(self.a).state, SectionState.UNAVAILABLE)
+            if self.adapter.health().state != "cooling_off":      # a cover succeeds between section failures
+                self.assertIs(self.adapter.fetch_artwork(self.a, A_FILM).state, SectionState.OK)
+        self.assertEqual(self.adapter.health().state, "cooling_off")
+        self.assertIs(self.adapter.fetch_artwork(self.a, A_FILM).state, SectionState.UNAVAILABLE)   # open: no cover
+
+    def test_a_cover_in_half_open_neither_takes_the_trial_nor_closes_the_circuit(self):
+        self.fake.overrides["/Items/Latest"] = ("status", 500)
+        for _ in range(3):
+            self.clock.advance(31)
+            self.adapter.recent_items(self.a)
+        self.assertEqual(self.adapter.health().state, "cooling_off")
+        self.clock.advance(120)                                      # half-open: one trial may run
+        self.assertIs(self.adapter.fetch_artwork(self.a, A_FILM).state, SectionState.UNAVAILABLE)
+        self.assertNotEqual(self.adapter.health().state, "ok")
+        self.assertIs(self.adapter.recent_items(self.a).state, SectionState.UNAVAILABLE)   # the section's trial
+        self.assertEqual(self.adapter.health().state, "cooling_off")                       # failed: open again
+        self.fake.overrides.clear()
+        self.clock.advance(120)
+        self.assertIs(self.adapter.recent_items(self.a).state, SectionState.OK)            # a section closes it
+        self.assertEqual(self.adapter.health().state, "ok")
+        self.assertIs(self.adapter.fetch_artwork(self.a, A_FILM).state, SectionState.OK)
+
+    def test_a_mapping_failure_led_by_a_cover_still_counts_for_the_section_that_shared_it(self):
+        slow = _SlowTransport(self.fake)
+        slow.delay = 0.3
+        adapter = JellyfinAdapter(slow, clock=self.clock)
+        self.fake.overrides["/Users"] = ("status", 500)
+        for _ in range(3):
+            adapter.cache.clear()
+            got = {}
+            cover = threading.Thread(target=lambda: got.update(cover=adapter.fetch_artwork(self.a, A_FILM)))
+            cover.start()
+            time.sleep(0.1)                                          # the cover leads the user-list lookup
+            got["section"] = adapter.recent_items(self.a)
+            cover.join(5)
+            self.assertIs(got["section"].state, SectionState.UNAVAILABLE)
+            self.assertIs(got["cover"].state, SectionState.UNAVAILABLE)
+        self.assertEqual(adapter.health().state, "cooling_off")
 
 
 # ---- 2. shared views (Komga, Calibre-Web): group first, per-member cache, bounded TTL ---------------------

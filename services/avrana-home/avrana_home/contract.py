@@ -267,16 +267,43 @@ class ForbiddenRequest(Exception):
 
 
 class _SharedFailure(Exception):
-    """A follower saw the failure its single-flight leader already reported and counted."""
+    """A follower saw the failure its single-flight leader already reported. `counted` is False when the leader was
+    an artwork call (neutral for the circuit): a section follower then counts the failure itself."""
 
-    def __init__(self, err: Exception):
+    def __init__(self, err: Exception, counted: bool = True):
         super().__init__(type(err).__name__)
         self.err = err
+        self.counted = counted
+
+
+class _ArtworkBreaker:
+    """The circuit as an artwork call sees it (review of #57): it may only ASK. It never takes the half-open trial
+    and its results change nothing, in either direction, so covers can neither open the circuit nor keep it closed
+    or close it while the sections fail. Freshness is still the token's validity."""
+    __slots__ = ("_inner",)
+
+    def __init__(self, inner):
+        self._inner = inner
+
+    def acquire(self):
+        return self._inner.acquire(trial=False)
+
+    def valid(self, token):
+        return self._inner.valid(token)
+
+    def success(self, token):
+        return self._inner.valid(token)
+
+    def failure(self, error_class, token):
+        return False
+
+    def neutral(self, token):
+        return None
 
 
 class _Flight:
     """One in-progress mapping lookup that concurrent sections of the same member share."""
-    __slots__ = ("event", "result", "exc", "started", "finished")
+    __slots__ = ("event", "result", "exc", "started", "finished", "counted")
 
     def __init__(self, started: float):
         self.event = threading.Event()
@@ -284,6 +311,7 @@ class _Flight:
         self.exc = None
         self.started = started            # when the leader began: an old flight is abandoned
         self.finished = None              # when the leader reported: a stale answer is not shared
+        self.counted = True               # False when an artwork call led it (its failure was not counted)
 
 
 def _fresh_copy(err: Exception) -> Exception:
@@ -296,11 +324,12 @@ def _fresh_copy(err: Exception) -> Exception:
 
 class _Ctx:
     """Per-call facts the breaker accounting needs."""
-    __slots__ = ("upstream", "fresh_mapping")
+    __slots__ = ("upstream", "fresh_mapping", "artwork")
 
-    def __init__(self):
+    def __init__(self, artwork: bool = False):
         self.upstream = False         # did any request actually reach the upstream?
         self.fresh_mapping = False    # was the mapping confirmed against the upstream in this call?
+        self.artwork = artwork        # an artwork call: neutral for the circuit
 
 
 @dataclass(frozen=True)
@@ -550,14 +579,13 @@ class MediaAdapter:
             self._slot_freed.notify_all()
 
     def _account(self, err: Exception, token: Optional[int], member_scoped: bool,
-                 force_count: bool = False, never_count: bool = False) -> None:
+                 force_count: bool = False, breaker=None) -> None:
+        breaker = breaker if breaker is not None else self.breaker
         log_failure(self.service.value, err)
-        if never_count:
-            self.breaker.neutral(token)          # an artwork call: never trips the circuit the sections use
-        elif force_count or counts_toward_breaker(err, member_scoped=member_scoped):
-            self.breaker.failure(type(err).__name__, token)
+        if force_count or counts_toward_breaker(err, member_scoped=member_scoped):
+            breaker.failure(type(err).__name__, token)
         else:
-            self.breaker.neutral(token)          # a per-request problem: the shared circuit is untouched
+            breaker.neutral(token)               # a per-request problem: the shared circuit is untouched
 
     def _mapped(self, scope, principal: MemberPrincipal, token: int, ctx: "_Ctx") -> UpstreamUser:
         """Mapping with member-scoped caching of the outcome (positive and negative)."""
@@ -577,6 +605,7 @@ class MediaAdapter:
             leader = flight is None
             if leader:
                 flight = self._flights[member] = _Flight(self.clock.now())
+                flight.counted = not ctx.artwork
         if not leader:
             # Single-flight: a concurrent section of the same page is already asking the upstream
             # for this member; share its answer (and its one counted failure) instead of repeating.
@@ -597,7 +626,7 @@ class MediaAdapter:
             if isinstance(flight.exc, AmbiguousMappingError):
                 raise AmbiguousMappingError()
             if flight.exc is not None:
-                raise _SharedFailure(_fresh_copy(coerce(flight.exc) or UpstreamUnreachable()))
+                raise _SharedFailure(_fresh_copy(coerce(flight.exc) or UpstreamUnreachable()), counted=flight.counted)
             if flight.result is None:
                 raise _SharedFailure(UpstreamUnreachable())
             ctx.fresh_mapping = True         # the leader just confirmed it against the upstream
@@ -652,14 +681,15 @@ class MediaAdapter:
         refused = self._acquire_art_slot(member, budget) if artwork else self._acquire_slot(member)
         if refused is not None:
             return _Outcome("unavailable", reason=refused)
+        br = _ArtworkBreaker(self.breaker) if artwork else self.breaker
         try:
             # inside the try: whatever the clock does, the slot is released below. An artwork call's deadline
             # started before its (bounded) wait for a slot, so the wait is part of it.
             self._local.budget = budget if budget is not None else CallBudget(self.clock, self._request_timeout)
-            token = self.breaker.acquire()
+            token = br.acquire()
             if token is None:
                 return _Outcome("unavailable", reason="cooling_off")
-            ctx = _Ctx()
+            ctx = _Ctx(artwork)
             stage = "mapping"
             try:
                 user = self._mapped(scope, principal, token, ctx)
@@ -667,22 +697,25 @@ class MediaAdapter:
                 ctx.upstream = ctx.upstream or reaches_upstream
                 value = work(user)
             except _SharedFailure as shared:
-                # The leader of this mapping lookup already counted the failure: not twice.
-                self.breaker.neutral(token)
+                if shared.counted or artwork:
+                    br.neutral(token)    # the leader already counted it (or this call may not count at all)
+                else:
+                    # an artwork call led the lookup and counted nothing: this section counts it, once
+                    self._account(shared.err, token, member_scoped=False, breaker=br)
                 return _Outcome("unavailable", reason=type(shared.err).__name__)
             except (MappingFailed, AmbiguousMappingError) as exc:
-                self._report_ok(token, ctx)
+                self._report_ok(token, ctx, br)
                 reason = exc.reason if isinstance(exc, MappingFailed) else "ambiguous"
                 return _Outcome("not_linked", reason=reason)
             except Exception as exc:
                 err = coerce(exc)
                 if err is None:                       # a programming error in OUR code: stay visible
-                    self.breaker.neutral(token)
+                    br.neutral(token)
                     raise
                 if isinstance(err, ItemGone):
                     # The route is addressed by one item and that item is absent or hidden: an empty
                     # result for that item. Says nothing about the service; never counted.
-                    self.breaker.neutral(token)
+                    br.neutral(token)
                     return _Outcome("gone", reason="item_not_found")
                 if isinstance(err, UserGone):
                     if stage == "work" and not ctx.fresh_mapping:
@@ -690,19 +723,19 @@ class MediaAdapter:
                         # this member. Forget the mapping (re-resolved next time); circuit untouched.
                         scope.delete(self.service.value, "mapping")
                         log_failure(self.service.value, err)
-                        self.breaker.neutral(token)
+                        br.neutral(token)
                         return _Outcome("not_linked", reason="upstream_user_not_found")
                     # The user was confirmed against the upstream a moment ago (by this call or by the
                     # single-flight leader it followed) and is now "gone": contradictory, so it is
                     # drift and counts. The mapping is NOT dropped on that contradiction.
-                    self._account(err, token, member_scoped=False, force_count=True, never_count=artwork)
+                    self._account(err, token, member_scoped=False, force_count=True, breaker=br)
                 elif isinstance(err, UpstreamNotFound):
                     # A fixed route (or one nobody classified) is missing: service-wide drift.
-                    self._account(err, token, member_scoped=False, force_count=True, never_count=artwork)
+                    self._account(err, token, member_scoped=False, force_count=True, breaker=br)
                 else:
-                    self._account(err, token, member_scoped=(stage == "work"), never_count=artwork)
+                    self._account(err, token, member_scoped=(stage == "work"), breaker=br)
                 return _Outcome("unavailable", reason=type(err).__name__)
-            return _Outcome("ok", value, fresh=self._report_ok(token, ctx))
+            return _Outcome("ok", value, fresh=self._report_ok(token, ctx, br))
         finally:
             self._local.budget = None
             if artwork:
@@ -710,12 +743,13 @@ class MediaAdapter:
             else:
                 self._release_slot(member)
 
-    def _report_ok(self, token: int, ctx: "_Ctx") -> bool:
+    def _report_ok(self, token: int, ctx: "_Ctx", breaker=None) -> bool:
         """Success only if the upstream really answered; returns whether the result is still fresh."""
+        breaker = breaker if breaker is not None else self.breaker
         if ctx.upstream:
-            return self.breaker.success(token)
-        self.breaker.neutral(token)
-        return self.breaker.valid(token)
+            return breaker.success(token)
+        breaker.neutral(token)
+        return breaker.valid(token)
 
     def _section(self, principal: MemberPrincipal, section: str, cache_name: Optional[str],
                  fetch: Callable[[UpstreamUser], SectionResult]) -> SectionResult:

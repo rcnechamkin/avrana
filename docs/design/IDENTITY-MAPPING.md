@@ -101,7 +101,11 @@ failing (`webtests/test_web_isolation_h2.py`).
    are 404 (the letter placeholder shows) even if the bytes are cached. This is deliberate (fail closed).
    Review of #57: covers have their own concurrency allowance (8 per adapter, 4 per member, separate from the
    section slots), wait up to 0.4 s for a slot within their own deadline instead of being refused at once, and
-   never count toward the circuit the sections use. A transient failure (busy, timeout, unreachable) keeps the
+   never steer the circuit the sections use, in either direction: a cover's failure is not counted, its
+   success does not reset the sections' failure run, and it never takes the half-open trial (covers are
+   refused while the circuit is open or half-open, so only a section call can close it). A user-list lookup
+   that a cover led and that failed is counted by the section that shared it. A waiting cover holds one
+   worker thread for at most 0.4 s (bounded per adapter by 8 covers in flight plus the waiters). A transient failure (busy, timeout, unreachable) keeps the
    cached bytes; only a definitive negative (not visible, not linked) drops them. Each warm cover still costs
    one upstream visibility call. **Option, owner decision:** cache the positive visibility verdict per member
    and item for a few seconds (for example 5 to 10 s) to cut those calls; this reopens a revocation window of
