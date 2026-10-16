@@ -115,8 +115,8 @@
   /* Search (AVR-383): the same shell as Home. */
   .srch{display:flex;flex-direction:column;gap:0.75rem;margin:0;}
   .srch label{color:var(--dim);font-size:0.9rem;letter-spacing:0.08em;text-transform:uppercase;}
-  .srch .ask{display:flex;gap:0.625rem;}
-  .srch input[type=search]{flex:1 1 0;width:0;min-width:0;min-height:2.75rem;padding:0.5rem 0.75rem;font:inherit;font-size:1.1rem;
+  .srch .ask{display:flex;flex-wrap:wrap;gap:0.625rem;}
+  .srch input[type=search]{flex:1 1 9rem;width:0;min-width:0;min-height:2.75rem;padding:0.5rem 0.75rem;font:inherit;font-size:1.1rem;
     color:var(--fg);background:var(--bg);border:1px solid var(--rule-control);border-radius:0;}
   .srch input[aria-invalid=true]{border-color:var(--fg);border-width:2px;}
   .srch button{min-height:2.75rem;padding:0.5rem 1.25rem;font:inherit;color:var(--bg);background:var(--fg);border:1px solid var(--fg);cursor:pointer;}
@@ -129,12 +129,12 @@
   ul.hits{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:0.625rem;}
   /* A result row: thumbnail, then title (two lines) and meta (one line), then Open. On a phone Open sits under
      the text, beside the thumbnail; from 30rem it ends the row. Nothing wraps word by word. */
-  ul.hits li{display:grid;grid-template-columns:3rem minmax(0,1fr);grid-template-areas:"art meta" "art act";
-    gap:0.5rem 0.875rem;align-items:start;border:1px solid var(--rule-quiet);padding:0.625rem 0.75rem;}
-  ul.hits .frame{grid-area:art;width:3rem;margin:0;}
+  ul.hits li{--thumb:min(3rem,16vw);display:grid;grid-template-columns:var(--thumb) minmax(0,1fr);grid-template-areas:"art meta" "art act";
+    gap:0.5rem min(0.875rem,3vw);align-items:start;border:1px solid var(--rule-quiet);padding:0.625rem 0.75rem;}
+  ul.hits .frame{grid-area:art;width:var(--thumb);margin:0;}
   ul.hits .meta{grid-area:meta;min-width:0;display:flex;flex-direction:column;gap:0.125rem;}
   ul.hits a.open{grid-area:act;justify-self:start;}
-  @media (min-width:30rem){ul.hits li{grid-template-columns:3rem minmax(0,1fr) auto;grid-template-areas:"art meta act";align-items:center;}}
+  @media (min-width:30rem){ul.hits li{grid-template-columns:var(--thumb) minmax(0,1fr) auto;grid-template-areas:"art meta act";align-items:center;}}
   a.open{flex:none;display:inline-flex;align-items:center;min-height:2.75rem;padding:0 1rem;color:var(--fg);
     border:1px solid var(--rule-strong);text-decoration:none;}
   a.open:hover,a.open:focus-visible{background:var(--fg);color:var(--bg);}
