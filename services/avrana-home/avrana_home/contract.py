@@ -623,6 +623,11 @@ class MediaAdapter:
                 else:
                     self._account(err, token, member_scoped=(stage == "work"))
                 return _Outcome("unavailable", reason=type(err).__name__)
+            if getattr(value, "reason", None) == TRUNCATED:
+                # A list cut short by the budget: shown, but no proof of health. The shared failure run is
+                # neither reset nor extended, so one such member cannot hold the circuit closed for everyone.
+                self.breaker.neutral(token)
+                return _Outcome("ok", value, fresh=self.breaker.valid(token))
             return _Outcome("ok", value, fresh=self._report_ok(token, ctx))
         finally:
             self._local.budget = None

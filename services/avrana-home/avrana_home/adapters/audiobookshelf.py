@@ -331,6 +331,7 @@ class AudiobookshelfAdapter(GuardedAdapter):
                 if answered:
                     raise FanOutSpent()                   # the item route answered; OUR fan-out used the budget
                 raise UpstreamTimeout()                   # mapping, record or 404s used it: real evidence (case B)
+            given = min(_left(budget), self._timeout)    # what `_get` will allow this lookup
             try:
                 raw = self._get_json(guard, budget, f"/api/items/{item_id}", {"expanded": "1"})
             except ItemGone:
@@ -339,9 +340,9 @@ class AudiobookshelfAdapter(GuardedAdapter):
                 if shown:
                     truncated = True
                     break                                 # a late lookup ran out of budget: keep the rest
-                if answered:
-                    raise FanOutSpent() from None         # the item route answered earlier lookups: ours
-                raise                                     # nothing answered in time: real evidence
+                if answered and given < 2 * LOOKUP_RESERVE:
+                    raise FanOutSpent() from None         # a short last slice of OUR budget ran out: ours
+                raise                                     # no answer, or a lookup that had time hung: counts
             answered += 1
             media, status = self._visible(raw, item_id, access, fraction, position, duration)
             unusable += status == "bad"

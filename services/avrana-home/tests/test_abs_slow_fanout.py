@@ -14,7 +14,7 @@ from avrana_home.adapters.audiobookshelf import AudiobookshelfAdapter
 from avrana_home.contract import SectionState
 from avrana_home.resilience import (CircuitBreaker, FakeClock, FanOutSpent, REQUEST_BUDGET, UpstreamTimeout,
                                     counts_toward_breaker)
-from tests.fake_abs import UA, FakeAudiobookshelf
+from tests.fake_abs import UA, UB, FakeAudiobookshelf
 from tests.fake_jellyfin import FakeTransport
 from tests.helpers import make_principal
 
@@ -131,6 +131,40 @@ class SlowFanOut(unittest.TestCase):
         self.clock.advance(TRUNCATED_TTL + 0.1)
         adapter.continue_items(self.a, limit=12)
         self.assertGreater(len(self.fake.paths()), n)        # ... and refetched soon after, not 30 s later
+
+    def test_d2_an_answered_but_invisible_entry_then_a_hang_still_counts(self):
+        """member-a's newest entry answers 200 but is a book she may not see; every later lookup hangs. Those
+        lookups had well over 2 x LOOKUP_RESERVE to answer, so the hang counts and the circuit opens."""
+        delay = lambda path: (30.0 if path.startswith("/api/items/") and "li_book000003" not in path  # noqa: E731
+                              else 0.01)
+        for _ in range(3):
+            r = self.adapter(delay).continue_items(self.a, limit=12)
+            self.assertEqual((SectionState.UNAVAILABLE, "UpstreamTimeout"), (r.state, r.reason))
+        self.assertEqual("cooling_off", self.breaker_state())
+
+    def test_d1_truncated_lists_neither_reset_nor_extend_the_shared_failure_run(self):
+        """member-a's newest entry is visible and answers, later lookups hang: she gets a short list each time.
+        member-b's user record is too slow: a counted timeout each time. Interleaved, a's partial lists must
+        not reset the run, so b's three timeouts still open the circuit for everyone."""
+        from avrana_home.contract import TRUNCATED
+        rec = self.fake.record(UA)
+        first = next(e for e in rec["mediaProgress"] if e["libraryItemId"] == "li_book000001")
+        rec["mediaProgress"] = [dict(first, lastUpdate=2 * 10 ** 12)] + rec["mediaProgress"]
+        self.fake.serve(f"/api/users/{UA}", rec)
+        b = make_principal("member-b", GROUPS)
+
+        def delay(path):
+            if path == f"/api/users/{UB}":
+                return 1.65
+            if path.startswith("/api/items/") and "li_book000001" not in path:
+                return 30.0
+            return 0.01
+        for _ in range(3):
+            ra = self.adapter(delay).continue_items(self.a, limit=12)
+            self.assertEqual((SectionState.OK, TRUNCATED), (ra.state, ra.reason))
+            rb = self.adapter(delay).continue_items(b, limit=12)
+            self.assertEqual((SectionState.UNAVAILABLE, "UpstreamTimeout"), (rb.state, rb.reason))
+        self.assertEqual("cooling_off", self.breaker_state())
 
     def test_fan_out_spent_is_unavailable_but_never_counted(self):
         self.assertFalse(counts_toward_breaker(FanOutSpent()))
