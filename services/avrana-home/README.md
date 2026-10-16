@@ -126,14 +126,17 @@ dropped by default. A route with no allowlist is never written. What is kept sti
 - Komga is a shared regular-account view: the tool uses the regular key only and never requests `GET /api/v2/users`
   (admin-only). It captures `/api/v1/books/latest`, one book and (with `--images`) its thumbnail: the routes the
   shared-view adapter uses (#50). No series, restriction, age or sharing-label fields are kept.
-- `--search-term WORD` (optional) also captures each adapter's SEARCH route (AVR-383), but only the shapes the
+- A search term (optional; prefer `$env:AVRANA_CAPTURE_SEARCH_TERM`, which wins over `--search-term WORD`, because a
+  command-line argument is visible in the process list and stays in shell history) also captures each adapter's
+  SEARCH route (AVR-383), but only the shapes the
   adapters in the checkout you run from actually make (checked against their own `ALLOWED_ROUTES`; a search route
   those adapters lack is reported as skipped and never sent): Jellyfin `/Items?userId=&searchTerm=` (or the legacy
   `/Users/{id}/Items`), Audiobookshelf `/api/libraries` and `/api/libraries/{id}/search?q=`, Komga
-  `/api/v1/books?search=`, Calibre-Web `/opds/search?query=`. The term must be 2 to 40 plain letters, digits and
+  `/api/v1/books?search=`, Calibre-Web `/opds/search?query=`. The term must be 3 to 40 plain letters, digits and
   spaces; pick a harmless common word. It travels only as a query parameter and is never printed (dry runs show
-  `<term>`) or written. Kept fields include the ones the adapters show as creator and year (Audiobookshelf
-  `authorName`/`publishedYear`, Komga `metadata.authors`/`releaseDate`, Jellyfin `ProductionYear`, OPDS
+  `<term>`) or written: it is treated like a credential, replaced by `[REDACTED]` wherever it appears in a response,
+  and the final scan (which now also covers `manifest.json`) refuses any file that still contains it. Kept fields include the ones the adapters show as creator and year (Audiobookshelf
+  `authorName`/`publishedYear` (kept only when exactly four digits), Komga `metadata.authors`/`releaseDate`, Jellyfin `ProductionYear`, OPDS
   `author/name`/`published`); names are pseudonymised like titles.
 - The Calibre-Web cover is captured on whichever cover route the adapters use (`/opds/cover_240_240/{id}` or the older
   `/opds/thumb_cover/{id}`).

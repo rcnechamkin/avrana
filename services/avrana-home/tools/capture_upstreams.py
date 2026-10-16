@@ -238,7 +238,7 @@ class Options:
 
 # The query keys that carry the search term (one per service). Dry-run output shows `<term>` instead.
 SEARCH_KEYS = frozenset({"searchTerm", "q", "search", "query"})
-_SEARCH_TERM = re.compile(r"[A-Za-z0-9][A-Za-z0-9 ]{1,39}")     # stricter than Home's clean_query: a plain word
+_SEARCH_TERM = re.compile(r"[A-Za-z0-9][A-Za-z0-9 ]{2,39}")     # stricter than Home's clean_query: a plain word
 _ABS_LIBRARY = re.compile(r"(?:lib_[a-z0-9]{3,40}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})")
 SKIPPED_NOTE = "search route not in this checkout's adapters; not requested"
 
@@ -308,7 +308,7 @@ def capture_jellyfin(c: Client, o: Options) -> List[Capture]:
                 caps.append(Capture(c.name, "search", "/Items?searchTerm=", c.get("/Items", dict(q, userId=uid), uid),
                                     "json"))
             elif c.allows(f"/Users/{uid}/Items", q, uid):
-                caps.append(Capture(c.name, "search", "/Users/{id}/Items", c.get(f"/Users/{uid}/Items", q, uid), "json"))
+                caps.append(Capture(c.name, "search", "legacy Users/{id}/Items", c.get(f"/Users/{uid}/Items", q, uid), "json"))
             else:
                 caps.append(_skip(c, "search"))
     return caps
@@ -703,6 +703,11 @@ def scan_for_secrets(text: str, secrets: Sequence[str] = (), hosts: Sequence[str
 # metadata.links, ProviderIds, Path, coverPath, Tags, Policy device/folder lists, LastLoginDate, Hostname,
 # ServerName, DeviceName, e-mails, member labels, tokens, descriptions, every timestamp the adapters ignore.
 _T = True
+
+
+def _YEAR4(v: Any) -> bool:
+    """Kept only when exactly four digits: a validated leaf (Audiobookshelf `publishedYear`); anything else is dropped."""
+    return isinstance(v, str) and re.fullmatch(r"[0-9]{4}", v) is not None
 _DROP = object()
 
 _JF_ITEM = {"Id": _T, "Type": _T, "Name": _T, "SeriesName": _T, "ParentIndexNumber": _T, "IndexNumber": _T,
@@ -714,7 +719,7 @@ _KG_BOOK = {"id": _T, "seriesId": _T, "libraryId": _T, "deleted": _T, "name": _T
 _ABS_ITEM = {"id": _T, "libraryId": _T, "mediaType": _T, "isMissing": _T, "isInvalid": _T,
              "media": {"duration": _T, "tags": _T,
                        "metadata": {"explicit": _T, "title": _T, "authorName": _T, "seriesName": _T,
-                                    "publishedYear": _T}}}
+                                    "publishedYear": _YEAR4}}}
 
 # (service, route) -> (request path template, spec)
 ALLOWLIST: Dict[Tuple[str, str], Tuple[str, Any]] = {
@@ -756,10 +761,12 @@ PROVIDER_IDS: Dict[Tuple[str, str], Any] = {
     ("audiobookshelf", "search"): {"book": {"libraryItem": {"media": {"metadata": {"isbn": _T, "asin": _T}}}}},
     ("komga", "search"): {"content": {"metadata": {"isbn": _T}}},
 }
-# Calibre-Web OPDS (Atom): the elements calibre_web._book reads. A <link> keeps only a RELATIVE cover or
-# download href (the numeric book id the adapter extracts); absolute and external links are dropped.
+# Calibre-Web OPDS (Atom): the elements calibre_web._book reads. A <link> keeps only a RELATIVE href that the
+# adapters' own `_COVER_HREF` or `_DOWNLOAD_HREF` pattern matches (the numeric book id the adapter extracts);
+# absolute and external links are dropped.
 XML_ALLOWLIST = ("entry/title", "entry/author/name", "entry/published (an ISO date only: the year is shown)",
-                 "entry/link@href (relative /opds/cover|cover_240_240|thumb_cover/<n> and /opds/download/<n>/<fmt> only)")
+                 "entry/link@href (relative only, and only when it matches the adapters' cover or download "
+                 "href pattern, calibre_web._COVER_HREF / _DOWNLOAD_HREF)")
 XML_PROVIDER_IDS = ("entry/dc:identifier (ISBN and similar)",)
 MAX_FEED_ENTRIES = 20
 _ISO_DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}(?:T[0-9:.]{1,18}(?:Z|[+-][0-9]{2}:?[0-9]{2})?)?")
@@ -782,6 +789,8 @@ def _merge(a: Any, b: Any) -> Any:
 
 def allow_json(spec: Any, obj: Any) -> Any:
     """`obj` cut down to `spec`; _DROP if nothing of the expected shape is there."""
+    if callable(spec):
+        return obj if spec(obj) else _DROP          # a validated scalar leaf (for example _YEAR4)
     if spec is True:
         if _scalar(obj):
             return obj
@@ -844,6 +853,8 @@ def spec_for(service: str, route: str, keep_provider_ids: bool = False) -> Optio
 def _paths(spec: Any, prefix: str = "") -> List[str]:
     if spec is True:
         return [prefix]
+    if callable(spec):
+        return [prefix + " (" + (spec.__doc__ or "validated").split(":")[0].strip().lower() + ")"]
     out: List[str] = []
     for key, sub in spec.items():
         out += _paths(sub, f"{prefix}.{key}" if prefix else key)
@@ -991,7 +1002,8 @@ def parse_args(argv: Optional[Sequence[str]]) -> argparse.Namespace:
     p.add_argument("--own-username", default="", help="your own username; the only one NOT replaced (or AVRANA_CAPTURE_OWN_USERNAME)")
     p.add_argument("--max-items", type=int, default=2, help=f"items or books per member, at most {MAX_ITEMS} (default 2)")
     p.add_argument("--images", action="store_true", help="also request one cover per service; only status, type and size are kept")
-    p.add_argument("--calibre-probe-id", type=int, help="also request /opds/thumb_cover/<id> for an id the viewer should not see (status only)")
+    p.add_argument("--calibre-probe-id", type=int, help="also request the adapters' Calibre-Web cover route for an "
+                   "id the viewer should not see (status only)")
     p.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT * 2.5,
                    help=f"seconds per request, at most {int(MAX_TIMEOUT)} (default {DEFAULT_TIMEOUT * 2.5})")
     p.add_argument("--allow-insecure-http", action="store_true", help="allow a non-loopback http:// base URL")
@@ -999,7 +1011,9 @@ def parse_args(argv: Optional[Sequence[str]]) -> argparse.Namespace:
                    "(dropped by default). Only for a specific validation that needs them; they can reveal real titles")
     p.add_argument("--show-allowlist", action="store_true", help="print the fields kept per service and route, "
                    "and exit; makes no network call and needs no credentials")
-    p.add_argument("--search-term", default="", help="also capture each adapter's SEARCH route with this term "
+    p.add_argument("--search-term", default="", help="(prefer the AVRANA_CAPTURE_SEARCH_TERM environment variable: "
+                   "an argument is visible in the process list and shell history) "
+                   "also capture each adapter's SEARCH route with this term "
                    "(only routes the adapters in this checkout make). Pick a harmless common word; it must be plain "
                    "letters, digits and spaces, is sent only as a query parameter, and never printed or written")
     p.add_argument("--dry-run", action="store_true", help="print the requests that would be made, and make none")
@@ -1069,10 +1083,11 @@ def main(argv: Optional[Sequence[str]] = None, env: Optional[Mapping[str, str]] 
             raise CaptureError(f"--max-items must be 1..{MAX_ITEMS} and --members at most {MAX_MEMBERS} names")
         timeout = min(max(args.timeout, 0.5), MAX_TIMEOUT)
         term = None
-        if args.search_term:
-            term = " ".join(args.search_term.split())
-            if not _SEARCH_TERM.fullmatch(args.search_term) or not _SEARCH_TERM.fullmatch(term):
-                raise CaptureError("--search-term must be 2 to 40 plain letters, digits and spaces")
+        raw_term = env.get(PREFIX + "SEARCH_TERM", "") or args.search_term
+        if raw_term:
+            term = " ".join(raw_term.split())
+            if not _SEARCH_TERM.fullmatch(raw_term) or not _SEARCH_TERM.fullmatch(term):
+                raise CaptureError("the search term must be 3 to 40 plain letters, digits and spaces")
         own = args.own_username or env.get(PREFIX + "OWN_USERNAME", "")
         clients, hosts, secrets, skipped = build_clients(env, selected, timeout, args.dry_run, args.allow_insecure_http)
         if not clients:
@@ -1108,7 +1123,8 @@ def main(argv: Optional[Sequence[str]] = None, env: Optional[Mapping[str, str]] 
             say("  note: no --members given, so per-member requests are not planned; only user lists are fetched.")
         return 0
 
-    red = Redactor(secrets, hosts, own, members)
+    # The term is treated like a credential: replaced wherever it appears and refused by the final scan.
+    red = Redactor(secrets + ([term] if term else []), hosts, own, members)
     files, manifest, refused = build_outputs(caps, red, args.keep_provider_ids)
     outdir.mkdir(parents=True, exist_ok=True)
     try:
@@ -1122,8 +1138,13 @@ def main(argv: Optional[Sequence[str]] = None, env: Optional[Mapping[str, str]] 
             "field_allowlist": True, "provider_ids_kept": bool(args.keep_provider_ids),
             "unverified": "Record the server versions by hand. Titles, ids, names and hosts are replaced; read every file before sharing.",
             "entries": manifest}
-    write_private(outdir / "manifest.json", (json.dumps(note, indent=2) + "\n").encode("utf-8"))
-    say(f"wrote {len(files)} file(s) and manifest.json to the output directory")
+    manifest_text = json.dumps(note, indent=2) + "\n"
+    manifest_hits = scan_for_secrets(manifest_text, red.secrets, red.hosts)
+    if manifest_hits:
+        refused.append(f"manifest.json: {', '.join(sorted(set(manifest_hits)))}")
+    else:
+        write_private(outdir / "manifest.json", manifest_text.encode("utf-8"))
+    say(f"wrote {len(files)} file(s)" + ("" if manifest_hits else " and manifest.json") + " to the output directory")
     if refused:
         for line in refused:
             print(f"REFUSED (secret-like content still present, not written): {line}", file=err)

@@ -779,7 +779,7 @@ class SearchCapture(unittest.TestCase):
             self.assertNotIn("Overview", json.dumps(jf))
 
     def test_a_term_that_is_not_a_plain_word_is_refused_before_any_request(self):
-        for bad in ("a", "*", "x" * 41, "../../etc", "a%20b", "café", "a\r\nb", "a&b=c"):
+        for bad in ("a", "ab", "*", "x" * 41, "../../etc", "a%20b", "café", "a\r\nb", "a&b=c"):
             with Stub() as stub, tempfile.TemporaryDirectory() as d:
                 code, out, err = run(["--search-term", bad, "--out", str(Path(d) / "c")], stub.env())
                 self.assertEqual(1, code, bad)
@@ -801,6 +801,60 @@ class SearchCapture(unittest.TestCase):
                     ("komga", "search")):
             self.assertIsNotNone(cap.spec_for(*key), key)
         self.assertNotIn(("komga", "users"), cap.ALLOWLIST)
+
+    def test_the_term_from_the_environment_is_preferred_and_redacted_wherever_it_appears(self):
+        self.with_search_routes()
+        bodies = dict(SEARCH_BODIES)
+        bodies["/api/v1/books"] = {"content": [{"id": KG_BOOK, "metadata": {
+            "title": "Secret Comic", "authors": [{"name": "Jane Secret", "role": TERM}]}}]}
+        with Stub(overrides=bodies) as stub, tempfile.TemporaryDirectory() as d:
+            code, out, err = run(["--services", "komga", "--search-term", "otherword", "--out", str(Path(d) / "c")],
+                                 stub.env(AVRANA_CAPTURE_SEARCH_TERM=TERM))
+            self.assertEqual(0, code, err)
+            sent = [h for h in stub.hits if h[1] == "/api/v1/books"]
+            self.assertEqual(1, len(sent))
+            self.assertIn("search=" + TERM, sent[0][2])                 # the environment wins over the argument
+            files = outputs(Path(d) / "c")
+            blob = "\n".join(files.values()) + out + err
+            self.assertNotIn(TERM, blob)                                  # replaced, like a credential
+            self.assertIn(cap.REDACTED, files["komga-search-01.json"])
+            self.assertEqual([], cap.scan_for_secrets(blob, [TERM]))
+
+    def test_the_final_scan_refuses_the_term_as_a_literal(self):
+        self.assertIn("literal-secret", cap.scan_for_secrets("a role of " + TERM, [TERM]))
+
+    def test_jellyfin_legacy_users_items_search_shape(self):
+        from avrana_home.adapters._base import Route
+        from avrana_home.resilience import UserGone
+        legacy = Route("search", r"/Users/(?P<user>[0-9a-f]{32})/Items",
+                       ("searchTerm", "includeItemTypes", "recursive", "limit", "fields", "enableImageTypes",
+                        "enableUserData"), user_scoped=True, bind_in="path", not_found=UserGone)
+        saved = cap.SERVICES["jellyfin"]["routes"]
+        cap.SERVICES["jellyfin"]["routes"] = (legacy,) + tuple(saved)      # main's /Items has no searchTerm key
+        self.addCleanup(cap.SERVICES["jellyfin"].__setitem__, "routes", saved)
+        bodies = dict(SEARCH_BODIES)
+        bodies[f"/Users/{JF_ALICE}/Items"] = {"Items": [{"Id": JF_ITEM, "Name": "Secret Film", "Type": "Movie",
+                                                         "ProductionYear": 2001, "Overview": "leak-overview"}]}
+        with Stub(overrides=bodies) as stub, tempfile.TemporaryDirectory() as d:
+            code, out, err = run(["--services", "jellyfin", "--members", "alice", "--search-term", TERM,
+                                  "--out", str(Path(d) / "c")], stub.env())
+            self.assertEqual(0, code, err)
+            searched = [h for h in stub.hits if TERM in h[2]]
+            self.assertEqual([f"/Users/{JF_ALICE}/Items"], [h[1] for h in searched])   # the user id in the path
+            self.assertNotIn("userId=", searched[0][2])
+            files = outputs(Path(d) / "c")
+            jf = json.loads(files["jellyfin-search-01.json"])
+            self.assertEqual(2001, jf["Items"][0]["ProductionYear"])
+            blob = "\n".join(files.values())
+            self.assertNotIn("leak-overview", blob)
+            self.assertNotIn(TERM, blob)
+
+    def test_published_year_is_kept_only_as_four_digits(self):
+        spec = cap.spec_for("audiobookshelf", "item")
+        for raw, kept in (("2011", True), ("2011 (first ed.)", False), (2011, False), ("201", False),
+                          ("２０１１", False), (None, False), ("2011\n", False)):
+            got = cap.allow_json(spec, {"id": ABS_ITEM, "media": {"metadata": {"publishedYear": raw}}})
+            self.assertEqual(kept, "publishedYear" in got["media"]["metadata"], repr(raw))
 
 
 if __name__ == "__main__":
