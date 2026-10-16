@@ -91,7 +91,8 @@ HANDOFF_BASE = {
     Service.KOMGA: "https://read.avrana.net",
     Service.CALIBRE_WEB: "https://books.avrana.net",
 }
-# Strict, ASCII-only id patterns (fullmatch). Path templates are UNVERIFIED against live apps.
+# Strict, ASCII-only id patterns (fullmatch). The path templates below were checked against each upstream's
+# published web-app source (2026-10-16), not against the deployed apps: docs/design/CONTINUE-AND-HANDOFF.md, section 3.
 _ID_PATTERN = {
     Service.JELLYFIN: re.compile(r"[0-9a-f]{32}"),
     # Audiobookshelf before 2.3 used "li_..." ids; current servers use lowercase UUIDs (seen live 2026-10-16).
