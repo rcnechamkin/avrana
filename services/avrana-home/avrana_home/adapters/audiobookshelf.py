@@ -55,8 +55,8 @@ from ..contract import (ArtworkRef, ArtworkResult, DEFAULT_LIMIT, Kind, MappingF
                         SectionResult, SectionState, Service, UpstreamUser, build_handoff_url, clean_text,
                         valid_upstream_id)
 from ..principal import MemberPrincipal
-from ..resilience import (DEFAULT_TIMEOUT, ItemGone, RouteMissing, Transport, UpstreamMalformed,
-                          UpstreamMisbehaved, UserGone)
+from ..resilience import (DEFAULT_TIMEOUT, FanOutSpent, ItemGone, RouteMissing, Transport, UpstreamMalformed,
+                          UpstreamMisbehaved, UpstreamTimeout, UserGone)
 from ._base import GuardedAdapter, Route, bounded_int, lookup_username, match_exactly_one, member_override
 from ._base import GuardedTransport as _Guard
 
@@ -66,6 +66,10 @@ _ITEM_PATH = r"(?:li_[a-z0-9]{6,40}|" + _UUID + r")"   # old "li_" ids and curre
 _ARTWORK_REF = re.compile(r"audiobookshelf/cover/(" + _ITEM_PATH + r")")
 COVER_QUERY = {"width": "400", "format": "jpeg"}    # same size as Jellyfin's maxWidth; format UNVERIFIED
 MAX_LOOKUPS = 24                # item lookups per request, however long the progress list is
+# Continue needs one item lookup per progress entry, one after another, inside the one request budget. A lookup
+# is started only while at least this much of the budget is left; once the budget is short, Continue answers
+# with the items it already has. A slow-but-answering service must never look like an outage (AVR-503 F1).
+LOOKUP_RESERVE = 0.4            # seconds
 _LIBRARY_PATH = r"(?:lib_[a-z0-9]{3,40}|" + _UUID + r")"   # old "lib_" ids and current UUID ids (UNVERIFIED)
 _LIBRARY_ID = re.compile(_LIBRARY_PATH)
 MAX_LIBRARIES = 6               # libraries searched per request (each is one upstream call)
@@ -153,6 +157,13 @@ def _require_active(record: Dict[str, Any]) -> None:
         raise UpstreamMalformed()                         # a required field is missing or mistyped
     if not active:
         raise MappingFailed("disabled")
+
+
+def _left(budget) -> float:
+    try:
+        return budget.remaining()
+    except UpstreamTimeout:
+        return 0.0
 
 
 class AudiobookshelfAdapter(GuardedAdapter):
@@ -305,14 +316,27 @@ class AudiobookshelfAdapter(GuardedAdapter):
         entries = self._candidates(record.get("mediaProgress"), uid)
 
         shown: List[MediaItem] = []
-        unusable = 0
+        unusable = looked_up = 0
         for last_update, item_id, fraction, position, duration in entries[:MAX_LOOKUPS]:
             if len(shown) >= limit:
                 break
+            if _left(budget) < LOOKUP_RESERVE:
+                # Our own fan-out has used the budget; the service answered every call so far.
+                if shown:
+                    break                                 # what is already checked is accurate: show it
+                raise FanOutSpent()                       # nothing to show yet: unavailable, never "empty"
             try:
                 raw = self._get_json(guard, budget, f"/api/items/{item_id}", {"expanded": "1"})
             except ItemGone:
+                looked_up += 1
                 continue                                  # vanished upstream: omitted, neutral
+            except UpstreamTimeout:
+                if shown:
+                    break                                 # a late lookup ran out of budget: keep the rest
+                if looked_up:
+                    raise FanOutSpent() from None         # the service answered earlier lookups: ours
+                raise                                     # nothing answered in time: real evidence
+            looked_up += 1
             media, status = self._visible(raw, item_id, access, fraction, position, duration)
             unusable += status == "bad"
             if media is not None:
