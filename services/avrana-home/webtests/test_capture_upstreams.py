@@ -96,7 +96,7 @@ class Stub:
                 auth = self.headers.get("Authorization", "") + "|" + self.headers.get("X-API-Key", "")
                 good = any(t in auth for t in (JF_KEY, ABS_TOKEN, KOMGA_TOKEN)) or "Basic" in auth
                 stub.hits.append((self.command, path, query, good))
-                if stub.redirect_users and path == "/api/v2/users":
+                if stub.redirect_users and path == "/api/v1/books/latest":
                     self.send_response(302)
                     self.send_header("Location", "/redirect-target")
                     self.end_headers()
@@ -303,7 +303,7 @@ class FinalScan(unittest.TestCase):
 
     def test_a_file_that_still_matches_is_refused_not_written(self):
         leak = "Zx9Qw8Er7Ty6Ui5Op4As3Df2Gh1Jk0LmNb"        # secret-like, under an innocent key
-        resp = cap.Response(200, json.dumps({"Items": [{"Id": JF_ITEM, "Note": leak}]}).encode(), "application/json")
+        resp = cap.Response(200, json.dumps({"Items": [{"Id": JF_ITEM, "Type": leak}]}).encode(), "application/json")
         c = cap.Capture("jellyfin", "items", "/Items", resp, "json")
         files, manifest, refused = cap.build_outputs([c], cap.Redactor([], [], "", []))
         self.assertEqual({}, files)
@@ -374,9 +374,10 @@ class Runs(unittest.TestCase):
             for bad in (JF_KEY, ABS_TOKEN, KOMGA_TOKEN, CW_PASS, CW_USER, "127.0.0.1", str(stub.server.server_address[1])):
                 self.assertNotIn(bad, text)
             self.assertIn("DRY RUN", out)
-            for line in ("GET /Users", "GET /UserItems/Resume", "GET /api/users", "GET /api/v2/users",
+            for line in ("GET /Users", "GET /UserItems/Resume", "GET /api/users",
                          "GET /api/v1/books/latest", "GET /opds/new"):
                 self.assertIn(line, out)
+            self.assertNotIn("/api/v2/users", out)               # Komga is a shared view: no admin-only call
 
     def test_dry_run_plans_every_member(self):
         with Stub() as stub:
@@ -402,7 +403,8 @@ class Runs(unittest.TestCase):
             self.assertTrue(all(h[3] for h in stub.hits), "a request went out without the right credential")
             allowed = set(BODIES) | {"/opds/thumb_cover/9999", f"/api/users/{ABS_BOB}"}
             self.assertTrue({h[1] for h in stub.hits} <= allowed, {h[1] for h in stub.hits} - allowed)
-            for must in ("/Users", "/api/users", "/api/v2/users", "/opds/new", f"/api/users/{ABS_ALICE}",
+            self.assertNotIn("/api/v2/users", {h[1] for h in stub.hits})
+            for must in ("/Users", "/api/users", "/api/v1/books/latest", "/opds/new", f"/api/users/{ABS_ALICE}",
                          f"/api/items/{ABS_ITEM}", f"/api/v1/books/{KG_BOOK}", f"/api/v1/series/{KG_SERIES}"):
                 self.assertIn(must, {h[1] for h in stub.hits})
             files = outputs(target)
@@ -432,7 +434,7 @@ class Runs(unittest.TestCase):
         with Stub(redirect_users=True) as stub, tempfile.TemporaryDirectory() as d:
             code, out, err = run(["--out", str(Path(d) / "c"), "--services", "komga"], stub.env())
             self.assertEqual(0, code)
-            self.assertEqual(["/api/v2/users"], [h[1] for h in stub.hits])
+            self.assertEqual(["/api/v1/books/latest"], [h[1] for h in stub.hits])
             m = json.loads((Path(d) / "c" / "manifest.json").read_text())
             self.assertEqual(302, m["entries"][0]["status"])
             self.assertEqual("redirect_refused", m["entries"][0]["error"])
@@ -440,7 +442,7 @@ class Runs(unittest.TestCase):
 
     def test_a_body_over_the_cap_is_refused(self):
         big = {"x": "a" * (cap.MAX_JSON_BYTES + 10)}
-        with Stub(overrides={"/api/v2/users": big}) as stub, tempfile.TemporaryDirectory() as d:
+        with Stub(overrides={"/api/v1/books/latest": big}) as stub, tempfile.TemporaryDirectory() as d:
             code, out, err = run(["--out", str(Path(d) / "c"), "--services", "komga"], stub.env())
             self.assertEqual(0, code)
             m = json.loads((Path(d) / "c" / "manifest.json").read_text())
@@ -465,12 +467,219 @@ class Runs(unittest.TestCase):
 
     def test_final_scan_refusal_gives_exit_3_and_no_file(self):
         leak = "Zx9Qw8Er7Ty6Ui5Op4As3Df2Gh1Jk0LmNb"
-        with Stub(overrides={"/api/v2/users": [{"id": KG_USER, "note": leak}]}) as stub, tempfile.TemporaryDirectory() as d:
+        body = {"content": [{"id": KG_BOOK, "seriesId": KG_SERIES, "metadata": {"number": leak}}]}
+        with Stub(overrides={"/api/v1/books/latest": body}) as stub, tempfile.TemporaryDirectory() as d:
             code, out, err = run(["--out", str(Path(d) / "c"), "--services", "komga"], stub.env())
             self.assertEqual(3, code)
             self.assertIn("REFUSED", err)
             self.assertNotIn(leak, out + err)
+            self.assertNotIn("komga-latest-01.json", outputs(Path(d) / "c"))
+
+
+# ---- strict allowlisting (owner decision): unknown fields are dropped before any redaction -----------------
+def _caps(service, route, path, body, kind="json"):
+    raw = body if isinstance(body, bytes) else (body.encode() if isinstance(body, str) else json.dumps(body).encode())
+    return cap.Capture(service, route, path, cap.Response(200, raw, "application/json"), kind)
+
+
+def _built(service, route, path, body, keep=False, kind="json", own=""):
+    c = _caps(service, route, path, body, kind)
+    files, manifest, refused = cap.build_outputs([c], cap.Redactor([], [], own, []), keep)
+    return {k: v.decode() for k, v in files.items()}, manifest, refused
+
+
+LEAKS = ["ann-secret-leak", "coverpath leak", "ExternalUrls", "ProviderIds", "tt0123456", "LastLoginDate",
+         "2031-01-01", "Hostname", "nas-host-leak", "ServerName", "DeviceName", "phone-ann", "EnabledDevices",
+         "deviceidABC123def456", "kids-only-ann", "anns-shelf", "wikipedia", "imdb.com", "9780306406157",
+         "B00LEAKASIN", "Cover Path With Spaces"]
+
+
+class Allowlist(unittest.TestCase):
+    def test_an_unknown_field_is_dropped_including_nested_and_list_cases(self):
+        body = {"Items": [{"Id": JF_ITEM, "Type": "Movie", "Name": "Film", "NewUnknownField": "ann-secret-leak",
+                           "ImageTags": {"Primary": "0f" * 16, "Logo": "ann-secret-leak"},
+                           "UserData": {"PlaybackPositionTicks": 5, "Rating": "ann-secret-leak",
+                                        "Nested": {"deep": "ann-secret-leak"}},
+                           "People": [{"Name": "ann-secret-leak"}], "Tags": ["ann-secret-leak"]},
+                          "not-an-object", 7],
+                "TotalRecordCount": 1, "Extra": {"x": "ann-secret-leak"}}
+        files, _, refused = _built("jellyfin", "items", "/Items", body)
+        self.assertEqual([], refused)
+        out = json.loads(files["jellyfin-items-01.json"])
+        self.assertEqual(["Items"], list(out))
+        self.assertEqual(1, len(out["Items"]))                        # list shape kept; non-objects dropped
+        self.assertEqual({"Id", "Type", "Name", "ImageTags", "UserData"}, set(out["Items"][0]))
+        self.assertEqual(["Primary"], list(out["Items"][0]["ImageTags"]))
+        self.assertEqual(["PlaybackPositionTicks"], list(out["Items"][0]["UserData"]))
+        self.assertNotIn("ann-secret-leak", files["jellyfin-items-01.json"])
+
+    def test_every_route_has_a_spec_and_only_the_adapter_fields(self):
+        for key in (("jellyfin", "users"), ("jellyfin", "resume"), ("jellyfin", "latest"), ("jellyfin", "items"),
+                    ("audiobookshelf", "users"), ("audiobookshelf", "user"), ("audiobookshelf", "item"),
+                    ("komga", "latest"), ("komga", "book"), ("komga", "series")):
+            self.assertIn(key, cap.ALLOWLIST)
+        self.assertNotIn(("komga", "users"), cap.ALLOWLIST)
+        self.assertIsNone(cap.spec_for("komga", "users"))
+
+    def test_a_route_without_an_allowlist_is_never_written(self):
+        files, manifest, refused = _built("komga", "users", "/api/v2/users", [{"id": KG_USER, "email": EMAIL}])
+        self.assertEqual({}, files)
+        self.assertEqual("no_allowlist", manifest[0]["error"])
+        self.assertIsNone(manifest[0]["file"])
+
+    def test_wrong_shape_and_unparseable_bodies_are_not_written(self):
+        files, manifest, _ = _built("jellyfin", "items", "/Items", "not json at all ann-secret-leak")
+        self.assertEqual({}, files)
+        self.assertEqual("not_parseable", manifest[0]["error"])
+        files, manifest, _ = _built("jellyfin", "items", "/Items", "just a string")
+        self.assertEqual("not_parseable", manifest[0]["error"])
+        files, manifest, _ = _built("komga", "series", "/api/v1/series/{id}", 42)
+        self.assertEqual({}, files)
+        self.assertEqual("unexpected_shape", manifest[0]["error"])
+
+    def test_external_urls_and_provider_ids_are_dropped_by_default_and_kept_on_opt_in(self):
+        item = {"Id": JF_ITEM, "Type": "Movie", "Name": "Film",
+                "ExternalUrls": [{"Name": "IMDb", "Url": "https://www.imdb.com/title/tt0123456"}],
+                "ProviderIds": {"Imdb": "tt0123456", "Tmdb": "424242", "Other": "ann-secret-leak"}}
+        files, _, _ = _built("jellyfin", "items", "/Items", {"Items": [item]})
+        text = files["jellyfin-items-01.json"]
+        for bad in ("ExternalUrls", "imdb.com", "ProviderIds", "tt0123456", "424242"):
+            self.assertNotIn(bad, text)
+        files, _, refused = _built("jellyfin", "items", "/Items", {"Items": [item]}, keep=True)
+        self.assertEqual([], refused)
+        out = json.loads(files["jellyfin-items-01.json"])["Items"][0]
+        self.assertEqual({"Imdb": "tt0123456", "Tmdb": "424242"}, out["ProviderIds"])   # opt-in keeps only the named ids
+        self.assertNotIn("ExternalUrls", out)                                          # URLs are never kept
+        self.assertNotIn("ann-secret-leak", json.dumps(out))
+        abs_item = {"id": ABS_ITEM, "libraryId": "lib_secret1", "mediaType": "book",
+                    "media": {"metadata": {"title": "T", "explicit": False, "isbn": "9780306406157",
+                                           "asin": "B00LEAKASIN", "links": ["https://x.example/ann"]}}}
+        for keep in (False, True):
+            files, _, _ = _built("audiobookshelf", "item", "/api/items/{id}", abs_item, keep=keep)
+            text = files["audiobookshelf-item-01.json"]
+            self.assertEqual(keep, "9780306406157" in text and "B00LEAKASIN" in text)
+            self.assertNotIn("x.example", text)
+        files, _, _ = _built("komga", "book", "/api/v1/books/{id}", {"id": KG_BOOK, "metadata": {
+            "title": "T", "isbn": "9780306406157", "links": [{"url": "https://x.example/ann"}]}}, keep=True)
+        self.assertIn("9780306406157", files["komga-book-01.json"])
+        self.assertNotIn("x.example", files["komga-book-01.json"])
+
+    def test_opds_keeps_only_the_elements_the_adapter_reads(self):
+        feed = ('<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom" '
+                'xmlns:dc="http://purl.org/dc/elements/1.1/"><title>Secret Catalogue</title><updated>2031-01-01T00:00:00Z</updated>'
+                '<link rel="self" href="/opds/new?ann=1"/><entry><title>Secret Book</title><id>urn:uuid:aaaa</id>'
+                '<updated>2031-01-01T00:00:00Z</updated><author><name>Jane Secret</name><uri>http://who.example/jane</uri></author>'
+                '<dc:identifier>isbn:9780306406157</dc:identifier><summary>wikipedia leak</summary>'
+                '<link rel="x" href="https://www.imdb.com/title/tt0123456"/>'
+                '<link rel="y" href="/opds/thumb_cover/42"/><link rel="z" href="/opds/download/42/epub/"/>'
+                '<link rel="w" href="/opds/author/9"/></entry></feed>')
+        for keep in (False, True):
+            files, _, refused = _built("calibre-web", "new", "/opds/new", feed, keep=keep, kind="xml")
+            self.assertEqual([], refused)
+            text = files["calibre-web-new-01.xml"]
+            for bad in ("Catalogue", "2031", "urn:uuid", "who.example", "wikipedia", "imdb.com", "tt0123456",
+                        "/opds/author", "ann=1", "Jane", "Secret Book"):
+                self.assertNotIn(bad, text)
+            self.assertIn("/opds/thumb_cover/42", text)
+            self.assertIn("/opds/download/42/epub/", text)
+            self.assertEqual(keep, "9780306406157" in text)
+            self.assertEqual("Title", re.search(r"<title>(Title) \d+</title>", text).group(1))
+
+    def test_abs_lastupdate_is_kept_and_tags_follow_the_pseudonyms(self):
+        body = {"id": ABS_ALICE, "username": "alice", "token": "SENTINEL-ABS-USERTOKEN", "lastSeen": 1900000000000,
+                "permissions": {"accessAllLibraries": False, "accessAllTags": False, "accessExplicitContent": True,
+                                "selectedTagsNotAccessible": True, "download": True},
+                "librariesAccessible": ["lib_secret1"], "itemTagsSelected": ["kids-only-ann"],
+                "mediaProgress": [{"userId": ABS_ALICE, "libraryItemId": ABS_ITEM, "progress": 0.5,
+                                   "lastUpdate": 1700000000000, "ebookLocation": "ann-secret-leak", "startedAt": 5}]}
+        files, _, refused = _built("audiobookshelf", "user", "/api/users/{id}", body)
+        self.assertEqual([], refused)
+        out = json.loads(files["audiobookshelf-user-01.json"])
+        self.assertEqual(1700000000000, out["mediaProgress"][0]["lastUpdate"])
+        for bad in ("lastSeen", "token", "ebookLocation", "startedAt", "download", "kids-only-ann", "lib_secret1"):
+            self.assertNotIn(bad, files["audiobookshelf-user-01.json"])
+
+    def test_every_earlier_leak_is_absent_by_construction(self):
+        jf = {"Items": [{"Id": JF_ITEM, "Type": "Movie", "Name": "Film",
+                         "ExternalUrls": [{"Url": "https://www.imdb.com/title/tt0123456"}, {"Url": "https://en.wikipedia.org/x"}],
+                         "ProviderIds": {"Imdb": "tt0123456"}, "Path": "/data/Cover Path With Spaces/x.mkv",
+                         "Tags": ["anns-shelf"], "LastPlayedDate": "2031-01-01T00:00:00Z"}]}
+        users = [{"Name": "alice", "Id": JF_ALICE, "LastLoginDate": "2031-01-01T00:00:00Z",
+                  "Policy": {"IsDisabled": False, "EnabledDevices": ["deviceidABC123def456"], "BlockedTags": ["kids-only-ann"]},
+                  "ServerName": "nas-host-leak", "Hostname": "nas-host-leak", "DeviceName": "phone-ann"}]
+        absu = {"users": [{"id": ABS_ALICE, "username": "alice", "email": EMAIL, "isActive": True,
+                           "lastSeen": 1900000000000, "token": "SENTINEL-ABS-USERTOKEN"}]}
+        absi = {"id": ABS_ITEM, "libraryId": "lib_secret1", "mediaType": "book", "path": "/audiobooks/Cover Path With Spaces",
+                "media": {"coverPath": "/audiobooks/Cover Path With Spaces/cover.jpg", "tags": [], "duration": 5,
+                          "metadata": {"title": "T", "explicit": False, "description": "ann-secret-leak"}}}
+        kg = {"content": [{"id": KG_BOOK, "seriesId": KG_SERIES, "libraryId": "KGLIB1234567", "name": "N",
+                           "url": "/data/comics/Cover Path With Spaces.cbz", "created": "2031-01-01T00:00:00Z",
+                           "metadata": {"title": "T", "number": "1", "links": [{"url": "https://wikipedia.org/x"}],
+                                        "tags": ["anns-shelf"], "isbn": "9780306406157"}}]}
+        kgs = {"id": KG_SERIES, "libraryId": "KGLIB1234567",
+               "metadata": {"title": "S", "sharingLabels": ["anns-shelf"], "links": [{"url": "https://wikipedia.org/x"}]}}
+        built = [_built("jellyfin", "items", "/Items", jf), _built("jellyfin", "users", "/Users", users),
+                 _built("audiobookshelf", "users", "/api/users", absu), _built("audiobookshelf", "item", "/api/items/{id}", absi),
+                 _built("komga", "latest", "/api/v1/books/latest", kg), _built("komga", "series", "/api/v1/series/{id}", kgs)]
+        blob = "\n".join(v for files, _, _ in built for v in files.values())
+        self.assertTrue(blob)
+        for bad in LEAKS + ["en.wikipedia.org", "wikipedia.org", EMAIL, "SENTINEL-ABS-USERTOKEN", "lastSeen",
+                            "created", "LastPlayedDate", "BlockedTags", "sharingLabels", "description", "coverPath"]:
+            self.assertNotIn(bad, blob, f"{bad!r} survived the allowlist")
+        self.assertEqual([], cap.scan_for_secrets(blob))
+
+    def test_show_allowlist_prints_per_route_fields_and_makes_no_request(self):
+        with Stub() as stub:
+            code, out, err = run(["--show-allowlist"], {})                  # no credentials needed
+            self.assertEqual(0, code, err)
+            self.assertEqual([], stub.hits)
+            for line in ("[jellyfin]", "[audiobookshelf]", "[komga]", "[calibre-web]", "Items.UserData.PlaybackPositionTicks",
+                         "mediaProgress.lastUpdate", "content.metadata.number", "entry/title", "dropped (default)"):
+                self.assertIn(line, out)
+            self.assertIn("never requested", out)                           # no /api/v2/users
+            self.assertNotIn("ProviderIds.Imdb,", out.split("(only with")[0])
+            self.assertIn("only with --keep-provider-ids", out)
+            for bad in ("ExternalUrls", "LastLoginDate", "Hostname", "coverPath", "EnabledDevices"):
+                self.assertNotIn(bad, out)
+        code, out, _ = run(["--show-allowlist", "--keep-provider-ids", "--services", "jellyfin"], {})
+        self.assertEqual(0, code)
+        self.assertIn("KEPT (--keep-provider-ids)", out)
+        self.assertNotIn("[komga]", out)
+        code, _, err = run(["--show-allowlist", "--services", "nope"], {})
+        self.assertEqual(1, code)
+
+    def test_komga_makes_no_users_call_even_with_members_and_images(self):
+        with Stub() as stub, tempfile.TemporaryDirectory() as d:
+            code, out, err = run(["--services", "komga", "--members", "alice", "--images", "--out", str(Path(d) / "c")],
+                                 stub.env())
+            self.assertEqual(0, code, err)
+            paths = {h[1] for h in stub.hits}
+            self.assertNotIn("/api/v2/users", paths)
+            self.assertTrue({"/api/v1/books/latest", f"/api/v1/books/{KG_BOOK}", f"/api/v1/series/{KG_SERIES}"} <= paths)
             self.assertNotIn("komga-users-01.json", outputs(Path(d) / "c"))
+
+    def test_the_run_keeps_only_allowlisted_fields_end_to_end(self):
+        bodies = dict(BODIES)
+        bodies["/Items"] = {"Items": [{"Id": JF_ITEM, "Name": "Secret Film", "Type": "Movie",
+                                       "ExternalUrls": [{"Url": "https://www.imdb.com/title/tt0123456"}],
+                                       "ProviderIds": {"Imdb": "tt0123456"}, "LastLoginDate": "2031-01-01"}]}
+        with Stub(overrides=bodies) as stub, tempfile.TemporaryDirectory() as d:
+            code, out, err = run(["--services", "jellyfin", "--members", "alice", "--out", str(Path(d) / "c")], stub.env())
+            self.assertEqual(0, code, err)
+            blob = "\n".join(outputs(Path(d) / "c").values())
+            for bad in ("imdb.com", "tt0123456", "ExternalUrls", "ProviderIds", "LastLoginDate"):
+                self.assertNotIn(bad, blob)
+            m = json.loads(outputs(Path(d) / "c")["manifest.json"])
+            self.assertTrue(m["field_allowlist"])
+            self.assertFalse(m["provider_ids_kept"])
+        with Stub(overrides=bodies) as stub, tempfile.TemporaryDirectory() as d:
+            code, out, err = run(["--services", "jellyfin", "--members", "alice", "--keep-provider-ids",
+                                  "--out", str(Path(d) / "c")], stub.env())
+            self.assertEqual(0, code, err)
+            blob = "\n".join(outputs(Path(d) / "c").values())
+            self.assertNotIn("imdb.com", blob)
+            self.assertNotIn("ExternalUrls", blob)
+            self.assertIn("tt0123456", blob)
 
 
 if __name__ == "__main__":

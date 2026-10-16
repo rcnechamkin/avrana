@@ -22,16 +22,27 @@ shell. They are never accepted as command-line arguments and never printed, logg
     AVRANA_CAPTURE_CALIBRE_WEB_URL         AVRANA_CAPTURE_CALIBRE_WEB_USER   AVRANA_CAPTURE_CALIBRE_WEB_PASSWORD
     AVRANA_CAPTURE_OWN_USERNAME            (optional; not a secret; or use --own-username)
 
-REDACTION. Responses are held in memory, redacted, scanned, and only then written. Redacted: tokens, API
-keys, passwords, session ids and cookies; e-mail addresses; usernames other than the owner's own; host
-names and IP addresses; file paths; titles, authors and descriptions; library, item and user ids (replaced
-consistently by synthetic ids of the same shape so shapes and cross references survive). A final scan
-refuses to write any file that still matches a secret-like pattern. Redaction is a safety net, not proof:
-read the output before sharing it.
+PRIVACY (owner decision): STRICT FIELD ALLOWLISTING FIRST, redaction second. Responses are held in memory.
+Before anything else, every response is cut down to the exact fields (JSON) or elements (OPDS/Atom) that the
+Home adapters READ, keeping nesting and list shape so the result still works as an adapter fixture. Every
+other field is dropped, whatever it holds: tags and labels the adapters do not read, device ids, cover and
+other paths, external URLs, provider ids (IMDb, TMDB, ISBN, ASIN), last-login and other timestamps, host and
+server names. An unknown or new field is therefore dropped by default. A route with no allowlist is not
+written at all. `--show-allowlist` prints the kept fields per service and route and makes no network call.
 
-NOT REDACTED (by design, so the evidence is useful): field names, JSON types, numbers, booleans, timestamps,
-HTTP status codes and content types. Dotted quads such as a four-part version number look like IP addresses
-and ARE replaced, so note the server version by hand.
+External URLs are dropped. Provider ids are dropped unless the owner passes `--keep-provider-ids`, which is
+only for a specific validation (for example checking that an adapter reads an IMDb id correctly).
+
+REDACTION, applied to what the allowlist kept: tokens, API keys, passwords, session ids and cookies; e-mail
+addresses; usernames other than the owner's own; host names and IP addresses; file paths; titles, authors
+and descriptions; library, item and user ids (replaced consistently by synthetic ids of the same shape so
+shapes and cross references survive). A final scan refuses to write any file that still matches a
+secret-like pattern. Redaction is a safety net, not proof: read the output before sharing it.
+
+NOT REDACTED (by design, so the evidence is useful): field names, JSON types, numbers, booleans, the
+timestamps an adapter reads (Audiobookshelf lastUpdate), HTTP status codes and content types. Dotted quads
+such as a four-part version number look like IP addresses and ARE replaced, so note the server version by
+hand. Nothing leaves the owner's machine unless the owner hands the output directory over.
 """
 from __future__ import annotations
 
@@ -49,6 +60,7 @@ import urllib.parse
 import urllib.request
 from collections import Counter
 from pathlib import Path
+import xml.etree.ElementTree as ET
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 HOME = Path(__file__).resolve().parents[1]
@@ -61,7 +73,7 @@ from avrana_home.adapters import jellyfin as _jf  # noqa: E402
 from avrana_home.adapters import komga as _kg  # noqa: E402
 from avrana_home.adapters._base import check_request  # noqa: E402
 from avrana_home.contract import ForbiddenRequest  # noqa: E402
-from avrana_home.resilience import DEFAULT_TIMEOUT, MAX_IMAGE_BYTES, MAX_JSON_BYTES  # noqa: E402
+from avrana_home.resilience import DEFAULT_TIMEOUT, MAX_IMAGE_BYTES, MAX_JSON_BYTES, UpstreamMalformed  # noqa: E402
 
 PREFIX = "AVRANA_CAPTURE_"
 MAX_TIMEOUT = 30.0
@@ -213,6 +225,7 @@ class Options:
 _DUMMY_HEX = "0" * 31 + "1"
 _DUMMY_UUID = "00000000-0000-4000-8000-000000000001"
 _DUMMY_KOMGA = "DUMMYID01"
+KOMGA_SHARED = "shared"          # a local label for the route check only (shared regular-account view)
 
 
 def _pick(users: Any, wanted: Sequence[str], name_keys: Tuple[str, ...], id_key: str = "Id") -> List[Tuple[str, str]]:
@@ -290,14 +303,10 @@ def capture_audiobookshelf(c: Client, o: Options) -> List[Capture]:
 
 
 def capture_komga(c: Client, o: Options) -> List[Capture]:
+    """Komga is a SHARED regular-account view (owner decision): the regular key only. `GET /api/v2/users` is
+    admin-only and is never requested. The adapters' route check needs some bound label; it is never sent."""
     caps: List[Capture] = []
-    r = c.get("/api/v2/users", None, None)
-    caps.append(Capture(c.name, "users", "/api/v2/users", r, "json"))
-    users = _json(r) if not c.dry else [{"id": _DUMMY_KOMGA, "email": "x"}]
-    bound = next((u["id"] for u in users if isinstance(u, dict) and _kg.valid_upstream_id(_kg.Service.KOMGA, u.get("id"))),
-                 None) if isinstance(users, list) else None
-    if bound is None:
-        return caps
+    bound = KOMGA_SHARED
     lr = c.get("/api/v1/books/latest", {"page": "0", "size": "5"}, bound)
     caps.append(Capture(c.name, "latest", "/api/v1/books/latest", lr, "json"))
     page = _json(lr) if not c.dry else {"content": [{"id": _DUMMY_KOMGA, "seriesId": _DUMMY_KOMGA}]}
@@ -377,7 +386,7 @@ _PATH_KEYS = frozenset({"path", "paths", "folder", "folders", "rootfolder", "dir
 _PATH_KEY_SUFFIX = re.compile(r"(?i)(?:path|paths|folder|filename)$")     # coverPath, metadataPath, ...
 _TAG_KEY = re.compile(r"(?i)(?:tags?|labels?)(?:selected|allow|exclude|accessible)?$")   # member labels: free text
 _USER_KEYS = frozenset({"username", "username", "login", "displayname", "user", "owner", "createdby"})
-_ID_KEY = re.compile(r"(?i)(?:^|[a-z])ids?$|devices?$")
+_ID_KEY = re.compile(r"(?i)(?:^|[a-z])ids?$|devices?$|^librariesaccessible$")
 
 
 def _label(n: int) -> str:
@@ -615,6 +624,204 @@ def scan_for_secrets(text: str, secrets: Sequence[str] = (), hosts: Sequence[str
 
 
 # =====================================================================================================
+# Strict field allowlist, applied BEFORE any redaction
+# =====================================================================================================
+# Each spec is derived from what the Home adapters READ (adapters/jellyfin.py `_parse_item`/`_resolve_user`,
+# audiobookshelf.py `_resolve_user`/`_candidates`/`_visible`/`_Access.from_record`, komga.py `_book`/
+# `_series_meta`, calibre_web.py `_book`) and from contract.MediaItem. Grammar:
+#   True                a scalar (or a list of scalars) is kept; an object or a list of objects is dropped
+#   {"key": spec, ...}  only these keys are kept; against a list, applied to each element (list shape kept)
+# Everything else, however harmless it looks, is dropped. Not in any spec, on purpose: ExternalUrls,
+# metadata.links, ProviderIds, Path, coverPath, Tags, Policy device/folder lists, LastLoginDate, Hostname,
+# ServerName, DeviceName, e-mails, member labels, tokens, descriptions, every timestamp the adapters ignore.
+_T = True
+_DROP = object()
+
+_JF_ITEM = {"Id": _T, "Type": _T, "Name": _T, "SeriesName": _T, "ParentIndexNumber": _T, "IndexNumber": _T,
+            "ProductionYear": _T, "RunTimeTicks": _T, "ImageTags": {"Primary": _T},
+            "UserData": {"UserId": _T, "ItemId": _T, "PlaybackPositionTicks": _T, "PlayedPercentage": _T}}
+_KG_BOOK = {"id": _T, "seriesId": _T, "libraryId": _T, "deleted": _T, "name": _T, "seriesTitle": _T,
+            "media": {"status": _T}, "metadata": {"title": _T, "number": _T}}
+
+# (service, route) -> (request path template, spec)
+ALLOWLIST: Dict[Tuple[str, str], Tuple[str, Any]] = {
+    ("jellyfin", "users"): ("/Users", {"Name": _T, "Id": _T, "Policy": {"IsDisabled": _T}}),
+    ("jellyfin", "resume"): ("/UserItems/Resume", {"Items": _JF_ITEM}),
+    ("jellyfin", "latest"): ("/Items/Latest", _JF_ITEM),
+    ("jellyfin", "items"): ("/Items", {"Items": _JF_ITEM}),
+    ("audiobookshelf", "users"): ("/api/users", {"users": {"id": _T, "username": _T, "isActive": _T}}),
+    ("audiobookshelf", "user"): ("/api/users/{id}", {
+        "id": _T, "isActive": _T,
+        "permissions": {"accessAllLibraries": _T, "accessAllTags": _T, "accessExplicitContent": _T,
+                        "selectedTagsNotAccessible": _T},
+        "librariesAccessible": _T, "itemTagsSelected": _T,
+        "mediaProgress": {"userId": _T, "libraryItemId": _T, "episodeId": _T, "isFinished": _T,
+                          "hideFromContinueListening": _T, "progress": _T, "currentTime": _T, "duration": _T,
+                          "lastUpdate": _T}}),
+    ("audiobookshelf", "item"): ("/api/items/{id}", {
+        "id": _T, "libraryId": _T, "mediaType": _T, "isMissing": _T, "isInvalid": _T,
+        "media": {"duration": _T, "tags": _T,
+                  "metadata": {"explicit": _T, "title": _T, "authorName": _T, "seriesName": _T}}}),
+    # Komga: shared regular-account view. Only the book and series fields a shared-view adapter shows or
+    # checks (identity, library, deleted/ready state, title, number). No users, no restriction records.
+    ("komga", "latest"): ("/api/v1/books/latest", {"content": _KG_BOOK}),
+    ("komga", "book"): ("/api/v1/books/{id}", _KG_BOOK),
+    ("komga", "series"): ("/api/v1/series/{id}", {"id": _T, "libraryId": _T}),
+}
+# Opt-in extras for --keep-provider-ids (IMDb/TMDB/TVDB, ISBN, ASIN). Off by default.
+_JF_PROVIDERS = {"ProviderIds": {"Imdb": _T, "Tmdb": _T, "Tvdb": _T}}
+PROVIDER_IDS: Dict[Tuple[str, str], Any] = {
+    ("jellyfin", "resume"): {"Items": _JF_PROVIDERS},
+    ("jellyfin", "latest"): _JF_PROVIDERS,
+    ("jellyfin", "items"): {"Items": _JF_PROVIDERS},
+    ("audiobookshelf", "item"): {"media": {"metadata": {"isbn": _T, "asin": _T}}},
+    ("komga", "latest"): {"content": {"metadata": {"isbn": _T}}},
+    ("komga", "book"): {"metadata": {"isbn": _T}},
+}
+# Calibre-Web OPDS (Atom): the elements calibre_web._book reads. A <link> keeps only a RELATIVE cover or
+# download href (the numeric book id the adapter extracts); absolute and external links are dropped.
+XML_ALLOWLIST = ("entry/title", "entry/author/name",
+                 "entry/link@href (relative /opds/cover|thumb_cover/<n> and /opds/download/<n>/<fmt> only)")
+XML_PROVIDER_IDS = ("entry/dc:identifier (ISBN and similar)",)
+MAX_FEED_ENTRIES = 20
+_DC = "http://purl.org/dc/elements/1.1/"
+_ATOM_NS = "http://www.w3.org/2005/Atom"
+
+
+def _scalar(v: Any) -> bool:
+    return v is None or isinstance(v, (str, int, float, bool))
+
+
+def _merge(a: Any, b: Any) -> Any:
+    if isinstance(a, dict) and isinstance(b, dict):
+        out = dict(a)
+        for k, v in b.items():
+            out[k] = _merge(a[k], v) if k in a else v
+        return out
+    return a
+
+
+def allow_json(spec: Any, obj: Any) -> Any:
+    """`obj` cut down to `spec`; _DROP if nothing of the expected shape is there."""
+    if spec is True:
+        if _scalar(obj):
+            return obj
+        if isinstance(obj, list) and all(_scalar(x) for x in obj):
+            return list(obj)
+        return _DROP
+    if isinstance(obj, list):
+        out = [allow_json(spec, x) for x in obj if isinstance(x, dict)]
+        return [x for x in out if x is not _DROP]
+    if isinstance(obj, dict) and isinstance(spec, dict):
+        out = {}
+        for key, sub in spec.items():
+            if key in obj:
+                kept = allow_json(sub, obj[key])
+                if kept is not _DROP:
+                    out[key] = kept
+        return out
+    return _DROP
+
+
+def allow_xml(body: bytes, keep_provider_ids: bool = False) -> str:
+    """Rebuild an OPDS feed holding only the allow-listed elements. Raises UpstreamMalformed."""
+    root = _cw.parse_feed(body)               # refuses DOCTYPE/entities and non-Atom documents
+    atom = "{" + _ATOM_NS + "}"
+    feed = ET.Element(atom + "feed")
+    for entry in root.findall(atom + "entry")[:MAX_FEED_ENTRIES]:
+        out = ET.SubElement(feed, atom + "entry")
+        title = entry.find(atom + "title")
+        if title is not None:
+            ET.SubElement(out, atom + "title").text = title.text or ""
+        name = entry.find(f"{atom}author/{atom}name")
+        if name is not None:
+            ET.SubElement(ET.SubElement(out, atom + "author"), atom + "name").text = name.text or ""
+        for link in entry.findall(atom + "link"):
+            href = _cw._relative(link.get("href"))
+            if href and (_cw._COVER_HREF.fullmatch(href) or _cw._DOWNLOAD_HREF.fullmatch(href)):
+                ET.SubElement(out, atom + "link").set("href", href)
+        if keep_provider_ids:
+            for ident in entry.findall("{" + _DC + "}identifier"):
+                ET.SubElement(out, "{" + _DC + "}identifier").text = ident.text or ""
+    ET.register_namespace("", _ATOM_NS)
+    ET.register_namespace("dc", _DC)
+    return '<?xml version="1.0" encoding="UTF-8"?>\n' + ET.tostring(feed, encoding="unicode") + "\n"
+
+
+def spec_for(service: str, route: str, keep_provider_ids: bool = False) -> Optional[Any]:
+    """The JSON spec for a route, or None if the route has no allowlist (then it is never written)."""
+    entry = ALLOWLIST.get((service, route))
+    if entry is None:
+        return None
+    spec = entry[1]
+    if keep_provider_ids and (service, route) in PROVIDER_IDS:
+        spec = _merge(spec, PROVIDER_IDS[(service, route)])
+    return spec
+
+
+def _paths(spec: Any, prefix: str = "") -> List[str]:
+    if spec is True:
+        return [prefix]
+    out: List[str] = []
+    for key, sub in spec.items():
+        out += _paths(sub, f"{prefix}.{key}" if prefix else key)
+    return out
+
+
+def show_allowlist(services: Sequence[str], keep_provider_ids: bool, say) -> None:
+    """Print, per service and route, the fields that will be kept. Makes no network call."""
+    say("ALLOWLIST: only these fields are kept; every other field is dropped before any redaction.")
+    say("No network call is made by this mode. Lists are kept element by element; paths are dotted.")
+    say("Provider ids (IMDb/TMDB/TVDB, ISBN, ASIN): "
+        + ("KEPT (--keep-provider-ids)" if keep_provider_ids else "dropped (default)") + ". External URLs are always dropped.")
+    for name in services:
+        say(f"[{name}]")
+        if name == "komga":
+            say("  shared regular-account view: GET /api/v2/users (admin-only) is never requested")
+        for (svc, route), (path, _) in ALLOWLIST.items():
+            if svc != name:
+                continue
+            say(f"  {route}  GET {path}")
+            for f in _paths(spec_for(name, route, keep_provider_ids)):
+                say(f"      {f}")
+            extra = PROVIDER_IDS.get((name, route))
+            if extra and not keep_provider_ids:
+                say("      (only with --keep-provider-ids: " + ", ".join(_paths(extra)) + ")")
+        if name == "calibre-web":
+            say("  new  GET /opds/new")
+            for f in XML_ALLOWLIST:
+                say(f"      {f}")
+            if keep_provider_ids:
+                for f in XML_PROVIDER_IDS:
+                    say(f"      {f}")
+            else:
+                say("      (only with --keep-provider-ids: " + ", ".join(XML_PROVIDER_IDS) + ")")
+        say("  images: no bytes are stored; only status, content type, size and a magic-byte check")
+
+
+def apply_allowlist(cap: Capture, keep_provider_ids: bool = False) -> Optional[str]:
+    """Replace cap.body by its allow-listed form. Returns an error name if the capture cannot be written."""
+    if cap.body is None or cap.kind == "image":
+        return None
+    try:
+        if cap.kind == "json":
+            spec = spec_for(cap.service, cap.route, keep_provider_ids)
+            if spec is None:
+                return "no_allowlist"
+            kept = allow_json(spec, json.loads(cap.body.decode("utf-8")))
+            if kept is _DROP:
+                return "unexpected_shape"
+            cap.body = json.dumps(kept, ensure_ascii=False).encode("utf-8")
+        elif cap.service == "calibre-web" and cap.route == "new":
+            cap.body = allow_xml(cap.body, keep_provider_ids).encode("utf-8")
+        else:
+            return "no_allowlist"
+    except (ValueError, RecursionError, UpstreamMalformed):
+        return "not_parseable"
+    return None
+
+
+# =====================================================================================================
 # Output
 # =====================================================================================================
 def check_output_dir(path: Path) -> Path:
@@ -640,32 +847,36 @@ def write_private(path: Path, data: bytes) -> None:
         pass
 
 
-def build_outputs(caps: Sequence[Capture], red: Redactor) -> Tuple[Dict[str, bytes], List[Dict[str, Any]], List[str]]:
-    """(files, manifest, refused). Nothing is written here. A file that fails the final scan is refused."""
+def build_outputs(caps: Sequence[Capture], red: Redactor, keep_provider_ids: bool = False
+                  ) -> Tuple[Dict[str, bytes], List[Dict[str, Any]], List[str]]:
+    """(files, manifest, refused). Nothing is written here. The allowlist runs first; a file that fails the
+    final scan is refused."""
+    allow_errors: Dict[int, str] = {}
+    for i, cap in enumerate(caps):
+        err = apply_allowlist(cap, keep_provider_ids)
+        if err is not None:
+            allow_errors[i] = err
+            cap.body = None                    # nothing unfiltered is ever kept, learned from or written
     red.learn(caps)
     files: Dict[str, bytes] = {}
     manifest: List[Dict[str, Any]] = []
     refused: List[str] = []
     seq: Counter = Counter()
-    for cap in caps:
+    for i, cap in enumerate(caps):
         seq[(cap.service, cap.route)] += 1
         n = seq[(cap.service, cap.route)]
         base = f"{cap.service}-{cap.route}-{n:02d}"
         entry: Dict[str, Any] = {"service": cap.service, "route": cap.route, "path_template": cap.path,
                                  "status": cap.status, "content_type": cap.ctype.split(";")[0].strip(),
-                                 "error": cap.error or None, "file": None}
+                                 "error": cap.error or allow_errors.get(i), "file": None}
         before = Counter(red.counts)
         if cap.kind == "image":
             name, text = base + ".meta.json", json.dumps(
                 {"status": cap.status, "content_type": entry["content_type"], **cap.summary,
                  "note": "image bytes are never stored"}, indent=2) + "\n"
         elif cap.body is not None and cap.kind == "json":
-            raw = cap.body.decode("utf-8", "replace")
-            try:
-                data = red.redact_json(json.loads(raw), users_route=cap.route == "users")
-                name, text = base + ".json", red.redact_text(json.dumps(data, indent=2, ensure_ascii=False)) + "\n"
-            except (ValueError, RecursionError):
-                name, text = base + ".txt", red.redact_text(raw) + "\n"
+            data = red.redact_json(json.loads(cap.body.decode("utf-8")), users_route=cap.route == "users")
+            name, text = base + ".json", red.redact_text(json.dumps(data, indent=2, ensure_ascii=False)) + "\n"
         elif cap.body is not None:
             name, text = base + ".xml", red.redact_xml(cap.body.decode("utf-8", "replace"))
         else:
@@ -702,6 +913,10 @@ def parse_args(argv: Optional[Sequence[str]]) -> argparse.Namespace:
     p.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT * 2.5,
                    help=f"seconds per request, at most {int(MAX_TIMEOUT)} (default {DEFAULT_TIMEOUT * 2.5})")
     p.add_argument("--allow-insecure-http", action="store_true", help="allow a non-loopback http:// base URL")
+    p.add_argument("--keep-provider-ids", action="store_true", help="keep IMDb/TMDB/TVDB, ISBN and ASIN identifiers "
+                   "(dropped by default). Only for a specific validation that needs them; they can reveal real titles")
+    p.add_argument("--show-allowlist", action="store_true", help="print the fields kept per service and route, "
+                   "and exit; makes no network call and needs no credentials")
     p.add_argument("--dry-run", action="store_true", help="print the requests that would be made, and make none")
     return p.parse_args(argv)
 
@@ -752,6 +967,14 @@ def main(argv: Optional[Sequence[str]] = None, env: Optional[Mapping[str, str]] 
     def say(msg: str) -> None:
         print(msg, file=out)
 
+    if args.show_allowlist:
+        names = [s.strip() for s in args.services.split(",") if s.strip()] or list(SERVICES)
+        if any(s not in SERVICES for s in names):
+            print("capture_upstreams: unknown service in --services", file=err)
+            return 1
+        show_allowlist(names, args.keep_provider_ids, say)
+        return 0
+
     try:
         selected = [s.strip() for s in args.services.split(",") if s.strip()] or list(SERVICES)
         if any(s not in SERVICES for s in selected):
@@ -793,7 +1016,7 @@ def main(argv: Optional[Sequence[str]] = None, env: Optional[Mapping[str, str]] 
         return 0
 
     red = Redactor(secrets, hosts, own, members)
-    files, manifest, refused = build_outputs(caps, red)
+    files, manifest, refused = build_outputs(caps, red, args.keep_provider_ids)
     outdir.mkdir(parents=True, exist_ok=True)
     try:
         outdir.chmod(stat.S_IRWXU)
@@ -803,6 +1026,7 @@ def main(argv: Optional[Sequence[str]] = None, env: Optional[Mapping[str, str]] 
         write_private(outdir / fname, data)
     note = {"captured_utc": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "tool": "capture_upstreams.py", "readonly_get_only": True,
+            "field_allowlist": True, "provider_ids_kept": bool(args.keep_provider_ids),
             "unverified": "Record the server versions by hand. Titles, ids, names and hosts are replaced; read every file before sharing.",
             "entries": manifest}
     write_private(outdir / "manifest.json", (json.dumps(note, indent=2) + "\n").encode("utf-8"))
