@@ -19,6 +19,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Mapping, Optional, Tuple
 
+from . import recovery
 from .catalogue import Catalogue, Trusted
 
 NOT_FOUND_LABEL = "not_found"
@@ -61,6 +62,26 @@ def search_decision(page) -> Decision:
     HOME_SECTIONS in main.py, so with sections off the path is unknown and `decide` answers 404). `page` is the
     view-model; the label is the route template, never the typed term."""
     return Decision("/search", 200, "search.html", {"page": page})
+
+
+# What a chooser page says above its places, shown only with the Home shell (HOME_SECTIONS on). Plain text, no
+# library named: the tiles below already show only the places this member can use (AVR-430).
+CHOOSER_INTRO = {
+    "read": ("Each place below opens a separate library website with its own sign-in.",),
+    "request": ("Ask for something that is missing from a library. Each place below opens a separate request "
+                "website, where you sign in and search for the title.",
+                "Asking does not add it straight away, and not every request can be filled."),
+}
+
+
+def chooser_intro(path: str):
+    return CHOOSER_INTRO.get(path, ())
+
+
+def trouble_decision(groups) -> Decision:
+    """GET /help/trouble once the route layer knows the shell is on (main.py); otherwise the path is unknown
+    and `decide` answers 404, as the portal does. The content names only libraries this member can use."""
+    return Decision("/help/trouble", 200, "help_trouble.html", {"trouble": recovery.build_trouble(groups)})
 
 
 def decide(route: str, groups, cat: Catalogue, facts: Optional[AccountFacts] = None) -> Decision:

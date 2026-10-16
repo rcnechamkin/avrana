@@ -29,4 +29,4 @@
 {% endblock %}
 {% block footer %}    <a class="account" href="{{ account_url }}">Manage account</a>
     <a class="account" href="{{ signout_url }}">Sign out</a>
-    <a class="account" href="/">Back</a>{% endblock %}
+{% if shell %}    <a class="link" href="/">Back to home</a>{% else %}    <a class="account" href="/">Back</a>{% endif %}{% endblock %}

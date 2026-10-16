@@ -85,7 +85,7 @@ class NavigationTests(Mocks):
     def test_the_current_page_is_marked_and_nothing_else_is(self):
         c = self.client()
         want = {"/": [("/", "page")], "/search": [("/search", "page")],
-                "/account": [("/account", "page")], "/help": [("/help", "page"), ("/help", "page")],
+                "/account": [("/account", "page")], "/help": [("/help", "page")],   # Help is no longer repeated in the account menu
                 "/help/movies": [("/help", "true")]}
         for route, expected in want.items():
             with self.subTest(route=route):

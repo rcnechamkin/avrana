@@ -193,8 +193,9 @@ NOTHING_IN_PROGRESS = ("Nothing in progress. Whatever you start in a library app
                        "ready to pick up where you stopped.")
 NOTHING_NEW = "Nothing new this week."
 NO_LIBRARY = "No library is shared with this account yet. Ask the person who invited you, or read Help."
-# The account disclosure links only to pages that exist in this shell.
-ACCOUNT_MENU = (("Account", "/account"), ("Help", "/help"))
+# The account disclosure links only to pages that exist in this shell. Help is not repeated here: it is the
+# masthead link right beside the menu. The wording matches the Home footer link to the same page.
+ACCOUNT_MENU = (("Account and security", "/account"),)
 
 
 @dataclass(frozen=True)

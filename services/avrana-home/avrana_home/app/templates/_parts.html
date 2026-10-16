@@ -31,7 +31,7 @@
     <nav class="places" aria-label="Avrana">
 {% for p in shell.places %}
 {% if p.up %}      <a href="{{ p.href }}">{{ p.label|trusted }}</a>
-{% else %}      <span class="off"><s>{{ p.label|trusted }}</s><span class="sr">, unavailable</span></span>
+{% else %}      <a class="off" href="/help/trouble#unavailable"><s>{{ p.label|trusted }}</s><span class="sr">, unavailable</span></a>
 {% endif %}
 {% endfor %}
     </nav>
