@@ -136,6 +136,16 @@ class HeadTagsAndCsp(Base):
             self.assertEqual(CSP.decode(), r.headers["content-security-policy"], path)
             self.assertNotIn("rel=\"manifest\"", r.text, path)
 
+    def test_the_manifest_link_and_manifest_src_always_come_together(self):
+        """Single source of truth (review of #57): respond() marks the CSP whenever it renders a shell."""
+        c = self.client()
+        for path in SHELL_ROUTES + OTHER_ROUTES:
+            for headers in (MEMBER, NO_GROUPS_HEADER):
+                r = c.get(path, headers=headers)
+                linked = 'rel="manifest"' in r.text and "html" in r.headers["content-type"]
+                allowed = "manifest-src 'self'" in r.headers["content-security-policy"]
+                self.assertEqual(linked, allowed, (path, bool(headers)))
+
     def test_sections_off_csp_is_unchanged_on_every_route(self):
         c = self.client(sections=False)
         for path in SHELL_ROUTES + OTHER_ROUTES:

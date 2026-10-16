@@ -138,6 +138,28 @@ class Covers(Fixture):
                     self.assertEqual((404, nf), (r.status_code, r.text), (rnd, path))
 
 
+class SharedItemPartition(Fixture):
+    """A SHARED item (the Komga shared view: every comics member may see every book). Both members get the cover,
+    but the second member's answer must come from their OWN upstream fetch, never from the first member's warm
+    cache entry: the per-member partition, not the upstream check, is what keeps the caches apart."""
+
+    def test_a_shared_cover_is_fetched_for_each_member_and_never_reused_across_members(self):
+        c = self.client()
+        ka = [(USER, "comics-a"), (GROUPS, "avrana-users|avrana-comics")]
+        kb = [(USER, "comics-b"), (GROUPS, "avrana-users|avrana-comics")]
+        path = "/art/komga/book/BOOKAAAA0001"
+        thumb = "/api/v1/books/BOOKAAAA0001/thumbnail"
+        self.assertEqual(200, c.get(path, headers=ka).status_code)
+        first = self.kg.paths().count(thumb)
+        self.assertEqual(200, c.get(path, headers=ka).status_code)          # A's own warm cache
+        self.assertEqual(first, self.kg.paths().count(thumb))
+        r = c.get(path, headers=kb)
+        self.assertEqual(200, r.status_code)
+        self.assertEqual(first + 1, self.kg.paths().count(thumb), "B was served A's cached cover")
+        lost = [(USER, "comics-a"), (GROUPS, "avrana-users|avrana-videos")]
+        self.assertEqual(404, c.get(path, headers=lost).status_code)        # warm, but the group is gone
+
+
 class OneUpstreamFailing(Fixture):
     MODES = ("down", "500", "malformed", "slow", "wrong-user")
 
@@ -163,8 +185,14 @@ class OneUpstreamFailing(Fixture):
                 self.assertIn("Synthetic Audiobook", c.get("/", headers=A).text, mode)
                 self.assertIn("Synthetic Comic", c.get("/search?q=Comic", headers=B).text, mode)
                 # a per-member service that cannot be asked serves no cover, cached or not (fail closed)
-                if mode != "wrong-user":
-                    for path in a_jf_covers:
+                for path in a_jf_covers:
+                    if mode == "wrong-user":
+                        # The mock's wrong-user mode corrupts only the RESUME list (another member's items, naming
+                        # that member: the tripwire makes Continue unavailable). The item-scoped visibility route
+                        # stays honest, so A's own covers are still served to A, and never to B.
+                        self.assertEqual(200, c.get(path, headers=A).status_code, (mode, path))
+                        self.assertEqual(404, c.get(path, headers=B).status_code, (mode, path))
+                    else:
                         self.assertEqual(404, c.get(path, headers=A).status_code, (mode, path))
                 self.jf.set_mode("ok")
                 self.jf.reset()

@@ -302,6 +302,13 @@ class Settings:
                    preview_seal=_OWNER_PREVIEW_SEAL if owner_preview else None)
 
 
+def is_sealed_preview(settings: object) -> bool:
+    """True only for Settings built through the sealed owner-preview path. Used by main.py before it hands a member
+    username override to an adapter, so an override can never come from unsealed settings."""
+    return (isinstance(settings, Settings) and settings.owner_preview is True
+            and settings.preview_seal is _OWNER_PREVIEW_SEAL)
+
+
 def _check_url(url: str, problems: list, name: str = "JELLYFIN_BASE_URL") -> None:
     try:
         parts = urlsplit(url)

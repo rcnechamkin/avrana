@@ -99,6 +99,13 @@ failing (`webtests/test_web_isolation_h2.py`).
    should keep them, but an image already shown in an open page stays visible until the page is reloaded.
 4. Per-member covers need a live upstream check: while Jellyfin or Audiobookshelf cannot answer, their covers
    are 404 (the letter placeholder shows) even if the bytes are cached. This is deliberate (fail closed).
+   Review of #57: covers have their own concurrency allowance (8 per adapter, 4 per member, separate from the
+   section slots), wait up to 0.4 s for a slot within their own deadline instead of being refused at once, and
+   never count toward the circuit the sections use. A transient failure (busy, timeout, unreachable) keeps the
+   cached bytes; only a definitive negative (not visible, not linked) drops them. Each warm cover still costs
+   one upstream visibility call. **Option, owner decision:** cache the positive visibility verdict per member
+   and item for a few seconds (for example 5 to 10 s) to cut those calls; this reopens a revocation window of
+   that length and is not implemented.
 5. **Owner preview lockout (review of #53, LOW).** `preview/gate.py` keys the failure throttle by client
    address. Assessment: if Docker presents every LAN client as one address, ten wrong passwords from any LAN
    device lock the owner out for 60 s. No safe change was found inside the gate: admitting a correct password

@@ -40,7 +40,7 @@ from .identity import Viewer, get_viewer, has_identity_headers, new_tab_from_sco
 from .logsafe import app_log, log_event, silence_uvicorn_access
 from .middleware import HygieneMiddleware
 from .routing import AccountFacts, Decision, decide, normalise_target, not_found, search_decision
-from .settings import Settings
+from .settings import Settings, is_sealed_preview
 from .viewmodel import ACCOUNT_MENU, NO_LIBRARY, build_home, build_search, build_shell
 
 TEMPLATES = Path(__file__).resolve().parent / "templates"
@@ -73,7 +73,7 @@ def make_environment() -> Environment:
 def _member_username(settings: Settings, upstream_name: str):
     """(owner principal username, upstream username) for one adapter's user lookup, or None (the default
     rule). settings.py accepts these values only in the sealed owner preview."""
-    if settings.owner_preview and settings.owner_preview_username and upstream_name:
+    if is_sealed_preview(settings) and settings.owner_preview_username and upstream_name:
         return (settings.owner_preview_username, upstream_name)
     return None
 
@@ -163,7 +163,14 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
         body = env.get_template(template).render(**ctx)
         return Response(body, status_code=status, media_type=HTML)
 
-    def respond(decision: Decision, **extra) -> Response:
+    def respond(decision: Decision, scope=None, **extra) -> Response:
+        """The one place a page is rendered. When it wears the shell (which prints the manifest link), the same call
+        tells the middleware to allow `manifest-src 'self'`: the tags and the CSP cannot disagree. A shell page
+        must pass `scope`; forgetting it is an error, not a silently mismatched CSP."""
+        if extra.get("shell") is not None:
+            if scope is None:
+                raise TypeError("a shell page must pass the request scope to respond()")
+            mark_shell(scope, extra["shell"])
         if decision.plain is not None:
             return Response(decision.plain, status_code=decision.status,
                             media_type="text/plain; charset=utf-8")
@@ -207,9 +214,7 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
                           section=s.section, state=s.state.value, reason=s.reason or "")
             decision = search_decision(build_search(result.search_view(), term))
             scope["avrana_route"] = decision.label
-            shell = shell_for(viewer, "search")
-            mark_shell(scope, shell)
-            return respond(decision, shell=shell)
+            return respond(decision, scope, shell=shell_for(viewer, "search"))
 
         if route.startswith(artwork_mod.PREFIX):
             ref = artwork_mod.ref_from_route(route)
@@ -244,8 +249,7 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
             extra["shell"] = shell_for(viewer, "home", places=home.places)
         elif decision.status == 200 and decision.label in SHELL_PAGES:
             extra["shell"] = shell_for(viewer, SHELL_PAGES[decision.label])
-        mark_shell(scope, extra.get("shell"))
-        return respond(decision, **extra)
+        return respond(decision, scope, **extra)
 
     def mark_shell(scope, shell) -> None:
         """Tell the middleware this response is a shell page: only these pages link the manifest, so only these

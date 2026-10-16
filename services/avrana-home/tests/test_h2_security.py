@@ -13,6 +13,8 @@ import sys as _sys
 _sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
 from tests import _netguard  # noqa: E402,F401  (installs the network guard, also when run directly)
 import dataclasses
+import threading
+import time
 import unittest
 
 from avrana_home.adapters._base import match_exactly_one
@@ -94,14 +96,24 @@ class JellyfinArtworkRevocation(unittest.TestCase):
     def test_an_unreachable_upstream_never_serves_a_cached_cover_and_recovers(self):
         self.adapter.fetch_artwork(self.a, A_FILM)
         self.fake.overrides["/Items"] = ("status", 500)
-        for _ in range(3):                                          # opens the circuit (threshold 3)
+        for _ in range(5):
             self.assertIs(self.adapter.fetch_artwork(self.a, A_FILM).state, SectionState.UNAVAILABLE)
-        self.assertEqual(self.adapter.health().state, "cooling_off")
-        self.fake.overrides.clear()
-        self.assertIs(self.adapter.fetch_artwork(self.a, A_FILM).state, SectionState.UNAVAILABLE)  # cooling off
-        self.clock.advance(120)
-        self.assertIs(self.adapter.fetch_artwork(self.a, A_FILM).state, SectionState.OK)          # recovered
+        # review of #57: a transient failure keeps the bytes (serving still needs a passing check) and artwork
+        # failures never trip the circuit the sections use
+        self.assertIsNotNone(self.adapter.cache.for_member(self.a).get("jellyfin", "art:" + A_FILM))
         self.assertEqual(self.adapter.health().state, "ok")
+        self.assertIs(self.adapter.continue_items(self.a).state, SectionState.OK)
+        self.fake.overrides.clear()
+        n = len(image_calls(self.fake, "/Images/Primary"))
+        self.assertIs(self.adapter.fetch_artwork(self.a, A_FILM).state, SectionState.OK)          # recovered
+        self.assertEqual(n, len(image_calls(self.fake, "/Images/Primary")))                       # from the cache
+
+    def test_sections_still_count_failures_and_open_the_circuit(self):
+        self.fake.overrides["/UserItems/Resume"] = ("status", 500)
+        for _ in range(3):
+            self.adapter.cache.clear()
+            self.assertIs(self.adapter.continue_items(self.a).state, SectionState.UNAVAILABLE)
+        self.assertEqual(self.adapter.health().state, "cooling_off")
 
     def test_a_lost_mapping_is_never_served_from_a_warm_cover(self):
         self.adapter.fetch_artwork(self.a, A_FILM)
@@ -140,6 +152,58 @@ class AudiobookshelfArtworkRevocation(unittest.TestCase):
         self.assertIs(self.adapter.fetch_artwork(make_principal("member-a", NOTHING), A_BOOK).state,
                       SectionState.NOT_PERMITTED)
         self.assertEqual(len(self.fake.requests), n)
+
+
+# ---- 1b. covers under ordinary browser parallelism (review of #57, MEDIUM) ----------------------------------
+class _SlowTransport(FakeTransport):
+    delay = 0.05
+
+    def request(self, *a, **k):
+        time.sleep(self.delay)
+        return super().request(*a, **k)
+
+
+class CoverConcurrency(unittest.TestCase):
+    def setUp(self):
+        self.clock = FakeClock()
+        self.fake = FakeJellyfin(self.clock)
+        self.adapter = JellyfinAdapter(_SlowTransport(self.fake), clock=self.clock)
+        self.a = make_principal("member-a", VIDEOS)
+
+    def parallel(self, calls):
+        out = [None] * len(calls)
+
+        def run(i, fn):
+            out[i] = fn()
+        threads = [threading.Thread(target=run, args=(i, fn)) for i, fn in enumerate(calls)]
+        for th in threads:
+            th.start()
+        for th in threads:
+            th.join(10)
+        return out
+
+    def test_many_parallel_warm_covers_for_one_member_are_all_served_without_refetching_bytes(self):
+        self.assertIs(self.adapter.fetch_artwork(self.a, A_FILM).state, SectionState.OK)
+        images = len(image_calls(self.fake, "/Images/Primary"))
+        results = self.parallel([lambda: self.adapter.fetch_artwork(self.a, A_FILM)] * 8)
+        self.assertEqual([SectionState.OK] * 8, [r.state for r in results])
+        self.assertEqual(images, len(image_calls(self.fake, "/Images/Primary")))
+        self.assertIsNotNone(self.adapter.cache.for_member(self.a).get("jellyfin", "art:" + A_FILM))
+
+    def test_sections_stay_available_while_several_members_load_covers(self):
+        b = make_principal("member-b", VIDEOS)
+        for who in (self.a, b):
+            self.adapter.continue_items(who)                       # map both members
+        self.adapter.cache.clear()
+        calls = [lambda: self.adapter.fetch_artwork(self.a, A_FILM)] * 6
+        calls += [lambda: self.adapter.fetch_artwork(b, "jellyfin/primary/bbbb0000000000000000000000000001")] * 6
+        calls += [lambda: self.adapter.continue_items(self.a), lambda: self.adapter.recent_items(b)]
+        results = self.parallel(calls)
+        sections = results[-2:]
+        self.assertEqual([SectionState.OK, SectionState.OK], [s.state for s in sections],
+                         [getattr(s, "reason", None) for s in sections])
+        self.assertTrue(all(r.state is SectionState.OK for r in results[:-2]),
+                        [r.state for r in results[:-2]])
 
 
 # ---- 2. shared views (Komga, Calibre-Web): group first, per-member cache, bounded TTL ---------------------
@@ -337,6 +401,14 @@ class SealedOverride(unittest.TestCase):
                           preview_seal=_OWNER_PREVIEW_SEAL)
         self.assertEqual(("akadmin", "member-a"), _member_username(sealed, sealed.jellyfin_member_username))
         self.assertIsNone(_member_username(Settings(), "member-a"))
+        from avrana_home.app.settings import is_sealed_preview
+        self.assertTrue(is_sealed_preview(sealed))
+        self.assertFalse(is_sealed_preview(Settings()))
+        forged = Settings()
+        object.__setattr__(forged, "owner_preview", True)           # bypassing __post_init__ still gets nothing
+        object.__setattr__(forged, "owner_preview_username", "akadmin")
+        self.assertFalse(is_sealed_preview(forged))
+        self.assertIsNone(_member_username(forged, "member-a"))
         with self.assertRaises(SettingsError):                       # an override without the owner name
             Settings(owner_preview=True, jellyfin_member_username="member-a", preview_seal=_OWNER_PREVIEW_SEAL)
 
