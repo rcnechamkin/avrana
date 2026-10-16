@@ -31,6 +31,8 @@ HYGIENE = (
     (b"x-content-type-options", b"nosniff"),
     (b"content-security-policy", CSP),
 )
+# /search is the one page with a form (a plain GET to itself), so it alone may submit to its own origin.
+CSP_SEARCH = CSP.replace(b"form-action 'none'", b"form-action 'self'")
 _HYGIENE_NAMES = frozenset(name for name, _ in HYGIENE)
 
 NOT_IMPLEMENTED_BODY = (b"<!DOCTYPE HTML>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n"
@@ -42,13 +44,14 @@ NOT_IMPLEMENTED_BODY = (b"<!DOCTYPE HTML>\n<html lang=\"en\">\n<head>\n<meta cha
 _PRIVATE_NO_STORE = (b"cache-control", b"private, no-store")
 
 
-def with_hygiene(headers) -> list:
+def with_hygiene(headers, form_self: bool = False) -> list:
     headers = list(headers)
     cache = HYGIENE[0]
     if any((bytes(k).lower(), bytes(v).lower()) == _PRIVATE_NO_STORE for k, v in headers):
         cache = _PRIVATE_NO_STORE
     return ([(k, v) for k, v in headers if bytes(k).lower() not in _HYGIENE_NAMES]
-            + [cache] + list(HYGIENE[1:]))
+            + [cache] + [(k, CSP_SEARCH if (form_self and k == b"content-security-policy") else v)
+                         for k, v in HYGIENE[1:]])
 
 
 class HygieneMiddleware:
@@ -73,7 +76,8 @@ class HygieneMiddleware:
             if message["type"] == "http.response.start":
                 state["status"] = message["status"]
                 state["started"] = True
-                message = dict(message, headers=with_hygiene(message.get("headers", ())))
+                message = dict(message, headers=with_hygiene(message.get("headers", ()),
+                                                             scope.get("avrana_route") == "/search"))
             await send(message)
 
         try:

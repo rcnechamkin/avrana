@@ -127,3 +127,74 @@ def build_sections(view: dict) -> Tuple[SectionVM, ...]:
             out.append(SectionVM(service, section, heading, state,
                                  message=f"{label} are not set up for your account yet."))
     return tuple(out)
+
+
+# ---- search page (AVR-383) --------------------------------------------------------------------------------
+SEARCH_MAX_SHOWN = 100          # characters of the typed term put back in the box
+SEARCH_MIN_HINT = "Type at least 2 letters or numbers. Search matches titles, and * ? % are treated as spaces."
+
+
+@dataclass(frozen=True)
+class SearchGroupVM:
+    service: str
+    label: str
+    state: str                    # ok | empty | unavailable | not_linked
+    items: Tuple[ItemVM, ...] = ()
+    message: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class SearchVM:
+    mode: str                     # no_library | idle | invalid | results
+    term: str = ""                # bounded, printable; the template autoescapes it
+    message: Optional[str] = None
+    hint: Optional[str] = None
+    groups: Tuple[SearchGroupVM, ...] = ()
+    found: int = 0
+
+
+def build_search(view: dict, raw_term: Optional[str]) -> SearchVM:
+    """`view` is `SearchResults.search_view()`; `raw_term` the bounded text from the address (or None).
+    Libraries the member cannot use are not in `view`, and nothing here can name them."""
+    term = _plain(raw_term or "", SEARCH_MAX_SHOWN)
+    if not view.get("entitled") or (view.get("status") == "ok" and not view.get("groups") and raw_term is not None):
+        return SearchVM("no_library", message="Search is not available on your account yet.")
+    if raw_term is None:
+        return SearchVM("idle", hint="Searches the libraries on your account.")
+    if view.get("status") != "ok":
+        return SearchVM("invalid", term=term, message="That search term cannot be used.", hint=SEARCH_MIN_HINT)
+    groups, found = [], 0
+    for raw in view.get("groups", ()):
+        service, state = raw.get("service"), raw.get("state")
+        if service not in SERVICE_LABEL or state in (None, "not_permitted"):
+            continue
+        label = SERVICE_LABEL[service]
+        if state == "ok":
+            items = []
+            for it in raw.get("items", ()):
+                href = it.get("handoff_url")
+                if not isinstance(href, str) or not href.startswith(_HANDOFF_PREFIX):
+                    continue
+                detail = " · ".join(_plain(x) for x in (it.get("series"), it.get("subtitle")) if x) or None
+                items.append(ItemVM(_plain(it.get("title") or "") or "Untitled", href,
+                                    KIND_LABEL.get(str(it.get("kind", "")), ""), detail, None,
+                                    _image(it.get("artwork"))))
+            if items:
+                found += len(items)
+                groups.append(SearchGroupVM(service, label, "ok", tuple(items)))
+            else:
+                groups.append(SearchGroupVM(service, label, "empty", message=f"No matches in {label}."))
+        elif state == "empty":
+            groups.append(SearchGroupVM(service, label, "empty", message=f"No matches in {label}."))
+        elif state == "unavailable":
+            groups.append(SearchGroupVM(service, label, "unavailable",
+                                        message=f"The {label} library is unavailable right now. Try again in a moment."))
+        elif state == "not_linked":
+            groups.append(SearchGroupVM(service, label, "not_linked",
+                                        message=f"The {label} library is not set up for your account yet."))
+    if not found:
+        down = any(g.state in ("unavailable", "not_linked") for g in groups)
+        msg = ("Nothing found in the libraries that could be searched." if down
+               else "Nothing found. Check the spelling or try fewer words.")
+        return SearchVM("results", term=term, message=msg, groups=tuple(groups))
+    return SearchVM("results", term=term, message=f"{found} found.", groups=tuple(groups), found=found)

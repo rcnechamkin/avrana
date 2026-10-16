@@ -56,6 +56,13 @@ def not_found() -> Decision:
     return Decision(NOT_FOUND_LABEL, 404, "not_found.html")
 
 
+def search_decision(page) -> Decision:
+    """The decision for GET /search once the route layer has a verified member (the route itself is gated on
+    HOME_SECTIONS in main.py, so with sections off the path is unknown and `decide` answers 404). `page` is the
+    view-model; the label is the route template, never the typed term."""
+    return Decision("/search", 200, "search.html", {"page": page})
+
+
 def decide(route: str, groups, cat: Catalogue, facts: Optional[AccountFacts] = None) -> Decision:
     if route == "/healthz":
         return Decision("/healthz", 200, plain="ok")

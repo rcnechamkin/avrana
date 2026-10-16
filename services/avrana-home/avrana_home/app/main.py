@@ -28,19 +28,19 @@ from ..adapters.audiobookshelf import AudiobookshelfAdapter
 from ..adapters.jellyfin import JellyfinAdapter
 from ..adapters.calibre_web import CalibreWebAdapter
 from ..adapters.komga import KomgaAdapter
-from ..aggregate import gather, health_summary
+from ..aggregate import gather, health_summary, search as run_search
 from ..contract import MediaAdapter
 from ..cache import MemberCache
 from ..resilience import SystemClock, UrllibTransport
 from . import catalogue as catalogue_mod
 from .catalogue import Trusted
 from . import artwork as artwork_mod
-from .identity import Viewer, get_viewer, has_identity_headers
+from .identity import Viewer, get_viewer, has_identity_headers, search_term_from_scope
 from .logsafe import app_log, log_event, silence_uvicorn_access
 from .middleware import HygieneMiddleware
-from .routing import AccountFacts, Decision, decide, normalise_target, not_found
+from .routing import AccountFacts, Decision, decide, normalise_target, not_found, search_decision
 from .settings import Settings
-from .viewmodel import build_sections
+from .viewmodel import build_search, build_sections
 
 TEMPLATES = Path(__file__).resolve().parent / "templates"
 HTML = "text/html; charset=utf-8"
@@ -169,6 +169,20 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
                 return respond(not_found())
             scope["avrana_route"] = "/home.json"
             return JSONResponse(await _gather(viewer))
+
+        if route == "/search" and settings.home_sections:
+            if viewer.principal is None:
+                scope["avrana_route"] = "not_found"
+                return respond(not_found())
+            term = search_term_from_scope(scope)          # bounded text; never logged or echoed raw
+            result = await run_in_threadpool(run_search, viewer.principal, adapter_list, term,
+                                             settings.section_limit)
+            for s in result.sections:                     # service, state and a fixed reason only
+                log_event(app_log, logging.INFO, "section", service=s.service.value,
+                          section=s.section, state=s.state.value, reason=s.reason or "")
+            decision = search_decision(build_search(result.search_view(), term))
+            scope["avrana_route"] = decision.label
+            return respond(decision)
 
         if route.startswith(artwork_mod.PREFIX):
             ref = artwork_mod.ref_from_route(route)
