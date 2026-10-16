@@ -70,10 +70,9 @@ class FakeJellyfin:
             return 200, val, "application/json"
         if path == "/Users":
             return self._json(self.users)
-        parts = path.strip("/").split("/")
-        if len(parts) == 3 and parts[0] == "Users" and parts[2] == "Items":
-            return self._search(_hex(parts[1]), query)
         uid = _hex(query.get("userId", ""))
+        if path == "/Items" and "searchTerm" in query:
+            return self._search(uid, query)
         if path == "/UserItems/Resume":
             if self.hostile_resume is not None and (self.hostile_users is None or uid in self.hostile_users):
                 return self._json(self.hostile_resume)

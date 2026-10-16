@@ -37,7 +37,7 @@ from ..contract import (ArtworkRef, ArtworkResult, DEFAULT_LIMIT, Kind, MediaIte
                         valid_upstream_id)
 from ..principal import MemberPrincipal
 from ..resilience import DEFAULT_TIMEOUT, ItemGone, RouteMissing, Transport, UpstreamMalformed
-from ._base import GuardedAdapter, Route
+from ._base import GuardedAdapter, Route, year_from
 from ._base import GuardedTransport as _Guard
 
 SHARED_VIEWER = "shared"                      # the fixed, non-member upstream "user": a shared view, by design
@@ -142,7 +142,9 @@ class CalibreWebAdapter(GuardedAdapter):
         author = clean_text(entry.findtext(f"{_ATOM}author/{_ATOM}name"))
         return MediaItem(id=f"calibre-web:{book_id}", service=Service.CALIBRE_WEB, kind=Kind.EBOOK,
                          title=title, handoff_url=build_handoff_url(Service.CALIBRE_WEB, book_id),
-                         subtitle=author, artwork=ArtworkRef(f"calibre-web/cover/{book_id}",
+                         subtitle=author, creator=author,
+                         year=year_from(entry.findtext(_ATOM + "published")),
+                         artwork=ArtworkRef(f"calibre-web/cover/{book_id}",
                                                              f"Cover of {title}")), "ok"
 
     def _recent_items(self, user: UpstreamUser, limit: int) -> SectionResult:

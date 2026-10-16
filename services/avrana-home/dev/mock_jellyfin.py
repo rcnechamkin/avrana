@@ -200,11 +200,10 @@ class MockJellyfin:
         name = self._name_for(uid)
         if path == "/Users":
             return self._json(h, self.users)
-        segs = path.strip("/").split("/")
-        if len(segs) == 3 and segs[0] == "Users" and segs[2] == "Items":      # user-scoped search (SYNTHETIC)
+        if path == "/Items" and "searchTerm" in query:      # user-scoped search through userId (SYNTHETIC)
             term = query.get("searchTerm", "").casefold()
             kinds = set(query.get("includeItemTypes", "").split(","))
-            found = [i for i in self._visible(self._name_for(segs[1])).values()
+            found = [i for i in self._visible(name).values()
                      if term and term in str(i.get("Name", "")).casefold() and i.get("Type") in kinds]
             found = found[:int(query.get("limit", "50"))]
             return self._json(h, {"Items": found, "TotalRecordCount": len(found)})

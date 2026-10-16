@@ -143,6 +143,29 @@ def bounded_int(value: Any) -> Optional[int]:
     return number if -MAX_INT < number < MAX_INT else None
 
 
+YEAR_MIN, YEAR_MAX = 1000, 2200
+_YEAR_TEXT = re.compile(r"([0-9]{4})(?:-[0-9]{2}(?:-[0-9]{2}(?:T[0-9:.]{1,18}(?:Z|[+-][0-9]{2}:?[0-9]{2})?)?)?)?")
+
+
+def year_from(value: Any) -> Optional[int]:
+    """A release or publication year from upstream JSON or XML text, or None. Accepts an integer, a
+    four-digit string ("2004") or the start of an ISO date ("2004-05-01", "2004-05-01T00:00:00+00:00").
+    Anything else, and any year outside YEAR_MIN..YEAR_MAX (Calibre's "unknown" date is year 101), is None:
+    a year is shown only when it is plausible."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        year = value
+    elif isinstance(value, str) and len(value) <= 40:
+        m = _YEAR_TEXT.fullmatch(value.strip())
+        if m is None:
+            return None
+        year = int(m.group(1))
+    else:
+        return None
+    return year if YEAR_MIN <= year <= YEAR_MAX else None
+
+
 def image_magic_ok(ctype: str, body: bytes) -> bool:
     """The bytes must really be the image type claimed (the serving app must still send
     X-Content-Type-Options: nosniff, see ADAPTER-CONTRACT.md)."""

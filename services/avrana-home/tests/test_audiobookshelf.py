@@ -111,8 +111,8 @@ class States(Base):
         self.assertEqual(self.adapter.continue_items(self.b).reason, "UpstreamTimeout")
 
     def test_unoffered_sections_make_no_upstream_call(self):
-        for r in (self.adapter.recent_items(self.a), self.adapter.item(self.a, "li_book000001")):
-            self.assertEqual((r.state, r.reason), (SectionState.EMPTY, "not_offered"))
+        r = self.adapter.recent_items(self.a)          # item lookup is offered since AVR-384 (title pages)
+        self.assertEqual((r.state, r.reason), (SectionState.EMPTY, "not_offered"))
         self.assertEqual(self.fake.requests, [])
 
 
