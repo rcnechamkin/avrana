@@ -57,6 +57,8 @@ class CoverTests(Fixture):
     """`/art/audiobookshelf/cover/<id>`: re-checked against the member's own Audiobookshelf rights."""
 
     def test_a_member_gets_the_cover_of_a_book_they_may_see_with_safe_headers(self):
+        self.abs.synthetic_covers = False         # the fake's own JPEG: this test is about the JPEG path
+        self.addCleanup(setattr, self.abs, "synthetic_covers", True)
         r = self.client().get("/art/audiobookshelf/cover/li_book000001", headers=BOTH_A)
         self.assertEqual(200, r.status_code)
         self.assertEqual("image/jpeg", r.headers["content-type"])

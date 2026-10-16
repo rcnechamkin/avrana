@@ -24,6 +24,7 @@ class MockKomga(MockAudiobookshelf):
     FAKE = staticmethod(lambda: FakeKomga())
     MALFORMED = b'{"content": [{"id": "BOOKAAAA'
     NAME = "komga"
+    SHAPE = "comic"
 
 
 def main(argv=None) -> int:
