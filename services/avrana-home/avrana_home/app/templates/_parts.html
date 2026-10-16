@@ -39,8 +39,9 @@
 {%- endmacro %}
 
 {# One piece of art: a frame with the item's natural shape (set by the w-<shape> class around it) and a quiet
-   letter behind the image. If there is no art, or the image cannot load, the letter shows: never a broken
-   image. In a rail every frame has the rail's height, so titles start on one line whatever the shapes. #}
+   letter behind the image. If there is no art, the letter shows. If an image is served but cannot be decoded,
+   browsers may draw their broken-image icon over the letter (known, DESIGN.md).
+   In a rail every frame has the rail's height, so titles start on one line whatever the shapes. #}
 {% macro frame(image, title) -%}
 <span class="frame"><span class="ph" aria-hidden="true">{{ (title[:1] or "A")|upper }}</span>{% if image %}<img class="art" src="{{ image }}" alt="" width="160" height="240" loading="lazy">{% endif %}</span>
 {%- endmacro %}

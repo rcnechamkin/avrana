@@ -13,6 +13,7 @@ import sys as _sys
 _sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
 from tests import _netguard  # noqa: E402,F401  (installs the network guard, also when run directly)
 import dataclasses
+import importlib.util
 import threading
 import time
 import unittest
@@ -469,6 +470,7 @@ class SealedOverride(unittest.TestCase):
                 with self.assertRaises(SettingsError):
                     dataclasses.replace(Settings(), **kw)
 
+    @unittest.skipUnless(importlib.util.find_spec("fastapi"), "needs the web tier (fastapi); run by run_web_tests.py")
     def test_the_sealed_path_still_works_and_an_unsealed_app_never_overrides(self):
         from avrana_home.app.main import _member_username
         from avrana_home.app.settings import _OWNER_PREVIEW_SEAL, Settings, SettingsError
