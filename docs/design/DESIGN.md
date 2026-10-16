@@ -303,8 +303,8 @@ Cover art in lists is a square crop with no rounding.
 
 ### Shell masthead (Home, Search, Account, Help)
 - Top row, right-aligned: Search (when the member has a searchable library) and the native account
-  disclosure. Help is not repeated there: it is always the last place in the places bar (Watch, Listen,
-  Read, Request, Help) and in the account menu. The places bar keeps one row at 360px and wraps whole
+  disclosure, whose menu holds "Account and security". Help lives in the places bar only: it is always the
+  last place (Watch, Listen, Read, Request, Help), on every shell page. The places bar keeps one row at 360px and wraps whole
   words at large text; the compact wordmark is capped by the viewport width so it never wraps.
 - Side gutters are `max(1.25rem, env(safe-area-inset-*))`. `viewport-fit=cover` is not set, so Safari keeps
   content clear of the notch itself; the insets matter only if a later change opts in.
@@ -329,6 +329,13 @@ Cover art in lists is a square crop with no rounding.
   keeps the 4px ring unclipped. This relies on cards resting card-aligned, which is why phone rails snap
   mandatorily and carry the trailing spacer. No script. `tests/ui/check_home_export.mjs` checks it in Chromium with
   real key presses at 360, 390 and 390 at 200% text.
+- Known, not fixed: when a cover's bytes arrive but cannot be decoded, the browser draws its own broken-image icon
+  over the letter behind the frame. Hiding it needs script (an `onerror` handler, which the strict CSP forbids) or
+  a full server-side image decode on every artwork request. The artwork route already refuses anything whose
+  declared type is not JPEG, PNG or WebP or whose magic number does not match (`adapters/_base.py`); a matching
+  magic number on a corrupt body is the remaining case, and a 404 instead would still show the same icon, so a
+  decoder in the request path (more parsing of untrusted bytes) buys nothing. The dev mocks serve real,
+  decodable synthetic PNGs in each natural shape (`dev/synthetic_art.py`), so reviews see real layout.
 - Residual: from 45rem a still may be wider than the other cards; if the four cards ever overflow the
   column there (large text on a desktop), a still that straddles the edge can stay partly clipped when
   focused. Safari keyboard and VoiceOver behaviour is not covered by the Chromium check; it is part of

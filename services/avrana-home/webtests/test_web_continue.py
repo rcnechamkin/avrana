@@ -108,8 +108,10 @@ class OneServiceFailing(Fixture):
         self.jf.set_mode("down")
         self.abs.set_mode("500")
         text = self.client().get("/", headers=BOTH_A).text
-        self.assertIn("Movies and TV are unavailable right now.", text)
-        self.assertIn("Audiobooks are unavailable right now.", text)
+        # Once, calmly: one combined line, not a line per library on top of the calm block (#13).
+        self.assertEqual(1, text.count("None of your libraries is answering right now."))
+        self.assertNotIn("Movies and TV are unavailable right now.", text)
+        self.assertNotIn("Audiobooks are unavailable right now.", text)
         self.assertIn('href="/help/trouble#unavailable"', text)
         self.assertIn('href="/help"', text)
 

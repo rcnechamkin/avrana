@@ -130,7 +130,11 @@ class SectionRenderingTests(Fixture):
         for headers in (C, D):
             r = self.on.get("/", headers=headers)
             above = region(r.text)
-            self.assertIn('<p class="banner" role="status">Movies and TV are not set up for your account yet.</p>', above)
+            # Not a dead end (#3): a section with its own heading, the sentence once, and the next step.
+            self.assertIn('<h2 id="h-setup">Not set up yet</h2>', above)
+            self.assertEqual(1, above.count("Movies and TV are not set up for your account yet."))
+            self.assertIn('<a class="link" href="/help/trouble#not-set-up">What to do next</a>', above)
+            self.assertNotIn('class="banner"', above)
             self.assertEqual([], cards(above))
             self.assertNotIn("error", above.lower())
             self.assertEqual(200, r.status_code)
@@ -282,7 +286,9 @@ class JsonViewTests(Fixture):
 class DegradationTests(Fixture):
     def assert_degraded_page(self, r, started):
         self.assertEqual(200, r.status_code)
-        self.assertIn('<p class="banner" role="status">Movies and TV are unavailable right now.</p>', r.text)
+        # The member's only library is down: the calm block, with one combined line naming it (#13).
+        self.assertIn('<p class="said" role="status">Movies and TV are unavailable right now. This usually passes', r.text)
+        self.assertNotIn('class="banner"', r.text)
         self.assertIn('<s>Watch</s><span class="sr">, unavailable: what to do</span>', r.text)    # struck, kept in place
         for tile in ("/request", "/help"):
             self.assertIn(f'href="{tile}"', r.text)
@@ -306,7 +312,11 @@ class DegradationTests(Fixture):
         self.mock.set_mode("wrong-user")
         r = self.fresh().get("/", headers=A)
         above = region(r.text)
-        self.assertIn('<p class="banner" role="status">Movies and TV are unavailable right now.</p>', above)
+        # One section unavailable: the library counts as down (#6), so Watch is struck and the notice says the
+        # list still shown may be out of date.
+        self.assertIn('<p class="banner" role="status">Movies and TV are unavailable right now. Anything shown from '
+                      'them may be out of date.</p>', above)
+        self.assertIn('<s>Watch</s>', r.text)
         self.assertIn("Synthetic Film Three", above)
         self.assertNotIn("Synthetic Film Two", r.text)
 

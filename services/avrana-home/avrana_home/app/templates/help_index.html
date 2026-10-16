@@ -2,6 +2,9 @@
 {% from "_parts.html" import tile %}
 {% block title %}Help · Avrana{% endblock %}
 {% block body %}
+{% if shell %}
+  <h2 class="topic">Help</h2>
+{% endif %}
 {% if tiles %}
   <nav class="tiles" aria-label="Help topics">
 {% for path, label, desc in tiles %}{{ tile(path, label, desc) }}

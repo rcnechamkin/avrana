@@ -1,18 +1,31 @@
 {# The Home sections, from the approved design: Continue, then New this week. Everything comes from the
    view-model (`home`); titles are escaped by autoescape; hrefs are https hand-off URLs only. #}
 {% from "_parts.html" import card %}
+{% if home.all_unset %}
+  <section class="shelf" aria-labelledby="h-setup">
+    <h2 id="h-setup">Not set up yet</h2>
+{% for line in home.notices %}
+    <p class="said" role="status">{{ line }}</p>
+{% endfor %}
+    <p class="said">There is nothing to change on your side. The person who invited you can link it.</p>
+    <p class="said"><a class="link" href="{{ home.setup_href }}">What to do next</a></p>
+  </section>
+{% elif home.all_down %}
+  <section class="shelf" aria-labelledby="h-rest">
+    <h2 id="h-rest">Your libraries are resting</h2>
+    <p class="said" role="status">{% for line in home.notices %}{{ line }} {% endfor %}This usually passes within a minute. Your account and Help are still here.</p>
+{% if home.retry_href %}
+    <p class="retry"><a class="link" href="{{ home.retry_href }}">Try again<span class="sr"> to load your libraries</span></a></p>
+{% endif %}
+    <p class="said"><a class="link" href="/account">Account</a> <a class="link" href="/help">Help</a></p>
+  </section>
+{% else %}
 {% for line in home.notices %}
   <p class="banner" role="status">{{ line }}</p>
 {% endfor %}
-{% if home.retry_href %}
-  <p class="retry"><a class="link" href="{{ home.retry_href }}">Try again<span class="sr"> to load your libraries</span></a></p>
+{% if home.retry_href or home.setup_href %}
+  <p class="retry">{% if home.retry_href %}<a class="link" href="{{ home.retry_href }}">Try again<span class="sr"> to load your libraries</span></a>{% endif %}{% if home.retry_href and home.setup_href %} {% endif %}{% if home.setup_href %}<a class="link" href="{{ home.setup_href }}">What to do next<span class="sr"> about a library that is not set up</span></a>{% endif %}</p>
 {% endif %}
-{% if home.all_down %}
-  <section class="shelf" aria-labelledby="h-rest">
-    <h2 id="h-rest">Your libraries are resting</h2>
-    <p class="said">None of your libraries is answering right now. This usually passes within a minute. Your account and Help are still here.</p>
-    <p class="said"><a class="link" href="/account">Account</a> <a class="link" href="/help">Help</a></p>
-  </section>
 {% endif %}
 {% if home.show_continue %}
   <section class="shelf" aria-labelledby="h-continue">

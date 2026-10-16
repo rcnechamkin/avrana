@@ -38,9 +38,22 @@ class HomeViewModelTests(unittest.TestCase):
         self.assertEqual(["/watch", "/listen", "/request", "/help"], [p.href for p in places])
         self.assertEqual([False, True, True, True], [p.up for p in places])
 
-    def test_one_section_still_answering_keeps_the_library_up(self):
+    def test_one_section_unavailable_strikes_the_place_and_the_notice_says_the_rest_may_be_old(self):
+        # #6: in the first minutes of an outage Continue fails while New this week still answers from the cache.
+        # One rule (library_down) drives both the places bar and the notice, so they cannot contradict each other.
         v = self.view(sec("jellyfin", "continue", "unavailable"), sec("jellyfin", "recent", "ok", [item(1, "A")]))
+        self.assertFalse(build_places(TILES, v)[0].up)
+        home = build_home(v, TILES)
+        self.assertFalse(home.places[0].up)
+        self.assertEqual(("Movies and TV are unavailable right now. Anything shown from them may be out of date.",),
+                         home.notices)
+        self.assertEqual(["A"], [c.title for c in home.new_items])     # still shown, and said to be possibly old
+        self.assertEqual("/", home.retry_href)
+
+    def test_a_library_that_answers_in_full_is_up_and_has_no_notice(self):
+        v = self.view(sec("jellyfin", "continue", "empty"), sec("jellyfin", "recent", "ok", [item(1, "A")]))
         self.assertTrue(build_places(TILES, v)[0].up)
+        self.assertEqual((), build_home(v, TILES).notices)
 
     def test_read_is_unavailable_only_when_every_library_behind_it_is(self):
         both = self.view(sec("komga", "recent", "unavailable"), sec("calibre-web", "recent", "unavailable"))
@@ -79,7 +92,8 @@ class HomeViewModelTests(unittest.TestCase):
         self.assertIn("Nothing in progress", empty.continue_said)
         down = build_home(self.view(sec("jellyfin", "continue", "unavailable"), sec("jellyfin", "recent", "ok", [item(1, "N")])), TILES)
         self.assertIsNone(down.continue_said)
-        self.assertEqual(("Movies and TV are unavailable right now.",), down.notices)
+        self.assertEqual(("Movies and TV are unavailable right now. Anything shown from them may be out of date.",),
+                         down.notices)
 
     def test_new_tabs_come_from_the_members_own_libraries_and_unknown_values_fall_back_to_all(self):
         v = self.view(sec("jellyfin", "recent", "ok", [item(1, "F1"), item(2, "F2")]),
@@ -99,12 +113,27 @@ class HomeViewModelTests(unittest.TestCase):
         self.assertEqual(["Movies and TV", "Audiobooks"], [c.line for c in build_home(v, TILES).new_items])
         self.assertEqual(["S"], [c.line for c in build_home(v, TILES, new_tab="jellyfin").new_items])
 
-    def test_everything_down_says_so_once_per_library_and_shows_no_rails(self):
+    def test_everything_down_says_so_once_and_shows_no_rails(self):
         v = self.view(sec("jellyfin", "continue", "unavailable"), sec("jellyfin", "recent", "unavailable"))
         home = build_home(v, TILES)
+        self.assertTrue(home.all_down)
         self.assertEqual(("Movies and TV are unavailable right now.",), home.notices)
         self.assertFalse(home.show_continue or home.show_new)
         self.assertFalse(home.no_library)
+        two = build_home(self.view(*v["sections"], sec("audiobookshelf", "continue", "unavailable")), TILES)
+        self.assertEqual(("None of your libraries is answering right now.",), two.notices)   # one line, not two
+
+    def test_every_library_not_set_up_is_one_block_with_the_next_step(self):
+        home = build_home(self.view(sec("jellyfin", "continue", "not_linked"), sec("jellyfin", "recent", "not_linked")),
+                          TILES)
+        self.assertTrue(home.all_unset)
+        self.assertFalse(home.all_down)
+        self.assertEqual("/help/trouble#not-set-up", home.setup_href)
+        self.assertIsNone(home.retry_href)
+        mixed = build_home(self.view(sec("jellyfin", "recent", "not_linked"),
+                                     sec("audiobookshelf", "recent", "ok", [item(1, "B", "audiobook")])), TILES)
+        self.assertFalse(mixed.all_unset)
+        self.assertEqual("/help/trouble#not-set-up", mixed.setup_href)
 
     def test_not_linked_sentence_and_no_mention_of_a_library_that_is_not_in_the_view(self):
         home = build_home(self.view(sec("jellyfin", "recent", "not_linked")), TILES)

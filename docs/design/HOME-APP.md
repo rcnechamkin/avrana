@@ -213,6 +213,25 @@ One example per state (synthetic, produced by the tests' mock):
 {"sections": []}      <- not_permitted: the section is omitted, so a member without the group gets this
 ```
 
+### Home: one rule for "unavailable" (polish pass, 2026-10-16)
+
+A library counts as unavailable when **any** of its sections says unavailable (`viewmodel.library_down`). That one
+rule drives both the notice and the places bar, so they cannot disagree. In the first minutes of an outage a
+section can still answer from the cache (recently added is cached for 120 s) while Continue fails. Before, Home
+then said "Movies and TV are unavailable right now." while New this week showed Movies and TV items and Watch was
+not struck. Now the place is struck and the notice reads "Movies and TV are unavailable right now. Anything shown
+from them may be out of date."; the cached items stay (they are still the member's own and may still open), and Try
+again is offered. Chosen over hiding cached items (an emptier page for a two-minute blip) and over leaving the place
+up (a struck notice beside a live-looking place). Read is struck only when every library behind it is down. The
+cost: a single failing call (for example Continue discarded by the scope tripwire) also strikes the place while
+the library otherwise answers; the notice says "may", and Try again recovers it.
+
+When nothing answers: everything unavailable is one calm block ("Your libraries are resting") with one combined
+line (the library's name when there is one library, otherwise "None of your libraries is answering right now."),
+never a line per library above it. Everything not set up (member-c, member-d) is one "Not set up yet" block with
+the sentence and "What to do next" (`/help/trouble#not-set-up`). A mix keeps the per-library lines, Try again and
+the next step.
+
 `artwork.ref` is opaque. `GET /art/<ref>` (for example `/art/komga/book/<id>`) serves it, member-scoped: `app/artwork.py` is the one module that calls `fetch_artwork`, with the verified principal and a ref of the exact shape `service/word/id` (`[A-Za-z0-9_-]` only). Unknown service, bad ref, missing group, an item the member may not see, an upstream failure and a refused content type are all the same standard 404. Responses carry `Cache-Control: private, no-store`, `nosniff`, and only `image/jpeg|png|webp` of at most 5 MiB (never SVG or HTML). Section items render `<img src="/art/..." alt=<title> width="80" height="120" loading="lazy">` only when a valid ref exists.
 
 ### Search results and title pages (AVR-383/384)
@@ -231,16 +250,27 @@ not-set-up libraries; no searchable library; invalid term.
 
 Request fallback: only when at least one library answered with no match, and only for the request service that
 fills that library **and** that the member's own catalogue holds (Seerr for Movies and TV; the books request service
-for Books and Audiobooks; the comics request service for Comics). Seerr gets the cleaned term through its documented
-search address (`https://<catalogue host>/search?query=<percent-encoded>`; host from the static catalogue only); the
-others link to their portal route (`/requestabook`, `/requestacomic`), which redirects by the fixed table. Nothing is
-submitted.
+for Books and Audiobooks; the comics request service for Comics). Links read "Ask for a film or show", "Ask for a
+book or an audiobook", "Ask for a comic". Seerr gets the cleaned term through its documented search address
+(`https://<catalogue host>/search?query=<percent-encoded>`; host from the static catalogue only), and the page says
+"Opens the request website" beside that link (and in its accessible name); the others link to their portal route
+(`/requestabook`, `/requestacomic`), which redirects by the fixed table. Nothing is submitted. The search hint is
+plain ("At least 2 characters."): the wildcard and escape characters `clean_query` turns into spaces are not listed,
+because none of them makes a term unusable while letters remain (tested).
 
-`GET /title/<service>/<id>`: the shell masthead, `<h2>` title, artwork in its natural shape, medium and library,
-creator and year, series or episode, progress in words when the member has a saved position, and ONE primary action
-that opens the item in its library: Resume (saved position only) or Watch / Listen / Read. It never says playback
-started. Secondary: Back to search (only when the address carries a term that passes `clean_query`, re-encoded; no
-other query parameter is read), Home, Help. Not permitted, unknown, hidden, malformed or hostile ids and a missing
+Account (shell only) splits "Your access" into Libraries and Requests in Home's language ("Movies and TV", never
+"Watch" or "Movies & TV"), each name once; a request service is named by the libraries it fills for this member, so
+a books-only member never reads "Audiobooks". Remaining services (Send to Kindle, Contribute, Operations) are listed
+under "Also". With sections off, Account is the portal's page, byte for byte.
+
+`GET /title/<service>/<id>`: the shell masthead, `<h2>` title, artwork in its natural shape, the library (with the
+medium only when the library's name does not already say it: "Episode · Movies and TV", but "Movies and TV" for a
+movie), creator and year, series or episode, progress in words whenever the upstream reports it for this member,
+and ONE primary action that opens the item in its library, by the Continue rule (`continue_state`): Resume for a
+saved position, Open when there is progress but no position, otherwise Watch / Listen / Read. It never says
+playback started. Under it, an inline link to "If something doesn't open" (`/help/trouble`). Footer: Back to search
+(only when the address carries a term that passes `clean_query`, re-encoded; no other query parameter is read) and
+Back to home; Help is the places bar's. A library not set up for the member links `/help/trouble#not-set-up`. Not permitted, unknown, hidden, malformed or hostile ids and a missing
 identity are the standard 404, identical to an unknown route. An unavailable library is a 503 page "The ... library
 is unavailable right now" with Try again; it says nothing about whether the title exists. The strict CSP applies.
 Every view makes the permission-checked upstream lookup (no cache), so access removed upstream shows at once.

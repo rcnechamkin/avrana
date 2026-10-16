@@ -19,7 +19,7 @@ Calibre-Web-Automated: no version recorded (UNVERIFIED).
 
 | Rule | Where | Test |
 |---|---|---|
-| The verb is **Resume** only when the upstream gave this member a saved position of at least one whole second, believable (0 to 1,000 hours) and not finished. Otherwise **Open**. New this week is always Open. | `viewmodel.continue_state`, `action_of` | `tests/test_continue_semantics.py` |
+| The verb is **Resume** only when the upstream gave this member a saved position of at least one whole second, believable (0 to 1,000 hours) and not finished. Otherwise **Open**. New this week is always Open. The title page uses the same rule (`continue_state`): Resume for a saved position; Open with the progress in words when the upstream reports progress without a position (an Audiobookshelf fraction with no `currentTime`); Watch, Listen or Read when there is no progress. Help ("What happens when you choose an item") states this rule, naming only the member's own verbs. | `viewmodel.continue_state`, `action_of`, `build_title`, `recovery.build_trouble` | `tests/test_continue_semantics.py`, `webtests/test_polish_h2.py` |
 | Remaining time is the upstream's own numbers: Jellyfin `RunTimeTicks - PlaybackPositionTicks` (10,000,000 ticks per second), Audiobookshelf `duration - currentTime` (seconds, float, truncated). Minutes are rounded up; under a minute is "less than a minute left". | adapters, `progress_words` | same |
 | A percent only when there are no seconds to subtract ("42 percent listened"). 0 percent reads "just started", 100 "nearly finished". | `progress_words` | same |
 | Finished items never appear: Jellyfin `UserData.Played`, position at or past the run time; Audiobookshelf `isFinished`, `progress >= 1`, position at or past the duration. | adapters, `build_home` | same, `test_audiobookshelf.py` |
@@ -86,8 +86,8 @@ upstream's to report, and `/help/trouble` ("If something doesn't open") says wha
 | **Login prompt** | Library's login page. After sign-in it may land on its start page, not the item (Jellyfin hash route: **UNVERIFIED**). Help: come back and choose the item again | same | same | same | n/a |
 | **Missing item** | Library's own "not found" or empty page (**UNVERIFIED** wording). Home drops the item within 30 s (cache) if the upstream no longer lists it | same | same | same | n/a |
 | **Expired session / second sign-in elsewhere** | Library asks to sign in again (Help: "If you are asked to sign in") | same | same | same | app asks |
-| **Library unavailable** | Home: "Movies and TV are unavailable right now.", Try again, the place struck through and linked to `/help/trouble#unavailable`. Other libraries unaffected | same | same | same | n/a |
-| **Not linked** (no matching upstream account) | Home: "Movies and TV are not set up for your account yet." Help: ask the person who invited you | same | same | same | n/a |
+| **Library unavailable** | Home: "Movies and TV are unavailable right now.", Try again, the place struck through and linked to `/help/trouble#unavailable` (any section unavailable counts; items still shown from the cache carry "Anything shown from them may be out of date."; see HOME-APP.md section 5). Everything down: one calm block, one combined line. Other libraries unaffected | same | same | same | n/a |
+| **Not linked** (no matching upstream account) | Home: "Movies and TV are not set up for your account yet." under a "Not set up yet" heading when nothing else answers, with "What to do next" linking `/help/trouble#not-set-up` (Search and the title page link the same section). Help: ask the person who invited you | same | same | same | n/a |
 | **Way back to Avrana** | Back button; AVRANA at the top of every Avrana page; footer "Back to home" on every shell page except Home | Close the sheet (Done) or swipe back (**UNVERIFIED**) | Back button | Back button | n/a |
 
 **Allowlist proof (fixtures).** `tests/test_continue_semantics.py::HandoffTests` proves each service builds its
@@ -104,8 +104,9 @@ because they come only from that member's own section (isolation suites: `test_w
   "Back to home"; the bare "Back" stays only on pages without the shell (sections off: byte-identical to the
   portal; the 404 page).
 - Search, Help and Account live in the masthead only. The account menu holds "Account and security"; Help is the
-  masthead link beside it. Footers carry only return navigation and page-specific actions: Home's footer is
-  "If something doesn't open"; a help topic keeps "All help" (one level up). Search's footer lost its repeated Help.
+  last place in the places bar. Footers carry only return navigation and page-specific actions: Home's footer is
+  "If something doesn't open"; a help topic keeps "All help" (one level up); a title page has "Back to search"
+  (only from a valid term) and "Back to home". Search's footer lost its repeated Help.
 - Read and Request (with the shell) say what they are before the tiles. Request: "Ask for something that is
   missing from a library. Each place below opens a separate request website, where you sign in and search for
   the title." and "Asking does not add it straight away, and not every request can be filled." No library is
@@ -113,7 +114,10 @@ because they come only from that member's own section (isolation suites: `test_w
 - The Watch interstitial (with the shell) says it opens a separate website with its own sign-in, that Avrana
   does not start anything there, and how to come back (back button, or for the Home Screen app, which has none,
   close the library's window or reopen Avrana from its icon); it offers "If something doesn't open" beside
-  "Set up the app".
+  "Set up the app". In the shell it speaks Home's language: "Apps and setup for Movies and TV" (the help topic's
+  name, not the portal's "Watch"), and the advice reads "For the most stable playback, use the Jellyfin app on your
+  device. Help has the steps for each device." The app keeps its name because it is what the member installs and
+  what the help topic's steps name. With sections off the portal's own sentence and label stay (parity).
 - **Unavailable place**: instead of a dead struck-through span, the struck place is a link to
   `/help/trouble#unavailable` (accessible name "Watch, unavailable: what to do"), which says what happened, that other
   libraries keep working, to choose Try again, that the library itself can still be tried, and links to it.

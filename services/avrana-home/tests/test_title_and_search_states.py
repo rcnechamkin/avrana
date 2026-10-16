@@ -195,8 +195,8 @@ class SearchStates(unittest.TestCase):
                          "a b&c", request_hosts=HOSTS)
         self.assertEqual((p.result_state, p.outcome), ("none", "No results"))
         self.assertEqual([(r.href, r.label) for r in p.requests], [
-            ("https://request.example.net/search?query=a%20b%26c", "Request this title as a film or show"),
-            ("/requestabook", "Request this title as an ebook or an audiobook")])
+            ("https://request.example.net/search?query=a%20b%26c", "Ask for a film or show"),
+            ("/requestabook", "Ask for a book or an audiobook")])
 
     def test_partial_empty_names_only_the_libraries_that_could_not_answer(self):
         p = build_search(view(("jellyfin", "empty"), ("komga", "unavailable")), "Film", request_hosts=HOSTS)
@@ -268,6 +268,10 @@ class TitleRules(unittest.TestCase):
         self.assertEqual(t.back_href, "/search?q=Film")
         done = dict(prog, position_seconds=7200)
         self.assertEqual(build_title(self.section(progress=done), "jellyfin", "a" * 31 + "1", None).action, "Watch")
+        # The Continue rule (continue_state): a fraction with no position is not a saved place. Open, with words.
+        frac = {"fraction": 0.42, "percent": 42, "position_seconds": None, "duration_seconds": None}
+        t = build_title(self.section(progress=frac), "jellyfin", "a" * 31 + "1", None)
+        self.assertEqual((t.action, t.progress), ("Open", "42 percent watched"))
         self.assertEqual(build_title(self.section(kind="audiobook"), "jellyfin", "a" * 31 + "1", None).action, "Listen")
         self.assertEqual(build_title(self.section(kind="comic"), "jellyfin", "a" * 31 + "1", None).action, "Read")
 

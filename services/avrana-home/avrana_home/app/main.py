@@ -43,8 +43,8 @@ from . import recovery
 from .routing import (AccountFacts, Decision, chooser_intro, decide, normalise_target, not_found, parse_title_route,
                       search_decision, title_decision, trouble_decision)
 from .settings import Settings, is_sealed_preview
-from .viewmodel import (ACCOUNT_MENU, NO_LIBRARY, REQUEST_FOR, build_home, build_search, build_shell,
-                        build_title)
+from .viewmodel import (ACCOUNT_LIBRARY, ACCOUNT_MENU, INTERSTITIAL_SHELL, NO_LIBRARY, REQUEST_FOR, SERVICE_LABEL,
+                        account_access, build_home, build_search, build_shell, build_title)
 
 TEMPLATES = Path(__file__).resolve().parent / "templates"
 HTML = "text/html; charset=utf-8"
@@ -286,6 +286,16 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
             extra["shell"] = shell_for(viewer, SHELL_PAGES[decision.label])
             if decision.label == "/{chooser}" and extra["shell"] is not None:
                 extra["intro"] = chooser_intro(decision.context["chooser"].path)
+            if decision.label == "/account" and extra["shell"] is not None:
+                # Shell only: libraries and requests in Home's language. Sections off keeps the portal's list.
+                extra["shell_access"] = account_access(
+                    [(s.path, cat.service_copy(s, viewer.groups)[0]) for s in cat.permitted(viewer.groups)],
+                    viewer.groups)
+            if decision.label == "/{service}" and extra["shell"] is not None:
+                path = decision.context["svc"].path
+                if path in ACCOUNT_LIBRARY:
+                    extra["library"] = SERVICE_LABEL[ACCOUNT_LIBRARY[path]]
+                extra["shell_warning"] = INTERSTITIAL_SHELL.get(path)
         return respond(decision, scope, **extra)
 
     def mark_shell(scope, shell) -> None:
