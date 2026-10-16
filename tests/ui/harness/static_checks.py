@@ -440,6 +440,8 @@ def check_targets(cx: PageContext):
     for n in cx.interactive():
         if n.tag == "a" and D.inline_in_text(n):
             continue
+        if n.tag == "a" and "skip-link" in (n.classes or ()):
+            continue   # visually hidden until focus; its focused size (44px+) is measured by skip_link.mjs
         st = sheet.computed(n)
         fpx, known = _font_px(sheet, n)
         declared = []

@@ -27,7 +27,7 @@ and D-7 are answered.
 - **Question:** the support contact route.
 - **Options in the repo:** a plain address first, a form only if spam-free delivery is easy
   (`docs/design/MEDIA-2.0.md:295`). Existing member copy says "Message the admin who invited you"
-  (`docs/onboarding/welcome.md:55`) and "Ask Cody to add what you need" (`services/avrana-portal/portal.py:726`).
+  (`docs/onboarding/welcome.md:55`) and "Ask Cody to add what you need" (`services/avrana-portal/portal.py:733`).
 - **Changes in the drafts:** the contact line in welcome, help (twice) and the leaving section of the privacy page.
 - **Blocked:** welcome, help, privacy. Related: D-1; AVR-367, AVR-361. E-mail delivery also depends on M0 (AVR-346).
 
@@ -94,7 +94,7 @@ and D-7 are answered.
 - **Question:** the member wording for an unavailable service and where an operator notice appears.
 - **Options:** the charter plans one sentence on the home page set from an OliveTin action and per-section
   messages such as "Movies and TV are unavailable right now" (`MEDIA-2.0.md:48-60, :150-158`); neither is
-  built. Today the only copy is the portal 404 and each app's own error (`portal.py:844-853`).
+  built. Today the only copy is the portal 404 and each app's own error (`portal.py:851-860`).
 - **Changes:** welcome and help "unavailable" passages.
 - **Blocked:** welcome, help. Related: M1 operator notices.
 
@@ -216,7 +216,7 @@ deleted user remain. Check: disposable account. Changes: runbook Step 5 and the 
 
 ### U-19
 What the Account page Sign out link actually ends: unverified. The portal links it to the outpost endpoint
-`/outpost.goauthentik.io/sign_out` (`services/avrana-portal/portal.py:399`, `:680-683`). Nothing in the
+`/outpost.goauthentik.io/sign_out` (`services/avrana-portal/portal.py:399`, `:687-690`). Nothing in the
 repository shows that this ends the Authentik session; `docs/services/sso-architecture.md:146-150` points to
 the Authentik settings page for that. Check: on a disposable account, press Sign out, then open another
 Avrana app and see whether it signs in without a prompt; compare with signing out at the Authentik settings
@@ -278,6 +278,6 @@ These files were not edited. `file:line` is the statement; the contradiction fol
 | `docs/services/tracearr.md:65` not in backups | `services/backups/README.md:14-16`, `required-artifacts.txt` (`tracearr.pgdump.zst`), `avrana-backup.sh:267-279` |
 | `docs/services/calibre-web-automated.md:9` (Gmail), `:35-44` (Postmark), `:112-114` (SMTP2GO, sender address) | Three different mail stories; `services/avrana-kindle-connector/kindle.py:48` and the blueprints use the SMTP2GO sender |
 | `docs/services/sso-architecture.md:73-80` | Lists individual members' names in a tracked document; against the no-personal-data rule (`docs/SECURITY.md:13`). Also describes a user divergence measured 2026-08-28 |
-| `services/avrana-portal/portal.py:726` first name in copy; `:675` em dash | `docs/design/DESIGN.md:312`; audit P3 |
+| `services/avrana-portal/portal.py:733` first name in copy; `:682` em dash | `docs/design/DESIGN.md:312`; audit P3 |
 | `docs/services/avrana-portal.md` go-live status of 2026-08-16 ("only remaining: restart") | Superseded by later operation; kept as history |
 | `docs/services/authentik.md:170-174` click-through of the verification e-mail never verified | Open owner item before invites (AVR-363) |

@@ -74,7 +74,7 @@ const measure = (MIN) => {
   };
   const visible = (el) => { const r = el.getBoundingClientRect(); const cs = getComputedStyle(el); return r.width > 0 && r.height > 0 && cs.visibility !== 'hidden' && cs.display !== 'none'; };
   const out = { targets: [], text: [], edges: [], count: 0 };
-  const interactive = [...document.querySelectorAll('a[href],button,input:not([type=hidden]),select,textarea,summary')].filter(visible);
+  const interactive = [...document.querySelectorAll('a[href],button,input:not([type=hidden]),select,textarea,summary')].filter(visible).filter((el) => !el.classList.contains('skip-link'));   // hidden until focus; measured by skip_link.mjs
   out.count = interactive.length;
   for (const el of interactive) {
     let rect = el.getBoundingClientRect();
@@ -118,7 +118,7 @@ const overflow = () => {
   const vw = document.documentElement.clientWidth;
   for (const el of document.body.querySelectorAll('*')) {
     const cs = getComputedStyle(el);
-    if (cs.display === 'none') continue;
+    if (cs.display === 'none' || el.classList.contains('skip-link')) continue;   // intentionally clipped until focus
     if (/^(hidden|clip)$/.test(cs.overflowX) && el.scrollWidth > el.clientWidth + 1) clipped.push(label(el));
     if (/^(hidden|clip)$/.test(cs.overflowY) && el.scrollHeight > el.clientHeight + 1) clipped.push(label(el));
     const r = el.getBoundingClientRect();
