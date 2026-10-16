@@ -283,6 +283,39 @@ class MappingLifetime(unittest.TestCase):
         self.assertEqual(len(self.fake.requests), n)
 
 
+# ---- 3b. expired entries do not linger (AVR-503 benchmark F3) --------------------------------------------
+class ExpiredEntriesAreSwept(unittest.TestCase):
+    def setUp(self):
+        from avrana_home.cache import MemberCache
+        self.clock = FakeClock()
+        self.cache = MemberCache(self.clock)
+        self.a, self.b = make_principal("member-a", VIDEOS), make_principal("member-b", VIDEOS)
+
+    def test_a_write_sweeps_another_members_expired_entries(self):
+        from avrana_home.cache import SWEEP_INTERVAL
+        scope_a = self.cache.for_member(self.a)
+        for n in range(5):
+            scope_a.set("jellyfin", f"item:{n}", "Synthetic Title", ttl=10, data_class="member_progress")
+        scope_a.set("jellyfin", "art:x", b"synthetic-bytes", ttl=10, data_class="artwork")
+        self.assertEqual(len(self.cache), 6)
+        self.clock.advance(max(11, SWEEP_INTERVAL))
+        self.cache.for_member(self.b).set("jellyfin", "continue:12", "other", ttl=30)
+        self.assertEqual(len(self.cache), 1, "member-a's expired titles and bytes are still held in memory")
+        self.assertIsNone(scope_a.get("jellyfin", "item:0"))
+
+    def test_the_sweep_is_rate_limited_and_never_drops_live_entries(self):
+        scope_a = self.cache.for_member(self.a)
+        scope_a.set("jellyfin", "short", "x", ttl=5)
+        scope_a.set("jellyfin", "long", "y", ttl=600)
+        self.clock.advance(6)
+        self.cache.for_member(self.b).set("jellyfin", "k", "z", ttl=600)  # within the interval: no sweep yet
+        self.assertEqual(len(self.cache), 3)
+        self.clock.advance(30)
+        self.cache.for_member(self.b).set("jellyfin", "k2", "z", ttl=30)
+        self.assertEqual(len(self.cache), 3)                              # short gone; long, k, k2 kept
+        self.assertEqual(scope_a.get("jellyfin", "long"), "y")
+
+
 # ---- 4. the owner override is reachable only through the sealed preview path ------------------------------
 class SealedOverride(unittest.TestCase):
     def test_settings_cannot_be_constructed_into_the_preview_or_an_override(self):

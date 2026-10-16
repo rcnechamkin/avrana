@@ -108,3 +108,30 @@ failing (`webtests/test_web_isolation_h2.py`).
    it is not implemented. Docker's default iptables DNAT normally preserves LAN client addresses (the shared
    address arises with the userland proxy), so the owner should check which address the gate sees on
    `avrana` before deciding. The gate is unchanged: constant-time compare, throttle, outermost position.
+6. **Username reuse (AVR-503 benchmark F4).** The cache partition is an HMAC of the Authentik username; the
+   principal carries no stable account id (no uid or sub is parsed today, and adding one would touch the
+   identity path PR #52 changes). If an account is deleted and its username given to a new person while the
+   previous holder's entries are still live (at most 300 s for covers, 120 s for sections, 60 s for the
+   mapping; the cache is in memory only and dies with the process), the new holder could be served the
+   previous holder's cached titles, progress or covers. The new holder's upstream accounts would also have
+   to carry the same names. Mitigation, owner offboarding step: after deleting a member, wait at least
+   5 minutes (or restart Home, with approval) before reusing that username; `MemberCache.purge_member` exists
+   but is wired to nothing. Follow-up once the verified-JWT identity lands: key the partition by the token's
+   stable `sub` as well as the username.
+7. **Upstream-side permission changes (AVR-503 benchmark F5), owner decision.** A permission change made inside
+   Jellyfin or Audiobookshelf (not in Authentik) reaches cached sections only when they expire: 30 s for
+   Continue, 120 s for New this week and item lookups. Covers from those two services are re-checked on every
+   request (this change); covers from the shared views keep up to 300 s. An Authentik group change is
+   immediate. Shorter TTLs cost more upstream calls per page; the owner decides whether these windows are
+   acceptable for the beta.
+8. **Concurrency cap (AVR-503 benchmark F2).** Each adapter admits 8 upstream calls at once
+   (`DEFAULT_MAX_IN_FLIGHT`), at most 2 per member. Fifteen members opening a cold Home together need about
+   30 calls per service, so some sections are refused at once as `busy` and render as unavailable until the
+   next load. Not changed here: a wait for a slot conflicts with the reviewed rule that `busy` is immediate
+   (`tests/test_hung.py::...test_busy_is_immediate_without_waiting_for_the_cap`), which keeps hung upstreams
+   from adding latency to every page. Recommendation: (a) raise the per-adapter cap (for example to 16)
+   together with the shared worker pool, after the owner's live run measures what each upstream tolerates,
+   keeping the per-member cap of 2 so one member cannot take every slot; or (b) a bounded wait for a slot
+   taken from the request's own deadline (so the page's hard cap still holds), only while the circuit is
+   closed, with that test revised in review. Either is a reviewed follow-up, not a member-beta blocker for a
+   small invited group.
