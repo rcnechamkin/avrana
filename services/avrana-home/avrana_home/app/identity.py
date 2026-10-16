@@ -95,6 +95,8 @@ class IdentityResolver:
     def from_settings(cls, settings: Settings) -> "IdentityResolver":
         mode = getattr(settings, "identity_mode", MODE_HEADERS)
         if mode == MODE_HEADERS:
+            if getattr(settings, "allowed_users", ()):
+                raise SettingsError("an allowlist needs jwt_required")
             return cls(MODE_HEADERS)
         secrets = [s.encode("utf-8") for s in (settings.jwt_secret, settings.jwt_secret_previous) if s]
         try:

@@ -406,6 +406,8 @@ class AllowlistTests(Fixture):
         from avrana_home.app.identity import IdentityResolver
         with self.assertRaises(SettingsError):
             IdentityResolver(allowed_users=("member-a",))
+        with self.assertRaises(SettingsError):                 # a Settings built in code, not from env
+            IdentityResolver.from_settings(make_settings(allowed_users=("member-a",)))
 
 
 class StartupTests(unittest.TestCase):

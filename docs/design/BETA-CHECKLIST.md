@@ -100,7 +100,7 @@ HOME_HEALTH_DETAIL=off
 | 1 | **Signed-out request** (private window) to `https://<beta-host>/` | Redirected by Authentik to sign-in. The Home app is never reached. |
 | 2 | **`beta-outsider`** signs in (private window) | Authentik denies (policy). No Home page. |
 | 2b | **Second lock**: temporarily add `beta-outsider` to `avrana-beta`, sign in, then remove it again at once | Authentik admits, Home shows the Help-only page, `/account` shows no name, `/watch` is 404; log reason `not_allowed`. |
-| 3 | **`akadmin`** signs in | Home renders with mock sections for the token's groups; `/account` shows the tester's username; `/home.json` returns the mock view. Sections appear only for library groups akadmin is in (for example `avrana-videos`); with none, only Help shows, which is still a pass for sign-in. |
+| 3 | **`akadmin`** signs in | Home renders with mock sections for the token's groups; `/account` shows `akadmin`; `/home.json` returns the mock view. Sections appear only for library groups akadmin is in (for example `avrana-videos`); with none, only Help shows, which is still a pass for sign-in. |
 | 4 | **Forged header**: from a host that can reach the container directly (not through the outpost), `curl` with `X-authentik-username: x` and `X-authentik-groups: avrana-videos` | The help-only page; gated routes (`/watch`, `/home.json`) are 404. Never sections, never a 403 or a redirect. |
 | 5 | **Forged token**: same, with a self-made `X-authentik-jwt` | Same 404 outcome (`unverified_identity` if logging). |
 | 6 | **Expired session**: let the session lapse (or revoke it in Authentik) and reload | Authentik sign-in again. A replayed old token reaching the app gets the no-principal page. |
