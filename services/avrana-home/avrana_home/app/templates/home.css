@@ -1,7 +1,13 @@
   /* Home (AVR-374/452/478): the approved preview's rules (tests/ui/home_preview/static/home.css, PR #26) adapted
      to this shell's tokens (ink=--bg, paper=--fg, ash=--dim). Added to the page ONLY when the home sections render,
      so no other page and no sections-off page changes (portal parity). Search, title and wall rules stay out. */
-  body:has(.mast){flex-direction:column;align-items:center;}
+  /* The portal's body centres its one column (justify-content:center); turned into a column here, that would centre
+     a short shell page vertically. The masthead stays at the top on every shell page. */
+  body:has(.mast){flex-direction:column;align-items:center;justify-content:flex-start;}
+  /* Footer links on one line and one box height, whether portal-styled (a.account: Manage account, Sign out) or
+     shell-styled (.link); they wrap only when the row is too narrow. */
+  body:has(.mast) footer nav{align-items:center;row-gap:0;}
+  body:has(.mast) footer a.account{display:inline-flex;align-items:center;min-height:2.75rem;padding:0;margin:0;}
   body:has(.mast) .page{max-width:none;min-width:0;padding:0;gap:0;}
   body:has(.mast) header{display:block;text-align:left;}
   body:has(.mast) main{gap:1.75rem;}

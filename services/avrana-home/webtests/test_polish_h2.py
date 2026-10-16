@@ -224,6 +224,15 @@ class HelpIndexAndTopics(StubFixture):
         self.assertNotIn(".client>div{", self.off.get("/help/movies", headers=ALL).text)
 
 
+class ShellLayout(StubFixture):
+    def test_masthead_at_the_top_and_footer_links_on_one_line_in_the_shell_only(self):
+        for path in ("/", "/account", "/help"):
+            on = self.on.get(path, headers=ALL).text
+            self.assertIn("body:has(.mast){flex-direction:column;align-items:center;justify-content:flex-start;}", on)
+            self.assertIn("body:has(.mast) footer a.account{display:inline-flex;", on)
+            self.assertNotIn("justify-content:flex-start", self.off.get(path, headers=ALL).text)
+
+
 class WatchInterstitial(StubFixture):
     def test_shell_uses_member_language_and_portal_is_unchanged(self):
         on = main_of(self.on.get("/watch", headers=ALL).text)
