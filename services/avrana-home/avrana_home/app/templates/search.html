@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% from "_parts.html" import frame %}
-{% block title %}Search · Avrana{% endblock %}
+{% block title %}{% if page.outcome %}{{ page.outcome }} · {% endif %}Search · Avrana{% endblock %}
 {% block body %}
 {# Search (AVR-383). One plain GET form, no script, no suggestions. The typed term is autoescaped and bounded by
    the view-model; results are grouped by library, only libraries the member may use are ever named, and every

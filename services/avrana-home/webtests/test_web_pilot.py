@@ -142,6 +142,14 @@ class SearchBehaviourTests(Mocks):
         t = self.search(B, "Synthetic Film Two").text
         self.assertIn('id="h-outcome">1 result<', t)
 
+    def test_the_outcome_is_in_the_page_title_so_it_is_announced_on_load(self):
+        # A screen reader reads the <title> on a full page load; the term itself is never in it.
+        self.assertIn("<title>1 result · Search · Avrana</title>", self.search(B, "Synthetic Film Two").text)
+        self.assertIn("<title>No results · Search · Avrana</title>", self.search(A, "zzqxnothingzz").text)
+        t = self.search(A, "Synthetic").text
+        title = re.search(r"<title>(.*?)</title>", t).group(1)
+        self.assertRegex(title, r"^\d+ results? · Search · Avrana$")
+
     def test_each_hit_has_exactly_one_open_action_and_groups_are_per_library(self):
         t = self.search(A, "Synthetic").text
         self.assertEqual(len(re.findall(r'<a class="open"', t)), len(re.findall(r'<li class="w-poster">', t)))
