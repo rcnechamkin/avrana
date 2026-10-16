@@ -133,6 +133,12 @@ class AudiobookshelfAdapter(GuardedAdapter):
     def item(self, principal: MemberPrincipal, item_id: str) -> SectionResult:
         return self._not_offered(principal, "item")
 
+    def search(self, principal: MemberPrincipal, query: str, limit: int = DEFAULT_LIMIT) -> SectionResult:
+        # Audiobookshelf's search is library-scoped and needs the admin key across libraries; there is no
+        # documented member-scoped route, and reproducing the member's library, tag and explicit rules for a
+        # free-text search is not done here. Not offered: no upstream call, the query is not even read.
+        return self._not_offered(principal, "search")
+
     def fetch_artwork(self, principal: MemberPrincipal, ref: str) -> ArtworkResult:
         self._require_principal(principal)
         if not principal.has_group(self.required_group):

@@ -55,6 +55,12 @@ class FakeKomga:
             page = dict(self.latest)
             page["content"] = page["content"][:int(query.get("size", "20"))]
             return self._json(page)
+        if path == "/api/v1/books":
+            term = query.get("search", "").casefold()
+            hits = [b for b in reversed(list(self.books.values()))
+                    if term and term in b["metadata"]["title"].casefold()]
+            page = {"content": hits[:int(query.get("size", "20"))], "number": 0, "totalElements": len(hits)}
+            return self._json(page)
         parts = path.strip("/").split("/")
         if parts[:3] == ["api", "v1", "series"] and len(parts) == 4:
             return self._lookup(self.series, parts[3])

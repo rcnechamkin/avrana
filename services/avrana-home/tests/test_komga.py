@@ -378,7 +378,7 @@ class GuardAndSecrets(Base):
             GuardedTransport(self.transport).bind(None).request("GET", "/api/v1/books/latest", None, 1.0, 1000)
         with self.assertRaises(ForbiddenRequest):
             GuardedTransport(self.transport).bind("../x")
-        self.assertEqual([r.name for r in ALLOWED_ROUTES], ["users", "latest", "book", "series", "thumbnail"])
+        self.assertEqual([r.name for r in ALLOWED_ROUTES], ["users", "latest", "book", "series", "search", "thumbnail"])
         for word in ("latest", "updated"):
             self.assertEqual(self.adapter.item(self.a, word).items, ())
             self.assertEqual(self.adapter.fetch_artwork(self.a, f"komga/book/{word}").state, SectionState.EMPTY)

@@ -55,6 +55,10 @@ ALLOWED_ROUTES = (
            "enableUserData"), user_scoped=True, not_found=UserGone),
     Route("items", r"/Items", ("userId", "ids", "fields", "enableUserData", "enableImageTypes"),
           user_scoped=True, not_found=UserGone),
+    # Search is user-scoped through the PATH (/Users/{id}/Items); the term travels only as `searchTerm`.
+    Route("search", r"/Users/(?P<user>" + _HEX32 + r")/Items",
+          ("searchTerm", "includeItemTypes", "recursive", "limit", "fields", "enableImageTypes", "enableUserData"),
+          user_scoped=True, bind_in="path", not_found=UserGone),
     # The image route cannot carry a userId, so ITS member scoping is not enforced here: it rests on
     # the adapter calling `_visible_item` (a userId-scoped lookup) for the same item first.
     Route("image", r"/Items/" + _HEX32 + r"/Images/Primary", ("maxWidth", "quality"),
@@ -203,6 +207,18 @@ class JellyfinAdapter(GuardedAdapter):
         items = self._parse_list(body, user.upstream_id, limit, ("Movie", "Series", "Episode"),
                                  want_progress=False, require_progress=False)
         return SectionResult.of(Service.JELLYFIN, "recent", items)
+
+    def _search(self, user: UpstreamUser, query: str, limit: int) -> SectionResult:
+        guard = self._guard.bind(user.upstream_id)
+        body = self._get_json(guard, self._budget(), f"/Users/{user.upstream_id}/Items", {
+            "searchTerm": query, "includeItemTypes": "Movie,Series,Episode", "recursive": "true",
+            "limit": str(limit), "fields": _ITEM_FIELDS, "enableImageTypes": "Primary",
+            "enableUserData": "true"})
+        if not isinstance(body, dict):
+            raise UpstreamMalformed()
+        items = self._parse_list(body.get("Items"), user.upstream_id, limit, ("Movie", "Series", "Episode"),
+                                 want_progress=False, require_progress=False)
+        return SectionResult.of(Service.JELLYFIN, "search", items)
 
     def _visible_item(self, guard, budget, user: UpstreamUser, item_id: str) -> Optional[MediaItem]:
         body = self._get_json(guard, budget, "/Items", {

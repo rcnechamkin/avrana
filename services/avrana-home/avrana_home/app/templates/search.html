@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}Search · Avrana{% endblock %}
+{% block body %}
+{# Search (AVR-383). One plain GET form, no script, no suggestions. The typed term is autoescaped and bounded by
+   the view-model; results are grouped by library, only libraries the member may use are ever named, and every
+   group says truthfully what happened. Self-contained: the few rules below use the shell's own tokens, so this
+   composes with the Home design later without home.css. #}
+<style>
+  .srch{display:flex;flex-direction:column;gap:12px;margin:0}
+  .srch label{color:var(--dim);font-size:.9rem;letter-spacing:.08em;text-transform:uppercase}
+  .srch .ask{display:flex;gap:10px}
+  .srch input[type=search]{flex:1 1 0;width:0;min-width:0;min-height:44px;padding:8px 12px;font:inherit;font-size:1.1rem;
+    color:var(--fg);background:var(--bg);border:1px solid var(--rule-control);border-radius:0}
+  .srch button{min-height:44px;padding:8px 20px;font:inherit;color:var(--bg);background:var(--fg);border:1px solid var(--fg);
+    cursor:pointer}
+  .srch input:focus-visible,.srch button:focus-visible{outline:2px solid transparent;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--fg)}
+  .found{display:flex;flex-direction:column;gap:12px}
+  .found h3{margin:0;font-weight:400;font-size:1.2rem;letter-spacing:.06em}
+  ul.hits{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:10px}
+  ul.hits li{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:center;border:1px solid var(--rule-quiet);padding:10px 12px}
+  ul.hits img{width:48px;height:72px;object-fit:cover;background:var(--rule-quiet);flex:none}
+  ul.hits .meta{flex:1 1 9rem;min-width:0;display:flex;flex-direction:column;gap:2px;overflow-wrap:break-word}
+  ul.hits .d{color:var(--dim);font-size:.9rem}
+  a.open{flex:none;display:inline-flex;align-items:center;min-height:44px;padding:0 16px;color:var(--fg);
+    border:1px solid var(--rule-strong);text-decoration:none}
+  a.open:hover,a.open:focus-visible{background:var(--fg);color:var(--bg)}
+  a.open:focus-visible{outline:2px solid transparent;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--fg)}
+  .hint{margin:0;color:var(--dim);font-size:.95rem;line-height:1.5}
+</style>
+  <section class="block" aria-labelledby="h-search">
+    <h2 id="h-search">Search</h2>
+{% if page.mode == "no_library" %}
+    <p class="note msg" role="status">{{ page.message }} See <a class="account" href="/help">Help</a> for what is set up.</p>
+{% else %}
+    <form class="srch" method="get" action="/search" role="search">
+      <label for="q">Title or author</label>
+      <div class="ask">
+        <input id="q" name="q" type="search" value="{{ page.term }}" maxlength="100" autocomplete="off" spellcheck="false" aria-describedby="q-hint">
+        <button type="submit">Search</button>
+      </div>
+      <p class="hint" id="q-hint">{{ page.hint or "Searches the libraries on your account." }}</p>
+    </form>
+{% if page.mode == "invalid" %}
+    <p class="note msg" role="status">{{ page.message }}</p>
+{% elif page.mode == "results" %}
+    <p class="note msg" role="status">{{ page.message }}</p>
+{% for g in page.groups %}
+    <section class="found" aria-labelledby="g-{{ loop.index }}">
+      <h3 id="g-{{ loop.index }}">{{ g.label }}</h3>
+{% if g.state == "ok" %}
+      <ul class="hits">
+{% for it in g.items %}
+        <li>{% if it.image %}<img src="{{ it.image }}" alt="" width="48" height="72" loading="lazy">{% endif %}
+          <span class="meta"><span class="t">{{ it.title }}</span>{% if it.kind or it.detail %}<span class="d">{{ [it.kind, it.detail]|select|join(" · ") }}</span>{% endif %}</span>
+          <a class="open" href="{{ it.href }}" aria-label="Open {{ it.title }} in {{ g.label }}">Open</a></li>
+{% endfor %}
+      </ul>
+{% else %}
+      <p class="note msg" role="status">{{ g.message }}</p>
+{% endif %}
+    </section>
+{% endfor %}
+{% endif %}
+{% endif %}
+  </section>
+{% endblock %}
+{% block footer %}    <a class="account" href="/">Back to home</a>
+    <a class="account" href="/help">Help</a>{% endblock %}
