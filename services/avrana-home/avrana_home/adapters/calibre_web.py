@@ -44,7 +44,7 @@ SHARED_VIEWER = "shared"                      # the fixed, non-member upstream "
 _BOUND_ID = re.compile(SHARED_VIEWER)
 _ATOM = "{http://www.w3.org/2005/Atom}"
 _ARTWORK_REF = re.compile(r"calibre-web/cover/([0-9]{1,9})")
-_COVER_HREF = re.compile(r"/opds/(?:cover|thumb_cover)/([0-9]{1,9})")
+_COVER_HREF = re.compile(r"/opds/(?:cover|cover_240_240|cover_90_90|thumb_240_240)/([0-9]{1,9})")
 _DOWNLOAD_HREF = re.compile(r"/opds/download/([0-9]{1,9})/[a-z0-9]{1,10}/?")
 MAX_ENTRIES = 100                             # a feed with more entries than this is not a "new" feed
 MAX_ELEMENTS = 5000                           # every element in the document, so deep or wide nesting is bounded
@@ -53,7 +53,7 @@ _FORBIDDEN_XML = re.compile(rb"<!\s*(DOCTYPE|ENTITY|ELEMENT|ATTLIST)", re.IGNORE
 ALLOWED_ROUTES = (
     Route("new", r"/opds/new", (), user_scoped=False, not_found=RouteMissing),
     Route("search", r"/opds/search", ("query",), user_scoped=False, not_found=RouteMissing),
-    Route("cover", r"/opds/thumb_cover/[0-9]{1,9}", (), user_scoped=False, not_found=ItemGone),
+    Route("cover", r"/opds/cover_240_240/[0-9]{1,9}", (), user_scoped=False, not_found=ItemGone),
 )
 
 
@@ -167,4 +167,4 @@ class CalibreWebAdapter(GuardedAdapter):
         # The viewer account's own rights decide whether this cover exists (404 = EMPTY); there is no
         # per-member visibility to check (contract 13.2).
         return self._fetch_image(self._guard.bind(user.upstream_id), self._budget(),
-                                 f"/opds/thumb_cover/{m.group(1)}", None)
+                                 f"/opds/cover_240_240/{m.group(1)}", None)

@@ -46,7 +46,7 @@ class FakeCalibreWeb:
             term = query.get("query", "").casefold() if query else ""
             body = "".join(e["xml"] for e in self.search_doc["entries"] if term and term in e["title"].casefold())
             return 200, (self.search_doc["head"] + body + "</feed>").encode("utf-8"), "application/atom+xml"
-        if path.startswith("/opds/thumb_cover/"):
+        if path.startswith("/opds/cover_240_240/"):
             return self.image if path.rsplit("/", 1)[1] in self.covers else (404, b"", "text/html")
         return 404, b"", "text/html"
 

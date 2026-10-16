@@ -111,7 +111,7 @@ class SharedViewAndIsolation(Base):
         self.adapter.fetch_artwork(self.a, "calibre-web/cover/101")
         for p in self.fake.paths():
             for banned in ("shelf", "read", "hot", "discover", "download", "user", "admin", "me"):
-                self.assertNotIn(banned, p.replace("thumb_cover", "").replace("opds", ""), p)
+                self.assertNotIn(banned, p.replace("cover_240_240", "").replace("opds", ""), p)
 
 
 class NoGroup(Base):
@@ -135,7 +135,7 @@ class Artwork(Base):
     def test_a_member_with_the_group_gets_the_cover(self):
         r = self.adapter.fetch_artwork(self.a, "calibre-web/cover/101")
         self.assertEqual((r.state, r.content_type, r.data), (SectionState.OK, "image/png", PNG))
-        self.assertEqual(self.fake.paths(), ["/opds/thumb_cover/101"])
+        self.assertEqual(self.fake.paths(), ["/opds/cover_240_240/101"])
 
     def test_a_cover_the_viewer_cannot_see_is_empty_and_never_counted(self):
         r = self.adapter.fetch_artwork(self.a, "calibre-web/cover/999")
@@ -172,7 +172,7 @@ class Feed(Base):
 
     def test_links_that_are_not_relative_paths_never_become_ids_or_urls(self):
         evil = self.fake.feed.replace('href="/opds/cover/101"', 'href="https://evil.invalid/opds/cover/101"') \
-            .replace('href="/opds/thumb_cover/101"', 'href="//evil.invalid/opds/thumb_cover/101"') \
+            .replace('href="/opds/cover_240_240/101"', 'href="//evil.invalid/opds/cover_240_240/101"') \
             .replace('href="/opds/download/101/epub/"', 'href="javascript:alert(1)"')
         self.serve(evil)
         r = self.adapter.recent_items(self.a)
@@ -266,8 +266,8 @@ class GuardAndSecrets(Base):
                                     ("GET", "/opds/shelfdetail/1", None), ("GET", "/opds/readbooks", None),
                                     ("GET", "/opds/download/101/epub/", None), ("GET", "/opds/cover/101", None),
                                     ("GET", "/opds/search/x", None), ("GET", "/admin/user/new", None),
-                                    ("GET", "/opds/new", {"offset": "1"}), ("GET", "/opds/thumb_cover/1/../2", None),
-                                    ("GET", "/opds/thumb_cover/%2e", None), ("GET", "/opds/thumb_cover/1", {"a": "b"})):
+                                    ("GET", "/opds/new", {"offset": "1"}), ("GET", "/opds/cover_240_240/1/../2", None),
+                                    ("GET", "/opds/cover_240_240/%2e", None), ("GET", "/opds/cover_240_240/1", {"a": "b"})):
             with self.assertRaises(ForbiddenRequest, msg=(method, path)):
                 g.request(method, path, query, 1.0, 1000)
         with self.assertRaises(ForbiddenRequest):

@@ -808,7 +808,7 @@ needed, so there is no key-scope decision to stop on.** The consequences are exp
 - **Artwork authorization** is therefore the group gate plus the viewer account's own rights: a cover the viewer
   cannot read is a 404 (`EMPTY`, never counted); results are cached per member only.
 - **Per-account state never reaches a member.** The route table has two entries, `/opds/new` and
-  `/opds/thumb_cover/<id>`; shelves, read books, hot, discover, downloads, search and everything under `/admin`
+  `/opds/cover_240_240/<id>`; shelves, read books, hot, discover, downloads, search and everything under `/admin`
   are refused by the guard (tested). Public shelves, if any, are a visibility decision for the owner.
 - **Open owner decision (shared with sections 11.2 and 12.2):** whether a shared-view adapter's results may be
   cached once for all members. Not done: results stay keyed per member, which is safe and wasteful.
@@ -836,8 +836,8 @@ server-side and served by the home.
    (the repository records a local-password fallback in the patched image; OPDS coverage is unverified).
 2. `GET /opds/new` returns an Atom feed, newest first, with no query, listing a few dozen entries at most.
 3. Each entry has `title`, `author/name` and relative links: image `/opds/cover/<id>`, thumbnail
-   `/opds/thumb_cover/<id>`, acquisition `/opds/download/<id>/<format>/`; the numeric id appears only there.
-4. `GET /opds/thumb_cover/<id>` returns PNG, JPEG or WebP, and 404 for an id the viewer cannot see.
+   `/opds/cover_240_240/<id>`, acquisition `/opds/download/<id>/<format>/`; the numeric id appears only there.
+4. `GET /opds/cover_240_240/<id>` returns PNG, JPEG or WebP, and 404 for an id the viewer cannot see. (Calibre-Web-Automated v4 has no `thumb_cover` route; `cover_240_240` checked live 2026-10-16.)
 5. The hand-off path `/book/<id>` exists on `books.avrana.net`; the id pattern `[0-9]{1,9}` in `contract.py` is a
    placeholder.
 6. The viewer account sees the same catalogue as any member (the 13.2 invariant).
