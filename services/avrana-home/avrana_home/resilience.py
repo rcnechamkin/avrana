@@ -12,7 +12,10 @@ All time comes from an injectable clock so tests never sleep.
 from __future__ import annotations
 
 import http.client
+import io
 import logging
+import math
+import socket
 import threading
 import time
 import urllib.error
@@ -132,16 +135,175 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
+READ_CHUNK = 16 * 1024
+MAX_TRANSPORT_TIMEOUT = 30.0     # a larger (finite) timeout is capped; a non-finite one is refused
+
+
+class _Abort:
+    """Kills the connection of ONE request when its total deadline passes, so a read blocked in the
+    kernel (a slow-drip upstream that sends a byte just often enough to keep a per-socket timeout from
+    ever firing) is interrupted instead of holding the worker. `fired` tells the caller why it failed."""
+
+    def __init__(self, deadline: float = float("inf"), now=time.monotonic) -> None:
+        self._lock = threading.Lock()
+        self._sock = None
+        self.fired = False
+        self.deadline = deadline
+        self.now = now
+
+    def attach(self, sock) -> None:
+        with self._lock:
+            self._sock = sock
+            if self.fired:
+                self._kill(sock)
+
+    def fire(self) -> None:
+        with self._lock:
+            self.fired = True
+            if self._sock is not None:
+                self._kill(self._sock)
+
+    @staticmethod
+    def _kill(sock) -> None:
+        for fn in (lambda: sock.shutdown(socket.SHUT_RDWR), sock.close):
+            try:
+                fn()
+            except (OSError, ValueError):
+                pass
+
+
+class _DeadlineRaw(io.RawIOBase):
+    """Reads a socket so that EVERY blocking receive is bounded by what is left of the request deadline: the
+    socket timeout is set to the time left before each `recv_into`, and a passed deadline raises
+    TimeoutError. This is what bounds the status line, the headers and a silent upstream (a timer that merely
+    shuts the socket down from another thread is not reliable on every platform, notably Windows)."""
+
+    def __init__(self, sock, abort: _Abort, on_close=None):
+        super().__init__()
+        self._sock = sock
+        self._abort = abort
+        self._on_close = on_close
+
+    def readable(self) -> bool:
+        return True
+
+    def close(self) -> None:
+        was_open = not self.closed
+        super().close()
+        if was_open and self._on_close is not None:
+            self._on_close()
+
+    def readinto(self, buffer) -> int:
+        left = self._abort.deadline - self._abort.now()
+        if left <= 0 or self._abort.fired:
+            raise TimeoutError("deadline")
+        self._sock.settimeout(left)
+        return self._sock.recv_into(buffer)
+
+
+class _DeadlineSocket:
+    """The connection's socket as http.client sees it: reads go through `_DeadlineRaw`, everything else
+    (sendall, close, shutdown, ...) is the real socket's."""
+
+    def __init__(self, sock, abort: _Abort):
+        self._s = sock
+        self._abort = abort
+        self._refs = 0                  # readers handed out; like socket.makefile, they keep the socket open
+        self._closed = False
+        self._lock = threading.Lock()
+
+    def makefile(self, mode="rb", buffering=None, **kw):
+        if mode != "rb":
+            return self._s.makefile(mode, buffering, **kw)
+        with self._lock:
+            self._refs += 1
+        return io.BufferedReader(_DeadlineRaw(self._s, self._abort, self._release), READ_CHUNK)
+
+    def close(self) -> None:
+        with self._lock:
+            self._closed = True
+            last = self._refs == 0
+        if last:
+            self._s.close()
+
+    def _release(self) -> None:
+        with self._lock:
+            self._refs -= 1
+            last = self._closed and self._refs == 0
+        if last:
+            self._s.close()
+
+    def __getattr__(self, name):
+        return getattr(self._s, name)
+
+
+def _tracked(base, slot):
+    """A connection class that tells the CURRENT request's `_Abort` which socket it is using (before and
+    after any TLS wrap). `slot` is the transport's thread-local holder: `do_open` builds the connection in
+    the calling thread, so it finds the abort of the request that thread is running, which lets one opener
+    serve every request. The TLS handshake itself is bounded only by the per-operation timeout."""
+    class Tracked(base):
+        def __init__(self, *a, **kw):
+            super().__init__(*a, **kw)
+            self._abort = abort = slot.abort
+            create = self._create_connection
+            self._create_connection = lambda *ca, **ck: _attached(abort, create(*ca, **ck))
+
+        def connect(self):
+            super().connect()
+            self._abort.attach(self.sock)                # the real socket, for the timer to close
+            self.sock = _DeadlineSocket(self.sock, self._abort)
+    return Tracked
+
+
+def _attached(abort: _Abort, sock):
+    abort.attach(sock)
+    return sock
+
+
+class _TrackedHTTP(urllib.request.HTTPHandler):
+    def __init__(self, slot):
+        super().__init__()
+        self._slot = slot
+
+    def http_open(self, req):
+        return self.do_open(_tracked(http.client.HTTPConnection, self._slot), req)
+
+
+class _TrackedHTTPS(urllib.request.HTTPSHandler):
+    def __init__(self, slot):
+        super().__init__()
+        self._slot = slot
+
+    def https_open(self, req):
+        return self.do_open(_tracked(http.client.HTTPSConnection, self._slot), req,
+                            context=self._context)
+
+
 class UrllibTransport:
     """Real transport (not used by any test against a network; an opener can be injected).
-    Never follows redirects, bounds the body, maps failures to UpstreamError classes."""
+    Never follows redirects, bounds the body, maps failures to UpstreamError classes.
+
+    `timeout` is a TOTAL monotonic deadline for the whole request (connect, headers and body), not a
+    per-socket-operation timeout: the body is read in chunks against the deadline, and a timer closes
+    the connection at the deadline so a read blocked on a slow-drip upstream is interrupted. The caller
+    (and its in-flight slots) therefore get control back at about the deadline. Not covered: name
+    resolution and the TLS handshake, which Python cannot interrupt (each is bounded only by the
+    per-operation timeout). With an injected opener the deadline is checked between chunks only.
+    Every blocking receive (status line, headers, body) has its socket timeout set to the time LEFT, so the
+    bound does not depend on the timer interrupting a blocked call. A finite timeout is capped at
+    MAX_TRANSPORT_TIMEOUT; NaN and infinities are refused (UpstreamTimeout, no I/O)."""
 
     def __init__(self, base_url: str, auth_headers: Mapping[str, str], opener=None):
         if not base_url.startswith(("http://", "https://")) or base_url.endswith("/"):
             raise ValueError("base_url must be http(s) without a trailing slash")
         self._base = base_url
         self._headers = dict(auth_headers)
-        self._opener = opener if opener is not None else urllib.request.build_opener(_NoRedirect)
+        self._slot = threading.local()        # the abort of the request the calling thread is running
+        # Built ONCE: urllib's build_opener costs ~25 ms on Windows (proxy discovery, handler scan), which
+        # per request ate a fifth of a 0.6 s section budget that spans a member's sequential calls.
+        self._opener = opener if opener is not None else urllib.request.build_opener(
+            _NoRedirect, _TrackedHTTP(self._slot), _TrackedHTTPS(self._slot))
 
     def __repr__(self) -> str:
         return "UrllibTransport(<redacted>)"
@@ -150,21 +312,53 @@ class UrllibTransport:
         from urllib.parse import urlencode
         url = self._base + path + (("?" + urlencode(query)) if query else "")
         req = urllib.request.Request(url, method=method, headers=self._headers)
+        if (not isinstance(timeout, (int, float)) or isinstance(timeout, bool) or not math.isfinite(timeout)
+                or not timeout > 0):
+            raise UpstreamTimeout()                      # NaN, infinities, zero, negatives, bools, non-numbers
+        timeout = min(float(timeout), MAX_TRANSPORT_TIMEOUT)
+        deadline = time.monotonic() + timeout
+        abort = _Abort(deadline)
+        self._slot.abort = abort
+        timer = threading.Timer(timeout, abort.fire)
+        timer.daemon = True
+        timer.start()
+
+        def late() -> bool:
+            return abort.fired or time.monotonic() >= deadline
         try:
             with self._opener.open(req, timeout=timeout) as resp:
-                body = resp.read(max_bytes + 1)
                 status = resp.status
                 ctype = resp.headers.get("Content-Type", "") if resp.headers else ""
+                read = getattr(resp, "read1", None) or resp.read
+                parts, size = [], 0
+                while size <= max_bytes:
+                    left = deadline - time.monotonic()
+                    if left <= 0 or abort.fired:
+                        raise UpstreamTimeout()
+                    part = read(min(READ_CHUNK, max_bytes + 1 - size))
+                    if not part:
+                        break
+                    parts.append(part)
+                    size += len(part)
+                body = b"".join(parts)
+                if abort.fired:                          # never a truncated success when the timer fired
+                    raise UpstreamTimeout()
+        except UpstreamTimeout:
+            raise
         except urllib.error.HTTPError as exc:
             raise classify_status(exc.code) from None
         except TimeoutError:
             raise UpstreamTimeout() from None
         except urllib.error.URLError as exc:
-            raise (UpstreamTimeout() if isinstance(exc.reason, TimeoutError) else UpstreamUnreachable()) from None
+            raise (UpstreamTimeout() if late() or isinstance(exc.reason, TimeoutError)
+                   else UpstreamUnreachable()) from None
         except (http.client.HTTPException, OSError):
-            raise UpstreamUnreachable() from None
+            raise (UpstreamTimeout() if late() else UpstreamUnreachable()) from None
         except (ValueError, RecursionError):
-            raise UpstreamMalformed() from None
+            raise (UpstreamTimeout() if late() else UpstreamMalformed()) from None
+        finally:
+            timer.cancel()
+            self._slot.abort = None
         if len(body) > max_bytes:
             raise UpstreamTooLarge()
         return TransportResponse(status, body, ctype)

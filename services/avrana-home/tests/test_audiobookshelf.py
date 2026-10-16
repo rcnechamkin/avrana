@@ -630,11 +630,13 @@ class WithJellyfinThroughGather(unittest.TestCase):
         self.assertIs(res[(Service.AUDIOBOOKSHELF, "continue")].state, SectionState.NOT_PERMITTED)
         self.assertEqual(self.abs_fake.requests, [])
 
-    def test_the_default_sections_include_a_recent_that_makes_no_abs_call(self):
+    def test_the_default_sections_do_not_request_a_recent_the_adapter_declares_not_offered(self):
         listener = make_principal("member-a", ("avrana-users", "avrana-audiobooks"))
         res = self.by_service(gather(listener, [self.abs]))
-        self.assertEqual(res[(Service.AUDIOBOOKSHELF, "recent")].reason, "not_offered")
+        self.assertNotIn((Service.AUDIOBOOKSHELF, "recent"), res)          # skipped: no noise in the member view
+        self.assertIn((Service.AUDIOBOOKSHELF, "continue"), res)
         self.assertEqual(self.abs_fake.paths().count("/api/users"), 1)
+        self.assertEqual(self.abs.recent_items(listener).reason, "not_offered")   # called directly it still answers
 
 
 if __name__ == "__main__":
