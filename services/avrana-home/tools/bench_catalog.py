@@ -13,6 +13,9 @@ size (100, 5,000 or 50,000 items per service) to 15 synthetic members with mixed
 profile per service: a fixed delay (20 ms, 200 ms), a hang until the caller's timeout (the 2 s request budget),
 or "down" (connection refused at once).
 
+Note: webtests/test_bench_cache_revocation.py imports this module's synthetic world; changing it can
+break that web test.
+
 What it measures, per scenario and phase: the SERVER-SIDE time of each request (the `duration_ms` of the app's
 own access-log line), the number of upstream calls that request made (counted in the transport), and how many
 sections came back unavailable (from the app's `section` log events). Phases: cold Home (empty cache), warm Home,

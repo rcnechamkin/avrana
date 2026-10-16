@@ -174,15 +174,18 @@ with their reason classes; `cooling_off` means the circuit for that service was 
    (a warm member keeps their page while it lasts).
 2. **Catalogue size does not reach Avrana.** 100, 5,000 and 50,000 items give the same calls per request and
    medians within noise (the 100-item cell is the first one run and carries warm-up).
-   Avrana never pages through a catalogue; it asks each upstream for one bounded page.
+   Avrana never pages through a catalogue; it asks each upstream for one bounded page. Caveat: the simulated
+   upstream search is an O(hits) word index, so this shows Avrana's side only; real upstream search time at
+   real catalogue sizes is unmeasured (see What remains unmeasured).
 3. **Search without a cache is fine at 20 ms upstreams** (p95 about 170 ms, 2-3 calls on average, at most 7;
    about 490 ms p95 at 100 ms upstreams). Its cost is the
    upstream's own search time plus Audiobookshelf's per-library round trips, which a local index would replace
    only by copying four libraries' visibility rules into Avrana.
 4. **Audiobookshelf Continue is the slow path.** A cold Audiobookshelf member costs up to 15 upstream calls
-   (users, own record, then one lookup per in-progress book, in series). That is the whole cold-Home p95
-   (about 600 ms at 20 ms, about 1.4 s at 100 ms, where it still fits). At 200 ms per call it cannot fit the
-   2 s budget: the section times out, three timeouts open the Audiobookshelf circuit, and Audiobookshelf
+   (users, own record, then one lookup per in-progress book, in series). The cold-Home p95 is consistent with this (inferred from call counts; the bench does not
+   attribute time per service)
+   (about 600 ms at 20 ms, about 1.4 s at 100 ms, where it still fits). At 200 ms per call, with about 8 or more
+   in-progress books (the bench's assumption), it cannot fit the 2 s budget: the section times out, three timeouts open the Audiobookshelf circuit, and Audiobookshelf
    Continue, search and covers then answer `cooling_off` **for every member** (84 of 84 Audiobookshelf searches
    in that run), though the service is merely slow.
 5. **Failure containment works.** A hung Jellyfin costs at most three members about 2 s each before its
@@ -200,10 +203,10 @@ with their reason classes; `cooling_off` means the circuit for that service was 
 
 | # | Finding | Where | Owner to route |
 |---|---|---|---|
-| F1 | Audiobookshelf Continue makes up to 24 serial item lookups inside the 2 s budget; at about 200 ms per upstream call it always times out, and those timeouts count toward the shared circuit, so a slow Audiobookshelf goes dark for every member for 60 s cycles. Options: fetch the lookups concurrently under the same budget, cap them at the section limit, or use a single listing route if Audiobookshelf has one (UNVERIFIED). | `adapters/audiobookshelf.py` `_continue_items`; `resilience.counts_toward_breaker` | lane B (Audiobookshelf continue parsing) |
+| F1 | Audiobookshelf Continue makes up to 24 serial item lookups inside the 2 s budget; at about 200 ms per upstream call it times out for a member with about 8 or more in-progress books, and those timeouts count toward the shared circuit, so a slow Audiobookshelf goes dark for every member for 60 s cycles. Options: fetch the lookups concurrently under the same budget, cap them at the section limit, or use a single listing route if Audiobookshelf has one (UNVERIFIED). | `adapters/audiobookshelf.py` `_continue_items`; `resilience.counts_toward_breaker` | lane B (Audiobookshelf continue parsing) |
 | F2 | A simultaneous cold Home for 15 members makes the in-flight cap (8 per adapter, `DEFAULT_MAX_IN_FLIGHT`) refuse sections as `busy`; they render as unavailable. Options: a short bounded wait for a slot, or a cap sized for the member count. | `contract.py` `_acquire_slot` | orchestrator (shared contract) |
 | F3 | Expired entries are not swept: they are deleted only when that key is read again or when a quota is reached, so a member's expired titles, progress and thumbnail bytes can stay in process memory indefinitely (bounded by 32 MiB, never served). A data-minimisation gap, not a disclosure. A one-line fix is to call `_purge_expired` on each write (bounded: at most 2048 rows). | `cache.py` `_set` | lane D (owns `cache.py`) |
-| F4 | Cache keys use the Authentik **username**. If an account is deleted and the username given to someone else within 300 s, the new person could be served the old person's cached sections or thumbnails, because `purge_member` is wired to nothing. Options: key by a stable Authentik identifier if one reaches the app, or call `purge_member` on offboarding. | `cache.py` `MemberCache.for_member`; offboarding | lane D / owner |
+| F4 | Cache keys use the Authentik **username**. If an account is deleted and the username given to someone else within 300 s, the new person could be served the old person's cached sections or thumbnails, because `purge_member` is wired to nothing. Options: key by a stable Authentik identifier if one reaches the app, or call `purge_member` on offboarding. Review note: the issue is broader than the cache, because the adapters also map upstream accounts by username, so a reused username reaches the previous holder's upstream account regardless of caching; the stable-identifier question covers identity mapping too (AVR-375). | `cache.py` `MemberCache.for_member`; offboarding | lane D / owner |
 | F5 | Upstream-side revocations (not Authentik groups) are honoured only at TTL: 30 s / 120 s for titles and progress, 300 s for thumbnails, to the same member. Acceptable for a household; document it in Help or shorten `ARTWORK_TTL` if the owner wants revocation to be faster than five minutes. | `contract.py` TTLs | owner decision, no change proposed |
 
 No unbounded cache growth was found (entries and bytes are bounded in total and per member), and no case where
