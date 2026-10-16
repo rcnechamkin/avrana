@@ -22,7 +22,7 @@ FakeKomga = load_fake("fake_komga.py", "FakeKomga")
 
 class MockKomga(MockAudiobookshelf):
     FAKE = staticmethod(lambda: FakeKomga())
-    MALFORMED = b'[{"id": "USERAAAA'
+    MALFORMED = b'{"content": [{"id": "BOOKAAAA'
     NAME = "komga"
 
 
