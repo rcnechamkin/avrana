@@ -58,7 +58,7 @@ class StaticExportTests(unittest.TestCase):
         self.assertIn('id="h-outcome">No results<', read("member-a/normal/search-no-match.html"))
         self.assertIn('aria-invalid="true"', read("member-a/normal/search-invalid.html"))
         down = read("member-b/one-down/search-results.html")
-        self.assertIn("library is unavailable right now.", down)
+        self.assertIn("library could not be searched right now.", down)
         self.assertIn("Try again", down)
         self.assertIn("Search is not available on your account yet.", read("member-none/no-library/search.html"))
         self.assertNotIn("Synthetic Film One", read("member-a/all-down/search-results.html"))
