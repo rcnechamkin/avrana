@@ -908,7 +908,7 @@ harmless in a query value) and are URL-encoded by the transport.
 
 | Service | Search | Member safety |
 |---|---|---|
-| Jellyfin | `GET /Users/{id}/Items?searchTerm=` (`includeItemTypes`, `recursive`, `limit`), id in the PATH bound by the guard | The upstream scopes by user; the usual scope tripwires apply; more items than `limit` is `UpstreamMisbehaved`. |
+| Jellyfin | `GET /Items?userId=&searchTerm=` (`includeItemTypes`, `recursive`, `limit`), the user id in the QUERY bound by the guard (the same `items` route as the item lookup; moved 2026-10-16 from the legacy `/Users/{id}/Items`, which 10.9+ keeps only as an obsolete hidden alias) | The upstream scopes by user; the usual scope tripwires apply; more items than `limit` is `UpstreamMisbehaved`. |
 | Komga | `GET /api/v1/books?search=` | The SAME listing code as recent: the shared regular-account view (section 12.2, owner decision 2026-10-15); Komga applies that one account's library sharing, no per-member filter. |
 | Calibre-Web | `GET /opds/search?query=` (OpenSearch form, UNVERIFIED) | Shared view under the section 13.2 invariant, exactly like recent; the constructor flag still applies. |
 | Audiobookshelf | `GET /api/libraries/{id}/search?q=` (`limit`), per library the member may access (section 11.1, item 10) | The admin key is not member-scoped, so the member's own record decides which libraries are searched and every hit is re-checked with the section's library, tag and explicit rules. Response shape UNVERIFIED (section 11.6, assumption 12). |
@@ -941,9 +941,28 @@ omitted**, never a hint it exists. `entitled: false` says the member holds no se
 "zero entitlements" state); `entitled: true` with an empty `groups` and `status: ok` cannot happen except when only
 non-searchable libraries are held. Stale cache is not a state, because nothing is cached.
 
-### 14.6 Unverified assumptions
+### 14.6 Verification status of the search and item shapes (2026-10-16)
 
-Jellyfin `/Users/{id}/Items` honours `searchTerm`, `includeItemTypes`, `recursive` and `limit` for an API-key request
-and is user-scoped (it is marked deprecated in newer servers; to verify on 10.11.11); Komga `/api/v1/books?search=`
-searches title text and takes `page` and `size`; Calibre-Web `/opds/search?query=` exists in the deployed version.
-All belong to the recorded read-only check.
+Three levels, kept apart: **doc-verified** (checked in this session against the upstream project's own source or
+API documentation, never against our servers), **live-verified** (seen on the owner's LAN preview), **UNVERIFIED**
+(recalled, not checked). Nothing here was requested from a real Avrana service by an agent.
+
+| Shape | Status |
+|---|---|
+| Jellyfin `GET /Items` with `userId`, `searchTerm`, `includeItemTypes`, `recursive`, `limit`, `fields`, `enableUserData`, `enableImageTypes`, `ids` | doc-verified (10.11 `ItemsController`: all parameters present; `/Users/{userId}/Items` is `[Obsolete]`, hidden). Response `{"Items": [...]}` and `ProductionYear`: UNVERIFIED live. That an API-key request with `userId` is scoped to that user: UNVERIFIED live |
+| Audiobookshelf `GET /api/libraries/{id}/search?q=&limit=` | doc-verified (server source: `{book: [{libraryItem: toOldJSONExpanded()}], narrators, tags, genres, series, authors}`; 404 for an unknown library; the token user's own explicit/tag filter applies to books, which with an admin token filters nothing, so the adapter's re-check stays the only member filter). There is no `matchKey`/`matchText` (we never read them). Item ids are UUIDs: live-verified (2026-10-16, preview). `media.metadata.publishedYear` (string) and `authorName` in the expanded item: UNVERIFIED live |
+| Komga `GET /api/v1/books?search=&page=&size=` | doc-verified (`BookController`: `search` param present, `@Deprecated("use /v1/books/list instead")` since 1.19.0; `POST /api/v1/books/list` exists but is a POST and stays outside the read-only guard). A future Komga that removes the GET would make search `unavailable` (RouteMissing), never empty. `metadata.authors` ({name, role}) and `metadata.releaseDate`: UNVERIFIED (recalled DTO) |
+| Calibre-Web `GET /opds/search?query=` | doc-verified (calibre-web `cps/opds.py`: `feed_normal_search` reads `request.args["query"]`; `/opds/search/<path:query>` also exists and is NOT used, the term never enters a path). Per-entry `<author><name>` and `<published>` (ISO date from `pubdate`): doc-verified (`templates/feed.xml`). Covers `/opds/cover_240_240/{id}`: live-verified (CWA v4, 2026-10-16). OPDS has **no single-book route** (doc-verified), so Calibre-Web offers no title page. Calibre-Web Automated is a fork: its OPDS search is UNVERIFIED live |
+| Item lookups for title pages: Jellyfin `/Items?ids=`, Audiobookshelf `/api/items/{id}?expanded=1` plus the member's own record, Komga `/api/v1/books/{id}` | same routes the sections and covers already use; UNVERIFIED live beyond what the preview showed |
+
+The recorded read-only check (#47's capture tool) captures the search routes so these become recorded shapes.
+
+### 14.7 Title pages (AVR-384)
+
+`GET /title/<service>/<id>` renders one item via the adapter's own `item(principal, id)`: group first (no upstream
+call and no cache read without it), the id must match the contract pattern for that service, then the member-scoped
+lookup (Jellyfin `userId`, Audiobookshelf the member's own permissions and own progress entry, Komga the shared
+view). Results are cached per member only (`item:<id>`, 120 s, the existing member-scoped cache; a revoked group is
+absent at once because the group is checked before the cache). Calibre-Web has no item lookup, so its search results
+link straight to Calibre-Web. Not permitted, unknown, hidden, malformed: the standard 404. Unavailable: a calm 503
+page with Try again that says nothing about the title.
