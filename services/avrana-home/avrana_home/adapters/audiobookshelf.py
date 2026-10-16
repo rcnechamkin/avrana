@@ -34,7 +34,7 @@ from ..contract import (ArtworkResult, DEFAULT_LIMIT, Kind, MappingFailed, Media
 from ..principal import MemberPrincipal
 from ..resilience import (DEFAULT_TIMEOUT, ItemGone, RouteMissing, Transport, UpstreamMalformed,
                           UpstreamMisbehaved, UserGone)
-from ._base import GuardedAdapter, Route, bounded_int, match_exactly_one
+from ._base import GuardedAdapter, Route, bounded_int, lookup_username, match_exactly_one, member_override
 from ._base import GuardedTransport as _Guard
 
 _UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
@@ -120,7 +120,11 @@ class AudiobookshelfAdapter(GuardedAdapter):
     service = Service.AUDIOBOOKSHELF
     not_offered = frozenset({"recent", "item"})
 
-    def __init__(self, transport: Transport, timeout: float = DEFAULT_TIMEOUT, **kw):
+    def __init__(self, transport: Transport, timeout: float = DEFAULT_TIMEOUT, *,
+                 member_username: Optional[Tuple[str, str]] = None, **kw):
+        # member_username: (principal username, upstream username), owner preview only (settings.py);
+        # None keeps the default rule (the principal's username, exactly).
+        self._member_username = member_override(member_username)
         super().__init__(GuardedTransport(transport), timeout, **kw)
 
     def __repr__(self) -> str:
@@ -160,7 +164,7 @@ class AudiobookshelfAdapter(GuardedAdapter):
             if isinstance(name, str) and isinstance(uid, str) and _BOUND_ID.fullmatch(uid):
                 return name, uid
             return None
-        uid, raw = match_exactly_one(principal.username, users, extract)
+        uid, raw = match_exactly_one(lookup_username(principal, self._member_username), users, extract)
         _require_active(raw)
         return UpstreamUser(Service.AUDIOBOOKSHELF, uid)
 

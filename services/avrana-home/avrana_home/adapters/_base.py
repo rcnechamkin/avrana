@@ -193,6 +193,26 @@ def match_exactly_one(wanted: str, entries: Sequence[Any],
     return uid, entry
 
 
+def member_override(value: Any) -> Optional[Tuple[str, str]]:
+    """Validate an optional (principal username, upstream username) pair for `lookup_username`."""
+    if value is None:
+        return None
+    if (not isinstance(value, tuple) or len(value) != 2
+            or not all(isinstance(v, str) and v and v == v.strip() for v in value)):
+        raise ValueError("member_username must be a (principal username, upstream username) pair")
+    return value
+
+
+def lookup_username(principal: Any, override: Optional[Tuple[str, str]]) -> str:
+    """The upstream account name to look up for `principal`: its own username, exactly (the default rule),
+    unless `override` names THIS principal's username, in which case the configured upstream name. Used only
+    for the lookup; cache scoping, logs and everything else keep the principal's own username. Only the
+    sealed owner preview configures an override (settings.py), for the owner's principal alone."""
+    if override is not None and principal.username == override[0]:
+        return override[1]
+    return principal.username
+
+
 # ---- the adapter base ----------------------------------------------------------------------
 class GuardedAdapter(MediaAdapter):
     """A `MediaAdapter` whose every request goes through a `GuardedTransport`."""

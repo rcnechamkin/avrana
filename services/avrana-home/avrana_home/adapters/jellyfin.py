@@ -21,7 +21,8 @@ from ..contract import (ArtworkRef, ArtworkResult, Kind, MappingFailed, MediaIte
 from ..resilience import (DEFAULT_TIMEOUT, ItemGone, RouteMissing, Transport, UpstreamMalformed,
                           UpstreamMisbehaved, UserGone)
 from . import _base
-from ._base import GuardedAdapter, Route, bounded_int, image_magic_ok, match_exactly_one
+from ._base import (GuardedAdapter, Route, bounded_int, image_magic_ok, lookup_username, match_exactly_one,
+                    member_override)
 
 TICKS_PER_SECOND = 10_000_000
 _GUID = re.compile(r"[0-9a-fA-F]{8}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{12}")
@@ -90,7 +91,11 @@ def _norm_name(value: str) -> str:
 class JellyfinAdapter(GuardedAdapter):
     service = Service.JELLYFIN
 
-    def __init__(self, transport: Transport, timeout: float = DEFAULT_TIMEOUT, **kw):
+    def __init__(self, transport: Transport, timeout: float = DEFAULT_TIMEOUT, *,
+                 member_username: Optional[Tuple[str, str]] = None, **kw):
+        # member_username: (principal username, upstream username), owner preview only (settings.py);
+        # None keeps the default rule (the principal's username, exactly).
+        self._member_username = member_override(member_username)
         super().__init__(GuardedTransport(transport), timeout, **kw)
 
     def __repr__(self) -> str:
@@ -108,7 +113,7 @@ class JellyfinAdapter(GuardedAdapter):
                 return None
             name, uid = raw.get("Name"), normalise_guid(raw.get("Id"))
             return (name, uid) if isinstance(name, str) and uid is not None else None
-        uid, raw = match_exactly_one(principal.username, users, extract)
+        uid, raw = match_exactly_one(lookup_username(principal, self._member_username), users, extract)
         policy = raw.get("Policy")
         if isinstance(policy, dict) and policy.get("IsDisabled") is True:
             raise MappingFailed("disabled")

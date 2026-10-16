@@ -7,6 +7,16 @@ docs/SECRETS.md) and are never in a repr, a log line or an error message.
 Defaults are the SAFE ones: sections off, upstream mode "mock" (loopback only, a fixed fake key).
 Real upstreams need `HOME_UPSTREAM_MODE=real` AND `HOME_GATES_VERIFIED=yes` AND an explicit base
 URL AND a key. `create_app` never reads the environment itself; `Settings.from_env` does.
+
+OWNER PREVIEW (owner decision 2026-10-15; preview/run_preview.py): a LAN-only preview for the owner's own
+libraries. The gates G1/G2 are about forged identity headers reaching the app from sibling containers; the
+preview never trusts an inbound identity header (it strips them all and injects the owner's fixed identity
+behind a password), so it may run real mode WITHOUT HOME_GATES_VERIFIED, and it must NOT claim it. That path
+needs BOTH `HOME_OWNER_PREVIEW=yes` in the environment AND the sealed token `_OWNER_PREVIEW_SEAL`, which only
+preview/run_preview.py passes; `from_env` (serve.py) never does, so the normal server still refuses real
+mode without the gates. Only in that mode may the per-service member usernames be set
+(HOME_JELLYFIN_USERNAME, HOME_AUDIOBOOKSHELF_USERNAME), and they apply only to the owner's principal
+(PREVIEW_OWNER_USERNAME).
 """
 from __future__ import annotations
 
@@ -28,6 +38,19 @@ _FALSE = {"0", "false", "no", "off", ""}
 
 class SettingsError(ValueError):
     """Invalid configuration. Messages name variables, never values."""
+
+
+class _OwnerPreviewSeal:
+    __slots__ = ()
+
+    def __repr__(self) -> str:
+        return "<owner preview seal>"
+
+
+# Passed ONLY by preview/run_preview.py (a test pins the one importer). The environment alone cannot
+# select the owner preview: HOME_OWNER_PREVIEW=yes without this token is refused.
+_OWNER_PREVIEW_SEAL = _OwnerPreviewSeal()
+MAX_MEMBER_USERNAME = 150                       # the principal's own limit
 
 
 def is_loopback_host(host: str) -> bool:
@@ -67,10 +90,14 @@ class Settings:
     log_level: str = "INFO"
     host: str = "127.0.0.1"
     port: int = 8096
+    owner_preview: bool = False                  # the sealed LAN owner preview (module docstring)
+    owner_preview_username: str = ""             # the one principal the member-username overrides apply to
+    jellyfin_member_username: str = ""           # "" = the principal's username, exactly (the default rule)
+    audiobookshelf_member_username: str = ""     # "" = the principal's username, exactly (the default rule)
 
     def __repr__(self) -> str:
         return (f"Settings(home_sections={self.home_sections}, upstream_mode={self.upstream_mode!r}, "
-                f"host={self.host!r}, port={self.port}, <secrets redacted>)")
+                f"host={self.host!r}, port={self.port}, owner_preview={self.owner_preview}, <secrets redacted>)")
 
     @property
     def uses_real_upstream(self) -> bool:
@@ -81,7 +108,7 @@ class Settings:
         return cls.from_mapping(os.environ if env is None else env)
 
     @classmethod
-    def from_mapping(cls, env: Mapping[str, str]) -> "Settings":
+    def from_mapping(cls, env: Mapping[str, str], *, owner_preview_seal: object = None) -> "Settings":
         problems = []
 
         def get(name: str, default: str = "") -> str:
@@ -146,6 +173,36 @@ class Settings:
         cw_url = get("CALIBRE_WEB_BASE_URL")
         cw_cred = _read_key(env, problems, "CALIBRE_WEB_CREDENTIAL")
         cw_confirms = boolean("CALIBRE_WEB_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS", False)
+
+        preview_env = get("HOME_OWNER_PREVIEW").lower() == "yes"
+        sealed = owner_preview_seal is _OWNER_PREVIEW_SEAL
+        if owner_preview_seal is not None and not sealed:
+            problems.append("the owner preview token is not the sealed one")
+        if preview_env and not sealed:
+            problems.append("HOME_OWNER_PREVIEW is honoured only by the preview entrypoint (preview/run_preview.py)")
+        if sealed and not preview_env:
+            problems.append("the preview entrypoint needs HOME_OWNER_PREVIEW=yes")
+        owner_preview = preview_env and sealed
+        owner_name = get("PREVIEW_OWNER_USERNAME")
+        jf_member = get("HOME_JELLYFIN_USERNAME")
+        abs_member = get("HOME_AUDIOBOOKSHELF_USERNAME")
+        if owner_preview:
+            if not owner_name:
+                problems.append("PREVIEW_OWNER_USERNAME is required in the owner preview")
+            for name, value in (("PREVIEW_OWNER_USERNAME", owner_name), ("HOME_JELLYFIN_USERNAME", jf_member),
+                                ("HOME_AUDIOBOOKSHELF_USERNAME", abs_member)):
+                if value and (len(value) > MAX_MEMBER_USERNAME or not value.isprintable()
+                              or any(c.isspace() for c in value)):
+                    problems.append(f"{name} is not a usable username")
+            if get("HOME_GATES_VERIFIED"):
+                problems.append("HOME_GATES_VERIFIED must not be set in the owner preview "
+                                "(the preview does not verify G1/G2; it replaces every identity header)")
+        else:
+            for name, value in (("PREVIEW_OWNER_USERNAME", owner_name), ("HOME_JELLYFIN_USERNAME", jf_member),
+                                ("HOME_AUDIOBOOKSHELF_USERNAME", abs_member)):
+                if value:
+                    problems.append(f"{name} is accepted only in the owner preview")
+            owner_name = jf_member = abs_member = ""
         if mode == "mock":
             base_url = base_url or DEFAULT_MOCK_JELLYFIN_URL
             if not is_loopback_host(url_host(base_url) or ""):
@@ -175,7 +232,7 @@ class Settings:
             cw_cred = "viewer:" + MOCK_API_KEY if cw_url else ""
             cw_confirms = False                  # a real-mode statement; mock mode passes its own constant
         else:
-            if get("HOME_GATES_VERIFIED").lower() != "yes":
+            if not owner_preview and get("HOME_GATES_VERIFIED").lower() != "yes":
                 problems.append("HOME_UPSTREAM_MODE=real needs HOME_GATES_VERIFIED=yes "
                                 "(gates G1 and G2 verified in production)")
             if not base_url:
@@ -227,7 +284,8 @@ class Settings:
                    calibre_web_base_url=cw_url,
                    calibre_web_credential=cw_cred, calibre_web_owner_confirms=cw_confirms, timeout=timeout, section_limit=limit,
                    health_detail=detail, catalogue_path=catalogue, log_level=level,
-                   host=host, port=port)
+                   host=host, port=port, owner_preview=owner_preview, owner_preview_username=owner_name,
+                   jellyfin_member_username=jf_member, audiobookshelf_member_username=abs_member)
 
 
 def _check_url(url: str, problems: list, name: str = "JELLYFIN_BASE_URL") -> None:

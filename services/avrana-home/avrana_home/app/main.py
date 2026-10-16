@@ -69,6 +69,14 @@ def make_environment() -> Environment:
     return env
 
 
+def _member_username(settings: Settings, upstream_name: str):
+    """(owner principal username, upstream username) for one adapter's user lookup, or None (the default
+    rule). settings.py accepts these values only in the sealed owner preview."""
+    if settings.owner_preview and settings.owner_preview_username and upstream_name:
+        return (settings.owner_preview_username, upstream_name)
+    return None
+
+
 def build_adapters(settings: Settings, cache: MemberCache) -> list:
     """Real transports are built ONLY when sections are on. Mock mode (the default) can only
     point at a loopback address with a fixed fake key (see settings.py). All adapters share the
@@ -77,7 +85,8 @@ def build_adapters(settings: Settings, cache: MemberCache) -> list:
         return []
     transport = UrllibTransport(settings.jellyfin_base_url,
                                 {"Authorization": f'MediaBrowser Token="{settings.jellyfin_api_key}"'})
-    adapter = JellyfinAdapter(transport, timeout=settings.timeout, cache=cache)
+    adapter = JellyfinAdapter(transport, timeout=settings.timeout, cache=cache,
+                              member_username=_member_username(settings, settings.jellyfin_member_username))
     # contract.py:271 does `cache or MemberCache(...)`, and an EMPTY cache is falsy (__len__), so a
     # freshly injected cache is silently replaced. Re-assert the shared one (reported upstream).
     adapter.cache = cache
@@ -85,7 +94,9 @@ def build_adapters(settings: Settings, cache: MemberCache) -> list:
     if settings.audiobookshelf_base_url:          # off unless configured (settings.py validates)
         abs_transport = UrllibTransport(settings.audiobookshelf_base_url,
                                         {"Authorization": f"Bearer {settings.audiobookshelf_token}"})
-        abs_adapter = AudiobookshelfAdapter(abs_transport, timeout=settings.timeout, cache=cache)
+        abs_adapter = AudiobookshelfAdapter(
+            abs_transport, timeout=settings.timeout, cache=cache,
+            member_username=_member_username(settings, settings.audiobookshelf_member_username))
         abs_adapter.cache = cache
         adapters.append(abs_adapter)
     if settings.komga_base_url:                   # off unless configured (settings.py validates)
