@@ -19,7 +19,14 @@ How it stays member-scoped with an ADMIN-capable token (Audiobookshelf has no im
     library access, the tag allow or deny list and the explicit-content flag. Any missing or wrongly
     typed permission field fails closed: a malformed permission record makes the section unavailable
     (never an unfiltered list) and a malformed item is left out.
-  * Covers are not offered (artwork is left out): a cover route cannot be bound to the member.
+  * Covers: the cover route cannot carry the member, so its scoping rests on the adapter. A cover
+    (`audiobookshelf/cover/<item id>`) is fetched only after the SAME checks as the section: group
+    first (no upstream call without it, nor for a malformed ref), then the member's own user record
+    (active, permissions parsed fail closed), then the item itself through `_visible` (library, tags,
+    explicit flag, a book, not missing or invalid; a different id answered is `UpstreamMisbehaved`).
+    An item the member may not see, an unknown item and an item without a cover are all the same
+    neutral EMPTY. The bytes go through the shared image check (allowed raster type, magic number,
+    MAX_IMAGE_BYTES) and are cached per member only.
 
 Route and field names are recalled from Audiobookshelf's public API documentation and are UNVERIFIED.
 """
@@ -28,8 +35,8 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 
-from ..contract import (ArtworkResult, DEFAULT_LIMIT, Kind, MappingFailed, MediaItem, SectionResult,
-                        SectionState, Service, UpstreamUser, build_handoff_url, clean_text,
+from ..contract import (ArtworkRef, ArtworkResult, DEFAULT_LIMIT, Kind, MappingFailed, MediaItem,
+                        SectionResult, SectionState, Service, UpstreamUser, build_handoff_url, clean_text,
                         valid_upstream_id)
 from ..principal import MemberPrincipal
 from ..resilience import (DEFAULT_TIMEOUT, ItemGone, RouteMissing, Transport, UpstreamMalformed,
@@ -40,6 +47,8 @@ from ._base import GuardedTransport as _Guard
 _UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 _BOUND_ID = re.compile(_UUID)
 _ITEM_PATH = r"(?:li_[a-z0-9]{6,40}|" + _UUID + r")"   # old "li_" ids and current UUID ids (contract.py)
+_ARTWORK_REF = re.compile(r"audiobookshelf/cover/(" + _ITEM_PATH + r")")
+COVER_QUERY = {"width": "400", "format": "jpeg"}    # same size as Jellyfin's maxWidth; format UNVERIFIED
 MAX_LOOKUPS = 24                # item lookups per request, however long the progress list is
 
 ALLOWED_ROUTES = (
@@ -47,6 +56,10 @@ ALLOWED_ROUTES = (
     Route("user", r"/api/users/(?P<user>" + _UUID + r")", (), user_scoped=True, bind_in="path",
           not_found=UserGone),
     Route("item", r"/api/items/" + _ITEM_PATH, ("expanded",), user_scoped=False, not_found=ItemGone),
+    # The cover route cannot carry the member: ITS scoping rests on `_fetch_artwork` running `_visible`
+    # for the same item, with that member's own permissions, first.
+    Route("cover", r"/api/items/" + _ITEM_PATH + r"/cover", ("width", "format"), user_scoped=False,
+          not_found=ItemGone),
 )
 
 
@@ -144,10 +157,13 @@ class AudiobookshelfAdapter(GuardedAdapter):
         return self._not_offered(principal, "search")
 
     def fetch_artwork(self, principal: MemberPrincipal, ref: str) -> ArtworkResult:
+        # Group first, then the ref's exact shape, both before any upstream call or cache read.
         self._require_principal(principal)
         if not principal.has_group(self.required_group):
             return ArtworkResult(SectionState.NOT_PERMITTED)
-        return ArtworkResult(SectionState.EMPTY)
+        if not isinstance(ref, str) or _ARTWORK_REF.fullmatch(ref) is None:
+            return ArtworkResult(SectionState.EMPTY)
+        return super().fetch_artwork(principal, ref)
 
     # -- mapping: the verified USERNAME, exactly; the e-mail is never used -------------------
     def _resolve_user(self, principal) -> UpstreamUser:
@@ -168,16 +184,38 @@ class AudiobookshelfAdapter(GuardedAdapter):
         _require_active(raw)
         return UpstreamUser(Service.AUDIOBOOKSHELF, uid)
 
+    def _member_access(self, guard, budget, uid: str) -> Tuple[Dict[str, Any], _Access]:
+        """The member's own record (its id must be the bound id; active) and the permissions in it."""
+        record = self._get_json(guard, budget, f"/api/users/{uid}", None)
+        if not isinstance(record, dict) or record.get("id") != uid:
+            raise UpstreamMisbehaved()                    # another user's record, or none
+        _require_active(record)
+        return record, _Access.from_record(record)
+
+    def _fetch_artwork(self, user: UpstreamUser, ref: str) -> ArtworkResult:
+        m = _ARTWORK_REF.fullmatch(ref)
+        if m is None:
+            return ArtworkResult(SectionState.EMPTY)
+        item_id = m.group(1)
+        uid = user.upstream_id
+        guard = self._guard.bind(uid)
+        budget = self._budget()
+        _record, access = self._member_access(guard, budget, uid)   # BEFORE the item is fetched
+        try:
+            raw = self._get_json(guard, budget, f"/api/items/{item_id}", {"expanded": "1"})
+        except ItemGone:
+            return ArtworkResult(SectionState.EMPTY)
+        visible, _status = self._visible(raw, item_id, access, 0.0, None, None)
+        if visible is None or visible.artwork is None:
+            return ArtworkResult(SectionState.EMPTY)      # not visible to THIS member, or no cover: neutral
+        return self._fetch_image(guard, budget, f"/api/items/{item_id}/cover", COVER_QUERY)
+
     # -- the one section ---------------------------------------------------------------------
     def _continue_items(self, user: UpstreamUser, limit: int) -> SectionResult:
         uid = user.upstream_id
         guard = self._guard.bind(uid)
         budget = self._budget()
-        record = self._get_json(guard, budget, f"/api/users/{uid}", None)
-        if not isinstance(record, dict) or record.get("id") != uid:
-            raise UpstreamMisbehaved()                    # another user's record, or none
-        _require_active(record)
-        access = _Access.from_record(record)              # BEFORE any item is fetched
+        record, access = self._member_access(guard, budget, uid)   # BEFORE any item is fetched
         entries = self._candidates(record.get("mediaProgress"), uid)
 
         shown: List[MediaItem] = []
@@ -254,6 +292,10 @@ class AudiobookshelfAdapter(GuardedAdapter):
         if not access.allows(library_id, tags, meta["explicit"]):
             return None, "filtered"
         title = clean_text(meta.get("title")) or "Untitled"
+        # A cover is offered unless the item says it has none (`coverPath` present and null; UNVERIFIED
+        # field). The path itself is never read or exposed. A missing cover upstream is a neutral 404.
+        no_cover = isinstance(media, dict) and "coverPath" in media and media["coverPath"] is None
+        artwork = None if no_cover else ArtworkRef(f"audiobookshelf/cover/{item_id}", f"Cover of {title}")
         if duration is None:
             duration = bounded_int(media.get("duration"))
         return MediaItem(id=f"audiobookshelf:{item_id}", service=Service.AUDIOBOOKSHELF,
@@ -261,4 +303,4 @@ class AudiobookshelfAdapter(GuardedAdapter):
                          handoff_url=build_handoff_url(Service.AUDIOBOOKSHELF, item_id),
                          subtitle=clean_text(meta.get("authorName")), series=clean_text(meta.get("seriesName")),
                          progress_fraction=fraction, position_seconds=position,
-                         duration_seconds=duration), "ok"
+                         duration_seconds=duration, artwork=artwork), "ok"

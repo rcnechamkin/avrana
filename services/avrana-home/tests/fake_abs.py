@@ -11,6 +11,7 @@ UB = "bbbbbbbb-2222-4bbb-8bbb-bbbbbbbbbbbb"
 UC = "cccccccc-3333-4ccc-8ccc-cccccccccccc"
 UD = "dddddddd-4444-4ddd-8ddd-dddddddddddd"
 UE = "eeeeeeee-5555-4eee-8eee-eeeeeeeeeeee"
+JPEG = b"\xff\xd8\xff\xe0" + b"synthetic-cover-bytes"      # a synthetic cover: a JPEG magic number only
 
 
 def load(name):
@@ -36,6 +37,7 @@ class FakeAudiobookshelf:
         self.requests = []
         self.overrides = {}        # path -> ("status", int) | ("body", bytes) | ("raise", exc)
         self.slow = {}
+        self.image = (200, JPEG, "image/jpeg")   # what the cover route answers for an item with a cover
 
     def record(self, uid):
         """A private copy of a fixture user record, to be edited and served through `overrides`."""
@@ -61,6 +63,11 @@ class FakeAudiobookshelf:
         if path.startswith("/api/users/"):
             rec = self.records.get(path[len("/api/users/"):])
             return self._json(rec) if rec is not None else (404, b"{}", "application/json")
+        if path.startswith("/api/items/") and path.endswith("/cover"):
+            it = self.items.get(path[len("/api/items/"):-len("/cover")])
+            if it is None or it["media"].get("coverPath") is None:
+                return 404, b"{}", "application/json"      # unknown item, or no cover
+            return self.image
         if path.startswith("/api/items/"):
             it = self.items.get(path[len("/api/items/"):])
             return self._json(it) if it is not None else (404, b"{}", "application/json")

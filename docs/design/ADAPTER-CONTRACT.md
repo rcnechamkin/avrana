@@ -532,8 +532,9 @@ adapter's job:
    transport's headers (for example `UrllibTransport(base, {"Authorization": "Bearer <token>"})`). It is
    in no repr, result, health report, log line or cache row (tested with a sentinel).
 2. **GET only, explicit route list**, enforced by the shared guard before any I/O: the user list
-   `/api/users` (mapping only, no query), the member's record `/api/users/{id}` and one item
-   `/api/items/{id}` (query key `expanded` only). Nothing else, in particular no "me" route.
+   `/api/users` (mapping only, no query), the member's record `/api/users/{id}`, one item
+   `/api/items/{id}` (query key `expanded` only) and that item's cover `/api/items/{id}/cover` (query
+   keys `width` and `format` only). Nothing else, in particular no "me" route.
 3. **The bound user id travels in the PATH** of the member route and the guard compares it with the id
    the adapter bound (a 36-character lowercase UUID, validated before binding). Another member's id, a
    traversal, an encoded slash, an upper-cased id or no bound id is `ForbiddenRequest`.
@@ -555,6 +556,16 @@ adapter's job:
    progress), stores only the opaque id, and never logs a body.
 8. Item 404 = omitted and neutral (`ItemGone`); user-route 404 = `NOT_LINKED` with a cached mapping,
    drift when the mapping was just confirmed; the user-list 404 = route drift (section 6).
+9. **Covers are re-checked per member.** The cover route cannot carry the member, so a cover
+   (`audiobookshelf/cover/<item id>`) is fetched only after the same checks as the section, in order:
+   group (no upstream call or cache read without it, nor for a malformed ref), the member's own record
+   (active, permissions parsed fail closed), the item through the same visibility rules (library, tags,
+   explicit, a book, not missing or invalid; a different id answered is `UpstreamMisbehaved`). An item
+   the member may not see, an unknown item and an item without a cover (`coverPath` null) are the same
+   neutral `EMPTY` and the cover route is not called. The answer passes the shared image check
+   (jpeg/png/webp with a matching magic number, at most 5 MiB) and is cached per member only. Visibility
+   is the member's Audiobookshelf rights, not their progress: a book two members can both open in
+   Audiobookshelf has a cover for both.
 
 ### 11.2 Mapping, and the owner decision it needs
 
@@ -601,7 +612,8 @@ All titles are invented.
   {"id": "audiobookshelf:li_book000001", "service": "audiobookshelf", "kind": "audiobook",
    "title": "Synthetic Audiobook One", "subtitle": "Synthetic Author", "series": "Synthetic Saga #1",
    "progress": {"fraction": 0.42, "percent": 42, "position_seconds": 15120, "duration_seconds": 36000},
-   "artwork": null, "handoff_url": "https://listen.avrana.net/item/li_book000001"}]}
+   "artwork": {"ref": "audiobookshelf/cover/li_book000001", "alt": "Cover of Synthetic Audiobook One"},
+   "handoff_url": "https://listen.avrana.net/item/li_book000001"}]}
 ```
 
 The other states are as in section 4: `empty` (nothing in progress), `unavailable` (upstream down, slow,
@@ -616,7 +628,7 @@ the text equivalent of the progress as for Jellyfin.
   the adapter fails closed (`UNAVAILABLE`) rather than showing unfiltered items, at the cost of an
   outage until the field map is updated (it is one class, `_Access`).
 - The token is admin-capable: a bug in the allow-list would be a bug with admin reach. The allow-list
-  has three entries and no write method.
+  has four entries and no write method.
 - No per-member rate limit yet (as for Jellyfin).
 
 ### 11.6 Unverified upstream assumptions (every one)
@@ -645,6 +657,9 @@ Every fixture file carries `_target_version` (Audiobookshelf 2.36, the version t
    if the real API omits it for some items, those items will be left out (fail closed).
 9. OIDC-created accounts carry the Authentik username as the Audiobookshelf `username`.
 10. The user list and user record may contain per-user tokens (the adapter never retains them).
+11. Covers: the expanded item carries `media.coverPath` (null when there is no cover; an absent field is
+    treated as "maybe" and the cover route is asked), and `GET /api/items/{id}/cover?width=400&format=jpeg`
+    returns an `image/jpeg` (or png/webp) body with the admin token, HTTP 404 when there is no cover.
 
 ### 11.7 Recorded read-only contract check (checklist, owner-approved, NOT run by this work)
 
@@ -653,13 +668,15 @@ the following with a dedicated, rotatable, read-only-by-habit token and records 
 
 1. **Request, read-only (GET), one at a time:** `/api/users` (once); `/api/users/{id}` for **two**
    members with different library or tag access and an explicit-content difference; `/api/items/{id}?expanded=1`
-   for one item in each of: an accessible library, an inaccessible library, an explicit item, a tagged item.
+   for one item in each of: an accessible library, an inaccessible library, an explicit item, a tagged item;
+   `/api/items/{id}/cover?width=400&format=jpeg` for one item with a cover and one without (content type,
+   size, 404).
 2. **Compare:** each assumption in 11.6 against the real response (field names, types, presence of
    `userId` on every progress entry, boolean `explicit`, deny versus allow list meaning, 404 behaviour for
    an unknown id, the id formats); that the user record and the progress entries differ per member;
    that the admin token reads `/api/users/{id}` without needing `?include=`.
 3. **Do not request:** any POST, PATCH or DELETE; sessions, e-reader device settings, backups, libraries
-   listings, covers, or any "me" route.
+   listings, or any "me" route (the cover route is requested only as in step 1).
 4. **Redact before anything is stored or shared:** all tokens and API keys (the user list may contain
    them), e-mail addresses, real usernames (replace by `member-a`, `member-b`), real titles, authors and
    series, library and item ids (replace consistently), IP addresses and device names, timestamps (shift).

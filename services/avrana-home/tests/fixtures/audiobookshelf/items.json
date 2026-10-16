@@ -2,7 +2,7 @@
   "_synthetic": "Hand-written SYNTHETIC fixture, written from recollection of the public Audiobookshelf API. Hand-written, unverified against the deployed version; a recorded read-only contract check is a separate owner-approved step before any real data is read. Invented users, ids and titles.",
   "_schema": "Shaped like GET /api/items/{id}?expanded=1, keyed here by library item id. Unverified.",
   "_target_version": "Audiobookshelf 2.36 (the version the contract says is deployed; NOT confirmed against the deployed server)",
-  "_provenance": "GET /api/items/{id}?expanded=1: id, libraryId, mediaType, isMissing, isInvalid, media.metadata.{title,authorName,seriesName,explicit}, media.tags and media.duration are recalled from the public API documentation and not re-checked. SYNTHETIC assumptions: explicit is a boolean on every book; the li_ plus 6-40 lowercase alphanumeric id pattern; HTTP 404 for an unknown item. Live compatibility is UNPROVEN until the owner's recorded read-only capture is compared (ADAPTER-CONTRACT.md 11.7).",
+  "_provenance": "GET /api/items/{id}?expanded=1: id, libraryId, mediaType, isMissing, isInvalid, media.metadata.{title,authorName,seriesName,explicit}, media.tags and media.duration are recalled from the public API documentation and not re-checked. SYNTHETIC assumptions: explicit is a boolean on every book; the li_ plus 6-40 lowercase alphanumeric id pattern; HTTP 404 for an unknown item. Live compatibility is UNPROVEN until the owner's recorded read-only capture is compared (ADAPTER-CONTRACT.md 11.7). Covers: media.coverPath (a server path, or null when the item has no cover) and the cover route GET /api/items/{id}/cover?width=&format= (an image body; HTTP 404 without a cover) are also recalled, not re-checked; SYNTHETIC assumption: a null coverPath means no cover.",
   "response": {
     "li_book000001": {
       "id": "li_book000001",
@@ -18,7 +18,8 @@
           "explicit": false
         },
         "tags": [],
-        "duration": 36000.0
+        "duration": 36000.0,
+        "coverPath": "/metadata/items/li_book000001/cover.jpg"
       }
     },
     "li_book000002": {
@@ -35,7 +36,8 @@
           "explicit": false
         },
         "tags": [],
-        "duration": 32000.0
+        "duration": 32000.0,
+        "coverPath": null
       }
     },
     "li_book000003": {
@@ -52,7 +54,8 @@
           "explicit": false
         },
         "tags": [],
-        "duration": 36000.0
+        "duration": 36000.0,
+        "coverPath": "/metadata/items/li_book000003/cover.jpg"
       }
     },
     "li_book000004": {
@@ -69,7 +72,8 @@
           "explicit": true
         },
         "tags": [],
-        "duration": 30000.0
+        "duration": 30000.0,
+        "coverPath": "/metadata/items/li_book000004/cover.jpg"
       }
     },
     "li_book000005": {
@@ -88,7 +92,8 @@
         "tags": [
           "mature"
         ],
-        "duration": 36000.0
+        "duration": 36000.0,
+        "coverPath": "/metadata/items/li_book000005/cover.jpg"
       }
     },
     "li_book000006": {
@@ -105,7 +110,8 @@
           "explicit": false
         },
         "tags": [],
-        "duration": 36000.0
+        "duration": 36000.0,
+        "coverPath": "/metadata/items/li_book000006/cover.jpg"
       }
     },
     "li_book000007": {
@@ -122,7 +128,8 @@
           "explicit": false
         },
         "tags": [],
-        "duration": 35000.0
+        "duration": 35000.0,
+        "coverPath": "/metadata/items/li_book000007/cover.jpg"
       }
     },
     "li_book000010": {
@@ -139,7 +146,8 @@
           "explicit": false
         },
         "tags": [],
-        "duration": 40000.0
+        "duration": 40000.0,
+        "coverPath": "/metadata/items/li_book000010/cover.jpg"
       }
     }
   }

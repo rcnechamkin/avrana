@@ -53,6 +53,41 @@ class Fixture(unittest.TestCase):
         return c
 
 
+class CoverTests(Fixture):
+    """`/art/audiobookshelf/cover/<id>`: re-checked against the member's own Audiobookshelf rights."""
+
+    def test_a_member_gets_the_cover_of_a_book_they_may_see_with_safe_headers(self):
+        r = self.client().get("/art/audiobookshelf/cover/li_book000001", headers=BOTH_A)
+        self.assertEqual(200, r.status_code)
+        self.assertEqual("image/jpeg", r.headers["content-type"])
+        self.assertTrue(r.content.startswith(b"\xff\xd8\xff"))
+        self.assertEqual("private, no-store", r.headers["cache-control"])
+        self.assertEqual("nosniff", r.headers["x-content-type-options"])
+        self.assertIn("/api/items/li_book000001/cover", self.abs.paths())
+
+    def test_pages_embed_the_cover_and_keep_the_letter_for_a_book_without_one(self):
+        html = self.client().get("/", headers=BOTH_A).text
+        self.assertIn('src="/art/audiobookshelf/cover/li_book000001"', html)
+        self.assertNotIn("/art/audiobookshelf/cover/li_book000002", html)    # coverPath null: letter only
+
+    def test_a_book_this_member_may_not_see_is_the_standard_404_without_a_cover_call(self):
+        c = self.client()
+        nf = c.get("/definitely-not-a-route", headers=BOTH_A).text
+        for path in ("/art/audiobookshelf/cover/li_book000003",      # a library member-a may not access
+                     "/art/audiobookshelf/cover/li_book000004",      # explicit
+                     "/art/audiobookshelf/cover/li_book999999",      # unknown
+                     "/art/audiobookshelf/cover/li_book000002"):     # no cover
+            r = c.get(path, headers=BOTH_A)
+            self.assertEqual((404, nf), (r.status_code, r.text), path)
+        self.assertFalse([p for p in self.abs.paths() if p.endswith("/cover")])
+        self.assertEqual(200, c.get("/art/audiobookshelf/cover/li_book000003", headers=BOTH_B).status_code)
+
+    def test_without_the_group_a_404_and_no_upstream_call(self):
+        r = self.client().get("/art/audiobookshelf/cover/li_book000001", headers=VIDEO_ONLY)
+        self.assertEqual(404, r.status_code)
+        self.assertEqual([], self.abs.paths())
+
+
 class ContinueListeningTests(Fixture):
     def test_a_member_with_both_groups_sees_both_services_continue_items(self):
         r = self.client().get("/", headers=BOTH_A)
@@ -75,7 +110,11 @@ class ContinueListeningTests(Fixture):
             self.assertEqual("audiobookshelf", it["service"])
             self.assertEqual("audiobook", it["kind"])
             self.assertTrue(it["handoff_url"].startswith("https://"))
-            self.assertIsNone(it["artwork"])       # the adapter offers no artwork
+            art = it["artwork"]                    # a cover ref, or none when the item says it has no cover
+            if art is not None:
+                self.assertEqual(it["id"].replace("audiobookshelf:", "audiobookshelf/cover/"), art["ref"])
+        self.assertTrue(any(it["artwork"] for it in books["items"]))
+        self.assertTrue(any(it["artwork"] is None for it in books["items"]))
         text = self.client().get("/", headers=BOTH_A).text
         for it in books["items"]:
             self.assertIn(f'href="{it["handoff_url"]}"', text)
