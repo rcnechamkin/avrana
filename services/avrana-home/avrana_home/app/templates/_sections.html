@@ -6,7 +6,7 @@
 {% if s.state == "ok" %}
     <ul>
 {% for it in s.items %}
-      <li><a href="{{ it.href }}">{{ it.title }}</a>{% if it.detail %} <span>{{ it.detail }}</span>{% endif %}{% if it.progress %} <span>({{ it.progress }})</span>{% endif %}</li>
+      <li>{% if it.image %}<img src="{{ it.image }}" alt="{{ it.title }}" width="80" height="120" loading="lazy"> {% endif %}<a href="{{ it.href }}">{{ it.title }}</a>{% if it.detail %} <span>{{ it.detail }}</span>{% endif %}{% if it.progress %} <span>({{ it.progress }})</span>{% endif %}</li>
 {% endfor %}
     </ul>
 {% else %}

@@ -73,7 +73,15 @@ class RouteLayerTests(unittest.TestCase):
             body = code(text)
             for call in (".continue_items(", ".recent_items(", ".resolve_user(", ".fetch_artwork(",
                          ".search(", "._resolve_user("):
+                if call == ".fetch_artwork(" and name == "artwork.py":
+                    continue                      # the one member-scoped artwork gateway
                 self.assertNotIn(call, body, f"{name}: {call}")
+
+    def test_fetch_artwork_is_called_in_one_module_with_the_verified_principal_and_a_checked_ref(self):
+        body = code(sources()["artwork.py"])
+        self.assertEqual(1, body.count(".fetch_artwork("))
+        self.assertIn("adapter.fetch_artwork(principal, ref)", body)
+        self.assertIn("REF.fullmatch(ref)", body)
 
     def test_no_redirect_is_built_from_request_input(self):
         main = code(sources()["main.py"])

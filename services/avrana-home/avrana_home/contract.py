@@ -272,6 +272,10 @@ class MediaAdapter:
     """Base class. Subclasses set `service`, pass a breaker and cache, and implement hooks."""
 
     service: Service
+    # Sections ("continue", "recent", ...) this adapter DECLARES it does not offer. `gather` does not
+    # request them at all, so the member view carries no empty noise; the methods still answer
+    # (EMPTY, reason `not_offered`) for a direct caller.
+    not_offered: frozenset = frozenset()
 
     def __init__(self, breaker: Optional[CircuitBreaker] = None,
                  cache: Optional[MemberCache] = None, clock=None,

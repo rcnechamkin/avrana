@@ -22,7 +22,7 @@ import unicodedata
 from typing import Any, Callable, Iterable, List, Mapping, Optional, Pattern, Sequence, Tuple
 
 from ..contract import (AmbiguousMappingError, ArtworkResult, ForbiddenRequest, MappingFailed,
-                        MediaAdapter, SectionState)
+                        MediaAdapter, SectionResult, SectionState)
 from ..resilience import (DEFAULT_TIMEOUT, MAX_IMAGE_BYTES, MAX_JSON_BYTES, CallBudget, ItemGone,
                           Transport, TransportResponse, UpstreamError, UpstreamMalformed,
                           UpstreamMisbehaved, UpstreamNotFound, UpstreamTooLarge,
@@ -205,6 +205,14 @@ class GuardedAdapter(MediaAdapter):
 
     def _budget(self) -> CallBudget:
         return self.current_budget()
+
+    def _not_offered(self, principal: Any, section: str) -> SectionResult:
+        """A section this adapter deliberately does not offer: NOT_PERMITTED without the group (absence,
+        as for every section), else EMPTY with reason `not_offered`. No upstream call, no cache access."""
+        self._require_principal(principal)
+        if not principal.has_group(self.required_group):
+            return self._not_permitted(section)
+        return SectionResult(self.service, section, SectionState.EMPTY, reason="not_offered")
 
     def _get(self, guard: GuardedTransport, budget: CallBudget, path: str,
              query: Optional[Mapping[str, str]], max_bytes: int = MAX_JSON_BYTES) -> TransportResponse:

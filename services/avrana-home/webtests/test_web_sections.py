@@ -87,7 +87,10 @@ class SectionRenderingTests(Fixture):
 
     def test_section_markup_is_plain(self):
         above = region(self.on.get("/", headers=A).text).split("</header>")[1]
-        self.assertNotRegex(above, r"class=|style=|<img|<svg|<picture|<script|<progress|<canvas|on\w+=")
+        self.assertNotRegex(above, r"class=|style=|<svg|<picture|<script|<progress|<canvas|on\w+=")
+        # the only image markup: a same-origin /art/ URL with alt, size and lazy loading (artwork route)
+        for tag in re.findall(r"<img[^>]*>", above):
+            self.assertRegex(tag, r'^<img src="/art/[A-Za-z0-9_/-]+" alt="[^"<>]*" width="80" height="120" loading="lazy">$')
         self.assertEqual(2, above.count("<section"))
         self.assertEqual(2, above.count("<h2"))
         self.assertEqual(2, above.count("<ul>"))

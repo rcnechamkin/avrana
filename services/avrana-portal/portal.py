@@ -33,11 +33,24 @@ targets come from the fixed table below and never from request input, so there i
 redirect.
 
 Stdlib only (no deps) — it's a tiny render-a-string server behind the outpost.
+
+Identity mode (AVR-498, OFF by default). AVRANA_IDENTITY_MODE selects where identity comes from:
+  headers       (default, and the only mode used today) the plain X-authentik-* headers, as always.
+  jwt_log_only  still serves from the headers, but also verifies X-authentik-jwt and writes one fixed
+                reason code per request to stderr ("ok", "mismatch", or a rejection code). Never a token,
+                name or group.
+  jwt_required  identity only from the verified token (portal_jwt.py, HS256); any failure means no
+                identity, which is exactly what an empty group header means today (404 on gated routes).
+The JWT modes need AVRANA_JWT_ISSUER, AVRANA_JWT_AUDIENCE and AVRANA_JWT_SECRET (owner-provided, never in
+this repository). An unknown mode or missing JWT setting stops the service at start. Nothing sets a JWT mode.
 """
 from __future__ import annotations
 
 import html
+import importlib.util
 import os
+import sys
+import unicodedata
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 # group -> (label, description, path, subdomain). Every entry here is a DIRECT service: its
@@ -374,6 +387,13 @@ NAME_HEADER = "X-authentik-name"
 USERNAME_HEADER = "X-authentik-username"
 EMAIL_HEADER = "X-authentik-email"
 
+JWT_HEADER = "X-authentik-jwt"
+IDENTITY_MODES = ("headers", "jwt_log_only", "jwt_required")
+MAX_USERNAME_LEN = 150
+MAX_GROUPS = 64
+MAX_GROUP_LEN = 128
+MAX_DISPLAY_LEN = 254
+
 AUTH_HOST = "https://auth.avrana.net"
 ACCOUNT_URL = f"{AUTH_HOST}/if/user/"      # Authentik's own user settings (password, MFA, sessions)
 SIGNOUT_URL = "/outpost.goauthentik.io/sign_out"  # intercepted by the outpost, never reaches us
@@ -490,6 +510,86 @@ def parse_groups(raw: str) -> set[str]:
     for sep in ("|", ","):
         raw = raw.replace(sep, "\n")
     return {g.strip() for g in raw.split("\n") if g.strip()}
+
+
+def _load_jwt_module():
+    """Import the vendored verifier next to this file. Only called in the JWT modes."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "portal_jwt.py")
+    spec = importlib.util.spec_from_file_location("avrana_portal_jwt", path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def build_verifier(env):
+    """Build the HS256 verifier from environment-style settings, or raise SystemExit with a message that
+    names the missing setting and never a value."""
+    missing = [k for k in ("AVRANA_JWT_ISSUER", "AVRANA_JWT_AUDIENCE", "AVRANA_JWT_SECRET") if not env.get(k)]
+    if missing:
+        raise SystemExit("identity mode needs: " + ", ".join(missing))
+    secrets = [env["AVRANA_JWT_SECRET"].encode("utf-8")]
+    if env.get("AVRANA_JWT_SECRET_PREVIOUS"):
+        secrets.append(env["AVRANA_JWT_SECRET_PREVIOUS"].encode("utf-8"))
+    try:
+        return _load_jwt_module().OutpostJwtVerifier(
+            issuer=env["AVRANA_JWT_ISSUER"], audience=env["AVRANA_JWT_AUDIENCE"], hmac_secrets=secrets)
+    except ValueError as exc:
+        raise SystemExit(f"identity mode configuration refused: {exc}") from None
+
+
+def _has_bad_chars(text: str) -> bool:
+    for c in text:
+        cat = unicodedata.category(c)
+        if cat[0] == "C" or cat in ("Zl", "Zp") or (cat == "Zs" and c != " "):
+            return True
+    return False
+
+
+class IdentityRefused(Exception):
+    """No verified identity. `reason` is a fixed code, never request content."""
+
+    def __init__(self, reason: str):
+        super().__init__(reason)
+        self.reason = reason
+
+
+def verified_identity(headers, verifier):
+    """(groups, name, username, email) from the verified X-authentik-jwt, or IdentityRefused.
+    `headers` is an http.client.HTTPMessage. Plain identity headers, if present, must agree with the
+    claims; a request mixing a valid token with different headers is refused, not reconciled."""
+    tokens = headers.get_all(JWT_HEADER) or []
+    if not tokens:
+        raise IdentityRefused("missing_header")
+    if len(tokens) != 1:
+        raise IdentityRefused("duplicate_header")
+    try:
+        claims = verifier.verify(tokens[0].strip())
+    except Exception:  # every verifier failure, expected or not, is the same closed answer
+        raise IdentityRefused("unverified_identity") from None
+    if not isinstance(claims, dict):
+        raise IdentityRefused("unverified_identity")
+    user, groups = claims.get("preferred_username"), claims.get("groups")
+    if (not isinstance(user, str) or not user or len(user) > MAX_USERNAME_LEN or user != user.strip()
+            or _has_bad_chars(user) or "|" in user or "," in user
+            or not isinstance(groups, list) or not groups or len(groups) > MAX_GROUPS
+            or not all(isinstance(g, str) and g and len(g) <= MAX_GROUP_LEN and g == g.strip()
+                       and "|" not in g and "," not in g and not _has_bad_chars(g) for g in groups)):
+        raise IdentityRefused("malformed_claims")
+    group_set = set(groups)
+    sent_user = headers.get_all(USERNAME_HEADER) or []
+    sent_groups = headers.get_all(GROUPS_HEADER) or []
+    if sent_user and (len(sent_user) != 1 or sent_user[0].strip() != user):
+        raise IdentityRefused("identity_mismatch")
+    if sent_groups and (len(sent_groups) != 1 or parse_groups(sent_groups[0].strip()) != group_set):
+        raise IdentityRefused("identity_mismatch")
+
+    def display(key):
+        value = claims.get(key)
+        ok = isinstance(value, str) and 0 < len(value) <= MAX_DISPLAY_LEN and not _has_bad_chars(value)
+        return value if ok else ""
+
+    return group_set, display("name"), user, display("email")
 
 
 def allows(spec, groups: set[str]) -> bool:
@@ -793,27 +893,58 @@ class Handler(BaseHTTPRequestHandler):
     def _hdr(self, name: str) -> str:
         return (self.headers.get(name) or "").strip()
 
+    # Identity mode: set once by main(). The class default is the unchanged header behaviour.
+    IDENTITY_MODE = "headers"
+    JWT_VERIFIER = None
+
+    @staticmethod
+    def JWT_REPORT(code):
+        print("identity_jwt=" + code, file=sys.stderr, flush=True)
+
+    def _header_identity(self):
+        """The unchanged header-trusting identity: (groups, name, username, email)."""
+        # Header lookup is case-insensitive via http.client.HTTPMessage.
+        # More than one group header is ambiguous (which one did the outpost set?): grant nothing.
+        raw_groups = self.headers.get_all(GROUPS_HEADER) or []
+        groups = parse_groups(raw_groups[0].strip()) if len(raw_groups) == 1 else set()
+        return (groups, self._hdr(NAME_HEADER), self._hdr(USERNAME_HEADER), self._hdr(EMAIL_HEADER))
+
+    def _identity(self):
+        mode = self.IDENTITY_MODE
+        if mode == "headers":
+            return self._header_identity()
+        if mode not in IDENTITY_MODES or self.JWT_VERIFIER is None:
+            return (set(), "", "", "")                       # misconfigured: no identity at all
+        if mode == "jwt_required":
+            try:
+                return verified_identity(self.headers, self.JWT_VERIFIER)
+            except IdentityRefused:
+                return (set(), "", "", "")
+        served = self._header_identity()                      # jwt_log_only: serve from the headers
+        try:
+            verified = verified_identity(self.headers, self.JWT_VERIFIER)
+            code = "ok" if (verified[0], verified[2]) == (served[0], served[2]) else "mismatch"
+        except IdentityRefused as exc:
+            code = exc.reason
+        try:
+            self.JWT_REPORT(code)
+        except Exception:
+            pass
+        return served
+
     def do_GET(self):
         route = self.path.split("?", 1)[0].split("#", 1)[0].rstrip("/") or "/"
 
         if route == "/healthz":
             return self._send(200, "ok", "text/plain; charset=utf-8")
 
-        # Header lookup is case-insensitive via http.client.HTTPMessage.
-        # More than one group header is ambiguous (which one did the outpost set?): grant nothing.
-        raw_groups = self.headers.get_all(GROUPS_HEADER) or []
-        groups = parse_groups(raw_groups[0].strip()) if len(raw_groups) == 1 else set()
+        groups, name, username, email = self._identity()
 
         if route == "/":
             return self._send(200, render_home(groups))
 
         if route == "/account":
-            return self._send(200, render_account(
-                groups,
-                self._hdr(NAME_HEADER),
-                self._hdr(USERNAME_HEADER),
-                self._hdr(EMAIL_HEADER),
-            ))
+            return self._send(200, render_account(groups, name, username, email))
 
         if route == "/help":
             return self._send(200, render_help_index(help_permitted(groups)))
@@ -858,6 +989,12 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     port = int(os.environ.get("PORT", "8095"))
+    mode = os.environ.get("AVRANA_IDENTITY_MODE", "headers")
+    if mode not in IDENTITY_MODES:
+        raise SystemExit("AVRANA_IDENTITY_MODE must be one of: " + ", ".join(IDENTITY_MODES))
+    if mode != "headers":
+        Handler.JWT_VERIFIER = build_verifier(os.environ)
+    Handler.IDENTITY_MODE = mode
     ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
 
 

@@ -131,9 +131,9 @@ class MockAudiobookshelf:
             return [p for _m, p in self.requests]
 
     @staticmethod
-    def _send(h, status: int, body: bytes) -> None:
+    def _send(h, status: int, body: bytes, ctype: str = "application/json") -> None:
         h.send_response(status)
-        h.send_header("Content-Type", "application/json")
+        h.send_header("Content-Type", ctype)
         h.send_header("Content-Length", str(len(body)))
         h.end_headers()
         h.wfile.write(body)
@@ -176,8 +176,8 @@ class MockAudiobookshelf:
             return self._send(h, 500, b"{}")
         if mode == "malformed":
             return self._send(h, 200, self.MALFORMED)
-        status, body, _ctype = self.fake.handle("GET", path, query)
-        self._send(h, status, body)
+        status, body, ctype = self.fake.handle("GET", path, query)
+        self._send(h, status, body, ctype)
 
 
 def main(argv=None) -> int:
