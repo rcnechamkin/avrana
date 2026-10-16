@@ -21,6 +21,8 @@ MOCK_API_KEY = "mock-api-key-not-real"          # obviously fake; the only key m
 DEFAULT_MOCK_JELLYFIN_URL = "http://127.0.0.1:18096"
 DEFAULT_CATALOGUE = Path(__file__).resolve().parents[3] / "avrana-portal" / "portal.py"
 LOOPBACK_HOSTS = ("127.0.0.1", "::1", "localhost")
+IDENTITY_MODES = ("headers", "jwt_log_only", "jwt_required")   # same strings as principal.IDENTITY_MODES
+MIN_JWT_SECRET_BYTES = 32                                      # same floor as outpost_jwt.MIN_HMAC_SECRET
 
 _TRUE = {"1", "true", "yes", "on"}
 _FALSE = {"0", "false", "no", "off", ""}
@@ -66,10 +68,16 @@ class Settings:
     log_level: str = "INFO"
     host: str = "127.0.0.1"
     port: int = 8096
+    identity_mode: str = "headers"               # "headers" | "jwt_log_only" | "jwt_required" (AVR-498)
+    jwt_issuer: str = ""
+    jwt_audience: str = ""
+    jwt_secret: str = field(default="", repr=False)             # HS256 client secret; never shown
+    jwt_secret_previous: str = field(default="", repr=False)    # optional, rotation overlap only
 
     def __repr__(self) -> str:
         return (f"Settings(home_sections={self.home_sections}, upstream_mode={self.upstream_mode!r}, "
-                f"host={self.host!r}, port={self.port}, <secrets redacted>)")
+                f"host={self.host!r}, port={self.port}, "
+                f"identity_mode={self.identity_mode!r}, <secrets redacted>)")
 
     @property
     def uses_real_upstream(self) -> bool:
@@ -208,6 +216,32 @@ class Settings:
         if cw_url:
             _check_url(cw_url, problems, "CALIBRE_WEB_BASE_URL")
 
+        # Identity mode (AVR-498). The default keeps today's behaviour exactly; an unknown or empty
+        # value is an error, never a silent fallback. The JWT modes need the provider's issuer,
+        # audience and HS256 client secret (what Authentik proxy providers sign with; the portal
+        # takes the same three values as AVRANA_JWT_*). Unused JWT settings in headers mode are an
+        # error so nobody believes a token is being checked when it is not.
+        id_mode = _identity_mode(env, problems)
+        jwt_issuer, jwt_audience = get("HOME_JWT_ISSUER"), get("HOME_JWT_AUDIENCE")
+        jwt_secret = _read_key(env, problems, "HOME_JWT_SECRET")
+        jwt_previous = _read_key(env, problems, "HOME_JWT_SECRET_PREVIOUS")
+        if id_mode == "headers":
+            if jwt_issuer or jwt_audience or jwt_secret or jwt_previous:
+                problems.append("HOME_JWT_* is set but HOME_IDENTITY_MODE is headers "
+                                "(nothing would be verified; choose jwt_log_only or jwt_required)")
+        else:
+            if not jwt_issuer:
+                problems.append("HOME_JWT_ISSUER is required in a JWT identity mode")
+            if not jwt_audience:
+                problems.append("HOME_JWT_AUDIENCE is required in a JWT identity mode")
+            if not jwt_secret:
+                problems.append("HOME_JWT_SECRET or HOME_JWT_SECRET_FILE is required in a JWT identity mode")
+            for name, value in (("HOME_JWT_SECRET", jwt_secret), ("HOME_JWT_SECRET_PREVIOUS", jwt_previous)):
+                if value and len(value.encode("utf-8")) < MIN_JWT_SECRET_BYTES:
+                    problems.append(f"{name} must be at least {MIN_JWT_SECRET_BYTES} bytes")
+            if jwt_previous and not jwt_secret:
+                problems.append("HOME_JWT_SECRET_PREVIOUS needs HOME_JWT_SECRET")
+
         if problems:
             raise SettingsError("invalid configuration: " + "; ".join(problems))
         return cls(home_sections=sections, upstream_mode=mode, jellyfin_base_url=base_url,
@@ -216,7 +250,19 @@ class Settings:
                    komga_token=komga_token, calibre_web_base_url=cw_url,
                    calibre_web_credential=cw_cred, calibre_web_owner_confirms=cw_confirms, timeout=timeout, section_limit=limit,
                    health_detail=detail, catalogue_path=catalogue, log_level=level,
-                   host=host, port=port)
+                   host=host, port=port, identity_mode=id_mode, jwt_issuer=jwt_issuer,
+                   jwt_audience=jwt_audience, jwt_secret=jwt_secret, jwt_secret_previous=jwt_previous)
+
+
+def _identity_mode(env: Mapping[str, str], problems: list) -> str:
+    """Absent -> headers. Present but empty, unknown or differently cased -> an error."""
+    if "HOME_IDENTITY_MODE" not in env:
+        return "headers"
+    raw = str(env["HOME_IDENTITY_MODE"]).strip()
+    if raw not in IDENTITY_MODES:
+        problems.append("HOME_IDENTITY_MODE must be headers, jwt_log_only or jwt_required")
+        return "headers"
+    return raw
 
 
 def _check_url(url: str, problems: list, name: str = "JELLYFIN_BASE_URL") -> None:
