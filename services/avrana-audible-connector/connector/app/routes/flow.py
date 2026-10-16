@@ -386,16 +386,18 @@ async def disconnect(request: Request, ident: Identity = Depends(get_identity)):
         connection = get_connection_for_sub(conn, ident.sub)
         if connection is None:
             return RedirectResponse("/contribute/audible", status_code=302)
+        revoked = True
         try:
             await request.app.state.companion.revoke(connection["profile_id"])
         except CompanionError:
-            pass  # best-effort; we still forget it locally
+            revoked = False  # best-effort; we still forget it locally, and the page says so
         audit.record(conn, audit.ACCOUNT_DISCONNECTED, sub=ident.sub,
-                     connection_id=connection["id"], detail="user disconnect")
+                     connection_id=connection["id"],
+                     detail="user disconnect" if revoked else "user disconnect; companion revoke failed")
         delete_connection_cascade(conn, connection["id"])
     finally:
         conn.close()
-    return _render(request, "disconnected.html", ident)
+    return _render(request, "disconnected.html", ident, revoked=revoked)
 
 
 def _counts(books) -> dict:

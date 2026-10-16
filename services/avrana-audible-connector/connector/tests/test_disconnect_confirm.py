@@ -110,6 +110,33 @@ def test_post_with_a_valid_token_disconnects_as_before(client, app, fake):
         db.close()
 
 
+def test_the_disconnected_page_does_not_overclaim(client, app, fake, monkeypatch):
+    """Success says an in-flight download may finish; a failed companion revoke is said, not hidden."""
+    connect(client, app, "alice")
+    r = client.post(CONFIRM, data={"csrf_token": csrf(app, "alice")}, headers=hdr("alice"))
+    assert "may still finish" in " ".join(r.text.split())
+    assert "Nothing further will be scanned" not in r.text
+
+    from app.companion_client import CompanionError
+
+    async def broken(profile_id):
+        raise CompanionError("companion unavailable")
+    monkeypatch.setattr(fake, "revoke", broken)
+    connect(client, app, "alice")
+    r = client.post(CONFIRM, data={"csrf_token": csrf(app, "alice")}, headers=hdr("alice"))
+    assert r.status_code == 200 and "could not be confirmed" in r.text
+    assert "authorization removed" not in r.text
+    assert _state(app, "alice") is None
+    from app.db import connect as dbc
+    db = dbc(app.state.settings.db_path)
+    try:
+        details = [row[0] for row in db.execute(
+            "SELECT detail FROM audit WHERE event='account_disconnected'").fetchall()]
+    finally:
+        db.close()
+    assert any("revoke failed" in (d or "") for d in details)
+
+
 def test_a_member_can_only_confirm_their_own_disconnect(client, app, fake):
     connect(client, app, "alice")
     connect(client, app, "bob")
