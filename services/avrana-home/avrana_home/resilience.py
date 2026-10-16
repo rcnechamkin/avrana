@@ -68,6 +68,13 @@ class UpstreamUnreachable(UpstreamError):
     pass
 
 
+class FanOutSpent(UpstreamError):
+    """OUR per-item lookups used up the section's budget after the service had already answered in this
+    request (Audiobookshelf Continue: one lookup per progress entry). The section is UNAVAILABLE for this
+    member, but it is no evidence that the service is down, so it never counts toward the shared circuit."""
+    pass
+
+
 class UpstreamHTTPError(UpstreamError):
     def __init__(self, status: int):
         super().__init__(f"http {status}")
@@ -381,7 +388,7 @@ def counts_toward_breaker(exc: BaseException, member_scoped: bool = False) -> bo
     A 403 counts only when it is not on a member-scoped call (403 on the user list means the
     service credential lacks rights; 403 on one member's call is about that member). Both auth
     behaviours are UNVERIFIED against a real Jellyfin."""
-    if isinstance(exc, (UserGone, ItemGone)):
+    if isinstance(exc, (UserGone, ItemGone, FanOutSpent)):
         return False
     if isinstance(exc, UpstreamNotFound):
         return True              # RouteMissing, or a 404 nobody classified: drift

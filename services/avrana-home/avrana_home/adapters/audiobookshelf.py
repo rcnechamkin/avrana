@@ -53,12 +53,12 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 
-from ..contract import (ArtworkRef, ArtworkResult, DEFAULT_LIMIT, Kind, MappingFailed, MediaItem,
+from ..contract import (TRUNCATED, ArtworkRef, ArtworkResult, DEFAULT_LIMIT, Kind, MappingFailed, MediaItem,
                         SectionResult, SectionState, Service, UpstreamUser, build_handoff_url, clean_text,
                         valid_upstream_id)
 from ..principal import MemberPrincipal
-from ..resilience import (DEFAULT_TIMEOUT, ItemGone, RouteMissing, Transport, UpstreamMalformed,
-                          UpstreamMisbehaved, UserGone)
+from ..resilience import (DEFAULT_TIMEOUT, FanOutSpent, ItemGone, RouteMissing, Transport, UpstreamMalformed,
+                          UpstreamMisbehaved, UpstreamTimeout, UserGone)
 from ._base import (GuardedAdapter, Route, bounded_int, lookup_username, match_exactly_one, member_override,
                     year_from)
 from ._base import GuardedTransport as _Guard
@@ -69,6 +69,10 @@ _ITEM_PATH = r"(?:li_[a-z0-9]{6,40}|" + _UUID + r")"   # old "li_" ids and curre
 _ARTWORK_REF = re.compile(r"audiobookshelf/cover/(" + _ITEM_PATH + r")")
 COVER_QUERY = {"width": "400", "format": "jpeg"}    # same size as Jellyfin's maxWidth; format UNVERIFIED
 MAX_LOOKUPS = 24                # item lookups per request, however long the progress list is
+# Continue needs one item lookup per progress entry, one after another, inside the one request budget. A lookup
+# is started only while at least this much of the budget is left; once the budget is short, Continue answers
+# with the items it already has. A slow-but-answering service must never look like an outage (AVR-503 F1).
+LOOKUP_RESERVE = 0.4            # seconds
 _LIBRARY_PATH = r"(?:lib_[a-z0-9]{3,40}|" + _UUID + r")"   # old "lib_" ids and current UUID ids (UNVERIFIED)
 _LIBRARY_ID = re.compile(_LIBRARY_PATH)
 MAX_LIBRARIES = 6               # libraries searched per request (each is one upstream call)
@@ -156,6 +160,13 @@ def _require_active(record: Dict[str, Any]) -> None:
         raise UpstreamMalformed()                         # a required field is missing or mistyped
     if not active:
         raise MappingFailed("disabled")
+
+
+def _left(budget) -> float:
+    try:
+        return budget.remaining()
+    except UpstreamTimeout:
+        return 0.0
 
 
 class AudiobookshelfAdapter(GuardedAdapter):
@@ -337,21 +348,45 @@ class AudiobookshelfAdapter(GuardedAdapter):
         entries = self._candidates(record.get("mediaProgress"), uid)
 
         shown: List[MediaItem] = []
-        unusable = 0
+        truncated = False
+        # `answered` counts item lookups that came back with an item (200). A fast 404 for a stale entry is NOT
+        # evidence that the item route works, so it never lets a later timeout pass as our own fan-out: a
+        # service that 404s quickly and then hangs must still open the circuit (review of #59, case C).
+        unusable = answered = 0
         for last_update, item_id, fraction, position, duration in entries[:MAX_LOOKUPS]:
             if len(shown) >= limit:
                 break
+            if _left(budget) < LOOKUP_RESERVE:
+                if shown:
+                    truncated = True
+                    break                                 # what is already checked is accurate: show it
+                if answered:
+                    raise FanOutSpent()                   # the item route answered; OUR fan-out used the budget
+                raise UpstreamTimeout()                   # mapping, record or 404s used it: real evidence (case B)
+            given = min(_left(budget), self._timeout)    # what `_get` will allow this lookup
             try:
                 raw = self._get_json(guard, budget, f"/api/items/{item_id}", {"expanded": "1"})
             except ItemGone:
-                continue                                  # vanished upstream: omitted, neutral
+                continue                                  # vanished upstream: omitted, neutral, not "answered"
+            except UpstreamTimeout:
+                if shown:
+                    truncated = True
+                    break                                 # a late lookup ran out of budget: keep the rest
+                if answered and given < 2 * LOOKUP_RESERVE:
+                    raise FanOutSpent() from None         # a short last slice of OUR budget ran out: ours
+                raise                                     # no answer, or a lookup that had time hung: counts
+            answered += 1
             media, status = self._visible(raw, item_id, access, fraction, position, duration)
             unusable += status == "bad"
             if media is not None:
                 shown.append(media)
         if not shown and unusable:
             raise UpstreamMalformed()                     # nothing could be shown safely: drift, not "empty"
-        return SectionResult.of(Service.AUDIOBOOKSHELF, "continue", tuple(shown))
+        result = SectionResult.of(Service.AUDIOBOOKSHELF, "continue", tuple(shown))
+        if truncated:
+            # Cut short by the budget: cached only briefly (contract.TRUNCATED_TTL), never as the full list.
+            result = SectionResult(result.service, result.section, result.state, result.items, reason=TRUNCATED)
+        return result
 
     @staticmethod
     def _candidates(progress: Any, uid: str):
@@ -378,14 +413,18 @@ class AudiobookshelfAdapter(GuardedAdapter):
                 continue
             if frac <= 0:
                 continue                                  # not started
+            if frac >= 1:
+                continue                                  # finished by its own numbers, even if the flag lags
             last = bounded_int(e.get("lastUpdate")) or 0
             position = bounded_int(cur)
             duration = bounded_int(dur)
             if item_id in seen:
                 continue
             seen.add(item_id)
+            # Seconds (ABS floats, truncated). A zero or negative duration is "unknown", so the item's own
+            # duration is used instead (`_visible`), never a remaining time computed from nothing.
             out.append((last, item_id, min(1.0, float(frac)), None if position is None else max(0, position),
-                        None if duration is None else max(0, duration)))
+                        None if duration is None or duration <= 0 else duration))
         if progress and bad == len(progress):
             raise UpstreamMalformed()
         out.sort(key=lambda t: t[0], reverse=True)

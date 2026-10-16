@@ -88,7 +88,7 @@ class NavigationTests(Mocks):
     def test_the_current_page_is_marked_and_nothing_else_is(self):
         c = self.client()
         want = {"/": [("/", "page")], "/search": [("/search", "page")],
-                "/account": [("/account", "page")], "/help": [("/help", "page")],
+                "/account": [("/account", "page")], "/help": [("/help", "page")],   # Help is no longer repeated in the account menu
                 "/help/movies": [("/help", "true")]}
         for route, expected in want.items():
             with self.subTest(route=route):
@@ -241,7 +241,7 @@ class LibraryPresentationTests(unittest.TestCase):
         v = self.view(self.sec("jellyfin", "continue", "ok",
                                [self.item(1, "Pilot", "episode", prog, series="Synthetic Show", subtitle="S1 E1")]))
         card = build_home(v, self.TILES).continue_items[0]
-        self.assertEqual("Synthetic Show · S1 E1", card.line)
+        self.assertEqual("S1 E1 · Synthetic Show", card.line)      # episode marker first (Home 2.0, Lane B)
         self.assertEqual("1 hour left", card.progress)
 
     def test_art_has_a_frame_of_its_own_shape_and_a_letter_when_there_is_no_image(self):

@@ -57,7 +57,7 @@ class SectionStateTests(unittest.TestCase):
         self.assertEqual("Continue watching", out[0].heading)
         it = out[0].items[0]
         self.assertEqual("https://watch.avrana.net/web/#/details?id=aaaa", it.href)
-        self.assertEqual("Synthetic Series Alpha · S1 E3", it.detail)
+        self.assertEqual("S1 E3 · Synthetic Series Alpha", it.detail)    # episode marker first (Home 2.0)
         self.assertEqual("1 hour 10 minutes left", it.progress)
 
     def test_empty_is_nothing_and_not_permitted_is_absent(self):

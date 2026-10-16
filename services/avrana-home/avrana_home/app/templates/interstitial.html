@@ -4,6 +4,9 @@
   <section class="block">
     <h2>Before you continue</h2>
     <p class="note msg" role="note">{{ warning|trusted }}</p>
+{% if shell %}
+    <p class="note">Continuing opens <span class="host">{{ svc.host }}</span>, a separate website with its own sign-in. Avrana does not start anything there for you. To come back, use your browser&#x27;s back button. If you opened Avrana from your Home Screen, close the library&#x27;s window or open Avrana again from its icon.</p>
+{% endif %}
   </section>
   <nav class="tiles" aria-label="Continue">
     <a class="tile" href="https://{{ svc.host }}" aria-label="Understood, continue to {{ svc.host }}">
@@ -14,5 +17,12 @@
       <span class="label">Set up the app</span>
       <span class="desc">Apps and setup for {{ svc.label|trusted }}</span>
     </a>
+{% if shell %}
+    <a class="tile" href="/help/trouble">
+      <span class="label">If something doesn&#x27;t open</span>
+      <span class="desc">Sign-in, missing items and getting back</span>
+    </a>
+{% endif %}
   </nav>
 {% endblock %}
+{% block footer %}{% if shell %}    <a class="link" href="/">Back to home</a>{% else %}    <a class="account" href="/">Back</a>{% endif %}{% endblock %}

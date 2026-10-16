@@ -55,6 +55,8 @@ ARTWORK_MAX_IN_FLIGHT_PER_MEMBER = 4
 ARTWORK_SLOT_WAIT = 0.4               # seconds, at most, and never more than half the request deadline
 MAPPING_TTL_FOUND = 60.0              # bounds how long a renamed or swapped upstream account can linger
 MAPPING_TTL_ABSENT = 60.0
+TRUNCATED = "truncated"               # SectionResult.reason: a list cut short by the request budget
+TRUNCATED_TTL = 5.0                   # ... is cached this briefly, so a complete list follows soon
 
 log = logging.getLogger("avrana_home")
 
@@ -99,7 +101,8 @@ HANDOFF_BASE = {
     Service.KOMGA: "https://read.avrana.net",
     Service.CALIBRE_WEB: "https://books.avrana.net",
 }
-# Strict, ASCII-only id patterns (fullmatch). Path templates are UNVERIFIED against live apps.
+# Strict, ASCII-only id patterns (fullmatch). The path templates below were checked against each upstream's
+# published web-app source (2026-10-16), not against the deployed apps: docs/design/CONTINUE-AND-HANDOFF.md, section 3.
 _ID_PATTERN = {
     Service.JELLYFIN: re.compile(r"[0-9a-f]{32}"),
     # Audiobookshelf before 2.3 used "li_..." ids; current servers use lowercase UUIDs (seen live 2026-10-16).
@@ -742,6 +745,11 @@ class MediaAdapter:
                 else:
                     self._account(err, token, member_scoped=(stage == "work"), breaker=br)
                 return _Outcome("unavailable", reason=type(err).__name__)
+            if getattr(value, "reason", None) == TRUNCATED:
+                # A list cut short by the budget: shown, but no proof of health. The shared failure run is
+                # neither reset nor extended, so one such member cannot hold the circuit closed for everyone.
+                br.neutral(token)
+                return _Outcome("ok", value, fresh=br.valid(token))
             return _Outcome("ok", value, fresh=self._report_ok(token, ctx, br))
         finally:
             self._local.budget = None
@@ -778,8 +786,8 @@ class MediaAdapter:
         result = out.value
         if cache_name is not None and result.state in (SectionState.OK, SectionState.EMPTY) and out.fresh:
             # permission-dependent library data is member-scoped, never "catalogue"
-            scope.set(self.service.value, cache_name, result, ttl=self.cache_ttl(section),
-                      data_class="member_progress")
+            ttl = TRUNCATED_TTL if result.reason == TRUNCATED else self.cache_ttl(section)
+            scope.set(self.service.value, cache_name, result, ttl=ttl, data_class="member_progress")
         return result
 
     def cache_ttl(self, section: str) -> float:

@@ -39,8 +39,9 @@ from . import install as install_mod
 from .identity import Viewer, get_viewer, has_identity_headers, new_tab_from_scope, search_term_from_scope
 from .logsafe import app_log, log_event, silence_uvicorn_access
 from .middleware import HygieneMiddleware
-from .routing import (AccountFacts, Decision, decide, normalise_target, not_found, parse_title_route,
-                      search_decision, title_decision)
+from . import recovery
+from .routing import (AccountFacts, Decision, chooser_intro, decide, normalise_target, not_found, parse_title_route,
+                      search_decision, title_decision, trouble_decision)
 from .settings import Settings, is_sealed_preview
 from .viewmodel import (ACCOUNT_MENU, NO_LIBRARY, REQUEST_FOR, build_home, build_search, build_shell,
                         build_title)
@@ -48,7 +49,8 @@ from .viewmodel import (ACCOUNT_MENU, NO_LIBRARY, REQUEST_FOR, build_home, build
 TEMPLATES = Path(__file__).resolve().parent / "templates"
 HTML = "text/html; charset=utf-8"
 # Pages that wear the shell (masthead with places, Search, Help and the account menu) when sections are on.
-SHELL_PAGES = {"/account": "account", "/help": "help", "/help/{slug}": "help-topic"}
+SHELL_PAGES = {"/account": "account", "/help": "help", "/help/{slug}": "help-topic",
+               "/{chooser}": "place", "/{service}": "place"}
 
 
 def _trusted(value):
@@ -266,6 +268,11 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
         p = viewer.principal
         facts = AccountFacts(name=(p.name or "").strip(), username=p.username,
                              email=(p.email or "").strip()) if p is not None else None
+        if route == recovery.ROUTE and settings.home_sections and p is not None and adapter_list:
+            # "If something doesn't open" exists only with the shell; otherwise the path stays unknown (parity).
+            decision = trouble_decision(viewer.groups)
+            scope["avrana_route"] = decision.label
+            return respond(decision, scope, shell=shell_for(viewer, "help-topic"))
         decision = decide(route, viewer.groups, cat, facts)
         scope["avrana_route"] = decision.label
         extra = {}
@@ -277,6 +284,8 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
             extra["shell"] = shell_for(viewer, "home", places=home.places)
         elif decision.status == 200 and decision.label in SHELL_PAGES:
             extra["shell"] = shell_for(viewer, SHELL_PAGES[decision.label])
+            if decision.label == "/{chooser}" and extra["shell"] is not None:
+                extra["intro"] = chooser_intro(decision.context["chooser"].path)
         return respond(decision, scope, **extra)
 
     def mark_shell(scope, shell) -> None:

@@ -19,8 +19,9 @@ HEAD_TAGS = ('<link rel="manifest" href="/manifest.webmanifest" crossorigin="use
              '<link rel="apple-touch-icon" href="/icons/avrana-180.png">',
              '<meta name="theme-color" content="#000000">',
              '<meta name="apple-mobile-web-app-capable" content="yes">')
-SHELL_ROUTES = ("/", "/account", "/help", "/help/movies", "/search", "/search?q=Film")
-OTHER_ROUTES = ("/watch", "/request", "/read", "/nope", "/healthz", "/home.json", "/manifest.webmanifest",
+SHELL_ROUTES = ("/", "/account", "/help", "/help/movies", "/help/trouble", "/search", "/search?q=Film", "/watch",
+                "/request")   # Watch and Request wear the shell since #59; Read is 404 for this member
+OTHER_ROUTES = ("/read", "/nope", "/healthz", "/home.json", "/manifest.webmanifest",
                 "/icons/avrana-192.png", "/art/jellyfin/primary/aaaa0000000000000000000000000001",
                 "/help/comics", "/outpost.goauthentik.io/sign_out")
 
