@@ -104,7 +104,10 @@ failing (`webtests/test_web_isolation_h2.py`).
    never steer the circuit the sections use, in either direction: a cover's failure is not counted, its
    success does not reset the sections' failure run, and it never takes the half-open trial (covers are
    refused while the circuit is open or half-open, so only a section call can close it). A user-list lookup
-   that a cover led and that failed is counted by the section that shared it. A waiting cover holds one
+   that a cover led and that failed is counted once, by the first section that shared it. After a cool-off,
+   covers stay refused until a section call succeeds as the half-open trial; since sections may be served
+   from their cache meanwhile, covers can show the letter placeholder (404) for up to the section cache
+   lifetime (30 to 120 s) after the upstream is back. It recovers on its own with the next section fetch. A waiting cover holds one
    worker thread for at most 0.4 s (bounded per adapter by 8 covers in flight plus the waiters). A transient failure (busy, timeout, unreachable) keeps the
    cached bytes; only a definitive negative (not visible, not linked) drops them. Each warm cover still costs
    one upstream visibility call. **Option, owner decision:** cache the positive visibility verdict per member

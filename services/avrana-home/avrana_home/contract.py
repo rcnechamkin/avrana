@@ -270,10 +270,10 @@ class _SharedFailure(Exception):
     """A follower saw the failure its single-flight leader already reported. `counted` is False when the leader was
     an artwork call (neutral for the circuit): a section follower then counts the failure itself."""
 
-    def __init__(self, err: Exception, counted: bool = True):
+    def __init__(self, err: Exception, flight: "Optional[_Flight]" = None):
         super().__init__(type(err).__name__)
         self.err = err
-        self.counted = counted
+        self.flight = flight              # set only when the leader may not have counted it (see _call)
 
 
 class _ArtworkBreaker:
@@ -626,7 +626,7 @@ class MediaAdapter:
             if isinstance(flight.exc, AmbiguousMappingError):
                 raise AmbiguousMappingError()
             if flight.exc is not None:
-                raise _SharedFailure(_fresh_copy(coerce(flight.exc) or UpstreamUnreachable()), counted=flight.counted)
+                raise _SharedFailure(_fresh_copy(coerce(flight.exc) or UpstreamUnreachable()), flight=flight)
             if flight.result is None:
                 raise _SharedFailure(UpstreamUnreachable())
             ctx.fresh_mapping = True         # the leader just confirmed it against the upstream
@@ -697,11 +697,16 @@ class MediaAdapter:
                 ctx.upstream = ctx.upstream or reaches_upstream
                 value = work(user)
             except _SharedFailure as shared:
-                if shared.counted or artwork:
-                    br.neutral(token)    # the leader already counted it (or this call may not count at all)
-                else:
-                    # an artwork call led the lookup and counted nothing: this section counts it, once
+                claim = False
+                if not artwork and shared.flight is not None:
+                    with self._flight_lock:          # an artwork call led and counted nothing: ONE section counts it
+                        if not shared.flight.counted:
+                            shared.flight.counted = True
+                            claim = True
+                if claim:
                     self._account(shared.err, token, member_scoped=False, breaker=br)
+                else:
+                    br.neutral(token)    # already counted once (or this call may not count at all)
                 return _Outcome("unavailable", reason=type(shared.err).__name__)
             except (MappingFailed, AmbiguousMappingError) as exc:
                 self._report_ok(token, ctx, br)

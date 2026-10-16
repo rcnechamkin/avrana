@@ -140,7 +140,7 @@ class Artwork(Base):
     def test_a_cover_the_viewer_cannot_see_is_empty_and_never_counted(self):
         r = self.adapter.fetch_artwork(self.a, "calibre-web/cover/999")
         self.assertEqual((r.state, r.content_type, r.data), (SectionState.EMPTY, None, b""))
-        self.assertIn(self.adapter.health().state, ("ok", "unknown"))   # artwork is neutral for the circuit
+        self.assertEqual("unknown", self.adapter.health().state)   # artwork is neutral for the circuit
 
     def test_hostile_or_foreign_refs_are_empty_and_never_interpolated(self):
         for ref in ("calibre-web/cover/../../admin", "calibre-web/cover/1/../2", "calibre-web/cover/1?x=1",

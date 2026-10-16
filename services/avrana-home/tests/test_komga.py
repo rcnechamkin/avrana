@@ -172,7 +172,7 @@ class Artwork(Base):
     def test_missing_thumbnails_and_bad_images_are_graceful(self):
         self.fake.overrides["/api/v1/books/BOOKAAAA0001/thumbnail"] = ("status", 404)
         self.assertEqual(self.adapter.fetch_artwork(self.b, "komga/book/BOOKAAAA0001").state, SectionState.EMPTY)
-        self.assertIn(self.adapter.health().state, ("ok", "unknown"))   # artwork is neutral for the circuit
+        self.assertEqual("unknown", self.adapter.health().state)   # artwork is neutral for the circuit
         for image in ((200, b"<html>", "text/html"), (200, b"not a png", "image/png"),
                       (200, PNG + b"x" * (MAX_IMAGE_BYTES + 1), "image/png")):
             self.reset()

@@ -641,7 +641,7 @@ class Covers(Base):
         self.assertEqual(self.cover_requests(), [])
         for item_id in ("li_book000003", "li_book000004", "li_book000005"):      # member-b may see all three
             self.assertIs(self.cover(self.b, item_id).state, SectionState.OK, item_id)
-        self.assertIn(self.adapter.health().state, ("ok", "unknown"))   # artwork is neutral for the circuit
+        self.assertEqual("unknown", self.adapter.health().state)   # artwork is neutral for the circuit
 
     def test_other_media_missing_and_invalid_items_get_no_cover(self):
         for field, value in (("mediaType", "podcast"), ("isMissing", True), ("isInvalid", True)):
@@ -658,7 +658,7 @@ class Covers(Base):
         self.assertEqual(self.cover_requests(), [])
         del self.fake.items["li_book000001"]["media"]["coverPath"]   # field absent: asked, upstream 404 is neutral
         self.assertIs(self.cover(self.a, "li_book000001").state, SectionState.EMPTY)
-        self.assertIn(self.adapter.health().state, ("ok", "unknown"))   # artwork is neutral for the circuit
+        self.assertEqual("unknown", self.adapter.health().state)   # artwork is neutral for the circuit
 
     def test_malformed_refs_and_ids_make_no_upstream_call(self):
         for ref in ("audiobookshelf/cover/LI_BOOK000001", "audiobookshelf/cover/li_", "audiobookshelf/cover/",

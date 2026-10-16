@@ -261,6 +261,25 @@ class CoversNeverSteerTheCircuit(unittest.TestCase):
             self.assertIs(got["cover"].state, SectionState.UNAVAILABLE)
         self.assertEqual(adapter.health().state, "cooling_off")
 
+    def test_one_cover_led_lookup_is_counted_once_however_many_sections_shared_it(self):
+        slow = _SlowTransport(self.fake)
+        slow.delay = 0.3
+        adapter = JellyfinAdapter(slow, clock=self.clock)
+        self.fake.overrides["/Users"] = ("status", 500)
+        got = {}
+        threads = [threading.Thread(target=lambda: got.update(cover=adapter.fetch_artwork(self.a, A_FILM)))]
+        threads[0].start()
+        time.sleep(0.1)                                              # the cover leads the user-list lookup
+        threads += [threading.Thread(target=lambda: got.update(cont=adapter.continue_items(self.a))),
+                    threading.Thread(target=lambda: got.update(recent=adapter.recent_items(self.a)))]
+        for th in threads[1:]:
+            th.start()
+        for th in threads:
+            th.join(5)
+        self.assertEqual({SectionState.UNAVAILABLE}, {r.state for r in got.values()})
+        health = adapter.health()
+        self.assertEqual(("failing", 1), (health.state, health.consecutive_failures))
+
 
 # ---- 2. shared views (Komga, Calibre-Web): group first, per-member cache, bounded TTL ---------------------
 class SharedViewCovers(unittest.TestCase):
