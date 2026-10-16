@@ -70,6 +70,8 @@ class ItemVM:
     detail: Optional[str]          # series and subtitle, joined
     progress: Optional[str]
     image: Optional[str] = None    # same-origin /art/... URL, only when the contract gave a valid ref
+    creator: Optional[str] = None  # author or creator, display text
+    year: Optional[int] = None
 
 
 @dataclass(frozen=True)
@@ -163,6 +165,10 @@ class CardVM:
     line: Optional[str]            # the secondary line: series, episode or library, never progress
     image: Optional[str]
     progress: Optional[str] = None  # progress in words ("1 hour left"), its own line
+    # Shared contract for the Home 2.0 sprint (card markup and Continue semantics are built on these):
+    kind_label: Optional[str] = None   # "Movie", "Episode", "Audiobook", ... in member language
+    action: str = "Open"               # the one visible verb: "Resume" only for a trustworthy saved position
+    action_label: Optional[str] = None # accessible name for the action when the verb alone is ambiguous
 
 
 @dataclass(frozen=True)

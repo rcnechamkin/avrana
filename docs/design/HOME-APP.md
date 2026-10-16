@@ -194,7 +194,7 @@ Schema (the adapter contract's, section 4; `reason` is never serialised):
                 "state": "ok"|"empty"|"unavailable"|"not_linked",
                 "items": [ {"id", "service", "kind", "title", "subtitle"|null, "series"|null,
                             "progress": {"fraction","percent","position_seconds","duration_seconds"}|null,
-                            "artwork": {"ref","alt"}|null, "handoff_url"} ] } ] }
+                            "artwork": {"ref","alt"}|null, "creator": str|null, "year": int|null, "handoff_url"} ] } ] }
 ```
 
 One example per state (synthetic, produced by the tests' mock):

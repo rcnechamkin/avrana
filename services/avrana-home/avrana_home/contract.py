@@ -193,6 +193,8 @@ class MediaItem:
     position_seconds: Optional[int] = None
     duration_seconds: Optional[int] = None
     artwork: Optional[ArtworkRef] = None
+    creator: Optional[str] = None        # author, or the person most associated; display text only
+    year: Optional[int] = None           # release or publication year, only when the upstream gives one
 
     def to_dict(self) -> dict:
         progress = None
@@ -206,6 +208,7 @@ class MediaItem:
                 "title": self.title, "subtitle": self.subtitle, "series": self.series,
                 "progress": progress,
                 "artwork": self.artwork.to_dict() if self.artwork else None,
+                "creator": self.creator, "year": self.year,
                 "handoff_url": self.handoff_url}
 
 
