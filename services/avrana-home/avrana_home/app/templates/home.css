@@ -83,7 +83,7 @@
   img{display:block;max-width:100%;}
   /* A card: title (two lines at most), the dim creator/series/episode line (one line), progress, the action.
      Clamping is visual only; the full text stays in the link, and so in its accessible name. */
-  .card{display:flex;flex-direction:column;gap:0.125rem;min-width:0;text-decoration:none;color:var(--fg);}
+  .card{position:relative;display:flex;flex-direction:column;gap:0.125rem;min-width:0;text-decoration:none;color:var(--fg);}
   .card .frame{margin-bottom:0.5rem;}
   .t{font-size:1rem;line-height:1.25;overflow-wrap:anywhere;display:-webkit-box;-webkit-box-orient:vertical;
     -webkit-line-clamp:2;line-clamp:2;overflow:hidden;}
@@ -101,20 +101,25 @@
      Keyboard focus: a browser scrolls a focused card into view only when it lies wholly outside the rail's
      "optimal viewing region", which is the scroller less its scroll-padding. The right scroll-padding leaves
      a region exactly one card (plus its focus ring) wide, so a peeking card counts as outside: Tab scrolls it
-     fully into view and its focus ring is never clipped. scroll-snap aligns starts only, so swiping is
-     unchanged. The thin scrollbar has its own padding, below the text. */
+     fully into view and its focus ring is never clipped. That only holds while cards rest card-aligned, so
+     phone rails snap mandatorily to card starts, and a trailing spacer lets the last card snap to the start
+     too (otherwise the end of the rail leaves the card before last straddling the left edge). The thin
+     scrollbar has its own padding, below the text. */
   .rail{--art-h:8rem;--card-min:8.75rem;--pad:1.25rem;--cw:min(var(--card-min),80vw);--wide-max:var(--cw);
     list-style:none;margin:-0.375rem calc(0rem - var(--pad));padding:0.375rem var(--pad) 0.625rem;
     display:flex;align-items:flex-start;gap:0.875rem;overflow-x:auto;overscroll-behavior-x:contain;
-    scroll-snap-type:x proximity;
+    scroll-snap-type:x mandatory;
     scroll-padding-inline:var(--pad) max(var(--pad),calc(100% - var(--pad) - max(var(--cw),var(--wide-max)) - 0.5rem));
     scrollbar-width:thin;scrollbar-color:var(--rule-quiet) transparent;}
   .rail.tall{--art-h:9rem;}
+  .rail::after{content:"";flex:none;width:calc(100% - var(--cw) - 0.875rem);}
   .rail>li{--fw:min(var(--wide-max),calc(var(--art-h) * var(--r)));--fh:calc(var(--fw) / var(--r));
     flex:none;scroll-snap-align:start;min-width:0;width:max(var(--cw),var(--fw));max-width:80vw;}
   .rail .frame{aspect-ratio:auto;width:var(--fw);height:var(--fh);max-width:100%;margin-top:calc(var(--art-h) - var(--fh));}
-  /* From 45rem the four cards fit the column, so a still may be wider than the other cards. */
-  @media (min-width:45rem){.rail{--art-h:9rem;--card-min:9rem;--pad:0.375rem;--wide-max:12.5rem;margin:-0.375rem;}
+  /* From 45rem the four cards fit the column, so a still may be wider than the other cards, snapping is
+     gentle and no spacer is needed. */
+  @media (min-width:45rem){.rail{--art-h:9rem;--card-min:9rem;--pad:0.375rem;--wide-max:12.5rem;margin:-0.375rem;
+    scroll-snap-type:x proximity;}.rail::after{display:none;}
     .rail.tall{--art-h:10.5rem;}.tabs{margin-inline:0;padding-inline:0;overflow:visible;}}
   footer{display:flex;justify-content:center;gap:1.625rem;flex-wrap:wrap;padding-bottom:max(2.5rem,env(safe-area-inset-bottom));}
   @media (prefers-reduced-motion:reduce){.frame{transition:none;}}

@@ -1,6 +1,6 @@
 // Browser check of the static Home export (tests/ui/export_home_static.py). Development tool, loopback only.
 //   PLAYWRIGHT_FROM=<folder with node_modules/@playwright/test and axe-core> \
-//     node tests/ui/check_home_export.mjs --base http://127.0.0.1:PORT --dir <export folder> --shots <folder>
+//     node tests/ui/check_home_export.mjs --base http://127.0.0.1:PORT --dir <export folder> [--shots <folder>] [--focus-only]
 // Every exported page at 390x844 (touch), 1280x800 and 844x390 landscape, light and dark: axe-core
 // (serious and critical fail), sideways scroll, and the smallest tap target on the page; then keyboard focus in the
 // rails (a focused card is wholly visible) at 360, 390 and 390 at 200% text. Exit 1 on a finding.
@@ -21,7 +21,8 @@ const walk = d => fs.readdirSync(d, { withFileTypes: true }).flatMap(e =>
 const pages = walk(dir).map(f => path.relative(dir, f).split(path.sep).join('/')).sort();
 const browser = await chromium.launch();
 let findings = 0, checked = 0, smallest = 1e9;
-for (const scheme of ['light', 'dark']) for (const [label, w, h, touch] of SIZES) {
+const focusOnly = args.includes('--focus-only');   // only the keyboard-focus pass (quick iteration)
+for (const scheme of focusOnly ? [] : ['light', 'dark']) for (const [label, w, h, touch] of SIZES) {
   const ctx = await browser.newContext({ viewport: { width: w, height: h }, hasTouch: touch, isMobile: touch,
     colorScheme: scheme, javaScriptEnabled: true });
   const page = await ctx.newPage();

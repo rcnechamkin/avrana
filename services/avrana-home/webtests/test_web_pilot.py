@@ -303,6 +303,8 @@ class LibraryPresentationTests(unittest.TestCase):
         # keyboard focus: the right scroll-padding leaves an optimal region one card wide, so a peeking card is
         # wholly outside it and Tab scrolls it fully into view (browser-checked by tests/ui/check_home_export.mjs)
         self.assertIn("scroll-padding-inline:var(--pad) max(var(--pad),calc(100% - var(--pad) - max(var(--cw),var(--wide-max)) - 0.5rem))", css)
+        self.assertRegex(css, r"\.rail\{[^}]*scroll-snap-type:x mandatory;")      # cards rest card-aligned
+        self.assertIn('.rail::after{content:"";flex:none;width:calc(100% - var(--cw) - 0.875rem);}', css)
 
     def test_the_shell_data_never_calls_anything_and_marks_current(self):
         shell = build_shell(self.TILES, "search", "Pat")
