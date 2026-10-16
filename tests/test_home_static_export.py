@@ -38,8 +38,19 @@ class StaticExportTests(unittest.TestCase):
                      "member-b/normal/home.html", "member-a/one-down/home.html",
                      "member-b/all-down/home.html", "member-none/no-library/home.html",
                      "signed-out/signed-out/home.html", "member-a/normal/home-new-jellyfin.html",
-                     "member-b/normal/home-new-calibre-web.html"):
+                     "member-b/normal/home-new-calibre-web.html",
+                     # The shell beyond Home, so check_home_export.mjs (axe, sideways scroll, focus) covers it too:
+                     "member-a/normal/title-jellyfin-aaaa0000000000000000000000000001.html",
+                     "member-b/normal/read.html", "member-a/normal/request.html", "member-a/normal/watch.html",
+                     "member-a/normal/help-trouble.html", "member-a/normal/account.html",
+                     # ...and the degraded states: a library not set up, one section down, a title unavailable.
+                     "member-c/not-linked/home.html", "member-c/not-linked/search-results.html",
+                     "member-c/not-linked/title-jellyfin-aaaa0000000000000000000000000001.html",
+                     "member-a/one-section-down/home.html",
+                     "member-a/one-down/title-jellyfin-aaaa0000000000000000000000000001.html"):
             self.assertIn(want, rel)
+        titles = [r for r in rel if "/normal/title-" in r and r.startswith("member-a/")]
+        self.assertLessEqual(len(titles), 4)               # at most one title page per library: the crawl is bounded
 
     def test_states_say_what_they_should(self):
         read = lambda r: (self.out / r).read_text(encoding="utf-8")
@@ -48,6 +59,16 @@ class StaticExportTests(unittest.TestCase):
         self.assertIn("No library yet", read("member-none/no-library/home.html"))
         self.assertNotIn("Account<span", read("signed-out/signed-out/home.html"))
         self.assertNotIn("Synthetic Film One", read("member-a/all-down/home.html"))
+        unset = read("member-c/not-linked/home.html")
+        self.assertIn('<h2 id="h-setup">Not set up yet</h2>', unset)
+        self.assertIn('href="help-trouble.html#not-set-up"', unset)         # the next step is in the export too
+        self.assertIn("Anything shown from them may be out of date.", read("member-a/one-section-down/home.html"))
+        self.assertIn("The Movies and TV library is unavailable right now.",
+                      read("member-a/one-down/title-jellyfin-aaaa0000000000000000000000000001.html"))
+        self.assertIn("is not set up for your account yet.",
+                      read("member-c/not-linked/title-jellyfin-aaaa0000000000000000000000000001.html"))
+        self.assertIn('href="title-jellyfin-aaaa0000000000000000000000000001.html"',
+                      read("member-a/normal/search-results.html"))       # search links reach the exported title
 
     def test_search_pages_are_there_for_every_state_and_say_what_they_should(self):
         read = lambda r: (self.out / r).read_text(encoding="utf-8")

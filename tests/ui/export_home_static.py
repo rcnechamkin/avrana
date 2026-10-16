@@ -4,9 +4,11 @@
     "$TEMP/audvenv/Scripts/python.exe" tests/ui/export_home_static.py --out <folder>
 
 It renders the REAL Home (the app's own templates and view model) in this process, against the
-loopback mock services (Jellyfin, Audiobookshelf, Komga, Calibre-Web), for two synthetic members and
-these states: normal, one library unavailable, all unavailable, no library, signed out, and the New
-tabs. Titles are lengthened by the invented long-title overlay (dev/mock_long_titles.py) so narrow cards
+loopback mock services (Jellyfin, Audiobookshelf, Komga, Calibre-Web), for synthetic members and
+these states: normal, one library unavailable, one section unavailable (the library still answers in part),
+all unavailable, a library not set up for the member, no library, signed out, and the New tabs. Besides Home
+it follows the shell's own links: Search, title pages (at most one per library per member and state),
+Account, Help and its topics, "If something doesn't open", Read, Request and the Watch interstitial. Titles are lengthened by the invented long-title overlay (dev/mock_long_titles.py) so narrow cards
 show real-world wrapping; `--short-titles` serves the fixtures' own short titles. It then writes plain files: HTML, one shared stylesheet per page kind, and generated SVG
 placeholders for the artwork. Serve the folder from the PC's LAN address:
 
@@ -40,19 +42,28 @@ MEMBERS = {   # synthetic, the same groups as dev/dev_identity.py
     "member-b": ("Member B", "avrana-users|avrana-videos|avrana-audiobooks|avrana-books|avrana-comics"),
 }
 NO_LIBRARY = ("member-none", ("Member None", "avrana-users"))
+# member-c: Movies and TV permitted, but the synthetic Jellyfin account is disabled, so it is "not set up yet".
+EXTRA = {"member-c": ("Member C", "avrana-users|avrana-videos")}
 MOCK_KEYS = ("jellyfin", "abs", "komga", "calibre")
-# scenario: (title, members, which mocks are down)
+# scenario: (title, members, which mocks misbehave: "key" is down, "key:mode" is that mock mode)
 SCENARIOS = {
     "normal": ("Normal", tuple(MEMBERS), ()),
     "one-down": ("One library unavailable (Movies and TV)", tuple(MEMBERS), ("jellyfin",)),
+    "one-section-down": ("One section unavailable (Movies and TV Continue; New still answers)", ("member-a",),
+                         ("jellyfin:wrong-user",)),
     "all-down": ("All libraries unavailable", tuple(MEMBERS), MOCK_KEYS),
+    "not-linked": ("Not set up (Movies and TV not linked to the account)", ("member-c",), ()),
     "no-library": ("No library", ("member-none",), ()),
     "signed-out": ("Signed out", ("signed-out",), ()),
 }
 # The search pages worth reviewing (term in the address -> file name): results, no match, an invalid term.
 SEARCH_SEEDS = {"/search": "search", "/search?q=Synthetic": "search-results",
                 "/search?q=zzqxnothingzz": "search-no-match", "/search?q=%2A%2A": "search-invalid"}
-CRAWL = re.compile(r"^/(?:\?new=[a-z-]+)?$|^/(?:account|help)$|^/help/[a-z0-9-]+$|^/search(?:\?q=[A-Za-z0-9%]+)?$")
+# Member-a's own film: a title page in every state (ok, unavailable, not set up for member-c; 404 is skipped).
+TITLE_SEEDS = ("/title/jellyfin/aaaa0000000000000000000000000001",)
+TITLE = re.compile(r"^/title/([a-z-]+)/[A-Za-z0-9_-]+(?:\?q=[A-Za-z0-9%]+)?$")
+CRAWL = re.compile(r"^/(?:\?new=[a-z-]+)?$|^/(?:account|help|read|request|watch)$|^/help/[a-z0-9-]+$"
+                   r"|^/search(?:\?q=[A-Za-z0-9%]+)?$|" + TITLE.pattern[1:])
 ACTION = re.compile(r'(<form [^>]*action=")(/search)(")')
 HREF = re.compile(r'(\bhref=")([^"]*)(")')
 SRC_ART = re.compile(r'(<li class="w-([a-z]+)">(?:<a class="card"[^>]*>\s*)?<span class="frame"><span class="ph"'
@@ -87,6 +98,8 @@ def slug_of(key: str) -> str:
         return SEARCH_SEEDS[key]
     path, _, query = key.partition("?")
     name = "home" if path == "/" else path.strip("/").replace("/", "-")
+    if path.startswith("/title/"):                 # title pages: one file per item, the search term dropped
+        return re.sub(r"[^A-Za-z0-9-]", "-", name)
     return f"{name}-{query.replace('new=', 'new-')}" if query else name
 
 
@@ -129,33 +142,41 @@ class Exporter:
     def headers(self, who):
         if who == "signed-out":
             return {}
-        name, groups = MEMBERS.get(who) or NO_LIBRARY[1]
+        name, groups = MEMBERS.get(who) or EXTRA.get(who) or NO_LIBRARY[1]
         return {USER: who, GROUPS: groups, NAME: name}
 
     def export_scenario(self, key, title, members, down):
         mocks, settings = self.start_stack()
         written = []
         try:
+            modes = dict(d.split(":", 1) if ":" in d else (d, "down") for d in down)
             for k, m in mocks.items():
-                m.set_mode("down" if k in down else "ok")
+                m.set_mode(modes.get(k, "ok"))
             for who in members:
                 c = self.client(settings)
                 hdr = self.headers(who)
                 pages: dict[str, str] = {}
-                queue = ["/", *SEARCH_SEEDS]
+                titled: set = set()            # at most one title page per library: enough for axe and focus
+                queue = ["/", *SEARCH_SEEDS, *TITLE_SEEDS]
                 while queue:
                     k = queue.pop(0)
                     if k in pages or not CRAWL.match(k):
                         continue
-                    r = c.get(k, headers=hdr)
-                    if r.status_code != 200 or "text/html" not in r.headers.get("content-type", ""):
+                    t = TITLE.match(k)
+                    if t and (t.group(1) in titled or any(slug_of(p) == slug_of(k) for p in pages)):
                         continue
+                    r = c.get(k, headers=hdr)
+                    ok = r.status_code == 200 or (t and r.status_code == 503)    # an unavailable title is a page
+                    if not ok or "text/html" not in r.headers.get("content-type", ""):
+                        continue
+                    if t:
+                        titled.add(t.group(1))
                     pages[k] = r.text
                     for _a, href, _b in HREF.findall(r.text):
                         if href.startswith("/") and not href.startswith("//"):
                             queue.append(href.split("#")[0])
                     if key != "normal":   # help topics are the same in every state: export them once
-                        queue = [q for q in queue if not q.startswith("/help/")]
+                        queue = [q for q in queue if not q.startswith("/help/") or q.startswith("/help/trouble")]
                 d = self.out / who / key
                 d.mkdir(parents=True, exist_ok=True)
                 for k, text in pages.items():
@@ -182,7 +203,7 @@ class Exporter:
                 return m.group(0)
             if href.startswith("/") and not href.startswith("//"):
                 base, _, frag = href.partition("#")
-                if base in pages:
+                if base in pages or (TITLE.match(base) and slug_of(base) in {slug_of(p) for p in pages}):
                     return f'{pre}{slug_of(base)}.html{"#" + frag if frag else ""}{post}'
             return f'{pre}../../not-in-export.html{post}'
         text = HREF.sub(link, text)
