@@ -73,6 +73,7 @@ class Settings:
     jwt_audience: str = ""
     jwt_secret: str = field(default="", repr=False)             # HS256 client secret; never shown
     jwt_secret_previous: str = field(default="", repr=False)    # optional, rotation overlap only
+    allowed_users: tuple = ()                    # () = no restriction; beta only, jwt_required only
 
     def __repr__(self) -> str:
         return (f"Settings(home_sections={self.home_sections}, upstream_mode={self.upstream_mode!r}, "
@@ -242,6 +243,12 @@ class Settings:
             if jwt_previous and not jwt_secret:
                 problems.append("HOME_JWT_SECRET_PREVIOUS needs HOME_JWT_SECRET")
 
+        # Beta allowlist (AVR-373): a second lock behind the Authentik application binding. It only
+        # means something when the username comes from a verified token, so any other mode refuses it.
+        allowed = _allowed_users(env, problems)
+        if allowed and id_mode != "jwt_required":
+            problems.append("HOME_ALLOWED_USERS needs HOME_IDENTITY_MODE=jwt_required")
+
         if problems:
             raise SettingsError("invalid configuration: " + "; ".join(problems))
         return cls(home_sections=sections, upstream_mode=mode, jellyfin_base_url=base_url,
@@ -251,7 +258,21 @@ class Settings:
                    calibre_web_credential=cw_cred, calibre_web_owner_confirms=cw_confirms, timeout=timeout, section_limit=limit,
                    health_detail=detail, catalogue_path=catalogue, log_level=level,
                    host=host, port=port, identity_mode=id_mode, jwt_issuer=jwt_issuer,
-                   jwt_audience=jwt_audience, jwt_secret=jwt_secret, jwt_secret_previous=jwt_previous)
+                   jwt_audience=jwt_audience, jwt_secret=jwt_secret, jwt_secret_previous=jwt_previous,
+                   allowed_users=allowed)
+
+
+def _allowed_users(env: Mapping[str, str], problems: list) -> tuple:
+    """Absent -> no restriction. Present -> a comma-separated list of exact usernames; an empty list
+    or a malformed entry is an error, never a silent "everyone"."""
+    if "HOME_ALLOWED_USERS" not in env:
+        return ()
+    names = [n.strip() for n in str(env["HOME_ALLOWED_USERS"]).split(",")]
+    if not names or any(not n or len(n) > 150 or not n.isascii() or not n.isprintable()
+                        or any(c.isspace() for c in n) for n in names):
+        problems.append("HOME_ALLOWED_USERS must be a comma-separated list of usernames")
+        return ()
+    return tuple(sorted(set(names)))
 
 
 def _identity_mode(env: Mapping[str, str], problems: list) -> str:

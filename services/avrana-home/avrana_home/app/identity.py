@@ -29,8 +29,8 @@ from typing import Optional
 from fastapi import Request
 
 from ..outpost_jwt import OutpostJwtVerifier
-from ..principal import (EMAIL_HEADER, GROUPS_HEADER, JWT_HEADER, MODE_HEADERS, NAME_HEADER,
-                         USERNAME_HEADER, MemberPrincipal, PrincipalError, decode_raw_headers,
+from ..principal import (EMAIL_HEADER, GROUPS_HEADER, JWT_HEADER, MODE_HEADERS, MODE_JWT_REQUIRED,
+                         NAME_HEADER, USERNAME_HEADER, MemberPrincipal, PrincipalError, decode_raw_headers,
                          principal_for_request)
 from .logsafe import app_log, log_event
 from .settings import IDENTITY_MODES, Settings, SettingsError
@@ -82,10 +82,14 @@ class IdentityResolver:
     """Built once per app from `Settings`. In `headers` mode it holds no verifier and does exactly
     what the application did before AVR-498."""
 
-    def __init__(self, mode: str = MODE_HEADERS, verifier: Optional[OutpostJwtVerifier] = None):
+    def __init__(self, mode: str = MODE_HEADERS, verifier: Optional[OutpostJwtVerifier] = None,
+                 allowed_users=()):
         if mode not in IDENTITY_MODES or (mode != MODE_HEADERS and verifier is None):
             raise SettingsError("identity mode is not usable")
+        if allowed_users and mode != MODE_JWT_REQUIRED:
+            raise SettingsError("an allowlist needs jwt_required")
         self.mode, self.verifier = mode, verifier
+        self.allowed = frozenset(allowed_users)
 
     @classmethod
     def from_settings(cls, settings: Settings) -> "IdentityResolver":
@@ -98,7 +102,7 @@ class IdentityResolver:
                                           hmac_secrets=secrets)
         except ValueError:
             raise SettingsError("the JWT identity settings are not usable") from None
-        return cls(mode, verifier)
+        return cls(mode, verifier, getattr(settings, "allowed_users", ()))
 
     def viewer(self, scope) -> Viewer:
         names = _TRUSTED_NAMES if self.mode == MODE_HEADERS else _JWT_NAMES
@@ -107,10 +111,14 @@ class IdentityResolver:
             raw = _without_malformed_jwt(raw)
         try:
             pairs = decode_raw_headers(raw, extra_ascii=(JWT_HEADER,))
-            return Viewer(principal_for_request(pairs, mode=self.mode, verifier=self.verifier,
-                                                report=_report))
+            principal = principal_for_request(pairs, mode=self.mode, verifier=self.verifier,
+                                              report=_report)
         except PrincipalError:
             return Viewer(None)
+        if self.allowed and principal is not None and principal.username not in self.allowed:
+            _report("not_allowed")                    # a verified member who is not a beta tester
+            return Viewer(None)
+        return Viewer(principal)
 
 
 _HEADERS_ONLY = IdentityResolver()

@@ -85,6 +85,12 @@ default inside the principal module, and the setting defaults to `headers`.
 | `jwt_log_only` | the plain headers (still served) | Also verifies `X-authentik-jwt` and logs one line `identity_jwt` with a fixed `reason` code through `logsafe`: `ok`, `identity_mismatch`, `missing_header`, `duplicate_header`, `unverified_identity`, or another `PrincipalError` code. Never a token, name or group. Never changes the outcome. |
 | `jwt_required` | only a verified token | A header-only request has **no principal**. A valid token whose claims disagree with plain identity headers that are also present is refused (`identity_mismatch`). Duplicate JWT headers are refused. |
 
+Optional beta allowlist: `HOME_ALLOWED_USERS` (a comma-separated list of exact usernames) is a second lock
+behind the Authentik application binding. It is accepted **only with `jwt_required`**, because a username
+from plain headers proves nothing; any other mode, an empty list or a malformed entry refuses to start. A
+verified member not on the list gets the same "no principal" outcome and one `identity_jwt` line with
+reason `not_allowed`. Unset means no restriction.
+
 Every failure in every mode is the "no principal" outcome above (portal parity): the standard 404 on
 gated routes, the Help tile, never a 403 and never a redirect. The verified path mints the same
 `MemberPrincipal` type as the header path, so adapters, templates and the route layer are unchanged.

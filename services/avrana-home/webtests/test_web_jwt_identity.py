@@ -137,6 +137,21 @@ class SettingsTests(unittest.TestCase):
             self.assertNotIn(PREVIOUS, text)
         self.assertIn("jwt_required", repr(s))
 
+    def test_allowlist_parses_and_needs_jwt_required(self):
+        self.assertEqual((), Settings.from_mapping(self.env("jwt_required")).allowed_users)
+        s = Settings.from_mapping(self.env("jwt_required", HOME_ALLOWED_USERS=" member-a , member-b,member-a"))
+        self.assertEqual(("member-a", "member-b"), s.allowed_users)
+        for mode in ("jwt_log_only", None):
+            env = self.env(mode, HOME_ALLOWED_USERS="member-a") if mode else {"HOME_ALLOWED_USERS": "member-a"}
+            with self.subTest(mode=mode), self.assertRaises(SettingsError) as cm:
+                Settings.from_mapping(env)
+            self.assertIn("HOME_ALLOWED_USERS", str(cm.exception))
+
+    def test_an_empty_or_malformed_allowlist_is_refused_never_everyone(self):
+        for bad in ("", " ", ",", "member-a,", "member a", "m" + chr(0xe9), "x" * 151, "a	b"):
+            with self.subTest(value=bad), self.assertRaises(SettingsError):
+                Settings.from_mapping(self.env("jwt_required", HOME_ALLOWED_USERS=bad))
+
 
 class Fixture(unittest.TestCase):
     @classmethod
@@ -277,6 +292,7 @@ class ModeTests(Fixture):
         self.assertEqual(["help"], self.tiles(self.required.get("/", headers=[(JWT, mint(secret=PREVIOUS))]).text))
 
 
+
 class LogOnlyTests(Fixture):
     def capture(self):
         records = []
@@ -349,6 +365,47 @@ class LogOnlyTests(Fixture):
         self.headers_app.get("/", headers=self.plain() + [(JWT, mint())])
         self.required.get("/", headers=[(JWT, mint())])
         self.assertEqual([], self.codes(records))
+
+
+class AllowlistTests(Fixture):
+    """The beta's second lock: a verified member who is not on HOME_ALLOWED_USERS gets nothing."""
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.beta = make_client(make_settings(identity_mode="jwt_required", jwt_issuer=ISS, jwt_audience=AUD,
+                                             jwt_secret=SECRET, allowed_users=("member-a",),
+                                             home_sections=True, jellyfin_base_url=cls.mock.url, timeout=1.0))
+        cls.beta.__enter__()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.beta.__exit__(None, None, None)
+        super().tearDownClass()
+
+    def test_the_listed_tester_is_served_like_jwt_required(self):
+        hdr = [(JWT, mint())]
+        self.assertEqual(self.required.get("/", headers=hdr).content, self.beta.get("/", headers=hdr).content)
+        self.assertIn("member-a", self.beta.get("/account", headers=hdr).text)
+
+    def test_a_verified_member_not_on_the_list_gets_no_principal(self):
+        hdr = [(JWT, mint(preferred_username="member-b"))]
+        self.assertNotEqual(["help"], self.tiles(self.required.get("/", headers=hdr).text))   # valid token
+        self.assertEqual(["help"], self.tiles(self.beta.get("/", headers=hdr).text))
+        for path in ("/watch", "/home.json"):
+            self.assertEqual(404, self.beta.get(path, headers=hdr).status_code)
+        self.assertNotIn("member-b", self.beta.get("/account", headers=hdr).text)
+
+    def test_matching_is_exact(self):
+        for name in ("Member-A", "member-a ", "member-aa", "member"):
+            with self.subTest(name=name):
+                hdr = [(JWT, mint(preferred_username=name))]
+                self.assertEqual(["help"], self.tiles(self.beta.get("/", headers=hdr).text))
+
+    def test_resolver_refuses_an_allowlist_outside_jwt_required(self):
+        from avrana_home.app.identity import IdentityResolver
+        with self.assertRaises(SettingsError):
+            IdentityResolver(allowed_users=("member-a",))
 
 
 class StartupTests(unittest.TestCase):
