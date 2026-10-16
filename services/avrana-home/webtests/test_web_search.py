@@ -222,10 +222,11 @@ class Safety(Fixture):
 
         view = {"status": "ok", "entitled": True, "groups": [{"service": "jellyfin", "state": "ok", "items": [
             item("http://x.example/a", "jellyfin/primary/aaa"), item("javascript:alert(1)", None),
-            item("//x.example/b", None), item("https://x.example/c", "https://evil.example/x.png"),
-            item("https://x.example/d", "jellyfin/primary/ddd")]}]}
+            item("//x.example/b", None), item("https://x.example/e", None),      # https, but not the service's host
+            item("https://watch.avrana.net/c", "https://evil.example/x.png"),
+            item("https://watch.avrana.net/d", "jellyfin/primary/ddd")]}]}
         items = build_search(view, "tt").groups[0].items
-        self.assertEqual(["https://x.example/c", "https://x.example/d"], [i.href for i in items])
+        self.assertEqual(["https://watch.avrana.net/c", "https://watch.avrana.net/d"], [i.href for i in items])
         self.assertEqual([None, "/art/jellyfin/primary/ddd"], [i.image for i in items])
 
     def test_images_come_only_from_the_art_route(self):

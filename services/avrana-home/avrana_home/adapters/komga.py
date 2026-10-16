@@ -39,8 +39,8 @@ from ..contract import (ArtworkRef, ArtworkResult, DEFAULT_LIMIT, Kind, MediaIte
                         SectionState, Service, UpstreamUser, build_handoff_url, clean_text,
                         valid_upstream_id)
 from ..principal import MemberPrincipal
-from ..resilience import (DEFAULT_TIMEOUT, ItemGone, RouteMissing, Transport, UpstreamMalformed,
-                          UpstreamMisbehaved)
+from ..resilience import (DEFAULT_TIMEOUT, ItemGone, RouteMissing, Transport, UpstreamAuthError,
+                          UpstreamMalformed, UpstreamMisbehaved)
 from ._base import GuardedAdapter, Route, year_from
 from ._base import GuardedTransport as _Guard
 
@@ -134,13 +134,21 @@ class KomgaAdapter(GuardedAdapter):
                          artwork=ArtworkRef(f"komga/book/{book_id}", f"Cover of {title}")), "ok"
 
     def _visible_book(self, guard, budget, book_id: str) -> Optional[MediaItem]:
-        """The book if the shared account can see it (Komga answers 404 otherwise), else None."""
+        """The book if the shared account can see it, else None. Komga answers 404 for an unknown book and 403
+        for a book in a library or behind a content restriction the account may not use (BookController, from
+        the source; UNVERIFIED live). Both are the same "hidden" here, so a title page cannot tell them apart
+        (no existence oracle). The 403 is handled inside the hook, so it never reaches the shared circuit; a
+        refused credential (401) still does."""
         if not _item_id(book_id):
             return None
         try:
             raw = self._get_json(guard, budget, f"/api/v1/books/{book_id}", None)
         except ItemGone:
             return None
+        except UpstreamAuthError as exc:
+            if exc.status == 403:
+                return None
+            raise
         if isinstance(raw, dict) and raw.get("id") != book_id:
             raise UpstreamMisbehaved()
         item, status = self._book(raw)

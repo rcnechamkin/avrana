@@ -387,13 +387,15 @@ class MediaAdapter:
         return self._section(principal, "recent", f"recent:{limit}",
                              lambda user: self._recent_items(user, limit))
 
-    def item(self, principal: MemberPrincipal, item_id: str) -> SectionResult:
+    def item(self, principal: MemberPrincipal, item_id: str, fresh: bool = False) -> SectionResult:
+        """One item for this member. `fresh=True` (the title page) skips the member cache entirely, no read and no
+        write, so a removed upstream permission takes effect on the next view; the group is still checked first."""
         if not valid_upstream_id(self.service, item_id):
             self._require_principal(principal)
             if not principal.has_group(self.required_group):
                 return self._not_permitted("item")
             return SectionResult(self.service, "item", SectionState.EMPTY, reason="invalid_id")
-        return self._section(principal, "item", f"item:{item_id}",
+        return self._section(principal, "item", None if fresh else f"item:{item_id}",
                              lambda user: self._item(user, item_id))
 
     def search(self, principal: MemberPrincipal, query: str, limit: int = DEFAULT_LIMIT) -> SectionResult:

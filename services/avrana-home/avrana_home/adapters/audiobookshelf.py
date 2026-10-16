@@ -295,9 +295,9 @@ class AudiobookshelfAdapter(GuardedAdapter):
             return SectionResult.of(Service.AUDIOBOOKSHELF, "item", ())
         mine = next((e for e in self._candidates(record.get("mediaProgress"), uid) if e[1] == item_id), None)
         fraction, position, duration = (mine[2], mine[3], mine[4]) if mine else (None, None, None)
-        media, status = self._visible(raw, item_id, access, fraction, position, duration)
-        if media is None and status == "bad":
-            raise UpstreamMalformed()
+        media, _status = self._visible(raw, item_id, access, fraction, position, duration)
+        # A malformed item (a permission field missing or mistyped) is not shown: it fails closed to "hidden",
+        # the same as forbidden or unknown, so its existence is not revealed either.
         return SectionResult.of(Service.AUDIOBOOKSHELF, "item", (media,) if media else ())
 
     def _libraries(self, guard, budget, access: _Access) -> List[str]:
@@ -396,6 +396,8 @@ class AudiobookshelfAdapter(GuardedAdapter):
         if raw.get("id") != item_id:
             raise UpstreamMisbehaved()                    # the lookup answered with a different item
         library_id, media = raw.get("libraryId"), raw.get("media")
+        if isinstance(library_id, str) and access.libraries is not None and library_id not in access.libraries:
+            return None, "filtered"                       # a library this member may not use: first, whatever else is odd
         meta = media.get("metadata") if isinstance(media, dict) else None
         tags = media.get("tags") if isinstance(media, dict) else None
         if (not isinstance(library_id, str) or not isinstance(meta, dict) or not isinstance(tags, list)

@@ -962,7 +962,11 @@ The recorded read-only check (#47's capture tool) captures the search routes so 
 `GET /title/<service>/<id>` renders one item via the adapter's own `item(principal, id)`: group first (no upstream
 call and no cache read without it), the id must match the contract pattern for that service, then the member-scoped
 lookup (Jellyfin `userId`, Audiobookshelf the member's own permissions and own progress entry, Komga the shared
-view). Results are cached per member only (`item:<id>`, 120 s, the existing member-scoped cache; a revoked group is
-absent at once because the group is checked before the cache). Calibre-Web has no item lookup, so its search results
-link straight to Calibre-Web. Not permitted, unknown, hidden, malformed: the standard 404. Unavailable: a calm 503
-page with Try again that says nothing about the title.
+view). The title page always makes the permission-checked upstream lookup (`item(..., fresh=True)`: no cache read
+or write), so a removed upstream permission takes effect on the next view; the group is still checked first.
+Calibre-Web has no item lookup, so its search results link straight to Calibre-Web. Not permitted, unknown, hidden,
+malformed: the standard 404. Komga's 403 for a book the shared account may not open is treated as hidden (404), not
+as an outage, and never counts toward the circuit; an Audiobookshelf item in a library the member may not use is
+hidden before any other field is checked, and a malformed item on the title path fails closed to hidden.
+Unavailable: a calm 503 page with Try again that says nothing about the title. The primary action and every search
+result link only to the item's own service host (`HANDOFF_BASE`).

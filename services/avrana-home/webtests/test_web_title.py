@@ -164,12 +164,26 @@ class TitlePage(Fixture):
         self.assertIn('href="/search?q=Synthetic">Back to search', mine.text)
         self.assertNotIn('class="open"', mine.text)                     # no action at all: nothing to open
 
-    def test_a_cached_title_survives_an_outage_for_its_own_member_only(self):
+    def test_a_title_is_never_served_from_cache(self):
+        """Review of #58: every view is the permission-checked upstream lookup, so access removal and outages show
+        at once; while down, a seen and an unseen title answer the same 503."""
         c = self.client()
-        self.assertEqual(200, c.get("/title/jellyfin/cccc0000000000000000000000000001", headers=A).status_code)
+        shared = "/title/jellyfin/cccc0000000000000000000000000001"
+        self.assertEqual(200, c.get(shared, headers=A).status_code)
         self.jf.set_mode("500")
-        self.assertEqual(200, c.get("/title/jellyfin/cccc0000000000000000000000000001", headers=A).status_code)
-        self.assertEqual(503, c.get("/title/jellyfin/cccc0000000000000000000000000001", headers=B).status_code)
+        self.assertEqual(503, c.get(shared, headers=A).status_code)
+        self.assertEqual(503, c.get(shared, headers=B).status_code)
+
+    def test_a_komga_book_the_shared_account_may_not_open_is_the_standard_404(self):
+        c = self.client()
+        self.kg.fake.overrides["/api/v1/books/BOOKAAAA0001"] = ("status", 403)
+        try:
+            forbidden = c.get("/title/komga/BOOKAAAA0001", headers=A)
+            unknown = c.get("/title/komga/BOOKZZZZ9999", headers=A)
+        finally:
+            self.kg.fake.overrides.pop("/api/v1/books/BOOKAAAA0001", None)
+        self.assert_standard_404(c, forbidden)
+        self.assertEqual((unknown.status_code, unknown.text), (forbidden.status_code, forbidden.text))
 
     def test_back_to_search_carries_only_a_valid_term_encoded(self):
         c = self.client()

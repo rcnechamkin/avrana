@@ -154,7 +154,7 @@ def view(*groups, entitled=True, status="ok"):
 
 def film(i=1, **kw):
     it = {"id": "jellyfin:" + "a" * 31 + str(i), "service": "jellyfin", "kind": "movie", "title": f"Film {i}",
-          "handoff_url": "https://watch.example/x", "artwork": None, "subtitle": "2001", "year": 2001}
+          "handoff_url": "https://watch.avrana.net/web/#/details?id=x", "artwork": None, "subtitle": "2001", "year": 2001}
     it.update(kw)
     return it
 
@@ -178,9 +178,10 @@ class SearchStates(unittest.TestCase):
 
     def test_without_a_title_page_the_one_link_is_the_library(self):
         p = build_search(view(("calibre-web", "ok", [film(service="calibre-web", id="calibre-web:12", kind="ebook",
-                                                           creator="An Author")])), "Film")
+                                                           creator="An Author",
+                                                           handoff_url="https://books.avrana.net/book/12")])), "Film")
         hit = p.groups[0].items[0]
-        self.assertEqual((hit.href, hit.opens, hit.medium), ("https://watch.example/x", "Books", "Book"))
+        self.assertEqual((hit.href, hit.opens, hit.medium), ("https://books.avrana.net/book/12", "Books", "Book"))
         self.assertEqual(hit.line, "Book · An Author · 2001")
 
     def test_a_forged_id_never_becomes_a_title_link(self):
@@ -230,6 +231,20 @@ class SearchStates(unittest.TestCase):
         for host in ("evil.example/x", "a b", "https://x.example", "", "x", "request.example.net:8443", None):
             self.assertEqual(request_options(["jellyfin"], "x y", {"requests": host}), (), repr(host))
         self.assertEqual([r.href for r in request_options(["jellyfin"], None, HOSTS)], ["/requests"])
+
+
+class HandoffHosts(unittest.TestCase):
+    def test_only_the_services_own_fixed_host_survives(self):
+        bad = ("https://evil.example/web/#/details?id=x", "https://listen.avrana.net/item/x",
+               "https://watch.avrana.net.evil.example/x", "https://watch.avrana.netx/", "http://watch.avrana.net/x",
+               "https://watch.avrana.net", "//watch.avrana.net/x", "javascript:alert(1)", None, 5)
+        for href in bad:
+            p = build_search(view(("jellyfin", "ok", [film(handoff_url=href)])), "Film", title_services={"jellyfin"})
+            self.assertEqual((p.found, p.result_state), (0, "none"), repr(href))
+            sec = {"state": "ok", "items": [film(handoff_url=href)]}
+            self.assertIsNone(build_title(sec, "jellyfin", "a" * 31 + "1", None), repr(href))
+        good = build_search(view(("jellyfin", "ok", [film()])), "Film")
+        self.assertEqual(good.found, 1)
 
 
 class TitleRules(unittest.TestCase):
@@ -282,6 +297,61 @@ class TitleRoute(unittest.TestCase):
                     "/title/jellyfin/" + "a" * 5000, "/title/calibre-web/12x", "/TITLE/jellyfin/" + FILM_A,
                     "/title/komga/BOOK%41AAA0001"):
             self.assertIsNone(parse_title_route(bad), repr(bad)[:60])
+
+
+class ReviewFixes(Setup):
+    """Review of #58: no existence oracle on Komga 403 or Audiobookshelf malformed items; title lookups uncached."""
+
+    def test_komga_403_on_a_book_is_hidden_like_404_and_never_counts(self):
+        self.kg.overrides["/api/v1/books/BOOKAAAA0001"] = ("status", 403)
+        for _ in range(12):
+            r = self.komga.item(self.a, "BOOKAAAA0001", fresh=True)
+            self.assertEqual((r.state, r.items), (SectionState.EMPTY, ()))
+        self.assertEqual(self.komga.item(self.a, "BOOKZZZZ9999", fresh=True).state, SectionState.EMPTY)
+        self.assertNotIn(self.komga.health().to_dict()["state"], ("cooling_off", "failing"))
+        self.assertEqual(self.komga.recent_items(self.a).state, SectionState.OK)       # circuit still closed
+        self.kg.overrides["/api/v1/books/BOOKAAAA0001"] = ("status", 401)               # a refused key is not "hidden"
+        self.assertEqual(self.komga.item(self.a, "BOOKAAAA0001", fresh=True).state, SectionState.UNAVAILABLE)
+
+    def test_abs_forbidden_library_with_malformed_fields_is_hidden_not_unavailable(self):
+        item = dict(self.ab.items["li_book000003"])                     # lib_bbb: member-a may not use it
+        item["media"] = dict(item["media"], tags=None)
+        self.ab.serve("/api/items/li_book000003", item)
+        r = self.abs.item(self.a, "li_book000003", fresh=True)
+        self.assertEqual((r.state, r.items), (SectionState.EMPTY, ()))
+        ok = dict(self.ab.items["li_book000001"])                       # a library member-a may use, malformed
+        ok["media"] = dict(ok["media"], tags=None)
+        self.ab.serve("/api/items/li_book000001", ok)
+        r = self.abs.item(self.a, "li_book000001", fresh=True)
+        self.assertEqual((r.state, r.items), (SectionState.EMPTY, ()))  # fails closed to hidden
+
+    def test_abs_checks_library_access_before_any_other_field(self):
+        from avrana_home.adapters.audiobookshelf import _Access
+        access = _Access(frozenset({"lib_aaa"}), None, False)
+        raw = {"id": "li_book000003", "libraryId": "lib_bbb", "mediaType": "book", "media": {"tags": None}}
+        self.assertEqual(AudiobookshelfAdapter._visible(raw, "li_book000003", access, None, None, None),
+                         (None, "filtered"))                              # forbidden first, not "bad"
+        raw["libraryId"] = "lib_aaa"
+        self.assertEqual(AudiobookshelfAdapter._visible(raw, "li_book000003", access, None, None, None)[1], "bad")
+
+    def test_a_fresh_title_lookup_reads_no_cache_and_sees_access_removal_at_once(self):
+        self.assertEqual(self.jellyfin.item(self.a, FILM_A, fresh=True).state, SectionState.OK)
+        before = len(self.jf.requests)
+        self.assertEqual(self.jellyfin.item(self.a, FILM_A, fresh=True).state, SectionState.OK)
+        self.assertEqual(len(self.jf.requests), before + 1)            # one upstream call per view, mapping cached
+        self.jf.overrides["/Items"] = ("body", b'{"Items": [], "TotalRecordCount": 0}')
+        self.assertEqual(self.jellyfin.item(self.a, FILM_A, fresh=True).state, SectionState.EMPTY)
+        rec = self.ab.record("aaaaaaaa-1111-4aaa-8aaa-aaaaaaaaaaaa")
+        self.assertEqual(self.abs.item(self.a, "li_book000001", fresh=True).state, SectionState.OK)
+        rec["librariesAccessible"] = []
+        self.ab.serve("/api/users/aaaaaaaa-1111-4aaa-8aaa-aaaaaaaaaaaa", rec)
+        self.assertEqual(self.abs.item(self.a, "li_book000001", fresh=True).state, SectionState.EMPTY)
+
+    def test_down_and_not_set_up_together_are_named_precisely(self):
+        p = build_search(view(("jellyfin", "unavailable"), ("komga", "not_linked")), "Film")
+        self.assertEqual(p.result_state, "unsearchable")
+        self.assertTrue(p.message.startswith("Movies and TV could not be searched right now, and Comics is not set up "
+                                             "for your account yet."), p.message)
 
 
 if __name__ == "__main__":

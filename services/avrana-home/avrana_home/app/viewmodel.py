@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from typing import Optional, Tuple
 from urllib.parse import quote
 
-from ..contract import Service, clean_query, valid_upstream_id
+from ..contract import HANDOFF_BASE, Service, clean_query, valid_upstream_id
 from .artwork import src_for
 
 SERVICE_LABEL = {"jellyfin": "Movies and TV", "audiobookshelf": "Audiobooks",
@@ -355,6 +355,15 @@ _HOST = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9
 TITLE_PREFIX = "/title/"
 
 
+def handoff_ok(href, service: str) -> bool:
+    """A hand-off link only on THAT service's own fixed host (contract.HANDOFF_BASE), never any other https URL."""
+    try:
+        base = HANDOFF_BASE[Service(service)]
+    except (ValueError, KeyError):
+        return False
+    return isinstance(href, str) and href.startswith(base + "/")
+
+
 def _year_of(value) -> Optional[int]:
     return value if isinstance(value, int) and not isinstance(value, bool) and 1000 <= value <= 2200 else None
 
@@ -436,7 +445,7 @@ class SearchVM:
 
 def _result_vm(it: dict, service: str, label: str, term: Optional[str], title_services) -> Optional[ResultVM]:
     handoff = it.get("handoff_url")
-    if not isinstance(handoff, str) or not handoff.startswith(_HANDOFF_PREFIX):
+    if not handoff_ok(handoff, service):
         return None
     kind = str(it.get("kind", ""))
     title = _plain(it.get("title") or "") or "Untitled"
@@ -527,8 +536,14 @@ def build_search(view: dict, raw_term: Optional[str], *, title_services=frozense
     if not empty:
         # Nobody answered. Unavailable is not empty: never "no matches", never a request offer.
         if down:
-            msg = (f"The {down[0]} library could not be searched right now." if len(groups) == 1
-                   else "Your libraries could not be searched right now.")
+            unlinked = [g.label for g in groups if g.state == "not_linked"]
+            if len(groups) == 1:
+                msg = f"The {down[0]} library could not be searched right now."
+            elif unlinked:
+                msg = (f"{_names(down)} could not be searched right now, and {_names(unlinked)} "
+                       f"{'is' if len(unlinked) == 1 else 'are'} not set up for your account yet.")
+            else:
+                msg = "Your libraries could not be searched right now."
             return SearchVM("results", message=msg + " This usually passes within a minute.",
                             result_state="unsearchable", outcome="Not searched", **base)
         return SearchVM("results", message="Search is not set up for your account yet. See Help for what to do.",
@@ -596,7 +611,7 @@ def build_title(section: dict, service: str, upstream_id: str, raw_term: Optiona
     if it is None:
         return None
     href = it.get("handoff_url")
-    if not isinstance(href, str) or not href.startswith(_HANDOFF_PREFIX):
+    if not handoff_ok(href, service):
         return None
     kind = str(it.get("kind", ""))
     title = _plain(it.get("title") or "") or "Untitled"

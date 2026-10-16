@@ -224,7 +224,8 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
                                 and "item" not in a.not_offered), None)
             page = None
             if adapter is not None:
-                section = await run_in_threadpool(adapter.item, viewer.principal, parsed[1])
+                # Always the permission-checked upstream lookup (fresh=True: no cache read or write).
+                section = await run_in_threadpool(lambda: adapter.item(viewer.principal, parsed[1], fresh=True))
                 log_event(app_log, logging.INFO, "section", service=section.service.value,
                           section=section.section, state=section.state.value, reason=section.reason or "")
                 page = build_title(section.to_dict(), parsed[0], parsed[1], search_term_from_scope(scope))

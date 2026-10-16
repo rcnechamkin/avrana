@@ -243,6 +243,8 @@ started. Secondary: Back to search (only when the address carries a term that pa
 other query parameter is read), Home, Help. Not permitted, unknown, hidden, malformed or hostile ids and a missing
 identity are the standard 404, identical to an unknown route. An unavailable library is a 503 page "The ... library
 is unavailable right now" with Try again; it says nothing about whether the title exists. The strict CSP applies.
+Every view makes the permission-checked upstream lookup (no cache), so access removed upstream shows at once.
+Hand-off links (results and the primary action) must be on the item's own service host (`contract.HANDOFF_BASE`).
 
 ## 6. Logging
 
