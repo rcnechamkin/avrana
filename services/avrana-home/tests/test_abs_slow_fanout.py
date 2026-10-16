@@ -29,15 +29,17 @@ class SlowTransport(FakeTransport):
 
     def __init__(self, fake, clock, delay):
         super().__init__(fake)
-        self.clock, self.delay = clock, delay
+        self.clock = clock
+        self.delay = delay if callable(delay) else (lambda _path: delay)   # seconds, or path -> seconds
 
     def request(self, method, path, query, timeout, max_bytes):
-        if self.delay > timeout:
+        delay = self.delay(path)
+        if delay > timeout:
             self.clock.advance(timeout)
             self.calls += 1
             SlowTransport.timed_out += 1
             raise UpstreamTimeout()
-        self.clock.advance(self.delay)
+        self.clock.advance(delay)
         return super().request(method, path, query, timeout, max_bytes)
 
 
@@ -70,8 +72,8 @@ class SlowFanOut(unittest.TestCase):
         return self.adapter(0.2).health().state
 
     def test_when_the_budget_runs_short_continue_stops_and_the_circuit_stays_closed(self):
-        """At 450 ms a call, member-a's two newest entries are books she may not see, so the budget runs out
-        before anything visible is found: UNAVAILABLE for her (never "empty"), and never counted."""
+        """At 450 ms a call, member-a's two newest entries are books she may not see (both answer 200), so the
+        budget runs out before anything visible is found: UNAVAILABLE for her (never "empty"), never counted."""
         for _ in range(6):
             r = self.adapter(0.45).continue_items(self.a, limit=12)
             self.assertIn((r.state, r.reason), ((SectionState.UNAVAILABLE, "FanOutSpent"), (SectionState.OK, None)))
@@ -93,6 +95,42 @@ class SlowFanOut(unittest.TestCase):
         self.assertIs(SectionState.OK, r.state)
         self.assertEqual(2, len(r.items))
         self.assertNotIn(self.breaker_state(), ("cooling_off", "failing"))
+
+    def test_case_c_a_fast_404_then_hanging_lookups_still_opens_the_circuit(self):
+        """A stale progress entry for a deleted book answers 404 at once; every real lookup after it hangs. A 404
+        is not evidence that the item route works, so the hang counts and the circuit opens."""
+        rec = self.fake.record(UA)
+        gone = dict(rec["mediaProgress"][0], libraryItemId="li_gone000001", lastUpdate=2 * 10 ** 12)
+        rec["mediaProgress"] = [gone] + rec["mediaProgress"]
+        self.fake.serve(f"/api/users/{UA}", rec)
+        delay = lambda path: (0.01 if not path.startswith("/api/items/") or "li_gone" in path else 30.0)  # noqa: E731
+        for _ in range(3):
+            r = self.adapter(delay).continue_items(self.a, limit=12)
+            self.assertEqual((SectionState.UNAVAILABLE, "UpstreamTimeout"), (r.state, r.reason))
+        self.assertEqual("cooling_off", self.breaker_state())
+
+    def test_case_b_a_slow_user_record_counts_instead_of_hiding_as_fan_out(self):
+        delay = lambda path: 1.65 if path == f"/api/users/{UA}" else 0.01   # noqa: E731
+        for _ in range(3):
+            r = self.adapter(delay).continue_items(self.a, limit=12)
+            self.assertEqual((SectionState.UNAVAILABLE, "UpstreamTimeout"), (r.state, r.reason))
+        self.assertEqual("cooling_off", self.breaker_state())
+
+    def test_a_truncated_list_is_cached_only_briefly(self):
+        from avrana_home.contract import TRUNCATED, TRUNCATED_TTL
+        rec = self.fake.record(UA)
+        visible = [e for e in rec["mediaProgress"] if e["libraryItemId"] in ("li_book000001", "li_book000002")]
+        rec["mediaProgress"] = [dict(e, lastUpdate=2 * 10 ** 12 + i) for i, e in enumerate(visible)] + rec["mediaProgress"]
+        self.fake.serve(f"/api/users/{UA}", rec)
+        adapter = self.adapter(0.45)
+        r = adapter.continue_items(self.a, limit=12)
+        self.assertEqual((SectionState.OK, TRUNCATED), (r.state, r.reason))
+        n = len(self.fake.paths())
+        adapter.continue_items(self.a, limit=12)
+        self.assertEqual(n, len(self.fake.paths()))          # served from the cache within the short TTL
+        self.clock.advance(TRUNCATED_TTL + 0.1)
+        adapter.continue_items(self.a, limit=12)
+        self.assertGreater(len(self.fake.paths()), n)        # ... and refetched soon after, not 30 s later
 
     def test_fan_out_spent_is_unavailable_but_never_counted(self):
         self.assertFalse(counts_toward_breaker(FanOutSpent()))

@@ -47,6 +47,8 @@ DEFAULT_MAX_IN_FLIGHT = 8             # upstream calls running at once, per adap
 DEFAULT_MAX_IN_FLIGHT_PER_MEMBER = 2  # ... of which one member may hold at most this many
 MAPPING_TTL_FOUND = 60.0              # bounds how long a renamed or swapped upstream account can linger
 MAPPING_TTL_ABSENT = 60.0
+TRUNCATED = "truncated"               # SectionResult.reason: a list cut short by the request budget
+TRUNCATED_TTL = 5.0                   # ... is cached this briefly, so a complete list follows soon
 
 log = logging.getLogger("avrana_home")
 
@@ -653,8 +655,8 @@ class MediaAdapter:
         result = out.value
         if cache_name is not None and result.state in (SectionState.OK, SectionState.EMPTY) and out.fresh:
             # permission-dependent library data is member-scoped, never "catalogue"
-            scope.set(self.service.value, cache_name, result, ttl=self.cache_ttl(section),
-                      data_class="member_progress")
+            ttl = TRUNCATED_TTL if result.reason == TRUNCATED else self.cache_ttl(section)
+            scope.set(self.service.value, cache_name, result, ttl=ttl, data_class="member_progress")
         return result
 
     def cache_ttl(self, section: str) -> float:

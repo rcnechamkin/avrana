@@ -283,7 +283,7 @@ class DegradationTests(Fixture):
     def assert_degraded_page(self, r, started):
         self.assertEqual(200, r.status_code)
         self.assertIn('<p class="banner" role="status">Movies and TV are unavailable right now.</p>', r.text)
-        self.assertIn('<s>Watch</s><span class="sr">, unavailable</span>', r.text)    # struck, kept in place
+        self.assertIn('<s>Watch</s><span class="sr">, unavailable: what to do</span>', r.text)    # struck, kept in place
         for tile in ("/request", "/help"):
             self.assertIn(f'href="{tile}"', r.text)
         self.assertEqual([], cards(region(r.text)))

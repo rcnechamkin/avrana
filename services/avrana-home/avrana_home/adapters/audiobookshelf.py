@@ -51,7 +51,7 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 
-from ..contract import (ArtworkRef, ArtworkResult, DEFAULT_LIMIT, Kind, MappingFailed, MediaItem,
+from ..contract import (TRUNCATED, ArtworkRef, ArtworkResult, DEFAULT_LIMIT, Kind, MappingFailed, MediaItem,
                         SectionResult, SectionState, Service, UpstreamUser, build_handoff_url, clean_text,
                         valid_upstream_id)
 from ..principal import MemberPrincipal
@@ -316,34 +316,44 @@ class AudiobookshelfAdapter(GuardedAdapter):
         entries = self._candidates(record.get("mediaProgress"), uid)
 
         shown: List[MediaItem] = []
-        unusable = looked_up = 0
+        truncated = False
+        # `answered` counts item lookups that came back with an item (200). A fast 404 for a stale entry is NOT
+        # evidence that the item route works, so it never lets a later timeout pass as our own fan-out: a
+        # service that 404s quickly and then hangs must still open the circuit (review of #59, case C).
+        unusable = answered = 0
         for last_update, item_id, fraction, position, duration in entries[:MAX_LOOKUPS]:
             if len(shown) >= limit:
                 break
             if _left(budget) < LOOKUP_RESERVE:
-                # Our own fan-out has used the budget; the service answered every call so far.
                 if shown:
+                    truncated = True
                     break                                 # what is already checked is accurate: show it
-                raise FanOutSpent()                       # nothing to show yet: unavailable, never "empty"
+                if answered:
+                    raise FanOutSpent()                   # the item route answered; OUR fan-out used the budget
+                raise UpstreamTimeout()                   # mapping, record or 404s used it: real evidence (case B)
             try:
                 raw = self._get_json(guard, budget, f"/api/items/{item_id}", {"expanded": "1"})
             except ItemGone:
-                looked_up += 1
-                continue                                  # vanished upstream: omitted, neutral
+                continue                                  # vanished upstream: omitted, neutral, not "answered"
             except UpstreamTimeout:
                 if shown:
+                    truncated = True
                     break                                 # a late lookup ran out of budget: keep the rest
-                if looked_up:
-                    raise FanOutSpent() from None         # the service answered earlier lookups: ours
+                if answered:
+                    raise FanOutSpent() from None         # the item route answered earlier lookups: ours
                 raise                                     # nothing answered in time: real evidence
-            looked_up += 1
+            answered += 1
             media, status = self._visible(raw, item_id, access, fraction, position, duration)
             unusable += status == "bad"
             if media is not None:
                 shown.append(media)
         if not shown and unusable:
             raise UpstreamMalformed()                     # nothing could be shown safely: drift, not "empty"
-        return SectionResult.of(Service.AUDIOBOOKSHELF, "continue", tuple(shown))
+        result = SectionResult.of(Service.AUDIOBOOKSHELF, "continue", tuple(shown))
+        if truncated:
+            # Cut short by the budget: cached only briefly (contract.TRUNCATED_TTL), never as the full list.
+            result = SectionResult(result.service, result.section, result.state, result.items, reason=TRUNCATED)
+        return result
 
     @staticmethod
     def _candidates(progress: Any, uid: str):

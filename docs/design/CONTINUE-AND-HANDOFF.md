@@ -43,7 +43,7 @@ macro; this lane only sets the fields.
 | **User scope** | The mapped member's user id in the query; the response's `UserData.UserId`/`ItemId` are checked when present (**UNVERIFIED** whether real responses carry them) | The member's own user id in the path; every entry's `userId` must equal it, else the section is discarded. Admin-capable token (ADAPTER-CONTRACT 11.1) | The shared regular account. Its read progress is the shared account's, not the member's, so it is never read | The shared viewer account. Per-member read state would need each member's own password |
 | **Granularity** | Ticks (1/10,000,000 s) and `PlayedPercentage`; `Played` flag. Resume list filters `IsResumable = true` (**verified-by-doc**, same file); whether that excludes played items is not visible there (**UNVERIFIED**), so the adapter drops `Played: true` itself | `currentTime` and `duration` in seconds (float), `progress` 0 to 1 stored as sent by the client (1 when marked finished), `isFinished`, `hideFromContinueListening`, `lastUpdate` in ms (**verified-by-doc**). Ebook progress (`ebookProgress`) is not read: an ebook-only item with no audio position is not shown | n/a | n/a |
 | **Refresh** | Section cache 30 s per member (`MediaAdapter.cache_ttl`), mapping 60 s | same | n/a | n/a |
-| **Cost per Continue** | One list call | One user-record call, then one item lookup per progress entry, one after another, inside the 2 s request budget (at most 24). A lookup starts only while 0.4 s of the budget is left; when it runs short Continue shows the items already checked, or is unavailable for that member if none was visible yet (`FanOutSpent`), which never counts toward the circuit every member shares (AVR-503 benchmark defect F1). A service that answers nothing in time still counts | n/a | n/a |
+| **Cost per Continue** | One list call | One user-record call, then one item lookup per progress entry, one after another, inside the 2 s request budget (at most 24). A lookup starts only while 0.4 s of the budget is left; when it runs short Continue shows the items already checked (cached 5 s instead of 30 s, reason `truncated`), or, if none was visible yet but at least one item lookup came back with an item, is unavailable for that member (`FanOutSpent`), which never counts toward the circuit every member shares (AVR-503 benchmark defect F1). If no item lookup has answered (slow mapping or user record, or only fast 404s for stale entries followed by a hang), the timeout counts as usual, so a hanging service still opens the circuit | n/a | n/a |
 | **Hand-off** | `https://watch.avrana.net/web/#/details?id=<32 hex>` (section 3) | `https://listen.avrana.net/item/<id>` | `https://read.avrana.net/book/<id>` | `https://books.avrana.net/book/<n>` |
 | **Fallback** | No saved position: Open; no run time: percent or "*N* in"; failure: "Movies and TV are unavailable right now." | No `currentTime`: Open with a percent; failure: "Audiobooks are unavailable right now." | Open from New this week only | Open from New this week only |
 | **Button** | **Resume** when position >= 1 s, else Open | **Resume** when `currentTime` >= 1 s, else Open | **Open** only | **Open** only |
@@ -111,10 +111,11 @@ because they come only from that member's own section (isolation suites: `test_w
   the title." and "Asking does not add it straight away, and not every request can be filled." No library is
   named in either intro.
 - The Watch interstitial (with the shell) says it opens a separate website with its own sign-in, that Avrana
-  does not start anything there, and how to come back; it offers "If something doesn't open" beside
+  does not start anything there, and how to come back (back button, or for the Home Screen app, which has none,
+  close the library's window or reopen Avrana from its icon); it offers "If something doesn't open" beside
   "Set up the app".
 - **Unavailable place**: instead of a dead struck-through span, the struck place is a link to
-  `/help/trouble#unavailable` (accessible name "Watch, unavailable"), which says what happened, that other
+  `/help/trouble#unavailable` (accessible name "Watch, unavailable: what to do"), which says what happened, that other
   libraries keep working, to choose Try again, that the library itself can still be tried, and links to it.
   Chosen over linking the place itself because the member asked "why is this struck", and over plain text
   because a link is the next useful action.

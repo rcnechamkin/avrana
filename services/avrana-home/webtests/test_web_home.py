@@ -201,7 +201,7 @@ class HomePageTests(unittest.TestCase):
         self.addCleanup(c.__exit__, None, None, None)
         r = c.get("/", headers=A)
         self.assertEqual(200, r.status_code)
-        self.assertIn('<s>Watch</s><span class="sr">, unavailable</span>', places_of(r.text))
+        self.assertIn('<s>Watch</s><span class="sr">, unavailable: what to do</span>', places_of(r.text))
         self.assertIn("Movies and TV are unavailable right now.", main_of(r.text))
         self.assertNotIn("Traceback", r.text)
         self.assertNotIn("500", main_of(r.text))

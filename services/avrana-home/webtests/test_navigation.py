@@ -75,6 +75,7 @@ class ReturnNavigationTests(Fixture):
         watch = self.on.get("/watch", headers=ALL).text
         self.assertIn("Before you continue", watch)
         self.assertIn("a separate website with its own sign-in", watch)
+        self.assertIn("If you opened Avrana from your Home Screen", watch)        # no back button there
         self.assertIn('href="/help/movies"', main_of(watch))
         self.assertIn('href="/help/trouble"', main_of(watch))
         self.assertIn('href="https://watch.avrana.net"', main_of(watch))
@@ -145,7 +146,7 @@ class UnavailablePlaceTests(unittest.TestCase):
         c.__enter__()
         self.addCleanup(c.__exit__, None, None, None)
         text = c.get("/", headers=VIDEO).text
-        self.assertIn('<a class="off" href="/help/trouble#unavailable"><s>Watch</s><span class="sr">, unavailable</span></a>',
+        self.assertIn('<a class="off" href="/help/trouble#unavailable"><s>Watch</s><span class="sr">, unavailable: what to do</span></a>',
                       text)
         self.assertNotIn('<span class="off">', text)
         self.assertIn('id="unavailable"', c.get("/help/trouble", headers=VIDEO).text)
