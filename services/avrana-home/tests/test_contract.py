@@ -116,3 +116,24 @@ class ContractBehaviourTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AudiobookshelfIdTests(unittest.TestCase):
+    """Current Audiobookshelf servers use UUID item ids (seen live 2026-10-16); old servers use "li_..."."""
+
+    def test_both_id_forms_are_valid_and_nothing_looser(self):
+        from avrana_home.contract import valid_upstream_id
+        ok = ("li_abc123def", "6c09171b-c646-4156-8450-85b7cc0acd58")
+        bad = ("6C09171B-C646-4156-8450-85B7CC0ACD58", "6c09171b-c646-4156-8450-85b7cc0acd5", "root",
+               "li_", "../li_abc123def", "6c09171b-c646-4156-8450-85b7cc0acd58/x", "")
+        for v in ok:
+            self.assertTrue(valid_upstream_id(Service.AUDIOBOOKSHELF, v), v)
+        for v in bad:
+            self.assertFalse(valid_upstream_id(Service.AUDIOBOOKSHELF, v), v)
+
+    def test_the_item_route_accepts_a_uuid_id(self):
+        from avrana_home.adapters.audiobookshelf import ALLOWED_ROUTES
+        item = next(r for r in ALLOWED_ROUTES if r.name == "item")
+        self.assertTrue(item.pattern.fullmatch("/api/items/6c09171b-c646-4156-8450-85b7cc0acd58"))
+        self.assertTrue(item.pattern.fullmatch("/api/items/li_abc123def"))
+        self.assertIsNone(item.pattern.fullmatch("/api/items/6c09171b-c646-4156-8450-85b7cc0acd58/x"))

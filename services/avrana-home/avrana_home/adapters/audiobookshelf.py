@@ -39,7 +39,7 @@ from ._base import GuardedTransport as _Guard
 
 _UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 _BOUND_ID = re.compile(_UUID)
-_ITEM_PATH = r"li_[a-z0-9]{6,40}"
+_ITEM_PATH = r"(?:li_[a-z0-9]{6,40}|" + _UUID + r")"   # old "li_" ids and current UUID ids (contract.py)
 MAX_LOOKUPS = 24                # item lookups per request, however long the progress list is
 
 ALLOWED_ROUTES = (

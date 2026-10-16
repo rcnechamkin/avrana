@@ -94,7 +94,8 @@ HANDOFF_BASE = {
 # Strict, ASCII-only id patterns (fullmatch). Path templates are UNVERIFIED against live apps.
 _ID_PATTERN = {
     Service.JELLYFIN: re.compile(r"[0-9a-f]{32}"),
-    Service.AUDIOBOOKSHELF: re.compile(r"li_[a-z0-9]{6,40}"),
+    # Audiobookshelf before 2.3 used "li_..." ids; current servers use lowercase UUIDs (seen live 2026-10-16).
+    Service.AUDIOBOOKSHELF: re.compile(r"(?:li_[a-z0-9]{6,40}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})"),
     Service.KOMGA: re.compile(r"[A-Za-z0-9]{6,32}"),
     Service.CALIBRE_WEB: re.compile(r"[0-9]{1,9}"),
 }
