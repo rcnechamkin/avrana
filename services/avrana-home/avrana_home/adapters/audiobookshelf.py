@@ -118,6 +118,7 @@ def _require_active(record: Dict[str, Any]) -> None:
 
 class AudiobookshelfAdapter(GuardedAdapter):
     service = Service.AUDIOBOOKSHELF
+    not_offered = frozenset({"recent", "item"})
 
     def __init__(self, transport: Transport, timeout: float = DEFAULT_TIMEOUT, **kw):
         super().__init__(GuardedTransport(transport), timeout, **kw)
@@ -137,12 +138,6 @@ class AudiobookshelfAdapter(GuardedAdapter):
         if not principal.has_group(self.required_group):
             return ArtworkResult(SectionState.NOT_PERMITTED)
         return ArtworkResult(SectionState.EMPTY)
-
-    def _not_offered(self, principal: MemberPrincipal, section: str) -> SectionResult:
-        self._require_principal(principal)
-        if not principal.has_group(self.required_group):
-            return self._not_permitted(section)
-        return SectionResult(self.service, section, SectionState.EMPTY, reason="not_offered")
 
     # -- mapping: the verified USERNAME, exactly; the e-mail is never used -------------------
     def _resolve_user(self, principal) -> UpstreamUser:

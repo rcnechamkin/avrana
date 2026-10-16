@@ -108,7 +108,7 @@ def gather(principal: MemberPrincipal, adapters: Sequence[MediaAdapter],
     if not is_minted_principal(principal):
         raise TypeError("gather takes a parser-minted MemberPrincipal")
     wanted = [s for s in sections if s in _METHODS]
-    jobs = [(a, s) for a in adapters for s in wanted]
+    jobs = [(a, s) for a in adapters for s in wanted if s not in a.not_offered]
     if not jobs:
         return HomeSections(())
     if hard_cap is None:
