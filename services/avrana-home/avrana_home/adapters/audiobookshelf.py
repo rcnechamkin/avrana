@@ -346,14 +346,18 @@ class AudiobookshelfAdapter(GuardedAdapter):
                 continue
             if frac <= 0:
                 continue                                  # not started
+            if frac >= 1:
+                continue                                  # finished by its own numbers, even if the flag lags
             last = bounded_int(e.get("lastUpdate")) or 0
             position = bounded_int(cur)
             duration = bounded_int(dur)
             if item_id in seen:
                 continue
             seen.add(item_id)
+            # Seconds (ABS floats, truncated). A zero or negative duration is "unknown", so the item's own
+            # duration is used instead (`_visible`), never a remaining time computed from nothing.
             out.append((last, item_id, min(1.0, float(frac)), None if position is None else max(0, position),
-                        None if duration is None else max(0, duration)))
+                        None if duration is None or duration <= 0 else duration))
         if progress and bad == len(progress):
             raise UpstreamMalformed()
         out.sort(key=lambda t: t[0], reverse=True)

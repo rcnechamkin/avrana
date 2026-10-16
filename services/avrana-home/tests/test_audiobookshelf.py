@@ -305,11 +305,32 @@ class ProgressRules(Base):
             rec["mediaProgress"][1].update(progress=0.5, currentTime="soon", duration=None, lastUpdate="x")
         self.edit_record(UA, hostile)
         r = self.adapter.continue_items(self.a)
-        one = next(i for i in r.items if i.title == "Synthetic Audiobook One")
-        self.assertEqual(one.progress_fraction, 1.0)
-        self.assertEqual(one.position_seconds, None)
-        self.assertEqual(one.duration_seconds, 0)
-        self.assertTrue(all(0.0 <= i.progress_fraction <= 1.0 for i in r.items))
+        # A progress of 1 or more is finished by its own numbers (Home 2.0, AVR-381): left out of Continue
+        # rather than clamped and shown as "finished".
+        self.assertNotIn("Synthetic Audiobook One", titles(r))
+        self.assertTrue(r.items)
+        self.assertTrue(all(0.0 < i.progress_fraction < 1.0 for i in r.items))
+
+    def test_a_hostile_position_or_duration_is_unknown_never_a_made_up_time(self):
+        def hostile(rec):
+            rec["mediaProgress"] = rec["mediaProgress"][:1]
+            rec["mediaProgress"][0].update(progress=0.5, currentTime=10 ** 400, duration=-5)
+        self.edit_record(UA, hostile)
+        one = next(i for i in self.adapter.continue_items(self.a).items if i.title == "Synthetic Audiobook One")
+        self.assertEqual(one.progress_fraction, 0.5)
+        self.assertIsNone(one.position_seconds)                 # too large: not a position
+        self.assertNotEqual(one.duration_seconds, 0)            # -5 is unknown: the item's own duration
+
+    def test_float_seconds_and_finished_boundaries(self):
+        def edges(rec):
+            rec["mediaProgress"] = rec["mediaProgress"][:3]
+            rec["mediaProgress"][0].update(progress=0.25, currentTime=9000.9, duration=36000.4)
+            rec["mediaProgress"][1].update(progress=1.0, isFinished=False)   # flag lagging: still finished
+            rec["mediaProgress"][2].update(progress=float("nan"))
+        self.edit_record(UA, edges)
+        r = self.adapter.continue_items(self.a, limit=50)
+        self.assertEqual(1, len(r.items), titles(r))
+        self.assertEqual((9000, 36000), (r.items[0].position_seconds, r.items[0].duration_seconds))
 
     def test_a_negative_zero_or_nan_progress_is_not_in_progress(self):
         def odd(rec):

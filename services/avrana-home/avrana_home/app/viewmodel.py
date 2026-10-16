@@ -17,17 +17,25 @@ import math
 from dataclasses import dataclass
 from typing import Optional, Tuple
 
+from ..contract import HANDOFF_BASE
 from .artwork import src_for
 
 SERVICE_LABEL = {"jellyfin": "Movies and TV", "audiobookshelf": "Audiobooks",
                  "komga": "Comics", "calibre-web": "Books"}
 CONTINUE_HEADING = {"jellyfin": "Continue watching", "audiobookshelf": "Continue listening",
                     "komga": "Continue reading", "calibre-web": "Continue reading"}
+# Member language for what a thing is (CardVM.kind_label). Never an upstream product name.
 KIND_LABEL = {"movie": "Movie", "episode": "Episode", "series": "Series", "audiobook": "Audiobook",
-              "comic": "Comic", "ebook": "Ebook"}
+              "comic": "Comic", "ebook": "Book"}
 _VERB = {"movie": "watched", "episode": "watched", "series": "watched", "audiobook": "listened",
          "comic": "read", "ebook": "read"}
 _HANDOFF_PREFIX = "https://"
+# A Home card's hand-off is rendered only when it starts with one of the contract's FIXED hosts followed by
+# "/", so the host can never be anything else (str.startswith takes the tuple). An upstream-supplied URL never
+# gets here (contract.build_handoff_url); this is the second, independent check at the point of rendering.
+HANDOFF_ALLOWED = tuple(base + "/" for base in HANDOFF_BASE.values())
+# Longest position or duration believed (1,000 hours). Anything larger is treated as unknown, never shown.
+MAX_PLAUSIBLE_SECONDS = 1000 * 3600
 
 
 def _duration_words(seconds: int) -> str:
@@ -45,21 +53,53 @@ def progress_words(kind: str, progress: Optional[dict]) -> Optional[str]:
     """Progress as words, never a bare bar or number. None when the upstream did not say."""
     if not isinstance(progress, dict):
         return None
-    pos, dur, pct = (progress.get("position_seconds"), progress.get("duration_seconds"),
-                     progress.get("percent"))
-    ints = lambda v: isinstance(v, int) and not isinstance(v, bool)   # noqa: E731
-    if ints(pos) and ints(dur) and dur > 0 and pos >= 0:
+    pos, dur, pct = _seconds(progress.get("position_seconds")), _seconds(progress.get("duration_seconds")), \
+        progress.get("percent")
+    if pos is not None and dur is not None and dur > 0:
         left = dur - pos
         if left <= 0:
             return "finished"
         if left < 60:
             return "less than a minute left"
         return _duration_words(left) + " left"
-    if ints(pct) and 0 <= pct <= 100:
+    if _is_int(pct) and 0 <= pct <= 100:
+        if pct == 0:
+            return "just started"            # a rounded-down sliver is not "0 percent"
+        if pct == 100:
+            return "nearly finished"         # finished items never reach Continue (continue_state)
         return f"{pct} percent {_VERB.get(kind, 'done')}"
-    if ints(pos) and pos > 0:
+    if pos is not None and pos > 0:
         return (_duration_words(pos) + " in") if pos >= 60 else "just started"
     return None
+
+
+def _is_int(v) -> bool:
+    return isinstance(v, int) and not isinstance(v, bool)
+
+
+def _seconds(v) -> Optional[int]:
+    """A whole number of seconds the page may believe, else None (missing, negative, huge, not an int)."""
+    return v if _is_int(v) and 0 <= v <= MAX_PLAUSIBLE_SECONDS else None
+
+
+def continue_state(progress) -> Tuple[bool, bool]:
+    """(finished, resumable) for one Continue item, from the contract's progress object only.
+
+    finished: the upstream's own numbers say nothing is left (position at or past the duration, or a
+    fraction of 1 with no seconds). Finished items are left out of Continue, never shown as "finished".
+    resumable: the upstream gave THIS member a saved position (whole seconds > 0, believable). Only then is
+    the action "Resume"; a percent alone, a zero position or no progress at all is "Open". Nothing here
+    claims that playback will start: the hand-off opens the upstream app at the item."""
+    if not isinstance(progress, dict):
+        return False, False
+    pos, dur = _seconds(progress.get("position_seconds")), _seconds(progress.get("duration_seconds"))
+    frac = progress.get("fraction")
+    if pos is not None and dur is not None and dur > 0:
+        if pos >= dur:
+            return True, False
+    elif isinstance(frac, (int, float)) and not isinstance(frac, bool) and frac == frac and frac >= 1:
+        return True, False
+    return False, pos is not None and pos > 0
 
 
 @dataclass(frozen=True)
@@ -72,6 +112,9 @@ class ItemVM:
     image: Optional[str] = None    # same-origin /art/... URL, only when the contract gave a valid ref
     creator: Optional[str] = None  # author or creator, display text
     year: Optional[int] = None
+    service: str = ""              # which library (contract service value); for the member-language label
+    resumable: bool = False        # the upstream gave this member a saved position (continue_state)
+    finished: bool = False         # the upstream's numbers say nothing is left: never shown in Continue
 
 
 @dataclass(frozen=True)
@@ -104,11 +147,14 @@ def _heading(service: str, section: str) -> str:
 def _item_vm(it: dict) -> Optional[ItemVM]:
     """One contract item as display data, or None when it has no https hand-off (never rendered)."""
     href = it.get("handoff_url")
-    if not isinstance(href, str) or not href.startswith(_HANDOFF_PREFIX):
+    if not isinstance(href, str) or not href.startswith(HANDOFF_ALLOWED):
         return None
     detail = " · ".join(_plain(x) for x in (it.get("series"), it.get("subtitle")) if x) or None
+    finished, resumable = continue_state(it.get("progress"))
+    service = it.get("service") if it.get("service") in SERVICE_LABEL else ""
     return ItemVM(_plain(it.get("title") or "") or "Untitled", href, str(it.get("kind", "")), detail,
-                  progress_words(it.get("kind", ""), it.get("progress")), _image(it.get("artwork")))
+                  progress_words(it.get("kind", ""), it.get("progress")), _image(it.get("artwork")),
+                  service=service, resumable=resumable, finished=finished)
 
 
 def build_sections(view: dict) -> Tuple[SectionVM, ...]:
@@ -120,7 +166,8 @@ def build_sections(view: dict) -> Tuple[SectionVM, ...]:
         label = SERVICE_LABEL[service]
         heading = _heading(service, section)
         if state == "ok":
-            items = [vm for vm in (_item_vm(it) for it in raw.get("items", ())) if vm is not None]
+            items = [vm for vm in (_item_vm(it) for it in raw.get("items", ()))
+                     if vm is not None and not (section == "continue" and vm.finished)]
             if items:
                 out.append(SectionVM(service, section, heading, "ok", tuple(items)))
         elif state == "unavailable":
@@ -257,9 +304,27 @@ def _round_robin(lists, limit: int):
     return out[:limit]
 
 
+def action_of(it: ItemVM, in_continue: bool) -> Tuple[str, str]:
+    """(verb, accessible name) for a card's one action. "Resume" only in Continue and only for a saved
+    position the upstream gave this member; everything else is "Open". The name says what and where in
+    member language ("Movies and TV", never an upstream product) and, for Resume, how much is left when the
+    upstream said. It never claims that playback starts: the upstream app opens at the item."""
+    verb = "Resume" if (in_continue and it.resumable) else "Open"
+    library = SERVICE_LABEL.get(it.service)
+    name = f"{verb} {it.title}" + (f" in {library}" if library else "")
+    if in_continue and it.progress:
+        name += f", {it.progress}"
+    return verb, name
+
+
 def _cards(items, line_of, progress: bool = False) -> Tuple[CardVM, ...]:
-    return tuple(CardVM(it.title, it.href, SHAPE.get(it.kind, "poster"), line_of(it), it.image,
-                        it.progress if progress else None) for it in items)
+    out = []
+    for it in items:
+        verb, name = action_of(it, progress)
+        out.append(CardVM(it.title, it.href, SHAPE.get(it.kind, "poster"), line_of(it), it.image,
+                          it.progress if progress else None, kind_label=KIND_LABEL.get(it.kind),
+                          action=verb, action_label=name))
+    return tuple(out)
 
 
 def build_home(view: dict, tiles, *, new_tab: Optional[str] = None, limit: int = RAIL_MOST,
@@ -296,7 +361,8 @@ def build_home(view: dict, tiles, *, new_tab: Optional[str] = None, limit: int =
         out = []
         for sec in held.get(service, ()):
             if sec["section"] == section and sec["state"] == "ok":
-                out.extend(vm for vm in (_item_vm(it) for it in sec.get("items", ())) if vm is not None)
+                out.extend(vm for vm in (_item_vm(it) for it in sec.get("items", ()))
+                           if vm is not None and not (section == "continue" and vm.finished))
         return out
 
     # Continue: one rail merged across services, the most recent of each first.

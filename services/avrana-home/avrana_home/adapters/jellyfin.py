@@ -159,6 +159,9 @@ class JellyfinAdapter(GuardedAdapter):
         if require_progress and position is None:
             # a missing or non-numeric position is drift; zero means "not in progress"
             return None, ("filtered" if ticks is not None else "bad")
+        if require_progress and data.get("Played") is True:
+            # Watched to the end (Jellyfin keeps a position on some played items): never in Continue.
+            return None, "filtered"
 
         title = clean_text(raw.get("Name")) or "Untitled"
         series = clean_text(raw.get("SeriesName")) if kind is Kind.EPISODE else None
