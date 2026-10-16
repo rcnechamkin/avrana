@@ -28,7 +28,7 @@ B_ONLY = ["Synthetic Film Two", "Synthetic Documentary B", "Synthetic Film Four"
 
 def region(text):
     """The part of the page that holds the sections (the one <main>)."""
-    return text.split("<main>")[1].split("</main>")[0]
+    return re.split(r"<main(?:\s[^>]*)?>", text)[1].split("</main>")[0]
 
 
 def cards(text):
@@ -94,7 +94,7 @@ class SectionRenderingTests(Fixture):
     def test_home_markup_follows_the_design(self):
         text = self.on.get("/", headers=A).text
         above = region(text)
-        self.assertEqual(1, text.count("<main>"))
+        self.assertEqual(1, len(re.findall(r"<main(?:\s[^>]*)?>", text)))
         self.assertEqual(1, text.count("<h1>"))
         self.assertNotRegex(above, r"style=|<svg|<picture|<script|<canvas|on\w+=")
         self.assertEqual(2, above.count("<h2"))
@@ -195,7 +195,7 @@ class NavigationAndCallPatternTests(Fixture):
                     continue
                 self.assertEqual(1, text.count(self.PLACES))
                 self.assertEqual(1, text.count("<footer>"))
-                self.assertEqual(1, text.count("<main>"))
+                self.assertEqual(1, len(re.findall(r"<main(?:\s[^>]*)?>", text)))
                 self.assertIn('href="/help"', text.split("</nav>")[1])
                 self.assertIn('href="/account"', text.split("<footer>")[1])
         self.mock.set_mode("ok")

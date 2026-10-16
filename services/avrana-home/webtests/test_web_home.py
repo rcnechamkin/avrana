@@ -134,7 +134,7 @@ NOTHING = [(USER, "member-x"), (GROUPS, "avrana-users")]
 
 
 def main_of(text):
-    return text.split("<main>")[1].split("</main>")[0]
+    return re.split(r"<main(?:\s[^>]*)?>", text)[1].split("</main>")[0]
 
 
 def places_of(text):
