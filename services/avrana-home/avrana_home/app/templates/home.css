@@ -5,13 +5,16 @@
   body:has(.mast) .page{max-width:none;min-width:0;padding:0;gap:0;}
   body:has(.mast) header{display:block;text-align:left;}
   body:has(.mast) main{gap:1.75rem;}
-  .mast,.places,main,footer{width:100%;max-width:45rem;margin-inline:auto;padding-inline:1.25rem;}
-  .mast{padding-top:0.5rem;display:flex;flex-direction:column;align-items:center;gap:0.625rem;text-align:center;}
-  .mast h1{font-size:clamp(1.75rem,6vw,2.5rem);}
+  /* Side gutters respect the safe area (zero unless a notch overlaps the page, as in an installed Home). */
+  .mast,.places,main,footer{width:100%;max-width:45rem;margin-inline:auto;
+    padding-left:max(1.25rem,env(safe-area-inset-left));padding-right:max(1.25rem,env(safe-area-inset-right));}
+  .mast{padding-top:max(0.5rem,env(safe-area-inset-top));display:flex;flex-direction:column;align-items:center;gap:0.625rem;text-align:center;}
+  /* The wordmark never wraps: it is capped by the viewport width (six letters at 0.34em spacing). */
+  .mast h1{font-size:min(clamp(1.75rem,6vw,2.5rem),calc((100vw - 3rem) / 7));white-space:nowrap;}
   .mast a{text-decoration:none;display:inline-flex;align-items:center;min-height:2.75rem;}
   .mast .rule{margin-top:0;}
-  .id{align-self:stretch;display:flex;justify-content:flex-end;align-items:center;gap:0.5rem;min-height:2.75rem;}
-  .idlink{display:inline-flex;align-items:center;justify-content:center;min-height:2.75rem;min-width:2.75rem;padding:0 0.5rem;
+  .id{align-self:stretch;display:flex;flex-wrap:wrap;justify-content:flex-end;align-items:center;gap:0 0.25rem;min-height:2.75rem;}
+  .idlink{display:inline-flex;align-items:center;justify-content:center;min-height:2.75rem;min-width:2.75rem;padding:0 0.25rem;
     font-size:0.92rem;letter-spacing:0.03em;color:var(--fg);text-decoration:none;}
   .idlink:hover,.idlink[aria-current]{text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:0.25em;}
   .idlink:focus-visible{outline:2px solid transparent;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--fg);}
@@ -31,11 +34,16 @@
   .menu a{display:flex;align-items:center;min-height:2.75rem;padding:0 1rem;text-decoration:none;color:var(--fg);}
   .menu a:hover{text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:0.25em;}
   .menu a:focus-visible{box-shadow:inset 0 0 0 2px var(--fg);}
-  .places{display:flex;flex-wrap:wrap;justify-content:space-between;gap:0 0.25rem;margin-top:1rem;padding-inline:0.75rem;
-    max-width:43.5rem;border-top:1px solid var(--rule-quiet);border-bottom:1px solid var(--rule-quiet);}
+  /* The places bar: one row at 360px (five places); at large text it wraps to whole words, never mid-word,
+     and never past the screen edge. */
+  .places{display:flex;flex-wrap:wrap;justify-content:space-between;gap:0;margin-top:1rem;max-width:45rem;
+    border-top:1px solid var(--rule-quiet);border-bottom:1px solid var(--rule-quiet);
+    padding-left:max(0.625rem,env(safe-area-inset-left));padding-right:max(0.625rem,env(safe-area-inset-right));}
   .places>*{display:inline-flex;align-items:center;justify-content:center;min-height:2.75rem;min-width:2.75rem;
-    padding:0 0.5rem;font-size:1.0625rem;letter-spacing:0.03em;text-decoration:none;color:var(--fg);}
-  .places a:hover{text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:0.25em;}
+    padding:0 0.5rem;font-size:1.0625rem;letter-spacing:0.03em;text-decoration:none;color:var(--fg);white-space:nowrap;}
+  @media (max-width:24rem){.places>*{padding:0 0.375rem;font-size:1rem;letter-spacing:0.02em;}}
+  .places a:hover,.places a[aria-current]{text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:0.25em;}
+  .places a:focus-visible{box-shadow:inset 0 0 0 2px var(--fg);}
   .places .off{color:var(--dim);}
   .places .off s{text-decoration-color:var(--rule-strong);}
   main{padding-top:1.5rem;padding-bottom:2rem;}
@@ -57,6 +65,13 @@
   .tabs a:hover,.tabs a[aria-current]{color:var(--fg);}
   .tabs a[aria-current]::after{content:"";position:absolute;left:0.5rem;right:0.5rem;bottom:0;height:1px;background:var(--fg);}
   .tabs a:focus-visible{box-shadow:inset 0 0 0 2px var(--fg);}
+  /* Artwork keeps its natural shape (owner decision 2026-10-15): --r is the shape's width/height ratio. Outside
+     a rail (Search) the frame takes its width and the ratio sets the height. Images are contained, never
+     cropped into another shape. */
+  .w-poster,.w-book{--r:0.6667;}
+  .w-comic{--r:0.65;}
+  .w-square{--r:1;}
+  .w-still{--r:1.7778;}
   .frame{position:relative;display:block;width:100%;aspect-ratio:2/3;overflow:hidden;border:1px solid var(--rule-quiet);
     background:var(--bg);transition:border-color 160ms ease;}
   .w-still .frame{aspect-ratio:16/9;}
@@ -64,32 +79,56 @@
   .w-square .frame{aspect-ratio:1;}
   .w-comic .frame{aspect-ratio:13/20;}
   .ph{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--dim);font-size:2rem;}
-  .art{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;}
+  .art{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;}
   img{display:block;max-width:100%;}
-  .card{display:flex;flex-direction:column;gap:0.125rem;text-decoration:none;color:var(--fg);}
+  /* A card: title (two lines at most), the dim creator/series/episode line (one line), progress, the action.
+     Clamping is visual only; the full text stays in the link, and so in its accessible name. */
+  .card{position:relative;display:flex;flex-direction:column;gap:0.125rem;min-width:0;text-decoration:none;color:var(--fg);}
   .card .frame{margin-bottom:0.5rem;}
-  .t{font-size:1rem;line-height:1.25;overflow-wrap:anywhere;}
-  .d{font-size:0.92rem;line-height:1.35;color:var(--dim);overflow-wrap:anywhere;}
+  .t{font-size:1rem;line-height:1.25;overflow-wrap:anywhere;display:-webkit-box;-webkit-box-orient:vertical;
+    -webkit-line-clamp:2;line-clamp:2;overflow:hidden;}
+  .d{font-size:0.875rem;line-height:1.35;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .p{font-size:0.875rem;line-height:1.35;color:var(--fg);}
+  .go{align-self:flex-start;margin-top:0.25rem;font-size:0.875rem;line-height:1.35;letter-spacing:0.03em;color:var(--fg);
+    text-decoration:underline;text-decoration-color:var(--rule-strong);text-decoration-thickness:1px;text-underline-offset:0.25em;}
   .card:hover .frame,.card:focus-visible .frame{border-color:var(--fg);}
   .card:hover .t{text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:0.2em;}
-  .rail{list-style:none;margin:-0.25rem -1.25rem;padding:0.25rem 1.25rem;display:flex;align-items:flex-start;gap:0.875rem;
-    overflow-x:auto;overscroll-behavior-x:contain;scroll-snap-type:x proximity;scroll-padding-inline:1.25rem;scrollbar-width:none;}
-  .rail::-webkit-scrollbar{display:none;}
-  .rail>li{flex:none;scroll-snap-align:start;min-width:0;}
-  .rail .w-still{width:9rem;}
-  .rail .w-square{width:5.75rem;}
-  .rail .w-poster,.rail .w-book,.rail .w-comic{width:6.25rem;}
-  .rail.tall .w-square{width:8rem;}
-  @media (min-width:45rem){.rail{margin:-0.25rem;padding:0.25rem;overflow:visible;}.tabs{margin-inline:0;padding-inline:0;overflow:visible;}}
-  footer{display:flex;justify-content:center;gap:1.625rem;flex-wrap:wrap;padding-bottom:2.5rem;}
+  .card:hover .go,.card:focus-visible .go{text-decoration-color:var(--fg);}
+  /* Rails scroll sideways whenever the column cannot hold them. Every frame in a rail stands on the same
+     baseline: the rail's height (--art-h) and its own natural width, except that a shape wider than the card
+     (a video still) is held to --wide-max and stands shorter, bottom-aligned, so titles still line up.
+     On phones every card is one width (--cw), about 2.2 to a screen, so the next card peeks in as a sliver.
+     Keyboard focus: a browser scrolls a focused card into view only when it lies wholly outside the rail's
+     "optimal viewing region", which is the scroller less its scroll-padding. The right scroll-padding leaves
+     a region exactly one card (plus its focus ring) wide, so a peeking card counts as outside: Tab scrolls it
+     fully into view and its focus ring is never clipped. That only holds while cards rest card-aligned, so
+     phone rails snap mandatorily to card starts, and a trailing spacer lets the last card snap to the start
+     too (otherwise the end of the rail leaves the card before last straddling the left edge). The thin
+     scrollbar has its own padding, below the text. */
+  .rail{--art-h:8rem;--card-min:8.75rem;--pad:1.25rem;--cw:min(var(--card-min),80vw);--wide-max:var(--cw);
+    list-style:none;margin:-0.375rem calc(0rem - var(--pad));padding:0.375rem var(--pad) 0.625rem;
+    display:flex;align-items:flex-start;gap:0.875rem;overflow-x:auto;overscroll-behavior-x:contain;
+    scroll-snap-type:x mandatory;
+    scroll-padding-inline:var(--pad) max(var(--pad),calc(100% - var(--pad) - max(var(--cw),var(--wide-max)) - 0.5rem));
+    scrollbar-width:thin;scrollbar-color:var(--rule-quiet) transparent;}
+  .rail.tall{--art-h:9rem;}
+  .rail::after{content:"";flex:none;width:calc(100% - var(--cw) - 0.875rem);}
+  .rail>li{--fw:min(var(--wide-max),calc(var(--art-h) * var(--r)));--fh:calc(var(--fw) / var(--r));
+    flex:none;scroll-snap-align:start;min-width:0;width:max(var(--cw),var(--fw));max-width:80vw;}
+  .rail .frame{aspect-ratio:auto;width:var(--fw);height:var(--fh);max-width:100%;margin-top:calc(var(--art-h) - var(--fh));}
+  /* From 45rem the four cards fit the column, so a still may be wider than the other cards, snapping is
+     gentle and no spacer is needed. */
+  @media (min-width:45rem){.rail{--art-h:9rem;--card-min:9rem;--pad:0.375rem;--wide-max:12.5rem;margin:-0.375rem;
+    scroll-snap-type:x proximity;}.rail::after{display:none;}
+    .rail.tall{--art-h:10.5rem;}.tabs{margin-inline:0;padding-inline:0;overflow:visible;}}
+  footer{display:flex;justify-content:center;gap:1.625rem;flex-wrap:wrap;padding-bottom:max(2.5rem,env(safe-area-inset-bottom));}
   @media (prefers-reduced-motion:reduce){.frame{transition:none;}}
   .retry{margin:0;}
-  .p{color:var(--fg);}
   /* Search (AVR-383): the same shell as Home. */
   .srch{display:flex;flex-direction:column;gap:0.75rem;margin:0;}
   .srch label{color:var(--dim);font-size:0.9rem;letter-spacing:0.08em;text-transform:uppercase;}
-  .srch .ask{display:flex;gap:0.625rem;}
-  .srch input[type=search]{flex:1 1 0;width:0;min-width:0;min-height:2.75rem;padding:0.5rem 0.75rem;font:inherit;font-size:1.1rem;
+  .srch .ask{display:flex;flex-wrap:wrap;gap:0.625rem;}
+  .srch input[type=search]{flex:1 1 9rem;width:0;min-width:0;min-height:2.75rem;padding:0.5rem 0.75rem;font:inherit;font-size:1.1rem;
     color:var(--fg);background:var(--bg);border:1px solid var(--rule-control);border-radius:0;}
   .srch input[aria-invalid=true]{border-color:var(--fg);border-width:2px;}
   .srch button{min-height:2.75rem;padding:0.5rem 1.25rem;font:inherit;color:var(--bg);background:var(--fg);border:1px solid var(--fg);cursor:pointer;}
@@ -100,9 +139,14 @@
   .found{display:flex;flex-direction:column;gap:0.75rem;}
   .found h3{margin:0;font-weight:400;font-size:1.2rem;letter-spacing:0.06em;}
   ul.hits{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:0.625rem;}
-  ul.hits li{display:flex;flex-wrap:wrap;gap:0.625rem 0.875rem;align-items:center;border:1px solid var(--rule-quiet);padding:0.625rem 0.75rem;}
-  ul.hits .frame{width:3rem;flex:none;margin:0;}
-  ul.hits .meta{flex:1 1 9rem;min-width:0;display:flex;flex-direction:column;gap:0.125rem;overflow-wrap:anywhere;}
+  /* A result row: thumbnail, then title (two lines) and meta (one line), then Open. On a phone Open sits under
+     the text, beside the thumbnail; from 30rem it ends the row. Nothing wraps word by word. */
+  ul.hits li{--thumb:min(3rem,16vw);display:grid;grid-template-columns:var(--thumb) minmax(0,1fr);grid-template-areas:"art meta" "art act";
+    gap:0.5rem min(0.875rem,3vw);align-items:start;border:1px solid var(--rule-quiet);padding:0.625rem 0.75rem;}
+  ul.hits .frame{grid-area:art;width:var(--thumb);margin:0;}
+  ul.hits .meta{grid-area:meta;min-width:0;display:flex;flex-direction:column;gap:0.125rem;}
+  ul.hits a.open{grid-area:act;justify-self:start;}
+  @media (min-width:30rem){ul.hits li{grid-template-columns:var(--thumb) minmax(0,1fr) auto;grid-template-areas:"art meta act";align-items:center;}}
   a.open{flex:none;display:inline-flex;align-items:center;min-height:2.75rem;padding:0 1rem;color:var(--fg);
     border:1px solid var(--rule-strong);text-decoration:none;}
   a.open:hover,a.open:focus-visible{background:var(--fg);color:var(--bg);}

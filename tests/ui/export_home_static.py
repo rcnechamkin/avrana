@@ -6,7 +6,8 @@
 It renders the REAL Home (the app's own templates and view model) in this process, against the
 loopback mock services (Jellyfin, Audiobookshelf, Komga, Calibre-Web), for two synthetic members and
 these states: normal, one library unavailable, all unavailable, no library, signed out, and the New
-tabs. It then writes plain files: HTML, one shared stylesheet per page kind, and generated SVG
+tabs. Titles are lengthened by the invented long-title overlay (dev/mock_long_titles.py) so narrow cards
+show real-world wrapping; `--short-titles` serves the fixtures' own short titles. It then writes plain files: HTML, one shared stylesheet per page kind, and generated SVG
 placeholders for the artwork. Serve the folder from the PC's LAN address:
 
     python -m http.server 8480 --bind <LAN-IP> --directory <folder>
@@ -102,8 +103,9 @@ def placeholder(ref: str, shape: str, title: str) -> str:
 
 
 class Exporter:
-    def __init__(self, out: Path):
+    def __init__(self, out: Path, long_titles: bool = True):
         self.out = out
+        self.long_titles = long_titles
         self.css: dict[str, str] = {}
         self.art: dict[str, str] = {}
 
@@ -113,6 +115,9 @@ class Exporter:
             "127.0.0.1", free_port(), free_port(), True, abs_mock_port=free_port(),
             komga_mock_port=free_port(), calibre_mock_port=free_port())
         mocks = dict(zip(MOCK_KEYS, (mock, mock.abs, mock.komga, mock.calibre)))
+        if self.long_titles:      # invented long titles (dev/mock_long_titles.py): real shelves wrap
+            from dev import mock_long_titles
+            mock_long_titles.apply(mocks)
         return mocks, settings
 
     def client(self, settings):
@@ -230,6 +235,8 @@ class Exporter:
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--out", required=True, help="folder to write (emptied first if it holds an earlier export)")
+    ap.add_argument("--short-titles", action="store_true",
+                    help="serve the fixtures' short titles as they are (default: the invented long-title overlay)")
     args = ap.parse_args(argv)
     out = Path(args.out).resolve()
     if out.exists():
@@ -239,7 +246,7 @@ def main(argv=None) -> int:
         for child in out.iterdir():
             shutil.rmtree(child) if child.is_dir() else child.unlink()
     out.mkdir(parents=True, exist_ok=True)
-    ex = Exporter(out)
+    ex = Exporter(out, long_titles=not args.short_titles)
     written = []
     for key, (title, members, down) in SCENARIOS.items():
         written += ex.export_scenario(key, title, members, down)

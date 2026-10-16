@@ -19,7 +19,7 @@
     <h2 id="h-continue">Continue</h2>
 {% if home.continue_items %}
     <ul class="rail">
-{% for c in home.continue_items %}{{ card(c) }}
+{% for c in home.continue_items %}{{ card(c, verb=True) }}
 {% endfor %}
     </ul>
 {% elif home.continue_said %}

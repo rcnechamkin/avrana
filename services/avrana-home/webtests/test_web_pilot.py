@@ -78,25 +78,32 @@ class NavigationTests(Mocks):
                     self.assertIn('<div class="mast">', t)
                     self.assertIn('<nav class="places" aria-label="Avrana">', t)
                     self.assertIn('<h1><a href="/"', t)
-                    self.assertIn('class="idlink" href="/help"', t)
+                    # Help is in the places bar and the account menu; the top row does not repeat it
+                    self.assertIn('href="/help"', re.search(r'<nav class="places".*?</nav>', t, re.S).group(0))
+                    self.assertNotIn('class="idlink" href="/help"', t)
+                    self.assertEqual(1, len(re.findall(r'<details class="account">.*?href="/help"', t, re.S)))
                     self.assertIn('<details class="account">', t)
                     self.assertIn('class="idlink" href="/search"', t)
 
     def test_the_current_page_is_marked_and_nothing_else_is(self):
         c = self.client()
         want = {"/": [("/", "page")], "/search": [("/search", "page")],
-                "/account": [("/account", "page")], "/help": [("/help", "page"), ("/help", "page")],
+                "/account": [("/account", "page")], "/help": [("/help", "page")],
                 "/help/movies": [("/help", "true")]}
         for route, expected in want.items():
             with self.subTest(route=route):
                 self.assertEqual(sorted(expected), sorted(aria_current(c.get(route, headers=A).text)))
+        # on Help the places bar carries the mark; the account menu's Help link does not repeat it
+        t = c.get("/help", headers=A).text
+        self.assertIn('aria-current="page"', re.search(r'<nav class="places".*?</nav>', t, re.S).group(0))
+        self.assertNotIn('aria-current', re.search(r'<div class="menu">.*?</div>', t, re.S).group(0))
 
     def test_search_is_offered_only_to_a_member_with_a_library(self):
         c = self.client()
         for route in ("/", "/account", "/help"):
             t = c.get(route, headers=NOTHING).text
             self.assertNotIn('href="/search"', t, route)
-            self.assertIn('class="idlink" href="/help"', t, route)
+            self.assertIn('href="/help"', re.search(r'<nav class="places".*?</nav>', t, re.S).group(0), route)
         self.assertEqual(1, mains(c.get("/search", headers=NOTHING).text))
 
     def test_error_and_unknown_pages_stay_plain_and_have_one_main(self):
@@ -248,6 +255,58 @@ class LibraryPresentationTests(unittest.TestCase):
         css = env.globals["home_stylesheet"]
         for shape, ratio in (("poster", "2/3"), ("square", "1"), ("still", "16/9"), ("comic", "13/20"), ("book", "2/3")):
             self.assertRegex(css, rf"\.w-{shape} \.frame[^}}]*aspect-ratio:{re.escape(ratio)}")
+
+    @staticmethod
+    def _name_of(link_html):
+        """A rough accessible name from the link's content: aria-hidden parts dropped, tags removed, whitespace
+        collapsed. It is only valid while the link has no aria-label/aria-labelledby, which the test asserts."""
+        text = re.sub(r'<span [^>]*aria-hidden="true">[^<]*</span>', "", link_html)
+        return " ".join(re.sub(r"<[^>]+>", "", text).split()).replace(" ,", ",")
+
+    def test_a_card_is_one_link_with_the_full_title_and_one_action(self):
+        env = make_client(make_settings(home_sections=False)).fastapi_app.state.env
+        card = env.get_template("_parts.html").module.card
+        long_title = "Synthetic Film: A Very Long Subtitle That Is Clamped to Two Lines (Extended Edition) <b>&"
+        c = viewmodel.CardVM(long_title, "https://x.example/1", "poster", "Synthetic Series · S3 E10", None,
+                             "1 hour 21 minutes left", kind_label="Movie", action="Resume")
+        html = str(card(c, verb=True))
+        self.assertEqual(1, html.count("<a "))                        # one link, no second control
+        link = re.search(r"<a [^>]*>", html).group(0)
+        self.assertNotRegex(link, r"aria-label|aria-labelledby")      # the content IS the name: nothing hides it
+        self.assertEqual(1, html.count('<span class="go"><span class="sr">, </span>Resume</span>'))
+        self.assertNotIn("<b>", html)                                  # still autoescaped
+        # the full title first, then the line, progress and verb, each after a spoken comma
+        self.assertEqual("Synthetic Film: A Very Long Subtitle That Is Clamped to Two Lines (Extended Edition) "
+                         "&lt;b&gt;&amp;, Synthetic Series · S3 E10, 1 hour 21 minutes left, Resume",
+                         self._name_of(html))
+        self.assertRegex(html, r'class="t">[^<]*</span>\s*<span class="d"><span class="sr">, </span>Synthetic Series · S3 E10'
+                               r'</span>\s*<span class="p"><span class="sr">, </span>1 hour 21 minutes left</span>\s*'
+                               r'<span class="go"><span class="sr">, </span>Resume</span>\s*</a>')
+        # an action_label stands in for the verb for assistive technology; the verb stays visible
+        labelled = str(card(viewmodel.CardVM("Pilot", "https://x.example/2", "still", None, None, "40 minutes left",
+                                             action="Resume", action_label="Resume, 40 minutes left"), verb=True))
+        self.assertIn('<span class="go"><span class="sr">, </span><span aria-hidden="true">Resume</span>'
+                      '<span class="sr">Resume, 40 minutes left</span></span>', labelled)
+        self.assertNotRegex(re.search(r"<a [^>]*>", labelled).group(0), r"aria-label|aria-labelledby")
+        self.assertEqual("Pilot, 40 minutes left, Resume, 40 minutes left", self._name_of(labelled))
+        # New this week: no verb; the kind label stands in when there is no line
+        new = str(card(viewmodel.CardVM("Book", "https://x.example/3", "book", None, None, kind_label="Book")))
+        self.assertNotIn('class="go"', new)
+        self.assertIn('<span class="d"><span class="sr">, </span>Book</span>', new)
+        self.assertEqual("Book, Book", self._name_of(new))
+
+    def test_titles_clamp_visually_and_rails_share_one_artwork_height(self):
+        css = make_client(make_settings(home_sections=False)).fastapi_app.state.env.globals["home_stylesheet"]
+        self.assertRegex(css, r"\.t\{[^}]*-webkit-line-clamp:2;line-clamp:2;overflow:hidden;")
+        self.assertRegex(css, r"\.d\{[^}]*white-space:nowrap;overflow:hidden;text-overflow:ellipsis;")
+        self.assertRegex(css, r"\.rail \.frame\{[^}]*height:var\(--fh\)[^}]*margin-top:calc\(var\(--art-h\) - var\(--fh\)\)")
+        self.assertRegex(css, r"\.art\{[^}]*object-fit:contain")      # natural shape, never cropped
+        self.assertNotIn("scrollbar-width:none", css.split(".rail{", 1)[1].split("}", 1)[0])
+        # keyboard focus: the right scroll-padding leaves an optimal region one card wide, so a peeking card is
+        # wholly outside it and Tab scrolls it fully into view (browser-checked by tests/ui/check_home_export.mjs)
+        self.assertIn("scroll-padding-inline:var(--pad) max(var(--pad),calc(100% - var(--pad) - max(var(--cw),var(--wide-max)) - 0.5rem))", css)
+        self.assertRegex(css, r"\.rail\{[^}]*scroll-snap-type:x mandatory;")      # cards rest card-aligned
+        self.assertIn('.rail::after{content:"";flex:none;width:calc(100% - var(--cw) - 0.875rem);}', css)
 
     def test_the_shell_data_never_calls_anything_and_marks_current(self):
         shell = build_shell(self.TILES, "search", "Pat")
