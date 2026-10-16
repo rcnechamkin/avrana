@@ -24,9 +24,9 @@ Calibre-Web-Automated: no version recorded (UNVERIFIED).
 | A percent only when there are no seconds to subtract ("42 percent listened"). 0 percent reads "just started", 100 "nearly finished". | `progress_words` | same |
 | Finished items never appear: Jellyfin `UserData.Played`, position at or past the run time; Audiobookshelf `isFinished`, `progress >= 1`, position at or past the duration. | adapters, `build_home` | same, `test_audiobookshelf.py` |
 | Negative, NaN, non-integer, boolean or huge numbers are unknown: no time is made up. Audiobookshelf `duration <= 0` falls back to the item's own duration. | `_seconds`, `bounded_int` | same |
-| Accessible name (`CardVM.action_label`): "Resume *title* in Movies and TV, 1 hour 10 minutes left" / "Open *title* in Comics". Member language only: never Jellyfin, Audiobookshelf, Komga or Calibre-Web. Titles are escaped by the template. | `action_of` | `test_continue_semantics`, `webtests/test_web_continue.py` |
+| `CardVM.action_label` replaces the visible verb for screen readers inside the one card link, after the title, secondary line and progress (Lane A's `card` macro): "Resume in Movies and TV" / "Open in Comics". Short and verb-first; it does not repeat the title or the time left. Member language only: never Jellyfin, Audiobookshelf, Komga or Calibre-Web. | `action_of` | `test_continue_semantics`, `webtests/test_web_continue.py` |
 | `CardVM.kind_label`: Movie, Episode, Series, Audiobook, Comic, Book. | `KIND_LABEL` | same |
-| Episode secondary line: "Series · S1 E3" when the upstream gives series, season and episode. | Jellyfin adapter, `_item_vm` | same |
+| Episode secondary line: "S1 E3 · Series" (marker first, so a one-line clamp cuts the series, never the episode number) when the upstream gives series, season and episode. | Jellyfin adapter, `_item_vm` | same |
 | At most four cards on Home, round-robin across services. | `RAIL_MOST` | `test_web_home.py` |
 | Comics and books never offer Continue (no member progress, see section 2). | adapters' `not_offered` | `test_komga.py`, `test_calibre_web.py` |
 | One failing service costs only its own section; another member's data is discarded. | base class, `aggregate.gather` | `webtests/test_web_continue.py`, `test_web_sections.py`, `test_web_audiobooks.py` |
@@ -103,8 +103,9 @@ because they come only from that member's own section (isolation suites: `test_w
   interstitial) shows the masthead with AVRANA linking to Home. Every one except Home has a footer
   "Back to home"; the bare "Back" stays only on pages without the shell (sections off: byte-identical to the
   portal; the 404 page).
-- The account menu holds "Account and security" only; Help is the masthead link beside it, so it is no longer
-  listed twice. Home's footer keeps "Account and security" and "Help" (Home has no "back").
+- Search, Help and Account live in the masthead only. The account menu holds "Account and security"; Help is the
+  masthead link beside it. Footers carry only return navigation and page-specific actions: Home's footer is
+  "If something doesn't open"; a help topic keeps "All help" (one level up). Search's footer lost its repeated Help.
 - Read and Request (with the shell) say what they are before the tiles. Request: "Ask for something that is
   missing from a library. Each place below opens a separate request website, where you sign in and search for
   the title." and "Asking does not add it straight away, and not every request can be filled." No library is
@@ -132,7 +133,7 @@ Preparation: one movie partly watched (Jellyfin), one episode partly watched, on
 
 | # | Device | Steps | Expected |
 |---|---|---|---|
-| P1 | iPhone Safari | Open Home. Read the Continue cards with VoiceOver | Each card is announced with its title, then "Resume … in Movies and TV, *N* left" or "Open …"; no upstream product names; at most four cards |
+| P1 | iPhone Safari | Open Home. Read the Continue cards with VoiceOver | Each card is one link announced as title, secondary line, time left, then "Resume in Movies and TV" or "Open in …"; no upstream product names; at most four cards |
 | P2 | iPhone Safari | Tap the movie's Resume | watch.avrana.net opens at that movie's details page (not the Jellyfin home). Pressing play offers or starts from the saved time. Record which. Avrana itself never said it was playing |
 | P3 | iPhone Safari | Tap the audiobook's Resume | listen.avrana.net opens that book's page (check the address: `/item/<id>` or `/audiobookshelf/item/<id>`). Record whether play continues from the saved time |
 | P4 | iPhone Safari | Tap a comic and a book in New this week | read.avrana.net and books.avrana.net open the item page, possibly after their sign-in |

@@ -196,8 +196,8 @@ class NavigationAndCallPatternTests(Fixture):
                 self.assertEqual(1, text.count(self.PLACES))
                 self.assertEqual(1, text.count("<footer>"))
                 self.assertEqual(1, len(re.findall(r"<main(?:\s[^>]*)?>", text)))
-                self.assertIn('href="/help"', text.split("</nav>")[1])
-                self.assertIn('href="/account"', text.split("<footer>")[1])
+                self.assertIn('class="idlink" href="/help"', text.split("</header>")[0])   # masthead Help
+                self.assertIn('href="/account"', text.split("<footer>")[0])   # the masthead's account menu
         self.mock.set_mode("ok")
 
     def test_one_cold_page_makes_one_mapping_call(self):

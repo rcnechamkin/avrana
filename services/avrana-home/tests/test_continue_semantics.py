@@ -69,7 +69,8 @@ class JellyfinContinue(unittest.TestCase):
         pos = (38 * 60 + 59) * TICKS_PER_SECOND + 9_000_000
         (c,) = self.card(jf_item(pos))
         self.assertEqual(("Resume", "1 hour 22 minutes left"), (c.action, c.progress))
-        self.assertEqual("Resume Synthetic Edge Film in Movies and TV, 1 hour 22 minutes left", c.action_label)
+        self.assertEqual("Resume in Movies and TV", c.action_label)
+        self.assertNotIn("Synthetic Edge Film", c.action_label)       # the link already starts with the title
         self.assertEqual("Movie", c.kind_label)
         r = self.serve(jf_item(pos))
         self.assertEqual((2339, 7200), (r.items[0].position_seconds, r.items[0].duration_seconds))
@@ -80,7 +81,7 @@ class JellyfinContinue(unittest.TestCase):
     def test_a_sub_second_position_is_open_not_resume(self):
         (c,) = self.card(jf_item(TICKS_PER_SECOND - 1))
         self.assertEqual("Open", c.action)
-        self.assertEqual("Open Synthetic Edge Film in Movies and TV, 2 hours left", c.action_label)
+        self.assertEqual("Open in Movies and TV", c.action_label)
 
     def test_played_items_never_reach_continue(self):
         self.assertIs(SectionState.EMPTY, self.serve(jf_item(30 * TICKS_PER_SECOND, played=True)).state)
@@ -114,7 +115,7 @@ class JellyfinContinue(unittest.TestCase):
     def test_episode_line_is_series_and_episode(self):
         (c,) = self.card(jf_item(60 * TICKS_PER_SECOND, kind="Episode", SeriesName="Synthetic Series",
                                  ParentIndexNumber=1, IndexNumber=3))
-        self.assertEqual("Synthetic Series · S1 E3", c.line)
+        self.assertEqual("S1 E3 · Synthetic Series", c.line)      # the marker survives a one-line clamp
         self.assertEqual("Episode", c.kind_label)
         self.assertEqual("still", c.shape)
 
@@ -135,8 +136,7 @@ class AudiobookshelfContinue(unittest.TestCase):
         (c,) = self.cards(progress=0.5, currentTime=18000.7, duration=36000.2)
         self.assertEqual(("Resume", "5 hours left"), (c.action, c.progress))
         self.assertEqual("Audiobook", c.kind_label)
-        self.assertTrue(c.action_label.startswith("Resume "))
-        self.assertIn(" in Audiobooks, 5 hours left", c.action_label)
+        self.assertEqual("Resume in Audiobooks", c.action_label)
 
     def test_progress_without_a_position_is_open_with_a_percent(self):
         (c,) = self.cards(progress=0.42, currentTime=None, duration=None)
@@ -188,7 +188,7 @@ class ViewModelBoundaries(unittest.TestCase):
                 "handoff_url": "https://watch.avrana.net/web/#/details?id=" + FILM,
                 "progress": {"position_seconds": 50, "duration_seconds": 100}}]}]}, TILES)
         (c,) = home.new_items
-        self.assertEqual(("Open", "Open Synthetic New in Movies and TV", None), (c.action, c.action_label, c.progress))
+        self.assertEqual(("Open", "Open in Movies and TV", None), (c.action, c.action_label, c.progress))
 
 
 

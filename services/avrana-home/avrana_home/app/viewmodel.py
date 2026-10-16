@@ -149,7 +149,10 @@ def _item_vm(it: dict) -> Optional[ItemVM]:
     href = it.get("handoff_url")
     if not isinstance(href, str) or not href.startswith(HANDOFF_ALLOWED):
         return None
-    detail = " · ".join(_plain(x) for x in (it.get("series"), it.get("subtitle")) if x) or None
+    # An episode leads with its marker ("S3 E10 · Series"): a one-line clamp then cuts the series, never the
+    # episode number. Everything else keeps series first.
+    parts = (it.get("subtitle"), it.get("series")) if it.get("kind") == "episode" else (it.get("series"), it.get("subtitle"))
+    detail = " · ".join(_plain(x) for x in parts if x) or None
     finished, resumable = continue_state(it.get("progress"))
     service = it.get("service") if it.get("service") in SERVICE_LABEL else ""
     return ItemVM(_plain(it.get("title") or "") or "Untitled", href, str(it.get("kind", "")), detail,
@@ -306,16 +309,16 @@ def _round_robin(lists, limit: int):
 
 
 def action_of(it: ItemVM, in_continue: bool) -> Tuple[str, str]:
-    """(verb, accessible name) for a card's one action. "Resume" only in Continue and only for a saved
-    position the upstream gave this member; everything else is "Open". The name says what and where in
-    member language ("Movies and TV", never an upstream product) and, for Resume, how much is left when the
-    upstream said. It never claims that playback starts: the upstream app opens at the item."""
+    """(verb, accessible text for the verb) for a card's one action. "Resume" only in Continue and only for a
+    saved position the upstream gave this member; everything else is "Open".
+
+    The card is one link whose name is read in order: title, secondary line, progress, then this text in place
+    of the visible verb (Lane A's `card` macro). So it is short and verb-first and does not repeat the title or
+    the progress already read; it adds where the item opens, in member language ("Movies and TV", never an
+    upstream product). It never claims that playback starts: the library opens at the item."""
     verb = "Resume" if (in_continue and it.resumable) else "Open"
     library = SERVICE_LABEL.get(it.service)
-    name = f"{verb} {it.title}" + (f" in {library}" if library else "")
-    if in_continue and it.progress:
-        name += f", {it.progress}"
-    return verb, name
+    return verb, (f"{verb} in {library}" if library else verb)
 
 
 def _cards(items, line_of, progress: bool = False) -> Tuple[CardVM, ...]:

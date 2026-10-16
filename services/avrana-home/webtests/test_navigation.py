@@ -55,12 +55,21 @@ class ReturnNavigationTests(Fixture):
                     self.assertIn('<a class="link" href="/">Back to home</a>', footer(r.text))
                 self.assertNotRegex(footer(r.text), r">Back<")          # one wording for return, everywhere
 
+    def test_footers_never_repeat_the_masthead(self):
+        """Search, Help and Account live in the masthead. The one exception is "All help" on a help topic, which is
+        the way up one level from that topic, not a copy of the masthead link."""
+        for path in SHELL_PAGES:
+            f = footer(self.on.get(path, headers=ALL).text).replace('href="/help">All help<', "")
+            self.assertNotRegex(f, r'href="/(account|help|search)"', path)
+
     def test_account_appears_once_in_the_masthead_and_help_is_not_repeated_in_the_menu(self):
         text = self.on.get("/", headers=ALL).text
         menu = re.search(r'<div class="menu">.*?</div>', text, flags=re.S).group(0)
         self.assertEqual(['/account'], re.findall(r'href="([^"]+)"', menu))
         self.assertIn(">Account and security</a>", menu)
-        self.assertIn(">Account and security</a>", footer(text))
+        self.assertNotIn('href="/account"', footer(text))        # the footer does not repeat the masthead
+        self.assertNotIn('href="/help"', footer(text))
+        self.assertIn('href="/help/trouble"', footer(text))
 
     def test_place_pages_explain_and_offer_help(self):
         watch = self.on.get("/watch", headers=ALL).text

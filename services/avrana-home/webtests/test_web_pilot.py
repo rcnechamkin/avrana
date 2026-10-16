@@ -232,7 +232,7 @@ class LibraryPresentationTests(unittest.TestCase):
         v = self.view(self.sec("jellyfin", "continue", "ok",
                                [self.item(1, "Pilot", "episode", prog, series="Synthetic Show", subtitle="S1 E1")]))
         card = build_home(v, self.TILES).continue_items[0]
-        self.assertEqual("Synthetic Show · S1 E1", card.line)
+        self.assertEqual("S1 E1 · Synthetic Show", card.line)      # episode marker first (Home 2.0, Lane B)
         self.assertEqual("1 hour left", card.progress)
 
     def test_art_has_a_frame_of_its_own_shape_and_a_letter_when_there_is_no_image(self):
