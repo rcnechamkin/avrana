@@ -158,6 +158,17 @@ class Client:
     def __repr__(self) -> str:
         return f"Client({self.name}, <redacted>)"
 
+    def allows(self, path: str, query: Optional[Mapping[str, str]], bound: Optional[str]) -> bool:
+        """Whether the adapters in THIS checkout make this request (their own `ALLOWED_ROUTES`). Used only to
+        pick between route shapes that differ between adapter versions (search, the Calibre-Web cover route);
+        `get` still checks every request itself and refuses anything else."""
+        spec = SERVICES[self.name]
+        try:
+            check_request(spec["routes"], spec["bound"], "GET", path, query, bound)
+        except ForbiddenRequest:
+            return False
+        return True
+
     def get(self, path: str, query: Optional[Mapping[str, str]], bound: Optional[str],
             max_bytes: int = MAX_JSON_BYTES) -> Response:
         spec = SERVICES[self.name]
@@ -165,7 +176,8 @@ class Client:
             check_request(spec["routes"], spec["bound"], "GET", path, query, bound)
         except ForbiddenRequest:
             raise CaptureError(f"{self.name}: the adapters do not make this request; refused") from None
-        self.log.append(path + (("?" + urllib.parse.urlencode(query)) if query else ""))
+        shown = {k: ("<term>" if k in SEARCH_KEYS else v) for k, v in (query or {}).items()}
+        self.log.append(path + (("?" + urllib.parse.urlencode(shown)) if shown else ""))
         if self.dry:
             return Response(0, None, error="dry-run")
         url = self._base + path + (("?" + urllib.parse.urlencode(query)) if query else "")
@@ -218,8 +230,22 @@ def _json(resp: Response) -> Any:
 
 
 class Options:
-    def __init__(self, members: Sequence[str], max_items: int, images: bool, calibre_probe_id: Optional[int]):
+    def __init__(self, members: Sequence[str], max_items: int, images: bool, calibre_probe_id: Optional[int],
+                 search_term: Optional[str] = None):
         self.members, self.max_items, self.images, self.probe = tuple(members), max_items, images, calibre_probe_id
+        self.term = search_term          # plain letters, digits and spaces only; never printed or written
+
+
+# The query keys that carry the search term (one per service). Dry-run output shows `<term>` instead.
+SEARCH_KEYS = frozenset({"searchTerm", "q", "search", "query"})
+_SEARCH_TERM = re.compile(r"[A-Za-z0-9][A-Za-z0-9 ]{1,39}")     # stricter than Home's clean_query: a plain word
+_ABS_LIBRARY = re.compile(r"(?:lib_[a-z0-9]{3,40}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})")
+SKIPPED_NOTE = "search route not in this checkout's adapters; not requested"
+
+
+def _skip(c: "Client", route: str) -> "Capture":
+    """A planned search that the adapters in this checkout do not make: recorded as skipped, nothing is sent."""
+    return Capture(c.name, route, "(skipped)", Response(0, None, error="not_in_adapters"), "json")
 
 
 _DUMMY_HEX = "0" * 31 + "1"
@@ -273,6 +299,18 @@ def capture_jellyfin(c: Client, o: Options) -> List[Capture]:
                 caps.append(Capture(c.name, "image", "/Items/{id}/Images/Primary",
                                     c.get(f"/Items/{item}/Images/Primary", {"maxWidth": "400", "quality": "80"},
                                           uid, MAX_IMAGE_BYTES), "image"))
+        if o.term:
+            # Current adapters search through `/Items?userId=&searchTerm=` (Jellyfin 10.9+); older ones used the
+            # legacy `/Users/{id}/Items`. Only the shape the adapters in this checkout allow is requested.
+            q = {"searchTerm": o.term, "includeItemTypes": "Movie,Series,Episode", "recursive": "true",
+                 "limit": "5", "fields": _jf._ITEM_FIELDS, "enableImageTypes": "Primary", "enableUserData": "true"}
+            if c.allows("/Items", dict(q, userId=uid), uid):
+                caps.append(Capture(c.name, "search", "/Items?searchTerm=", c.get("/Items", dict(q, userId=uid), uid),
+                                    "json"))
+            elif c.allows(f"/Users/{uid}/Items", q, uid):
+                caps.append(Capture(c.name, "search", "/Users/{id}/Items", c.get(f"/Users/{uid}/Items", q, uid), "json"))
+            else:
+                caps.append(_skip(c, "search"))
     return caps
 
 
@@ -299,6 +337,30 @@ def capture_audiobookshelf(c: Client, o: Options) -> List[Capture]:
             caps.append(Capture(c.name, "item", "/api/items/{id}",
                                 c.get(f"/api/items/{item}", {"expanded": "1"}, uid), "json"))
         seen_items = []
+        if o.term:
+            caps += _abs_search(c, o, uid, rec)
+    return caps
+
+
+def _abs_search(c: "Client", o: Options, uid: str, rec: Any) -> List["Capture"]:
+    """The member's libraries (their own `librariesAccessible`, or the library list when the record grants every
+    library), then one library search each, at most `max_items` libraries. Only if the adapters make these."""
+    caps: List[Capture] = []
+    if not c.allows("/api/libraries", None, uid) or not c.allows(f"/api/libraries/{_DUMMY_UUID}/search",
+                                                                  {"q": o.term, "limit": "5"}, uid):
+        return [_skip(c, "search")]
+    libs = rec.get("librariesAccessible") if isinstance(rec, dict) else None
+    perms = rec.get("permissions") if isinstance(rec, dict) else None
+    if c.dry or (isinstance(perms, dict) and perms.get("accessAllLibraries") is True):
+        lr = c.get("/api/libraries", None, uid)
+        caps.append(Capture(c.name, "libraries", "/api/libraries", lr, "json"))
+        body = _json(lr) if not c.dry else {"libraries": [{"id": _DUMMY_UUID, "mediaType": "book"}]}
+        raws = body.get("libraries") if isinstance(body, dict) else None
+        libs = ([x.get("id") for x in raws if isinstance(x, dict) and x.get("mediaType") in (None, "book")]
+                if isinstance(raws, list) else [])
+    for lib in [x for x in (libs or []) if isinstance(x, str) and _ABS_LIBRARY.fullmatch(x)][:o.max_items]:
+        caps.append(Capture(c.name, "search", "/api/libraries/{id}/search",
+                            c.get(f"/api/libraries/{lib}/search", {"q": o.term, "limit": "5"}, uid), "json"))
     return caps
 
 
@@ -320,6 +382,10 @@ def capture_komga(c: Client, o: Options) -> List[Capture]:
         if o.images:
             caps.append(Capture(c.name, "thumbnail", "/api/v1/books/{id}/thumbnail",
                                 c.get(f"/api/v1/books/{bid}/thumbnail", None, bound, MAX_IMAGE_BYTES), "image"))
+    if o.term:
+        q = {"search": o.term, "page": "0", "size": "5"}
+        caps.append(Capture(c.name, "search", "/api/v1/books?search=", c.get("/api/v1/books", q, bound), "json")
+                    if c.allows("/api/v1/books", q, bound) else _skip(c, "search"))
     return caps
 
 
@@ -335,9 +401,16 @@ def capture_calibre(c: Client, o: Options) -> List[Capture]:
     covers = ids[:1] if o.images else []
     if o.probe is not None:
         covers.append(str(o.probe))
-    for cid in covers:
-        caps.append(Capture(c.name, "thumbnail", "/opds/thumb_cover/{id}",
-                            c.get(f"/opds/thumb_cover/{cid}", None, shared, MAX_IMAGE_BYTES), "image"))
+    # The cover route the adapters in this checkout use: `/opds/cover_240_240/{id}` (Calibre-Web Automated v4,
+    # seen on the owner preview) or the older `/opds/thumb_cover/{id}`.
+    cover = next((t for t in ("/opds/cover_240_240/", "/opds/thumb_cover/") if c.allows(t + "1", None, shared)), None)
+    for cid in covers if cover else []:
+        caps.append(Capture(c.name, "thumbnail", cover + "{id}",
+                            c.get(f"{cover}{cid}", None, shared, MAX_IMAGE_BYTES), "image"))
+    if o.term:
+        q = {"query": o.term}
+        caps.append(Capture(c.name, "search", "/opds/search?query=", c.get("/opds/search", q, shared), "xml")
+                    if c.allows("/opds/search", q, shared) else _skip(c, "search"))
     return caps
 
 
@@ -636,7 +709,12 @@ _JF_ITEM = {"Id": _T, "Type": _T, "Name": _T, "SeriesName": _T, "ParentIndexNumb
             "ProductionYear": _T, "RunTimeTicks": _T, "ImageTags": {"Primary": _T},
             "UserData": {"UserId": _T, "ItemId": _T, "PlaybackPositionTicks": _T, "PlayedPercentage": _T}}
 _KG_BOOK = {"id": _T, "seriesId": _T, "libraryId": _T, "deleted": _T, "name": _T, "seriesTitle": _T,
-            "media": {"status": _T}, "metadata": {"title": _T, "number": _T}}
+            "media": {"status": _T},
+            "metadata": {"title": _T, "number": _T, "authors": {"name": _T, "role": _T}, "releaseDate": _T}}
+_ABS_ITEM = {"id": _T, "libraryId": _T, "mediaType": _T, "isMissing": _T, "isInvalid": _T,
+             "media": {"duration": _T, "tags": _T,
+                       "metadata": {"explicit": _T, "title": _T, "authorName": _T, "seriesName": _T,
+                                    "publishedYear": _T}}}
 
 # (service, route) -> (request path template, spec)
 ALLOWLIST: Dict[Tuple[str, str], Tuple[str, Any]] = {
@@ -653,10 +731,13 @@ ALLOWLIST: Dict[Tuple[str, str], Tuple[str, Any]] = {
         "mediaProgress": {"userId": _T, "libraryItemId": _T, "episodeId": _T, "isFinished": _T,
                           "hideFromContinueListening": _T, "progress": _T, "currentTime": _T, "duration": _T,
                           "lastUpdate": _T}}),
-    ("audiobookshelf", "item"): ("/api/items/{id}", {
-        "id": _T, "libraryId": _T, "mediaType": _T, "isMissing": _T, "isInvalid": _T,
-        "media": {"duration": _T, "tags": _T,
-                  "metadata": {"explicit": _T, "title": _T, "authorName": _T, "seriesName": _T}}}),
+    ("audiobookshelf", "item"): ("/api/items/{id}", _ABS_ITEM),
+    # Search (AVR-383): the hit list and the fields the adapters read from each hit; creator/year come from
+    # authorName/publishedYear (Audiobookshelf), metadata.authors/releaseDate (Komga), ProductionYear (Jellyfin).
+    ("audiobookshelf", "libraries"): ("/api/libraries", {"libraries": {"id": _T, "mediaType": _T}}),
+    ("audiobookshelf", "search"): ("/api/libraries/{id}/search", {"book": {"libraryItem": _ABS_ITEM}}),
+    ("jellyfin", "search"): ("/Items?searchTerm=", {"Items": _JF_ITEM}),
+    ("komga", "search"): ("/api/v1/books?search=", {"content": _KG_BOOK}),
     # Komga: shared regular-account view. Only the book and series fields a shared-view adapter shows or
     # checks (identity, library, deleted/ready state, title, number). No users, no restriction records.
     ("komga", "latest"): ("/api/v1/books/latest", {"content": _KG_BOOK}),
@@ -671,13 +752,17 @@ PROVIDER_IDS: Dict[Tuple[str, str], Any] = {
     ("audiobookshelf", "item"): {"media": {"metadata": {"isbn": _T, "asin": _T}}},
     ("komga", "latest"): {"content": {"metadata": {"isbn": _T}}},
     ("komga", "book"): {"metadata": {"isbn": _T}},
+    ("jellyfin", "search"): {"Items": _JF_PROVIDERS},
+    ("audiobookshelf", "search"): {"book": {"libraryItem": {"media": {"metadata": {"isbn": _T, "asin": _T}}}}},
+    ("komga", "search"): {"content": {"metadata": {"isbn": _T}}},
 }
 # Calibre-Web OPDS (Atom): the elements calibre_web._book reads. A <link> keeps only a RELATIVE cover or
 # download href (the numeric book id the adapter extracts); absolute and external links are dropped.
-XML_ALLOWLIST = ("entry/title", "entry/author/name",
-                 "entry/link@href (relative /opds/cover|thumb_cover/<n> and /opds/download/<n>/<fmt> only)")
+XML_ALLOWLIST = ("entry/title", "entry/author/name", "entry/published (an ISO date only: the year is shown)",
+                 "entry/link@href (relative /opds/cover|cover_240_240|thumb_cover/<n> and /opds/download/<n>/<fmt> only)")
 XML_PROVIDER_IDS = ("entry/dc:identifier (ISBN and similar)",)
 MAX_FEED_ENTRIES = 20
+_ISO_DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}(?:T[0-9:.]{1,18}(?:Z|[+-][0-9]{2}:?[0-9]{2})?)?")
 _DC = "http://purl.org/dc/elements/1.1/"
 _ATOM_NS = "http://www.w3.org/2005/Atom"
 
@@ -730,6 +815,9 @@ def allow_xml(body: bytes, keep_provider_ids: bool = False) -> str:
         name = entry.find(f"{atom}author/{atom}name")
         if name is not None:
             ET.SubElement(ET.SubElement(out, atom + "author"), atom + "name").text = name.text or ""
+        published = (entry.findtext(atom + "published") or "").strip()
+        if _ISO_DATE.fullmatch(published):
+            ET.SubElement(out, atom + "published").text = published      # a date, nothing else
         for link in entry.findall(atom + "link"):
             href = _cw._relative(link.get("href"))
             if href and (_cw._COVER_HREF.fullmatch(href) or _cw._DOWNLOAD_HREF.fullmatch(href)):
@@ -782,7 +870,7 @@ def show_allowlist(services: Sequence[str], keep_provider_ids: bool, say) -> Non
             if extra and not keep_provider_ids:
                 say("      (only with --keep-provider-ids: " + ", ".join(_paths(extra)) + ")")
         if name == "calibre-web":
-            say("  new  GET /opds/new")
+            say("  new  GET /opds/new   (and, with --search-term, search  GET /opds/search?query=)")
             for f in XML_ALLOWLIST:
                 say(f"      {f}")
             if keep_provider_ids:
@@ -806,7 +894,7 @@ def apply_allowlist(cap: Capture, keep_provider_ids: bool = False) -> Optional[s
             if kept is _DROP:
                 return "unexpected_shape"
             cap.body = json.dumps(kept, ensure_ascii=False).encode("utf-8")
-        elif cap.service == "calibre-web" and cap.route == "new":
+        elif cap.service == "calibre-web" and cap.route in ("new", "search"):
             cap.body = allow_xml(cap.body, keep_provider_ids).encode("utf-8")
         else:
             return "no_allowlist"
@@ -911,6 +999,9 @@ def parse_args(argv: Optional[Sequence[str]]) -> argparse.Namespace:
                    "(dropped by default). Only for a specific validation that needs them; they can reveal real titles")
     p.add_argument("--show-allowlist", action="store_true", help="print the fields kept per service and route, "
                    "and exit; makes no network call and needs no credentials")
+    p.add_argument("--search-term", default="", help="also capture each adapter's SEARCH route with this term "
+                   "(only routes the adapters in this checkout make). Pick a harmless common word; it must be plain "
+                   "letters, digits and spaces, is sent only as a query parameter, and never printed or written")
     p.add_argument("--dry-run", action="store_true", help="print the requests that would be made, and make none")
     return p.parse_args(argv)
 
@@ -977,6 +1068,11 @@ def main(argv: Optional[Sequence[str]] = None, env: Optional[Mapping[str, str]] 
         if not 1 <= args.max_items <= MAX_ITEMS or len(members) > MAX_MEMBERS:
             raise CaptureError(f"--max-items must be 1..{MAX_ITEMS} and --members at most {MAX_MEMBERS} names")
         timeout = min(max(args.timeout, 0.5), MAX_TIMEOUT)
+        term = None
+        if args.search_term:
+            term = " ".join(args.search_term.split())
+            if not _SEARCH_TERM.fullmatch(args.search_term) or not _SEARCH_TERM.fullmatch(term):
+                raise CaptureError("--search-term must be 2 to 40 plain letters, digits and spaces")
         own = args.own_username or env.get(PREFIX + "OWN_USERNAME", "")
         clients, hosts, secrets, skipped = build_clients(env, selected, timeout, args.dry_run, args.allow_insecure_http)
         if not clients:
@@ -986,7 +1082,7 @@ def main(argv: Optional[Sequence[str]] = None, env: Optional[Mapping[str, str]] 
         print(f"capture_upstreams: {exc}", file=err)
         return 1
 
-    opts = Options(members, args.max_items, args.images, args.calibre_probe_id)
+    opts = Options(members, args.max_items, args.images, args.calibre_probe_id, term)
     caps: List[Capture] = []
     if args.dry_run:
         say("DRY RUN: no request is made, nothing is written. Host names and credentials are never printed.")
@@ -1001,6 +1097,9 @@ def main(argv: Optional[Sequence[str]] = None, env: Optional[Mapping[str, str]] 
                 say(f"  [{name}] GET {_dry_display(line)}")
         else:
             for cap in [c for c in caps if c.service == name]:
+                if cap.error == "not_in_adapters":
+                    say(f"  [{name}] {cap.route}: {SKIPPED_NOTE}")
+                    continue
                 say(f"  [{name}] {cap.route}: " + (f"HTTP {cap.status}" if cap.status else "no response") + (f" ({cap.error})" if cap.error else ""))
     for name in skipped:
         say(f"  [{name}] skipped: not configured")

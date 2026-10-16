@@ -682,5 +682,126 @@ class Allowlist(unittest.TestCase):
             self.assertIn("tt0123456", blob)
 
 
+# ---- search routes (AVR-383) and the creator/year fields: only what the adapters in the checkout make ----------
+TERM = "zzqxterm"
+ABS_LIB = "lib_secret1"
+OPDS_SEARCH = OPDS.replace("<author><name>Jane Secret</name></author>",
+                           "<author><name>Jane Secret</name></author><published>2008-03-01T00:00:00+00:00</published>"
+                           "<published2>leak-published2</published2>")
+SEARCH_BODIES = dict(BODIES)
+SEARCH_BODIES.update({
+    f"/api/users/{ABS_ALICE}": {"id": ABS_ALICE, "username": "alice", "isActive": True,
+                                "permissions": {"accessAllLibraries": False}, "librariesAccessible": [ABS_LIB],
+                                "mediaProgress": []},
+    f"/api/libraries/{ABS_LIB}/search": {"book": [{"libraryItem": {
+        "id": ABS_ITEM, "libraryId": ABS_LIB, "mediaType": "book", "path": "/audiobooks/Secret",
+        "media": {"metadata": {"title": "Secret Book", "authorName": "Jane Secret", "publishedYear": "2011",
+                               "explicit": False, "description": "leak-description"}, "tags": []}},
+        "matchKey": "title", "matchText": "leak-matchtext"}], "authors": [{"name": "leak-author-list"}]},
+    "/api/v1/books": {"content": [{"id": KG_BOOK, "name": "Secret Comic", "url": "/data/comics/x.cbz",
+                                   "metadata": {"title": "Secret Comic", "releaseDate": "2019-04-01",
+                                                "summary": "leak-summary",
+                                                "authors": [{"name": "Jane Secret", "role": "writer"}]}}]},
+    "/opds/search": OPDS_SEARCH,
+    "/opds/cover_240_240/42": PNG,
+})
+
+
+def _search_routes():
+    """The search routes of the adapters on feat/home-2.0 (AVR-383), for checkouts whose adapters have them."""
+    from avrana_home.adapters._base import Route
+    from avrana_home.resilience import ItemGone, RouteMissing, UserGone
+    lib = r"(?:lib_[a-z0-9]{3,40}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})"
+    return {
+        "jellyfin": (Route("items", r"/Items", ("userId", "ids", "fields", "enableUserData", "enableImageTypes",
+                                                 "searchTerm", "includeItemTypes", "recursive", "limit"),
+                           user_scoped=True, not_found=UserGone),),
+        "audiobookshelf": (Route("libraries", r"/api/libraries", (), user_scoped=False, not_found=RouteMissing),
+                           Route("search", r"/api/libraries/" + lib + r"/search", ("q", "limit"), user_scoped=False,
+                                 not_found=ItemGone)),
+        "komga": (Route("search", r"/api/v1/books", ("search", "page", "size"), user_scoped=False,
+                        not_found=RouteMissing),),
+        "calibre-web": (Route("search", r"/opds/search", ("query",), user_scoped=False, not_found=RouteMissing),
+                        Route("cover", r"/opds/cover_240_240/[0-9]{1,9}", (), user_scoped=False, not_found=ItemGone)),
+    }
+
+
+class SearchCapture(unittest.TestCase):
+    def with_search_routes(self):
+        """Give the tool the feat/home-2.0 search routes for this test, as a checkout with those adapters would."""
+        extra = _search_routes()
+        saved = {k: v["routes"] for k, v in cap.SERVICES.items()}
+        for name, routes in extra.items():
+            if name in cap.SERVICES:
+                cap.SERVICES[name]["routes"] = tuple(routes) + tuple(cap.SERVICES[name]["routes"])
+        self.addCleanup(lambda: [cap.SERVICES[k].__setitem__("routes", v) for k, v in saved.items()])
+
+    def test_without_search_routes_in_the_adapters_nothing_is_requested(self):
+        with Stub(overrides=SEARCH_BODIES) as stub, tempfile.TemporaryDirectory() as d:
+            code, out, err = run(["--members", "alice", "--search-term", TERM, "--out", str(Path(d) / "c")],
+                                 stub.env())
+            self.assertEqual(0, code, err)
+            for h in stub.hits:
+                self.assertNotIn(TERM, h[2], h[1])                    # the term never left the process
+            self.assertNotIn("/opds/search", {h[1] for h in stub.hits})
+            self.assertIn("search route not in this checkout's adapters", out)
+            blob = "\n".join(outputs(Path(d) / "c").values()) + out + err
+            self.assertNotIn(TERM, blob)
+
+    def test_with_search_routes_the_search_is_captured_get_only_and_allowlisted(self):
+        self.with_search_routes()
+        with Stub(overrides=SEARCH_BODIES) as stub, tempfile.TemporaryDirectory() as d:
+            code, out, err = run(["--members", "alice", "--own-username", "owner1", "--search-term", TERM,
+                                  "--images", "--out", str(Path(d) / "c")], stub.env())
+            self.assertEqual(0, code, err)
+            self.assertEqual({"GET"}, {h[0] for h in stub.hits})
+            searched = [h for h in stub.hits if TERM in h[2]]
+            self.assertEqual({"/Items", f"/api/libraries/{ABS_LIB}/search", "/api/v1/books", "/opds/search"},
+                             {h[1] for h in searched})
+            self.assertFalse([h for h in stub.hits if TERM in h[1]])             # never in a path
+            self.assertIn("/opds/cover_240_240/42", {h[1] for h in stub.hits})   # the cover route the adapters use
+            self.assertNotIn("/opds/thumb_cover/42", {h[1] for h in stub.hits})
+            files = outputs(Path(d) / "c")
+            blob = "\n".join(files.values()) + out + err
+            self.assertNotIn(TERM, blob)
+            for bad in ("leak-description", "leak-matchtext", "leak-author-list", "leak-summary", "leak-published2",
+                        "/audiobooks/", "/data/", "Secret", "Jane"):
+                self.assertNotIn(bad, blob, bad)
+            self.assertEqual([], cap.scan_for_secrets(blob))
+            abs_search = json.loads(files["audiobookshelf-search-01.json"])
+            meta = abs_search["book"][0]["libraryItem"]["media"]["metadata"]
+            self.assertEqual("2011", meta["publishedYear"])                      # the year field is kept
+            self.assertNotEqual("Jane Secret", meta["authorName"])               # the creator is pseudonymised
+            kg = json.loads(files["komga-search-01.json"])["content"][0]["metadata"]
+            self.assertEqual(("2019-04-01", "writer"), (kg["releaseDate"], kg["authors"][0]["role"]))
+            self.assertIn("<published>2008-03-01T00:00:00+00:00</published>", files["calibre-web-search-01.xml"])
+            jf = json.loads(files["jellyfin-search-01.json"])
+            self.assertNotIn("Overview", json.dumps(jf))
+
+    def test_a_term_that_is_not_a_plain_word_is_refused_before_any_request(self):
+        for bad in ("a", "*", "x" * 41, "../../etc", "a%20b", "café", "a\r\nb", "a&b=c"):
+            with Stub() as stub, tempfile.TemporaryDirectory() as d:
+                code, out, err = run(["--search-term", bad, "--out", str(Path(d) / "c")], stub.env())
+                self.assertEqual(1, code, bad)
+                self.assertEqual([], stub.hits)
+                if len(bad) > 2:
+                    self.assertNotIn(bad, out + err)                       # the refused term is not echoed
+
+    def test_dry_run_never_prints_the_term(self):
+        self.with_search_routes()
+        with Stub() as stub:
+            code, out, err = run(["--dry-run", "--members", "alice", "--search-term", TERM], stub.env())
+            self.assertEqual(0, code, err)
+            self.assertEqual([], stub.hits)
+            self.assertNotIn(TERM, out + err)
+            self.assertIn("search=%3Cterm%3E", out)                            # a placeholder, encoded
+
+    def test_every_search_route_has_an_allowlist(self):
+        for key in (("jellyfin", "search"), ("audiobookshelf", "search"), ("audiobookshelf", "libraries"),
+                    ("komga", "search")):
+            self.assertIsNotNone(cap.spec_for(*key), key)
+        self.assertNotIn(("komga", "users"), cap.ALLOWLIST)
+
+
 if __name__ == "__main__":
     unittest.main()
