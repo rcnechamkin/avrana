@@ -301,6 +301,27 @@ Cover art in lists is a square crop with no rounding.
 - Markup contract: the first element in `<body>` is `<a class="skip-link" href="#main">Skip to main content</a>`; the target is the page's single `<main id="main" tabindex="-1">`.
 - Hidden with the clip pattern (not `display:none`), visible on `:focus-visible` as an inverted Paper-on-Ink block, fixed at top left so a sticky header cannot cover it, with the shared two-ring focus ring from `a:focus-visible`. Existing tokens only; no transition, so nothing to gate on reduced motion. Works without JavaScript.
 
+### Shell masthead (Home, Search, Account, Help)
+- Top row, right-aligned: Search (when the member has a searchable library) and the native account
+  disclosure. Help is not repeated there: it is always the last place in the places bar (Watch, Listen,
+  Read, Request, Help) and in the account menu. The places bar keeps one row at 360px and wraps whole
+  words at large text; the compact wordmark is capped by the viewport width so it never wraps.
+- Side gutters are `max(1.25rem, env(safe-area-inset-*))`. `viewport-fit=cover` is not set, so Safari keeps
+  content clear of the notch itself; the insets matter only if a later change opts in.
+
+### Media card (Home rails)
+- One link per card, one action. Order: title (two lines at most), the creator, series or episode line
+  (Ash, one line, ellipsis), progress in words, then on Continue cards the action verb ("Resume" or
+  "Open") as small underlined text. New this week cards carry no verb: the whole card opens the item.
+- Clamping is visual only; the full title stays in the link text and so in its accessible name. When
+  the view-model gives an `action_label`, it replaces the verb for assistive technology only.
+- Every frame in a rail stands on one baseline: the rail's artwork height, each shape's natural width
+  (posters, books, comics, audiobook squares); a video still is held to a maximum width and stands
+  shorter, bottom-aligned. Images are contained, never cropped into another shape.
+- Rails scroll sideways with proximity snapping; cards are at least 8.75rem wide on phones so the next
+  card peeks in; a thin Quiet Rule scrollbar shows on pointer devices; the rail's padding keeps the
+  focus ring unclipped.
+
 ### Help page (signature component)
 - Headline names the topic ("Movies and TV"). Under it, a row of platform links that jump to each
   section, so a member with a Roku does not scroll past six other devices.

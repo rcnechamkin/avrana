@@ -78,7 +78,10 @@ class NavigationTests(Mocks):
                     self.assertIn('<div class="mast">', t)
                     self.assertIn('<nav class="places" aria-label="Avrana">', t)
                     self.assertIn('<h1><a href="/"', t)
-                    self.assertIn('class="idlink" href="/help"', t)
+                    # Help is in the places bar and the account menu; the top row does not repeat it
+                    self.assertIn('href="/help"', re.search(r'<nav class="places".*?</nav>', t, re.S).group(0))
+                    self.assertNotIn('class="idlink" href="/help"', t)
+                    self.assertEqual(1, len(re.findall(r'<details class="account">.*?href="/help"', t, re.S)))
                     self.assertIn('<details class="account">', t)
                     self.assertIn('class="idlink" href="/search"', t)
 
@@ -96,7 +99,7 @@ class NavigationTests(Mocks):
         for route in ("/", "/account", "/help"):
             t = c.get(route, headers=NOTHING).text
             self.assertNotIn('href="/search"', t, route)
-            self.assertIn('class="idlink" href="/help"', t, route)
+            self.assertIn('href="/help"', re.search(r'<nav class="places".*?</nav>', t, re.S).group(0), route)
         self.assertEqual(1, mains(c.get("/search", headers=NOTHING).text))
 
     def test_error_and_unknown_pages_stay_plain_and_have_one_main(self):
@@ -246,6 +249,47 @@ class LibraryPresentationTests(unittest.TestCase):
         css = env.globals["home_stylesheet"]
         for shape, ratio in (("poster", "2/3"), ("square", "1"), ("still", "16/9"), ("comic", "13/20"), ("book", "2/3")):
             self.assertRegex(css, rf"\.w-{shape} \.frame[^}}]*aspect-ratio:{re.escape(ratio)}")
+
+    @staticmethod
+    def _name_of(link_html):
+        """A rough accessible name: the link's text without aria-hidden parts, whitespace collapsed."""
+        text = re.sub(r'<span [^>]*aria-hidden="true">[^<]*</span>', "", link_html)
+        return " ".join(re.sub(r"<[^>]+>", " ", text).split())
+
+    def test_a_card_is_one_link_with_the_full_title_and_one_action(self):
+        env = make_client(make_settings(home_sections=False)).fastapi_app.state.env
+        card = env.get_template("_parts.html").module.card
+        long_title = "Synthetic Film: A Very Long Subtitle That Is Clamped to Two Lines (Extended Edition) <b>&"
+        c = viewmodel.CardVM(long_title, "https://x.example/1", "poster", "Synthetic Series · S3 E10", None,
+                             "1 hour 21 minutes left", kind_label="Movie", action="Resume")
+        html = str(card(c, verb=True))
+        self.assertEqual(1, html.count("<a "))                        # one link, no second control
+        self.assertEqual(1, html.count('<span class="go">Resume</span>'))
+        self.assertNotIn("<b>", html)                                  # still autoescaped
+        name = self._name_of(html)
+        self.assertTrue(name.startswith("Synthetic Film: A Very Long Subtitle That Is Clamped to Two Lines "
+                                        "(Extended Edition) &lt;b&gt;&amp;"), name)   # the full title, first
+        # the order the eye reads: title, the dim line, progress, then the verb, each separated
+        self.assertRegex(html, r'class="t">[^<]*</span>\s*<span class="d">Synthetic Series · S3 E10</span>\s*'
+                               r'<span class="p">1 hour 21 minutes left</span>\s*<span class="go">Resume</span>\s*</a>')
+        # an action_label stands in for the verb for assistive technology; the verb stays visible
+        labelled = str(card(viewmodel.CardVM("Pilot", "https://x.example/2", "still", None, None,
+                                             action="Open", action_label="Open Pilot in Movies and TV"), verb=True))
+        self.assertIn('<span class="go"><span aria-hidden="true">Open</span><span class="sr">Open Pilot in Movies '
+                      'and TV</span></span>', labelled)
+        self.assertEqual("Pilot Open Pilot in Movies and TV", self._name_of(labelled))
+        # New this week: no verb; the kind label stands in when there is no line
+        new = str(card(viewmodel.CardVM("Book", "https://x.example/3", "book", None, None, kind_label="Book")))
+        self.assertNotIn('class="go"', new)
+        self.assertIn('<span class="d">Book</span>', new)
+
+    def test_titles_clamp_visually_and_rails_share_one_artwork_height(self):
+        css = make_client(make_settings(home_sections=False)).fastapi_app.state.env.globals["home_stylesheet"]
+        self.assertRegex(css, r"\.t\{[^}]*-webkit-line-clamp:2;line-clamp:2;overflow:hidden;")
+        self.assertRegex(css, r"\.d\{[^}]*white-space:nowrap;overflow:hidden;text-overflow:ellipsis;")
+        self.assertRegex(css, r"\.rail \.frame\{[^}]*height:var\(--fh\)[^}]*margin-top:calc\(var\(--art-h\) - var\(--fh\)\)")
+        self.assertRegex(css, r"\.art\{[^}]*object-fit:contain")      # natural shape, never cropped
+        self.assertNotIn("scrollbar-width:none", css.split(".rail{", 1)[1].split("}", 1)[0])
 
     def test_the_shell_data_never_calls_anything_and_marks_current(self):
         shell = build_shell(self.TILES, "search", "Pat")
