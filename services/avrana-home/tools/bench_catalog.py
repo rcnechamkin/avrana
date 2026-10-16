@@ -490,16 +490,19 @@ class Bench:
         self.cache.close()
 
     def get(self, target: str, headers: dict, client=None):
-        """(status, body text, server ms, upstream calls, unavailable sections)."""
+        """(status, body text, server ms, upstream calls, unavailable sections). The reasons of the unavailable
+        sections are kept in `self.last_reasons`."""
         self.counter.take()
         resp = (client or self.client).get(target, headers=headers)
         calls = sum(self.counter.take().values())
-        server_ms, unavailable = None, 0
+        server_ms, unavailable, self.last_reasons = None, 0, {}
         for event, fields in self.cap.take():
             if event == "request":
                 server_ms = fields.get("duration_ms")
             elif event == "section" and fields.get("state") == "unavailable":
                 unavailable += 1
+                why = fields.get("reason") or "?"
+                self.last_reasons[why] = self.last_reasons.get(why, 0) + 1
         return resp.status_code, resp.text, server_ms, calls, unavailable
 
 
@@ -519,8 +522,11 @@ class Results:
     def __init__(self):
         self.rows: Dict[Tuple[str, str], dict] = {}
 
-    def add(self, scenario: str, phase: str, server_ms, calls: int, unavailable: int, status: int):
-        r = self.rows.setdefault((scenario, phase), {"ms": [], "calls": [], "unavailable": 0, "errors": 0})
+    def add(self, scenario: str, phase: str, server_ms, calls: int, unavailable: int, status: int, reasons=None):
+        r = self.rows.setdefault((scenario, phase), {"ms": [], "calls": [], "unavailable": 0, "errors": 0,
+                                                     "reasons": {}})
+        for why, n in (reasons or {}).items():
+            r["reasons"][why] = r["reasons"].get(why, 0) + n
         if server_ms is not None:
             r["ms"].append(float(server_ms))
         r["calls"].append(calls)
@@ -528,19 +534,27 @@ class Results:
         r["errors"] += status >= 500
 
     def table(self) -> str:
-        lines = ["| scenario | phase | n | p50 ms | p95 ms | upstream calls / req (mean, max) | unavailable sections | 5xx |",
+        lines = ["| scenario | phase | n | p50 ms | p95 ms | upstream calls / req (mean, max) | unavailable sections "
+                 "(reasons) | 5xx |",
                  "|---|---|---:|---:|---:|---:|---:|---:|"]
         for (scenario, phase), r in self.rows.items():
             n = len(r["calls"])
             mean = sum(r["calls"]) / n if n else 0
             lines.append(f"| {scenario} | {phase} | {n} | {pct(r['ms'], 50):.0f} | {pct(r['ms'], 95):.0f} | "
-                         f"{mean:.1f}, {max(r['calls']) if n else 0} | {r['unavailable']} | {r['errors']} |")
+                         f"{mean:.1f}, {max(r['calls']) if n else 0:.0f} | {r['unavailable']}{self._why(r)} | "
+                         f"{r['errors']} |")
         return "\n".join(lines)
+
+    @staticmethod
+    def _why(r) -> str:
+        reasons = r.get("reasons") or {}
+        return (" (" + ", ".join(f"{k} {v}" for k, v in sorted(reasons.items())) + ")") if reasons else ""
 
     def as_json(self) -> list:
         return [{"scenario": s, "phase": p, "n": len(r["calls"]), "p50_ms": pct(r["ms"], 50),
                  "p95_ms": pct(r["ms"], 95), "calls_mean": sum(r["calls"]) / max(1, len(r["calls"])),
-                 "calls_max": max(r["calls"] or [0]), "unavailable_sections": r["unavailable"], "http_5xx": r["errors"]}
+                 "calls_max": max(r["calls"] or [0]), "unavailable_sections": r["unavailable"], "reasons": r.get("reasons", {}),
+                 "http_5xx": r["errors"]}
                 for (s, p), r in self.rows.items()]
 
 
@@ -556,7 +570,7 @@ def run_sequential(name: str, world: World, profile, cap: Capture, results: Resu
                 for m in world.members:
                     for target in fn(m):
                         status, text, ms, calls, unavailable = b.get(target, m.headers())
-                        results.add(name, label, ms, calls, unavailable, status)
+                        results.add(name, label, ms, calls, unavailable, status, b.last_reasons)
                         if label == "home cold":
                             art[m.username] = ART.findall(text)[:ART_PER_MEMBER]
                 b.clock.shift(-(time.monotonic() - started))     # the phase took no simulated time
@@ -613,7 +627,9 @@ def run_burst(name: str, world: World, profile, cap: Capture, results: Results, 
                 elif event == "section" and fields.get("state") == "unavailable":
                     reasons[fields.get("reason") or "?"] = reasons.get(fields.get("reason") or "?", 0) + 1
             r = results.rows.setdefault((name, "home cold, 15 at once"),
-                                        {"ms": [], "calls": [], "unavailable": 0, "errors": 0})
+                                        {"ms": [], "calls": [], "unavailable": 0, "errors": 0, "reasons": {}})
+            for why, n in reasons.items():
+                r["reasons"][why] = r["reasons"].get(why, 0) + n
             r["ms"].extend(ms)
             r["calls"].extend([calls / len(world.members)] * len(world.members))
             r["unavailable"] += sum(reasons.values())
@@ -634,7 +650,8 @@ def scenarios(quick: bool):
            ("normal 20 ms, 50,000 items", 50000, fast(20), "seq")]
     if quick:
         return out[:1] + [("burst 20 ms, 5,000 items", 5000, fast(20), "burst")]
-    out += [("slow 200 ms, 5,000 items", 5000, fast(200), "seq"),
+    out += [("slow 100 ms, 5,000 items", 5000, fast(100), "seq"),
+            ("slow 200 ms, 5,000 items", 5000, fast(200), "seq"),
             ("Jellyfin hangs (2 s timeout), others 20 ms", 5000, dict(fast(20), jellyfin=("hang", None)), "seq"),
             ("Audiobookshelf down, others 20 ms", 5000, dict(fast(20), audiobookshelf=("down", None)), "seq"),
             ("all upstreams down", 5000, {s: ("down", None) for s in SERVICES}, "seq"),
