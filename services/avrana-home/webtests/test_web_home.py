@@ -62,7 +62,7 @@ class HomeViewModelTests(unittest.TestCase):
         home = build_home(v, TILES, limit=12)
         self.assertEqual(RAIL_MOST, len(home.continue_items))
         self.assertEqual(["Film 1", "Book", "Film 2", "Film 3"], [c.title for c in home.continue_items])
-        self.assertEqual("1 hour left", home.continue_items[0].line)
+        self.assertEqual("1 hour left", home.continue_items[0].progress)
         self.assertEqual("square", home.continue_items[1].shape)
         self.assertEqual(2, len(build_home(v, TILES, limit=2).continue_items))
 
@@ -117,7 +117,7 @@ class HomeViewModelTests(unittest.TestCase):
 
     def test_not_permitted_is_never_present(self):
         home = build_home(self.view(sec("komga", "recent", "not_permitted"), sec("jellyfin", "recent", "ok", [item(1, "F")])), TILES)
-        self.assertEqual(["all", "jellyfin"], [k for k, _n, _c in home.new_tabs])
+        self.assertEqual(["jellyfin"], [k for k, _n, _c in home.new_tabs])
 
     def test_initial_and_name_are_plain_text(self):
         self.assertEqual("P", initial_of("pat"))

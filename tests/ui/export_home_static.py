@@ -48,13 +48,18 @@ SCENARIOS = {
     "no-library": ("No library", ("member-none",), ()),
     "signed-out": ("Signed out", ("signed-out",), ()),
 }
-CRAWL = re.compile(r"^/(?:\?new=[a-z-]+)?$|^/(?:account|help)$|^/help/[a-z0-9-]+$")
+# The search pages worth reviewing (term in the address -> file name): results, no match, an invalid term.
+SEARCH_SEEDS = {"/search": "search", "/search?q=Synthetic": "search-results",
+                "/search?q=zzqxnothingzz": "search-no-match", "/search?q=%2A%2A": "search-invalid"}
+CRAWL = re.compile(r"^/(?:\?new=[a-z-]+)?$|^/(?:account|help)$|^/help/[a-z0-9-]+$|^/search(?:\?q=[A-Za-z0-9%]+)?$")
+ACTION = re.compile(r'(<form [^>]*action=")(/search)(")')
 HREF = re.compile(r'(\bhref=")([^"]*)(")')
-SRC_ART = re.compile(r'(<li class="w-([a-z]+)"><a class="card"[^>]*>\s*<img class="art" src=")(/art/[^"]*)(")')
+SRC_ART = re.compile(r'(<li class="w-([a-z]+)">(?:<a class="card"[^>]*>\s*)?<span class="frame"><span class="ph"'
+                     r'[^>]*>[^<]*</span><img class="art" src=")(/art/[^"]*)(")')
 STYLE = re.compile(r"<style>(.*?)</style>", re.S)
 PLAIN = ("<style>html{background:#000;color:#fff}body{font:18px/1.5 system-ui}a{color:#9ecbff}</style>")
 BANNER = ('<div class="review-note" role="note"><a href="{up}index.html">Review index</a> &middot; '
-          'Static export, synthetic data. Links that leave Home are not live.</div>')
+          'Static export, synthetic data. Search shows prepared pages only; links that leave Home are not live.</div>')
 NOTE_CSS = (".review-note{font:14px/1.4 system-ui,sans-serif;padding:8px 16px;background:#fff3b0;"
             "color:#111;text-align:center}.review-note a{color:#111;font-weight:600;"
             "display:inline-block;min-height:24px}")
@@ -77,6 +82,8 @@ class Peer:
 
 
 def slug_of(key: str) -> str:
+    if key in SEARCH_SEEDS:
+        return SEARCH_SEEDS[key]
     path, _, query = key.partition("?")
     name = "home" if path == "/" else path.strip("/").replace("/", "-")
     return f"{name}-{query.replace('new=', 'new-')}" if query else name
@@ -130,7 +137,7 @@ class Exporter:
                 c = self.client(settings)
                 hdr = self.headers(who)
                 pages: dict[str, str] = {}
-                queue = ["/"]
+                queue = ["/", *SEARCH_SEEDS]
                 while queue:
                     k = queue.pop(0)
                     if k in pages or not CRAWL.match(k):
@@ -174,6 +181,7 @@ class Exporter:
                     return f'{pre}{slug_of(base)}.html{"#" + frag if frag else ""}{post}'
             return f'{pre}../../not-in-export.html{post}'
         text = HREF.sub(link, text)
+        text = ACTION.sub(r"\g<1>../../not-in-export.html\g<3>", text)     # the search form is not live here
         def sheet(m):
             body = m.group(1)
             name = "style-" + hashlib.sha256(body.encode()).hexdigest()[:8] + ".css"
@@ -198,7 +206,8 @@ class Exporter:
             'content="width=device-width, initial-scale=1"><meta name="color-scheme" content="dark">'
             '<title>Not in this export</title>' + PLAIN + '</head><body style="padding:24px">'
             '<main><h1>Not in this export</h1><p>This link leaves Home for a real service, sign-in or '
-            'sign-out. The review export is static and has no live services.</p>' + stub_note +
+            'sign-out, or it is the search box, which has no server behind it here. The review export is static '
+            'and has no live services. Open the prepared search pages from the review index.</p>' + stub_note +
             '</main></body></html>\n').encode())
         rows = []
         for key, (title, members, _d) in SCENARIOS.items():

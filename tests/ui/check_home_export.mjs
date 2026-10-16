@@ -25,7 +25,10 @@ for (const scheme of ['light', 'dark']) for (const [label, w, h, touch] of SIZES
     colorScheme: scheme, javaScriptEnabled: true });
   const page = await ctx.newPage();
   for (const p of pages) {
-    await page.goto(`${base}/${p}`);
+    for (let tries = 0; ; tries++) {   // a busy shared machine can refuse a load: retry, never skip a page
+      try { await page.goto(`${base}/${p}`); break; }
+      catch (e) { if (tries >= 4) throw e; await page.waitForTimeout(1500); }
+    }
     await page.addScriptTag({ content: axeSource });
     const r = await page.evaluate(async () => {
       const res = await axe.run(document, { runOnly: ['wcag2a', 'wcag2aa', 'wcag21aa', 'best-practice'] });
@@ -41,10 +44,11 @@ for (const scheme of ['light', 'dark']) for (const [label, w, h, touch] of SIZES
     });
     checked++; smallest = Math.min(smallest, r.min);
     if (r.bad.length || r.sideways) { findings++; console.log(`FAIL ${scheme} ${label} ${p}: ${r.bad.join('; ')}${r.sideways ? ' [sideways scroll]' : ''}`); }
-    if (shots && scheme === 'light' && /\/(home|home-new-[a-z-]+)\.html$/.test(p) && /^member-[ab]\/normal|signed-out|member-none|one-down|all-down/.test(p)) {
+    if (shots && scheme === 'light' && /\/(home|home-new-[a-z-]+|search[a-z-]*|account|help)\.html$/.test(p)) {
       const tag = p.replace(/\.html$/, '').replace(/\//g, '-');
       fs.mkdirSync(shots, { recursive: true });
-      await page.screenshot({ path: path.join(shots, `${tag}-${label}.png`), fullPage: true });
+      try { await page.screenshot({ path: path.join(shots, `${tag}-${label}.png`), fullPage: true }); }
+      catch (e) { console.log(`SHOT-FAIL ${p} ${label}: ${String(e.message).split(" ")[0]}`); }
     }
   }
   await ctx.close();

@@ -5,28 +5,31 @@
     </a>
 {%- endmacro %}
 
-{# ---- The Home design (AVR-374/452/478), composed from the approved preview ---------------------------- #}
-{% macro mast(home, account_menu) -%}
+{# ---- The shell masthead (AVR-374/452/478/383): the same on Home, Search, Account, Help and help topics ------- #}
+{% macro mast(shell, account_menu) -%}
     <div class="mast">
       <div class="id">
-        {# TODO(AVR-383): a visible "Search" word belongs here once a search page exists. It does not yet. #}
+{% if shell.can_search %}
+        <a class="idlink" href="/search"{% if shell.current == "search" %} aria-current="page"{% endif %}>Search</a>
+{% endif %}
+        <a class="idlink" href="/help"{% if shell.current == "help" %} aria-current="page"{% elif shell.current == "help-topic" %} aria-current="true"{% endif %}>Help</a>
         <details class="account">
-          <summary><span class="mono" aria-hidden="true">{{ home.initial }}</span>Account<span class="sr">, signed in as {{ home.member_name }}</span></summary>
+          <summary><span class="mono" aria-hidden="true">{{ shell.initial }}</span>Account<span class="sr">, signed in as {{ shell.member_name }}</span></summary>
           <div class="menu">
-            <p class="as">Signed in as {{ home.member_name }}</p>
+            <p class="as">Signed in as {{ shell.member_name }}</p>
             <ul>
 {% for label, to in account_menu %}
-              <li><a href="{{ to }}">{{ label }}</a></li>
+              <li><a href="{{ to }}"{% if (to == "/account" and shell.current == "account") or (to == "/help" and shell.current == "help") %} aria-current="page"{% endif %}>{{ label }}</a></li>
 {% endfor %}
             </ul>
           </div>
         </details>
       </div>
-      <h1><a href="/">AVRANA</a></h1>
+      <h1><a href="/"{% if shell.current == "home" %} aria-current="page"{% endif %}>AVRANA</a></h1>
       <div class="rule"></div>
     </div>
     <nav class="places" aria-label="Avrana">
-{% for p in home.places %}
+{% for p in shell.places %}
 {% if p.up %}      <a href="{{ p.href }}">{{ p.label|trusted }}</a>
 {% else %}      <span class="off"><s>{{ p.label|trusted }}</s><span class="sr">, unavailable</span></span>
 {% endif %}
@@ -34,10 +37,17 @@
     </nav>
 {%- endmacro %}
 
+{# One piece of art: a frame with a fixed shape (set by the card's w-<shape> class) and a quiet letter behind
+   the image. If there is no art, or the image cannot load, the letter shows: never a broken image. #}
+{% macro frame(image, title) -%}
+<span class="frame"><span class="ph" aria-hidden="true">{{ (title[:1] or "A")|upper }}</span>{% if image %}<img class="art" src="{{ image }}" alt="" width="160" height="240" loading="lazy">{% endif %}</span>
+{%- endmacro %}
+
 {% macro card(c) -%}
 <li class="w-{{ c.shape }}"><a class="card" href="{{ c.href }}">
-  {% if c.image %}<img class="art" src="{{ c.image }}" alt="" width="160" height="240" loading="lazy">{% endif %}
+  {{ frame(c.image, c.title) }}
   <span class="t">{{ c.title }}</span>
   {% if c.line %}<span class="d">{{ c.line }}</span>{% endif %}
+  {% if c.progress %}<span class="d p">{{ c.progress }}</span>{% endif %}
 </a></li>
 {%- endmacro %}

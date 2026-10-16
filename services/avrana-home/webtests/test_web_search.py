@@ -151,7 +151,7 @@ class States(Fixture):
                 r = self.search(A, term)
                 self.assertEqual(200, r.status_code)
                 self.assertIn("That search term cannot be used.", r.text)
-                self.assertIn("at least 2 letters or numbers", r.text)
+                self.assertIn("At least 2 characters", r.text)
         self.assertEqual(0, self.upstream_calls())
 
     def test_no_term_is_an_empty_form(self):
@@ -204,7 +204,7 @@ class Safety(Fixture):
         self.assertNotIn("<b>", r.text)
         self.assertIn("&lt;img src=x onerror=alert(1)&gt;", r.text)
         for href in re.findall(r'href="([^"]*)"', r.text):
-            self.assertTrue(href.startswith(("https://", "/")), href)
+            self.assertTrue(href.startswith(("https://", "/", "#main")), href)
         self.assertTrue(re.search(r'<a class="open" href="https://[^"]+"', r.text))
 
     def test_only_https_handoffs_and_art_routes_survive_the_view_model(self):

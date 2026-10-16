@@ -1,7 +1,5 @@
 {% extends "base.html" %}
-{% from "_parts.html" import tile, mast %}
-{% block style_extra %}{% if home %}{{ home_stylesheet }}{% endif %}{% endblock %}
-{% block masthead %}{% if home %}{{ mast(home, account_menu) }}{% else %}{{ super() }}{% endif %}{% endblock %}
+{% from "_parts.html" import tile %}
 {% block heading %}AVRANA{% endblock %}
 {% block body %}
 {% if home %}

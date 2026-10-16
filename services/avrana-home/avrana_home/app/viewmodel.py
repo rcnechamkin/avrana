@@ -160,8 +160,9 @@ class CardVM:
     title: str
     href: str
     shape: str
-    line: Optional[str]
+    line: Optional[str]            # the secondary line: series, episode or library, never progress
     image: Optional[str]
+    progress: Optional[str] = None  # progress in words ("1 hour left"), its own line
 
 
 @dataclass(frozen=True)
@@ -178,6 +179,30 @@ class HomeVM:
     new_tabs: Tuple[Tuple[str, str, bool], ...]      # (key, label, current)
     new_items: Tuple[CardVM, ...]
     new_said: Optional[str]
+    retry_href: Optional[str] = None     # "Try again": the same page, when a library said unavailable
+    all_down: bool = False               # nothing answers: a calm page, not an error
+
+
+@dataclass(frozen=True)
+class ShellVM:
+    """What the masthead needs on every shell page (Home, Search, Account, Help, help topics), so the places
+    bar, Search, Help and the account menu are the same everywhere."""
+    member_name: str
+    initial: str
+    places: Tuple[PlaceVM, ...]
+    can_search: bool                      # only a member with a searchable library is offered Search
+    current: str                          # home | search | account | help | help-topic
+
+
+def has_library(tiles) -> bool:
+    return any(path in _PLACE_SERVICES for path, _l, _d in tiles)
+
+
+def build_shell(tiles, current: str, member_name: str = "", places: Optional[Tuple[PlaceVM, ...]] = None) -> ShellVM:
+    name = _plain(member_name) or "Member"
+    if places is None:       # pages that call no upstream cannot know a library is down: all stay up
+        places = build_places(tiles, {"sections": []})
+    return ShellVM(name, initial_of(name), places, has_library(tiles), current)
 
 
 def initial_of(name: str) -> str:
@@ -226,35 +251,40 @@ def _round_robin(lists, limit: int):
     return out[:limit]
 
 
-def _cards(items, line_of) -> Tuple[CardVM, ...]:
-    return tuple(CardVM(it.title, it.href, SHAPE.get(it.kind, "poster"), line_of(it), it.image) for it in items)
+def _cards(items, line_of, progress: bool = False) -> Tuple[CardVM, ...]:
+    return tuple(CardVM(it.title, it.href, SHAPE.get(it.kind, "poster"), line_of(it), it.image,
+                        it.progress if progress else None) for it in items)
 
 
 def build_home(view: dict, tiles, *, new_tab: Optional[str] = None, limit: int = RAIL_MOST,
                member_name: str = "") -> HomeVM:
+    """Home as display data. Retry links point at `/` (the new tab is kept), the same page again."""
     limit = max(1, min(int(limit), RAIL_MOST))
     held = _sections_by_service(view)
     places = build_places(tiles, view)
-    has_library = any(path in _PLACE_SERVICES for path, _l, _d in tiles)
+    has_lib = has_library(tiles)
     name = _plain(member_name) or "Member"
     base = dict(member_name=name, initial=initial_of(name), places=places)
-    if not has_library:
+    if not has_lib:
         return HomeVM(**base, no_library=True, notices=(), show_continue=False, continue_items=(),
                       continue_said=None, show_new=False, new_tabs=(), new_items=(), new_said=None)
 
-    notices, seen = [], set()
+    notices, seen, retry = [], set(), False
     for service in SERVICE_ORDER:
         for sec in held.get(service, ()):
             msg = service_notice(service, sec["state"])
             if msg and msg not in seen:
                 seen.add(msg)
                 notices.append(msg)
+                retry = retry or any(sec["state"] == "unavailable" for sec in held.get(service, ()))
+    retry_href = ("/" + (f"?new={new_tab}" if new_tab in SERVICE_LABEL else "")) if retry else None
     all_secs = [sec for secs in held.values() for sec in secs]
     if all_secs and not any(sec["state"] in ("ok", "empty") for sec in all_secs):
         # Nothing answers: say so once per library and stop. Never an error page.
         return HomeVM(**base, no_library=False, notices=tuple(notices), show_continue=False,
                       continue_items=(), continue_said=None, show_new=False, new_tabs=(),
-                      new_items=(), new_said=None)
+                      new_items=(), new_said=None, retry_href=retry_href,
+                      all_down=all(sec["state"] == "unavailable" for sec in all_secs))
 
     def items_of(section: str, service: str):
         out = []
@@ -270,28 +300,34 @@ def build_home(view: dict, tiles, *, new_tab: Optional[str] = None, limit: int =
                         for x in held[s] if x["section"] == "continue")
     continue_said = None if (cont or cont_degraded) else NOTHING_IN_PROGRESS
 
-    # New this week: a tab for each library that answers; anything else falls back to All.
-    tabs = [(NEW_ALL, "All")]
-    for s in SERVICE_ORDER:
-        if any(x["section"] == "recent" and x["state"] in ("ok", "empty") for x in held.get(s, ())):
-            tabs.append((s, SERVICE_LABEL[s]))
-    tab = new_tab if isinstance(new_tab, str) and new_tab in {k for k, _ in tabs} else NEW_ALL
+    # New this week: a tab for each library that answers; anything else falls back to All. A member with
+    # exactly one library has no use for "All" (it is the same list), so that tab is not offered.
+    libs = [(s, SERVICE_LABEL[s]) for s in SERVICE_ORDER
+            if any(x["section"] == "recent" and x["state"] in ("ok", "empty") for x in held.get(s, ()))]
+    tabs = [(NEW_ALL, "All")] + libs if len(libs) != 1 else list(libs)
+    tab = new_tab if isinstance(new_tab, str) and new_tab in {k for k, _ in tabs} else tabs[0][0]
     if tab == NEW_ALL:           # the newest of each library; the second line says which library
         per = [_cards(items_of("recent", s), lambda it, s=s: SERVICE_LABEL[s]) for s in SERVICE_ORDER]
         new = tuple(_round_robin(per, limit))
         new_said = None if (new or notices) else NOTHING_NEW
     else:
         new = _cards(items_of("recent", tab)[:limit], lambda it: it.detail or KIND_LABEL.get(it.kind))
-        new_said = None if new else f"Nothing new in {SERVICE_LABEL[tab]} this week."
+        new_said = None if new else (NOTHING_NEW if len(libs) == 1 else f"Nothing new in {SERVICE_LABEL[tab]} this week.")
     return HomeVM(**base, no_library=False, notices=tuple(notices), show_continue=bool(cont_services),
-                  continue_items=_cards(cont, lambda it: it.progress or it.detail),
+                  continue_items=_cards(cont, lambda it: it.detail, progress=True),
                   continue_said=continue_said, show_new=True,
-                  new_tabs=tuple((k, n, k == tab) for k, n in tabs), new_items=new, new_said=new_said)
+                  new_tabs=tuple((k, n, k == tab) for k, n in tabs), new_items=new, new_said=new_said,
+                  retry_href=retry_href)
 
 
 # ---- search page (AVR-383) --------------------------------------------------------------------------------
 SEARCH_MAX_SHOWN = 100          # characters of the typed term put back in the box
-SEARCH_MIN_HINT = "Type at least 2 letters or numbers. Search matches titles, and * ? % are treated as spaces."
+# What contract.clean_query neutralises into spaces, in the order a member can read it. A test pins this
+# list to the contract's own set, so the hint can never promise more or less than the code does.
+SEARCH_SPACED = "* % _ ? \\ [ ] { } ( ) | ^ ~ $ \" `"
+SEARCH_HINT = f"At least 2 characters. These are treated as spaces: {SEARCH_SPACED}"
+SEARCH_IDLE_HINT = "Searches the libraries on your account. " + SEARCH_HINT
+SEARCH_MIN_HINT = SEARCH_HINT
 
 
 @dataclass(frozen=True)
@@ -301,6 +337,7 @@ class SearchGroupVM:
     state: str                    # ok | empty | unavailable | not_linked
     items: Tuple[ItemVM, ...] = ()
     message: Optional[str] = None
+    retry: bool = False           # "Try again" re-runs this same search
 
 
 @dataclass(frozen=True)
@@ -308,9 +345,11 @@ class SearchVM:
     mode: str                     # no_library | idle | invalid | results
     term: str = ""                # bounded, printable; the template autoescapes it
     message: Optional[str] = None
-    hint: Optional[str] = None
+    hint: Optional[str] = SEARCH_HINT
     groups: Tuple[SearchGroupVM, ...] = ()
     found: int = 0
+    outcome: Optional[str] = None  # the results heading: "3 results" / "No results"; never the term
+    can_search: bool = True
 
 
 def build_search(view: dict, raw_term: Optional[str]) -> SearchVM:
@@ -320,7 +359,7 @@ def build_search(view: dict, raw_term: Optional[str]) -> SearchVM:
     if not view.get("entitled") or (view.get("status") == "ok" and not view.get("groups") and raw_term is not None):
         return SearchVM("no_library", message="Search is not available on your account yet.")
     if raw_term is None:
-        return SearchVM("idle", hint="Searches the libraries on your account.")
+        return SearchVM("idle", hint=SEARCH_IDLE_HINT)
     if view.get("status") != "ok":
         return SearchVM("invalid", term=term, message="That search term cannot be used.", hint=SEARCH_MIN_HINT)
     groups, found = [], 0
@@ -348,7 +387,7 @@ def build_search(view: dict, raw_term: Optional[str]) -> SearchVM:
             groups.append(SearchGroupVM(service, label, "empty", message=f"No matches in {label}."))
         elif state == "unavailable":
             groups.append(SearchGroupVM(service, label, "unavailable",
-                                        message=f"The {label} library is unavailable right now. Try again in a moment."))
+                                        message=f"The {label} library is unavailable right now.", retry=True))
         elif state == "not_linked":
             groups.append(SearchGroupVM(service, label, "not_linked",
                                         message=f"The {label} library is not set up for your account yet."))
@@ -356,5 +395,6 @@ def build_search(view: dict, raw_term: Optional[str]) -> SearchVM:
         down = any(g.state in ("unavailable", "not_linked") for g in groups)
         msg = ("Nothing found in the libraries that could be searched." if down
                else "Nothing found. Check the spelling or try fewer words.")
-        return SearchVM("results", term=term, message=msg, groups=tuple(groups))
-    return SearchVM("results", term=term, message=f"{found} found.", groups=tuple(groups), found=found)
+        return SearchVM("results", term=term, message=msg, groups=tuple(groups), outcome="No results")
+    return SearchVM("results", term=term, message=f"{found} found.", groups=tuple(groups), found=found,
+                    outcome=f"{found} result" + ("" if found == 1 else "s"))

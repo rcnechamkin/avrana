@@ -4,6 +4,16 @@
 {% for line in home.notices %}
   <p class="banner" role="status">{{ line }}</p>
 {% endfor %}
+{% if home.retry_href %}
+  <p class="retry"><a class="link" href="{{ home.retry_href }}">Try again<span class="sr"> to load your libraries</span></a></p>
+{% endif %}
+{% if home.all_down %}
+  <section class="shelf" aria-labelledby="h-rest">
+    <h2 id="h-rest">Your libraries are resting</h2>
+    <p class="said">None of your libraries is answering right now. This usually passes within a minute. Your account and Help are still here.</p>
+    <p class="said"><a class="link" href="/account">Account</a> <a class="link" href="/help">Help</a></p>
+  </section>
+{% endif %}
 {% if home.show_continue %}
   <section class="shelf" aria-labelledby="h-continue">
     <h2 id="h-continue">Continue</h2>

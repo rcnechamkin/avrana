@@ -103,7 +103,7 @@ class SectionRenderingTests(Fixture):
         for tag in re.findall(r"<img[^>]*>", above):
             self.assertRegex(tag, r'^<img class="art" src="/art/[A-Za-z0-9_/-]+" alt="" width="160" height="240" loading="lazy">$')
         self.assertRegex(text, r'<details class="account">\s*<summary>')
-        self.assertNotIn(">Search<", text)           # no search page yet (TODO AVR-383)
+        self.assertEqual(1, text.count('class="idlink" href="/search"'))   # Search is in the masthead
 
     def test_navigation_stays_reachable_for_every_state(self):
         for headers in (A, B, C, D, NOLIB, ADMIN):

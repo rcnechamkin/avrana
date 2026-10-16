@@ -49,6 +49,30 @@ class StaticExportTests(unittest.TestCase):
         self.assertNotIn("Account<span", read("signed-out/signed-out/home.html"))
         self.assertNotIn("Synthetic Film One", read("member-a/all-down/home.html"))
 
+    def test_search_pages_are_there_for_every_state_and_say_what_they_should(self):
+        read = lambda r: (self.out / r).read_text(encoding="utf-8")
+        for who in ("member-a", "member-b"):
+            for page in ("search", "search-results", "search-no-match", "search-invalid"):
+                self.assertTrue((self.out / who / "normal" / f"{page}.html").is_file(), (who, page))
+        self.assertRegex(read("member-a/normal/search-results.html"), r'id="h-outcome">\d+ results?<')
+        self.assertIn('id="h-outcome">No results<', read("member-a/normal/search-no-match.html"))
+        self.assertIn('aria-invalid="true"', read("member-a/normal/search-invalid.html"))
+        down = read("member-b/one-down/search-results.html")
+        self.assertIn("library is unavailable right now.", down)
+        self.assertIn("Try again", down)
+        self.assertIn("Search is not available on your account yet.", read("member-none/no-library/search.html"))
+        self.assertNotIn("Synthetic Film One", read("member-a/all-down/search-results.html"))
+
+    def test_every_page_has_the_skip_link_and_exactly_one_main(self):
+        for p in self.pages():
+            if p.name in ("index.html", "not-in-export.html"):
+                continue
+            text = p.read_text(encoding="utf-8")
+            with self.subTest(page=str(p.relative_to(self.out))):
+                self.assertIn('<a class="skip-link" href="#main">', text)
+                self.assertEqual(1, len(re.findall(r"<main[\s>]", text)))
+                self.assertNotRegex(text, r'action="/')
+
     def test_self_contained_and_synthetic(self):
         for p in self.pages():
             text = p.read_text(encoding="utf-8")

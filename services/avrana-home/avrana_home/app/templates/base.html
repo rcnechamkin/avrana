@@ -1,4 +1,4 @@
-<!doctype html>
+{% from "_parts.html" import mast %}<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -6,14 +6,14 @@
 <meta name="color-scheme" content="dark">
 <meta name="robots" content="noindex, nofollow">
 <title>{% block title %}Avrana{% endblock %}</title>
-<style>{{ stylesheet }}{% block style_extra %}{% endblock %}</style>
+<style>{{ stylesheet }}{% if shell %}{{ home_stylesheet }}{% endif %}</style>
 </head>
 <body>
 <a class="skip-link" href="#main">Skip to main content</a>
 <div class="page">
   <header>
-{% block masthead %}    <h1>{% block heading %}<a href="/">AVRANA</a>{% endblock %}</h1>
-    <div class="rule"></div>{% endblock %}
+{% block masthead %}{% if shell %}{{ mast(shell, account_menu) }}{% else %}    <h1>{% block heading %}<a href="/">AVRANA</a>{% endblock %}</h1>
+    <div class="rule"></div>{% endif %}{% endblock %}
   </header>
   <main id="main" tabindex="-1">
 {% block body %}{% endblock %}

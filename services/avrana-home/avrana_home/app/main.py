@@ -40,10 +40,12 @@ from .logsafe import app_log, log_event, silence_uvicorn_access
 from .middleware import HygieneMiddleware
 from .routing import AccountFacts, Decision, decide, normalise_target, not_found, search_decision
 from .settings import Settings
-from .viewmodel import ACCOUNT_MENU, NO_LIBRARY, build_home, build_search
+from .viewmodel import ACCOUNT_MENU, NO_LIBRARY, build_home, build_search, build_shell
 
 TEMPLATES = Path(__file__).resolve().parent / "templates"
 HTML = "text/html; charset=utf-8"
+# Pages that wear the shell (masthead with places, Search, Help and the account menu) when sections are on.
+SHELL_PAGES = {"/account": "account", "/help": "help", "/help/{slug}": "help-topic"}
 
 
 def _trusted(value):
@@ -187,7 +189,7 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
                           section=s.section, state=s.state.value, reason=s.reason or "")
             decision = search_decision(build_search(result.search_view(), term))
             scope["avrana_route"] = decision.label
-            return respond(decision)
+            return respond(decision, shell=shell_for(viewer, "search"))
 
         if route.startswith(artwork_mod.PREFIX):
             ref = artwork_mod.ref_from_route(route)
@@ -208,11 +210,23 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
         scope["avrana_route"] = decision.label
         extra = {}
         if decision.label == "/" and settings.home_sections and p is not None and adapter_list:
-            extra["home"] = build_home(await _gather(viewer), decision.context["tiles"],
-                                       new_tab=new_tab_from_scope(scope),
-                                       limit=settings.section_limit,
-                                       member_name=(facts.name or facts.username))
+            home = build_home(await _gather(viewer), decision.context["tiles"],
+                              new_tab=new_tab_from_scope(scope), limit=settings.section_limit,
+                              member_name=(facts.name or facts.username))
+            extra["home"] = home
+            extra["shell"] = shell_for(viewer, "home", places=home.places)
+        elif decision.status == 200 and decision.label in SHELL_PAGES:
+            extra["shell"] = shell_for(viewer, SHELL_PAGES[decision.label])
         return respond(decision, **extra)
+
+    def shell_for(viewer: Viewer, current: str, places=None):
+        """The masthead data (places, Search, Help, account menu) for a shell page, or None where the shell is
+        not on (sections off: the pages stay byte-identical to the portal). No upstream call is made here."""
+        p = viewer.principal
+        if not (settings.home_sections and p is not None and adapter_list):
+            return None
+        tiles = decide("/", viewer.groups, cat).context["tiles"]
+        return build_shell(tiles, current, (p.name or "").strip() or p.username, places=places)
 
     async def _gather(viewer: Viewer) -> dict:
         """The sections for the verified member, via the adapters' own principal checks and
