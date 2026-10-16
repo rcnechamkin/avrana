@@ -261,6 +261,33 @@ class FinalScan(unittest.TestCase):
                            "api": "/api/v1/books/ID00000001", "e": "user1@example.invalid", "tok": "[REDACTED]"})
         self.assertEqual([], cap.scan_for_secrets(text))
 
+    def test_json_flags_named_like_credentials_are_not_refused(self):
+        # Real Jellyfin /Users carries these on every user; the member-mapping fixture must be writable.
+        users = [{"Name": "member-a", "Id": "0" * 31 + "1", "HasPassword": True, "HasConfiguredPassword": True,
+                  "HasConfiguredEasyPassword": False, "Policy": {"PasswordResetProviderId": None,
+                                                                 "IsAdministrator": False}}]
+        text = json.dumps(users)
+        self.assertEqual([], cap.scan_for_secrets(text))
+        resp = cap.Response(200, text.encode(), "application/json")
+        files, manifest, refused = cap.build_outputs([cap.Capture("jellyfin", "users", "/Users", resp, "json")],
+                                                     cap.Redactor([], [], "member-a", []))
+        self.assertEqual([], refused)
+        self.assertEqual(1, len(files))
+        # ...while a real value under the same names is still refused
+        for leak in ('"password": "hunter22"', '"Password": "true-ish-value"', "secret=trueandfalse"):
+            self.assertIn("credential-parameter", cap.scan_for_secrets(leak), leak)
+
+    def test_slash_path_forms_are_redacted_and_scanned(self):
+        r = cap.Redactor([], [], "", [])
+        for path in ("file:///home/ann/x.mkv", "c:/users/ann/doc.txt", "//nas01/share/a.mkv"):
+            self.assertIn("file-url-or-slash-path", cap.scan_for_secrets(f"note {path} end"), path)
+            out = r.redact_text(f"note {path} end")
+            self.assertNotIn("ann", out)
+            self.assertNotIn("nas01", out)
+            self.assertEqual([], cap.scan_for_secrets(out), out)
+        # URLs and API routes are not paths
+        self.assertEqual([], cap.scan_for_secrets("https://host.invalid/x and /api/v1/books/ID00000001"))
+
     def test_a_file_that_still_matches_is_refused_not_written(self):
         leak = "Zx9Qw8Er7Ty6Ui5Op4As3Df2Gh1Jk0LmNb"        # secret-like, under an innocent key
         resp = cap.Response(200, json.dumps({"Items": [{"Id": JF_ITEM, "Note": leak}]}).encode(), "application/json")
@@ -337,6 +364,14 @@ class Runs(unittest.TestCase):
             for line in ("GET /Users", "GET /UserItems/Resume", "GET /api/users", "GET /api/v2/users",
                          "GET /api/v1/books/latest", "GET /opds/new"):
                 self.assertIn(line, out)
+
+    def test_dry_run_plans_every_member(self):
+        with Stub() as stub:
+            code, out, err = run(["--dry-run", "--members", "alice,bob"], stub.env())
+            self.assertEqual(0, code)
+            self.assertEqual([], stub.hits)
+            self.assertEqual(2, out.count("GET /UserItems/Resume"), out)
+            self.assertGreaterEqual(out.count("GET /api/users/"), 2, out)
 
     def test_dry_run_writes_nothing(self):
         with Stub() as stub, tempfile.TemporaryDirectory() as d:

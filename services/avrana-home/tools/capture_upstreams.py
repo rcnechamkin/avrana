@@ -233,7 +233,8 @@ def capture_jellyfin(c: Client, o: Options) -> List[Capture]:
     caps: List[Capture] = []
     r = c.get("/Users", None, None)
     caps.append(Capture(c.name, "users", "/Users", r, "json"))
-    users = _json(r) if not c.dry else [{"Name": m, "Id": _DUMMY_HEX} for m in o.members[:1]]
+    # Dry run: one distinct dummy id per member, so every member's planned requests are shown.
+    users = _json(r) if not c.dry else [{"Name": m, "Id": f"{i + 1:032x}"} for i, m in enumerate(o.members)]
     for _, raw_id in _pick(users, o.members, ("Name",), "Id")[:MAX_MEMBERS]:
         uid = _jf.normalise_guid(raw_id)
         if uid is None:
@@ -266,7 +267,8 @@ def capture_audiobookshelf(c: Client, o: Options) -> List[Capture]:
     caps: List[Capture] = []
     r = c.get("/api/users", None, None)
     caps.append(Capture(c.name, "users", "/api/users", r, "json"))
-    body = _json(r) if not c.dry else {"users": [{"username": m, "id": _DUMMY_UUID} for m in o.members[:1]]}
+    body = _json(r) if not c.dry else {"users": [{"username": m, "id": f"00000000-0000-4000-8000-{i + 1:012x}"}
+                                                 for i, m in enumerate(o.members)]}
     users = body.get("users") if isinstance(body, dict) else None
     seen_items: List[str] = []
     for _, uid in _pick(users, o.members, ("username",), "id")[:MAX_MEMBERS]:
@@ -351,7 +353,10 @@ _URL_HOST = re.compile(r"(?i)\b(https?://)(?!" + _NS_HOSTS + r")([^/\s\"'<>?#]+)
 _HEX32 = re.compile(r"(?<![0-9A-Fa-f])[0-9a-f]{32}(?![0-9A-Fa-f])")
 _UUID = re.compile(r"(?<![0-9A-Fa-f])[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?![0-9A-Fa-f])")
 _ABS_ID = re.compile(r"\bli_[a-z0-9]{6,40}\b")
-_WIN_PATH = re.compile(r"[A-Za-z]:\\[^\s\"'<>|]*|\\\\[\w.$\-]+\\[^\s\"'<>]*")
+_WIN_PATH = re.compile(r"[A-Za-z]:\\[^\s\"'<>|]*|\\\\[\w.$\-]+\\[^\s\"'<>]*"
+                       # also file:// URLs, forward-slash drive paths (c:/users/...) and //host/share UNC paths
+                       r"|(?i:file:/{2,3})[^\s\"'<>]+|(?<![A-Za-z0-9])[A-Za-z]:/[^\s\"'<>|]+"
+                       r"|(?<![:/\w])//[\w.$\-]+/[^\s\"'<>]+")
 _UNIX_PATH = re.compile(
     r"(?<![\w/.:\-])/(?:home|mnt|media|data|srv|var|usr|opt|tmp|etc|root|config|library|libraries|books|"
     r"audiobooks|comics|manga|movies|tv|music|downloads|volume\d|Users(?=/[^/\s]+/)|Volumes(?=/[^/\s]+/)|app|cache)(?:/[^\s\"'<>?#]*)?")
@@ -560,12 +565,16 @@ _SCAN_PATTERNS: List[Tuple[str, "re.Pattern[str]"]] = [
     ("ipv6", _IPV6),
     ("bearer-or-basic", re.compile(r"(?i)\b(?:Bearer|Basic)\s+(?!\[REDACTED\])[A-Za-z0-9._~+/=\-]{6,}")),
     ("auth-token", re.compile(r"(?i)token\s*=\s*\"?(?!\[REDACTED\])[^\"\s,;]{4,}")),
+    # A JSON literal (true/false/null) is a flag such as Jellyfin's "HasPassword": true, never a credential.
     ("credential-parameter", re.compile(r"(?i)(?:api[_\-]?key|access[_\-]?token|password|secret|x-api-key)"
-                                         r"[\"']?\s*[=:]\s*[\"']?(?!\[REDACTED\]|\s|\")[^\s\"'&;,<>\]}]{3,}")),
+                                         r"[\"']?\s*[=:]\s*[\"']?(?!\[REDACTED\]|\s|\"|(?:true|false|null)(?![^\s\"'&;,<>\]}]))"
+                                         r"[^\s\"'&;,<>\]}]{3,}")),
     ("private-key", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")),
     ("host-in-url", re.compile(r"(?i)\bhttps?://(?!host\.invalid\b|" + _NS_HOSTS + r")[^/\s\"'<>?#]+")),
     ("windows-path", re.compile(r"[A-Za-z]:\\{1,2}[^\s\"'<>|]+|\\\\{1,2}[\w.$\-]+\\{1,2}\w")),
     ("unix-path", _UNIX_PATH),
+    ("file-url-or-slash-path", re.compile(r"(?i:file:/{2,3})[^\s\"'<>]+|(?<![A-Za-z0-9])[A-Za-z]:/[^\s\"'<>|]+"
+                                          r"|(?<![:/\w])//[\w.$\-]+/[^\s\"'<>]+")),
 ]
 _LONG_TOKEN = re.compile(r"(?<![A-Za-z0-9_\-+/=])[A-Za-z0-9_\-+/=]{28,}(?![A-Za-z0-9_\-+/=])")
 

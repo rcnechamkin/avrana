@@ -106,7 +106,8 @@ between the new app and the still-deployed portal (MEDIA-2.0 section 5); see HOM
 fixtures. **The owner runs it, on the owner's own machine, with the owner's own accounts.** No agent runs it.
 It sends GET requests only, to routes the adapters allow, follows no redirect and uses no proxy. Members are
 matched by username. Status: written and tested only against a local stub server (`webtests/test_capture_upstreams.py`).
-It has never touched a real server, so its behaviour against real ones is unverified.
+It has never touched a real server, so its behaviour against real ones is unverified. It does not capture the
+search routes (AVR-383); those are checked separately once search is merged.
 
 Step by step (PowerShell shown; use `export` in a POSIX shell):
 
