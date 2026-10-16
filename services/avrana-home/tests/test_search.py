@@ -12,14 +12,14 @@ import unittest
 from avrana_home.adapters.audiobookshelf import AudiobookshelfAdapter
 from avrana_home.adapters.calibre_web import CalibreWebAdapter
 from avrana_home.adapters.jellyfin import JellyfinAdapter
-from avrana_home.adapters.komga import KomgaAdapter, link_table_linker
+from avrana_home.adapters.komga import KomgaAdapter
 from avrana_home.aggregate import health_summary, search
 from avrana_home.contract import MAX_QUERY, MAX_QUERY_RAW, SectionResult, SectionState, Service, clean_query
 from avrana_home.resilience import MAX_JSON_BYTES, FakeClock
 from tests.fake_abs import FakeAudiobookshelf
 from tests.fake_calibre_web import FakeCalibreWeb
 from tests.fake_jellyfin import FakeJellyfin, FakeTransport
-from tests.fake_komga import UA, UB, UC, UD, FakeKomga
+from tests.fake_komga import FakeKomga
 from tests.helpers import make_principal
 
 ALL = ("avrana-users", "avrana-videos", "avrana-audiobooks", "avrana-comics", "avrana-books")
@@ -37,8 +37,7 @@ class Setup(unittest.TestCase):
         self.cw, self.ab = FakeCalibreWeb(self.clock), FakeAudiobookshelf(self.clock)
         self.jellyfin = JellyfinAdapter(FakeTransport(self.jf), clock=self.clock)
         self.komga = KomgaAdapter(FakeTransport(self.kg), clock=self.clock,
-                                  linker=link_table_linker({"member-a": UA, "member-b": UB, "member-c": UC,
-                                                            "member-d": UD}))
+                                  owner_confirms_no_member_restrictions=True)
         self.calibre = CalibreWebAdapter(FakeTransport(self.cw), clock=self.clock,
                                          owner_confirms_no_member_restrictions=True)
         self.abs = AudiobookshelfAdapter(FakeTransport(self.ab), clock=self.clock)
@@ -150,37 +149,23 @@ class MemberSafety(Setup):
         self.assertEqual(set(names(ra)) & {"Synthetic Film Two", "Synthetic Film Four"}, set())
         self.assertEqual(set(names(rb)) & {"Synthetic Film One", "Synthetic Film Three"}, set())
         self.assertNotEqual(names(ra), names(rb))
-        ka, kc = self.komga.search(self.a, "Synthetic"), self.komga.search(self.c, "Synthetic")
-        self.assertNotEqual(names(ka), names(kc))
 
-    def test_komga_search_passes_through_the_same_restrictions_as_recent(self):
-        for who in (UA, UB, UC, UD):
-            p = make_principal({UA: "member-a", UB: "member-b", UC: "member-c", UD: "member-d"}[who], ALL)
-            self.assertEqual(names(self.komga.search(p, "Synthetic")), names(self.komga.recent_items(p)), who)
-        b = self.b
-        for hidden in ("Mature", "Kids", "Teen"):                          # b: age 12 and under, no unrated, no adult
-            r = self.komga.search(b, hidden)
-            self.assertEqual((r.state, r.items), (SectionState.EMPTY, ()), hidden)
-        self.assertEqual(names(self.komga.search(self.c, "Kids")), ["Synthetic Kids One"])
-        self.assertEqual(self.komga.search(self.a, "Manga").items, ())      # a: library 2 is not shared
-        for u in ("member-b", "member-c"):
-            ids = [i.id for i in self.komga.search(make_principal(u, ALL), "Synthetic").items]
-            self.assertNotIn("komga:BOOKCCCC0004", ids)                      # the mature book
+    def test_komga_search_is_the_shared_view_and_the_flag_is_required(self):
+        """Komga is a shared regular-account view (contract 12.2, owner decision 2026-10-15): every comics
+        member gets the same answer; Komga applies the one account's library sharing upstream."""
+        self.assertEqual(names(self.komga.search(self.a, "Synthetic")), names(self.komga.search(self.c, "Synthetic")))
+        self.assertEqual(names(self.komga.search(self.a, "Kids")), ["Synthetic Kids One"])
+        self.assertEqual(self.komga.search(self.a, "nothingmatches").state, SectionState.EMPTY)
+        self.assertEqual([p for p in self.kg.paths() if "users" in p or "series" in p], [])
+        with self.assertRaises(ValueError):
+            KomgaAdapter(FakeTransport(self.kg), clock=self.clock)
 
-    def test_komga_restriction_fields_that_are_malformed_fail_closed_for_search_too(self):
-        users = self.kg.copy_of(self.kg.users)
-        users[1]["ageRestriction"] = {"age": "12", "restriction": "ALLOW_ONLY"}
-        self.kg.serve("/api/v2/users", users)
-        r = self.komga.search(self.b, "Synthetic")
-        self.assertEqual((r.state, r.items), (SectionState.UNAVAILABLE, ()))
-        self.assertEqual([p for p in self.kg.paths() if p == "/api/v1/books"], [])
-
-    def test_a_cover_from_a_search_result_is_authorized_per_member(self):
+    def test_a_cover_from_a_komga_search_result_is_fetched_through_the_shared_account(self):
         item = self.komga.search(self.b, "Comic One").items[0]
         self.assertEqual(self.komga.fetch_artwork(self.b, item.artwork.ref).state, SectionState.OK)
-        mature = self.komga.search(self.a, "Mature").items[0]
-        self.assertEqual(self.komga.fetch_artwork(self.a, mature.artwork.ref).state, SectionState.OK)
-        self.assertEqual(self.komga.fetch_artwork(self.b, mature.artwork.ref).state, SectionState.EMPTY)
+        self.kg.overrides[f"/api/v1/books/{item.id.split(':', 1)[1]}/thumbnail"] = ("status", 404)
+        self.komga.cache.clear()
+        self.assertEqual(self.komga.fetch_artwork(self.b, item.artwork.ref).state, SectionState.EMPTY)
 
     def test_calibre_search_is_the_shared_view_and_the_flag_is_required(self):
         self.assertEqual(names(self.calibre.search(self.a, "Synthetic")), names(self.calibre.search(self.b, "Synthetic")))
@@ -236,7 +221,7 @@ class Failures(Setup):
         return {s.service: s for s in search(self.a, self.adapters, term).sections}
 
     def test_one_service_down_still_returns_the_others(self):
-        self.kg.overrides["/api/v2/users"] = ("raise", ConnectionRefusedError())
+        self.kg.overrides["/api/v1/books"] = ("raise", ConnectionRefusedError())
         res = self.states()
         self.assertEqual(res[Service.KOMGA].state, SectionState.UNAVAILABLE)
         self.assertEqual(res[Service.JELLYFIN].state, SectionState.OK)
@@ -259,7 +244,7 @@ class Failures(Setup):
         view = search(stranger, self.adapters, "Synthetic").search_view()
         states = {g["service"]: g["state"] for g in view["groups"]}
         self.assertEqual(states["jellyfin"], "not_linked")
-        self.assertEqual(states["komga"], "not_linked")
+        self.assertEqual(states["komga"], "ok")                             # a shared view has no mapping
         self.assertEqual(states["calibre-web"], "ok")                       # a shared view has no mapping
 
     def test_every_upstream_failure_is_a_state_on_every_searching_adapter(self):
@@ -320,7 +305,7 @@ class HardCap(Setup):
             def search(self, principal, query, limit=12):
                 release.wait(5)
                 return super().search(principal, query, limit)
-        hung = Hung(FakeTransport(self.kg), clock=self.clock, linker=self.komga._linker)
+        hung = Hung(FakeTransport(self.kg), clock=self.clock, owner_confirms_no_member_restrictions=True)
         try:
             res = search(self.a, [hung, self.calibre], "Synthetic", hard_cap=0.3)
         finally:

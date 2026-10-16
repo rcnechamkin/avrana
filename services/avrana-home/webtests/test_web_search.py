@@ -20,8 +20,8 @@ require_framework()
 CRED = "viewer:mock-api-key-not-real"
 A = [(USER, "member-a"), (GROUPS, "avrana-users|avrana-videos|avrana-books")]      # Movies and TV + Books
 B = [(USER, "member-b"), (GROUPS, "avrana-users|avrana-videos")]                   # Movies and TV only
-KA = [(USER, "member-a@synthetic.invalid"), (GROUPS, "avrana-users|avrana-comics")]   # Comics, sees "Mature"
-KB = [(USER, "member-b@synthetic.invalid"), (GROUPS, "avrana-users|avrana-comics")]   # Comics, restricted
+KA = [(USER, "comics-a"), (GROUPS, "avrana-users|avrana-comics")]   # Comics: the shared view (contract 12.2)
+KB = [(USER, "comics-b"), (GROUPS, "avrana-users|avrana-comics")]   # Comics: the same shared view
 NOTHING = [(USER, "member-a"), (GROUPS, "avrana-users")]
 FORBIDDEN_WORDS = ("Audiobooks", "Comics", "Books", "Movies and TV")
 SENTINEL = "zzqxsentineltermzz"
@@ -92,12 +92,15 @@ class PerMemberResults(Fixture):
         self.assertEqual([], self.kg.paths())            # nobody even asked the library B may not use
         self.assertEqual([], self.cw.paths())
 
-    def test_komga_restrictions_apply_to_search(self):
+    def test_komga_search_is_the_shared_view(self):
+        """Komga is a shared regular-account view (owner decision 2026-10-15): two comics members get the
+        same answer; Komga itself applies that one account's library sharing."""
         c = self.client()
-        self.assertIn("Mature", c.get("/search", params={"q": "Mature"}, headers=KA).text)
-        hidden = c.get("/search", params={"q": "Mature"}, headers=KB)
-        self.assertNotIn("Mature", hidden.text.replace('value="Mature"', ""))
-        self.assertIn("Nothing found", hidden.text)
+        ra = c.get("/search", params={"q": "Mature"}, headers=KA)
+        rb = c.get("/search", params={"q": "Mature"}, headers=KB)
+        self.assertIn("Synthetic Mature One", ra.text)
+        self.assertIn("Synthetic Mature One", rb.text)
+        self.assertIn("Nothing found", c.get("/search", params={"q": "nomatchatall"}, headers=KA).text)
 
     def test_no_searchable_library_gets_no_box_and_points_to_help(self):
         r = self.search(NOTHING, "Synthetic")

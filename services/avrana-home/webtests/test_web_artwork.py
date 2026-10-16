@@ -13,12 +13,12 @@ require_framework()
 JF_A = [(USER, "member-a"), (GROUPS, "avrana-users|avrana-videos")]
 JF_B = [(USER, "member-b"), (GROUPS, "avrana-users|avrana-videos")]
 NO_VIDEO = [(USER, "member-a"), (GROUPS, "avrana-users|avrana-comics")]
-KG_A = [(USER, "member-a@synthetic.invalid"), (GROUPS, "avrana-users|avrana-comics")]
-KG_B = [(USER, "member-b@synthetic.invalid"), (GROUPS, "avrana-users|avrana-comics")]
+KG_A = [(USER, "comics-a"), (GROUPS, "avrana-users|avrana-comics")]
+KG_B = [(USER, "comics-b"), (GROUPS, "avrana-users|avrana-comics")]
 
 A_ONLY_FILM = "/art/jellyfin/primary/aaaa0000000000000000000000000001"
 B_ONLY_FILM = "/art/jellyfin/primary/bbbb0000000000000000000000000001"
-ADULT_BOOK = "/art/komga/book/BOOKCCCC0004"       # age 18 + 'adult' label: member-a sees it, member-b not
+ADULT_BOOK = "/art/komga/book/BOOKCCCC0004"       # shared view: every comics member sees the same covers
 COMIC_BOOK = "/art/komga/book/BOOKAAAA0001"
 PNG = b"\x89PNG\r\n\x1a\n"
 
@@ -85,8 +85,10 @@ class ArtworkRouteTests(Fixture):
         c = self.client()
         self.assertStandard404(c.get(B_ONLY_FILM, headers=JF_A))           # B-only film, asked by A
         self.assertEqual(200, c.get(B_ONLY_FILM, headers=JF_B).status_code)
-        self.assertStandard404(c.get(ADULT_BOOK, headers=KG_B))            # restricted out for B
+        # Komga is a shared view (ADAPTER-CONTRACT 12.2): no per-member restriction, both comics members see it
+        self.assertEqual(200, c.get(ADULT_BOOK, headers=KG_B).status_code)
         self.assertEqual(200, c.get(ADULT_BOOK, headers=KG_A).status_code)
+        self.assertStandard404(c.get("/art/komga/book/BOOKZZZZ9999", headers=KG_A))   # the shared account's 404
 
     def test_a_member_without_the_group_gets_a_404_and_no_upstream_call(self):
         c = self.client()
