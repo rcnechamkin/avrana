@@ -38,9 +38,11 @@ from . import artwork as artwork_mod
 from .identity import Viewer, get_viewer, has_identity_headers, new_tab_from_scope, search_term_from_scope
 from .logsafe import app_log, log_event, silence_uvicorn_access
 from .middleware import HygieneMiddleware
-from .routing import AccountFacts, Decision, decide, normalise_target, not_found, search_decision
+from .routing import (AccountFacts, Decision, decide, normalise_target, not_found, parse_title_route,
+                      search_decision, title_decision)
 from .settings import Settings
-from .viewmodel import ACCOUNT_MENU, NO_LIBRARY, build_home, build_search, build_shell
+from .viewmodel import (ACCOUNT_MENU, NO_LIBRARY, REQUEST_FOR, build_home, build_search, build_shell,
+                        build_title)
 
 TEMPLATES = Path(__file__).resolve().parent / "templates"
 HTML = "text/html; charset=utf-8"
@@ -157,6 +159,9 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
     app.state.catalogue = cat
     app.state.adapters = adapter_list
     app.state.env = env
+    # Libraries whose search results link to a title page: those whose adapter offers the permission-checked
+    # item lookup (`item`). The others' results link straight to the library.
+    title_services = frozenset(a.service.value for a in adapter_list if "item" not in a.not_offered)
 
     def render(template: str, status: int = 200, **ctx) -> Response:
         body = env.get_template(template).render(**ctx)
@@ -204,9 +209,31 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
             for s in result.sections:                     # service, state and a fixed reason only
                 log_event(app_log, logging.INFO, "section", service=s.service.value,
                           section=s.section, state=s.state.value, reason=s.reason or "")
-            decision = search_decision(build_search(result.search_view(), term))
+            decision = search_decision(build_search(result.search_view(), term, title_services=title_services,
+                                                    request_hosts=request_hosts(viewer)))
             scope["avrana_route"] = decision.label
             return respond(decision, shell=shell_for(viewer, "search"))
+
+        if route.startswith("/title/") and settings.home_sections and adapter_list:
+            # A title page (AVR-384). Unknown service, malformed id, no principal, no group, unknown or hidden
+            # item: the one standard 404, exactly as an unknown route (portal parity, never 403).
+            parsed = parse_title_route(route)
+            adapter = None
+            if parsed is not None and viewer.principal is not None:
+                adapter = next((a for a in adapter_list if a.service.value == parsed[0]
+                                and "item" not in a.not_offered), None)
+            page = None
+            if adapter is not None:
+                section = await run_in_threadpool(adapter.item, viewer.principal, parsed[1])
+                log_event(app_log, logging.INFO, "section", service=section.service.value,
+                          section=section.section, state=section.state.value, reason=section.reason or "")
+                page = build_title(section.to_dict(), parsed[0], parsed[1], search_term_from_scope(scope))
+            if page is None:
+                scope["avrana_route"] = "not_found"
+                return respond(not_found())
+            decision = title_decision(page)
+            scope["avrana_route"] = decision.label
+            return respond(decision, shell=shell_for(viewer, "title"))
 
         if route.startswith(artwork_mod.PREFIX):
             ref = artwork_mod.ref_from_route(route)
@@ -235,6 +262,16 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
         elif decision.status == 200 and decision.label in SHELL_PAGES:
             extra["shell"] = shell_for(viewer, SHELL_PAGES[decision.label])
         return respond(decision, **extra)
+
+    def request_hosts(viewer: Viewer) -> dict:
+        """The request services (catalogue path -> host) this member's groups open, for search's empty-results
+        fallback. Static catalogue data only; nothing from the request."""
+        out = {}
+        for path in {p for p, _noun in REQUEST_FOR.values()}:
+            svc = cat.service(path)
+            if svc is not None and svc.allows(viewer.groups):
+                out[path] = svc.host
+        return out
 
     def shell_for(viewer: Viewer, current: str, places=None):
         """The masthead data (places, Search, Help, account menu) for a shell page, or None where the shell is

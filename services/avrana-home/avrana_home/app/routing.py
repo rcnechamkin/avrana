@@ -16,9 +16,11 @@ come from the catalogue's fixed table. A denied route and an unknown route retur
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Mapping, Optional, Tuple
 
+from ..contract import Service, valid_upstream_id
 from .catalogue import Catalogue, Trusted
 
 NOT_FOUND_LABEL = "not_found"
@@ -61,6 +63,30 @@ def search_decision(page) -> Decision:
     HOME_SECTIONS in main.py, so with sections off the path is unknown and `decide` answers 404). `page` is the
     view-model; the label is the route template, never the typed term."""
     return Decision("/search", 200, "search.html", {"page": page})
+
+
+TITLE_LABEL = "/title/{service}/{id}"
+_TITLE = re.compile(r"/title/([a-z][a-z-]{1,23})/([A-Za-z0-9_-]{1,64})")
+
+
+def parse_title_route(route: str) -> Optional[Tuple[str, str]]:
+    """(service, upstream id) from a normalised route `/title/<service>/<id>`, or None. The route is NOT
+    percent-decoded (normalise_target), so `%2f`, `..`, NUL or CRLF can never become a separator or reach an
+    adapter; the id must also match the contract's own pattern for that service (`valid_upstream_id`)."""
+    m = _TITLE.fullmatch(route)
+    if m is None:
+        return None
+    try:
+        service = Service(m.group(1))
+    except ValueError:
+        return None
+    return (service.value, m.group(2)) if valid_upstream_id(service, m.group(2)) else None
+
+
+def title_decision(page) -> Decision:
+    """A title page (AVR-384). `page` is a TitleVM; unavailable is a calm 503, everything else 200. A title the
+    member may not see is never a decision here: the caller answers `not_found()` (portal parity, never 403)."""
+    return Decision(TITLE_LABEL, 503 if page.state == "unavailable" else 200, "title.html", {"page": page})
 
 
 def decide(route: str, groups, cat: Catalogue, facts: Optional[AccountFacts] = None) -> Decision:

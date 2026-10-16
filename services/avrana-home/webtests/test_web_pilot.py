@@ -150,9 +150,11 @@ class SearchBehaviourTests(Mocks):
         title = re.search(r"<title>(.*?)</title>", t).group(1)
         self.assertRegex(title, r"^\d+ results? · Search · Avrana$")
 
-    def test_each_hit_has_exactly_one_open_action_and_groups_are_per_library(self):
+    def test_each_hit_has_exactly_one_action_and_groups_are_per_library(self):
         t = self.search(A, "Synthetic").text
-        self.assertEqual(len(re.findall(r'<a class="open"', t)), len(re.findall(r'<li class="w-poster">', t)))
+        hits = re.findall(r'<li class="w-[a-z]+">.*?</li>', t, re.S)
+        self.assertTrue(hits)
+        self.assertEqual([1] * len(hits), [h.count("<a ") for h in hits])      # one link per result, no more
         self.assertRegex(t, r'<h3 id="g-1">Movies and TV</h3>')
         self.assertIn(">Books</h3>", t)
         self.assertNotIn("Comics", t)
@@ -160,7 +162,7 @@ class SearchBehaviourTests(Mocks):
     def test_an_unavailable_library_offers_try_again_that_reruns_the_same_search(self):
         self.jf.set_mode("500")
         t = self.search(A, "Synthetic", self.client()).text
-        self.assertIn("The Movies and TV library is unavailable right now.", t)
+        self.assertIn("The Movies and TV library could not be searched right now.", t)
         self.assertIn('<a class="link" href="/search?q=Synthetic">Try again', t)
         self.assertIn("Synthetic Book One", t)                  # the other library still answered
         again = self.client().get("/search?q=Synthetic", headers=A)

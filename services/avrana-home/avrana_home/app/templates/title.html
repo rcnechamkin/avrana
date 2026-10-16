@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% from "_parts.html" import frame %}
+{% block title %}{% if page.state == "ok" %}{{ page.title }} · {{ page.library }}{% else %}{{ page.library }}{% endif %} · Avrana{% endblock %}
+{% block body %}
+{# A title page (AVR-384). Server-rendered, no script, no form (the default strict CSP). Everything comes from the
+   view-model: the adapter's permission-checked item lookup for THIS member, autoescaped. The one primary action
+   opens the item in its own library (Resume only for a saved position); it never claims playback started. #}
+{% if page.state == "ok" %}
+  <section class="shelf title-page" aria-labelledby="h-title">
+    <p class="kicker">{{ page.medium }}{% if page.medium %} · {% endif %}{{ page.library }}</p>
+    <div class="title-body w-{{ page.shape }}">
+      {{ frame(page.image, page.title) }}
+      <div class="title-meta">
+        <h2 id="h-title" class="t">{{ page.title }}</h2>
+{% if page.line %}        <p class="d">{{ page.line }}</p>
+{% endif %}
+{% if page.detail %}        <p class="d">{{ page.detail }}</p>
+{% endif %}
+{% if page.progress %}        <p class="d p">{{ page.progress }}</p>
+{% endif %}
+        <p class="act"><a class="open" href="{{ page.action_href }}" aria-label="{{ page.action_label }}">{{ page.action }}</a></p>
+        <p class="hint">Opens in {{ page.library }}. If it does not open there, see <a class="link" href="/help">Help</a>.</p>
+      </div>
+    </div>
+  </section>
+{% else %}
+  <section class="shelf" aria-labelledby="h-title">
+    <h2 id="h-title">{{ page.library }}</h2>
+    <p class="said" role="status">{{ page.message }}{% if page.retry_href %} <a class="link" href="{{ page.retry_href }}">Try again</a>{% endif %}</p>
+  </section>
+{% endif %}
+{% endblock %}
+{% block footer %}{% if page.back_href %}    <a class="link" href="{{ page.back_href }}">Back to search</a>
+{% endif %}    <a class="link" href="/">Home</a>
+    <a class="link" href="/help">Help</a>{% endblock %}
