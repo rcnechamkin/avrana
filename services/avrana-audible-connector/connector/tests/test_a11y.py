@@ -21,7 +21,10 @@ from helpers import connect, csrf, hdr, refresh
 
 PROGRESS = "/contribute/audible/progress"
 REFRESH = "/contribute/audible/progress/refresh"
-GET_PAGES = {"/contribute/audible", "/contribute/audible/library", "/contribute/audible/mode", PROGRESS}
+DISCONNECT = "/contribute/audible/disconnect"
+# Disconnect is a link to its read-only confirmation page (GET); only that page's form POSTs (AVR-502).
+CONFIRM_LINKS = {DISCONNECT + "?from=mode", DISCONNECT + "?from=progress"}
+GET_PAGES = {"/contribute/audible", "/contribute/audible/library", "/contribute/audible/mode", PROGRESS} | CONFIRM_LINKS
 
 
 def _select_and_start(client, app, sub, mode="ask", asins=("B000000AA1", "B000000AA2")):
@@ -139,6 +142,10 @@ def pages(site):
     _select_and_start(client, app, "once", mode="once")
     # the Refresh that finishes the import answers with the result itself: the connection is gone
     keep("progress, finished once", "once", refresh(client, app, "once"))
+
+    # the disconnect confirmation, reached from each page that offers it
+    keep("disconnect confirm, from mode", "mod", _get(client, "mod", DISCONNECT + "?from=mode"))
+    keep("disconnect confirm, from progress", "run", _get(client, "run", DISCONNECT + "?from=progress"))
 
     connect(client, app, "bye")
     r = client.post("/contribute/audible/disconnect", data={"csrf_token": csrf(app, "bye")},
@@ -292,14 +299,44 @@ def test_state_changing_actions_are_still_the_same_posts(docs):
     assert actions["connect, empty"] == ["/contribute/audible/start"]
     assert actions["paste"] == ["/contribute/audible/complete"]
     assert actions["library"] == ["/contribute/audible/scan", "/contribute/audible/select"]
-    assert actions["mode"] == ["/contribute/audible/disconnect", "/contribute/audible/mode"]
-    assert actions["progress, failed"] == ["/contribute/audible/disconnect", REFRESH, "/contribute/audible/retry",
-                                           "/contribute/audible/retry"]
-    assert actions["progress, running"] == ["/contribute/audible/disconnect", REFRESH]
+    assert actions["mode"] == ["/contribute/audible/mode"]
+    assert actions["progress, failed"] == [REFRESH, "/contribute/audible/retry", "/contribute/audible/retry"]
+    assert actions["progress, running"] == [REFRESH]
+    assert actions["disconnect confirm, from mode"] == [DISCONNECT]
+    assert actions["disconnect confirm, from progress"] == [DISCONNECT]
     assert actions["disconnected"] == []
 
 
+def test_disconnect_is_a_link_to_the_confirmation_and_cancel_goes_back(docs):
+    def hrefs(name, text):
+        return [a.attrs["href"] for a in docs[name].find("a") if a.all_text.strip() == text]
+    assert hrefs("mode", "Disconnect now") == [DISCONNECT + "?from=mode"]
+    for state in ("progress, running", "progress, failed", "progress, succeeded", "progress, nothing queued"):
+        assert hrefs(state, "Disconnect") == [DISCONNECT + "?from=progress"], state
+    assert hrefs("progress, finished once", "Disconnect") == []
+    assert hrefs("disconnect confirm, from mode", "Cancel") == ["/contribute/audible/mode"]
+    assert hrefs("disconnect confirm, from progress", "Cancel") == [PROGRESS]
+    for name in ("disconnect confirm, from mode", "disconnect confirm, from progress"):
+        d = docs[name]
+        assert [h.all_text for h in d.find("h1")] == ["Disconnect your Audible account?"]
+        assert [h.all_text for h in d.find("h2")] == ["Disconnecting will", "Disconnecting will not"]
+        buttons = [b for b in d.find("button")]
+        assert [b.all_text.strip() for b in buttons] == ["Disconnect"]
+        assert {"ghost", "danger"} <= set(buttons[0].classes) and buttons[0].attrs.get("type") == "submit"
+
+
+def test_loading_the_confirmation_changes_nothing(site, pages):
+    client, app, fake = site
+    sub = pages["disconnect confirm, from progress"][0]
+    before, revoked = _snapshot(app), list(fake.revoked)
+    for _ in range(2):
+        assert _get(client, sub, DISCONNECT + "?from=progress").status_code == 200
+    assert _snapshot(app) == before and fake.revoked == revoked
+
+
 def test_links_never_point_at_a_state_changing_route(docs):
+    # /contribute/audible/disconnect without a query is the POST target; the confirmation links carry
+    # ?from= and land on its read-only GET (test_loading_the_confirmation_changes_nothing).
     post_only = {"/contribute/audible/start", "/contribute/audible/complete", "/contribute/audible/scan",
                  "/contribute/audible/select", "/contribute/audible/retry", "/contribute/audible/disconnect"}
     for name, d in docs.items():

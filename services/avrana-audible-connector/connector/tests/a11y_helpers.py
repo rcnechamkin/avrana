@@ -369,9 +369,9 @@ def check_no_auto_navigation(d, response=None):
     assert d.find("script") == [], "page scripts"
     for e in d.all:
         for a, v in e.attrs.items():
-            if a.startswith("on"):
-                # the only script allowed is the native confirm() on the disconnect forms
-                assert e.tag == "form" and a == "onsubmit" and re.fullmatch(r"return confirm\('[^']*'\);?", v),                     f"inline handler {a}={v!r} on {e.tag}"
+            # no inline handlers at all: Disconnect confirms on its own page (AVR-502)
+            assert not a.startswith("on"), f"inline handler {a}={v!r} on {e.tag}"
+            assert not (v or "").strip().lower().startswith("javascript:"), f"javascript: URL in {a} on {e.tag}"
     if response is not None:
         names = {k.lower() for k in response.headers.keys()}
         assert "refresh" not in names, "Refresh response header"
