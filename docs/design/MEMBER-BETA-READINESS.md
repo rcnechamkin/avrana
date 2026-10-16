@@ -36,7 +36,7 @@ Test names are in `services/avrana-home` unless they start with `tests/` at the 
 
 | Gate | State | Evidence | What is missing |
 |---|---|---|---|
-| No title, id, cover or progress of one member reaches another (`/`, `/home.json`, `/search`, `/art`), cold and warm cache, one upstream failing | 1 | `webtests/test_web_isolation_h2.py` (all classes) | Title pages (Lane C, TODO in that module); two real members on two devices (owner, physical) |
+| No title, id, cover or progress of one member reaches another (`/`, `/home.json`, `/search`, `/art`), cold and warm cache, one upstream failing | 1 | `webtests/test_web_isolation_h2.py` (all classes), `webtests/test_bench_cache_revocation.py` (#54, warm-cache group revocation) | Title pages (Lane C, TODO in that module); two real members on two devices (owner, physical) |
 | Cache partitioned per member (HMAC key), per-member quotas | 2 | `tests/test_cache.py`; `tests/test_h2_security.py::SharedViewCovers::test_the_cover_cache_is_per_member`; review of #50 | |
 | Cover revoked on the next request when the member loses the item (per-member services) | 1 | `tests/test_h2_security.py::JellyfinArtworkRevocation`, `AudiobookshelfArtworkRevocation` (fixes #53 LOW) | Jellyfin and Audiobookshelf hiding behaviour on the real servers (owner) |
 | Covers not kept by browsers or proxies | 2 | `Cache-Control: private, no-store` on `/art/` (`webtests/test_web_artwork.py`, `test_web_isolation_h2.py`) | Residual: a page already open keeps showing an image until reloaded |
@@ -68,7 +68,7 @@ Test names are in `services/avrana-home` unless they start with `tests/` at the 
 | Owner preview gate: outermost, constant-time compare, throttle | 2 (#53 is a draft, not merged; HOME-2.0-SPRINT.md says the preview runs `feat/lan-demo`, which this lane has not checked) | `tests/test_preview_gate.py`; review of #53 | Owner merge decision; physical check |
 | Preview lockout by shared client address (review of #53, LOW) | assessed, unchanged | `docs/design/IDENTITY-MAPPING.md` section 5 item 5 | Owner decision: check the address Docker presents; optionally a session cookie (new credential) |
 | Offboarding purges a member's cache | 1 (method only) | `MemberCache.purge_member`, `tests/test_cache.py` | Not wired into any offboarding step |
-| Username reused after an account is deleted is never served the previous holder's cache (F4) | - (residual) | `docs/design/IDENTITY-MAPPING.md` section 5 item 6 | Owner offboarding step: wait 5 minutes or restart before reuse; key by JWT `sub` later |
+| A reused username never reaches the previous holder's upstream accounts or cache (F4) | - (residual, owner decision) | `docs/design/IDENTITY-MAPPING.md` section 5 item 6 | Stable id (Authentik uid or JWT `sub` plus an owner-maintained link table) or the offboarding steps there: deactivate, disable or rename upstream accounts, wait 5 minutes or restart |
 | Expired cache entries are swept, not left in memory (F3) | 1 | `tests/test_h2_security.py::ExpiredEntriesAreSwept` | Review |
 | Fifteen members opening Home at once get every section (F2) | - | IDENTITY-MAPPING.md section 5 item 8 (recommendation) | Live measurement, then a reviewed cap or bounded-wait change |
 | Upstream-side permission changes take effect within 30 s / 120 s (sections), covers per request or 300 s (F5) | documented | IDENTITY-MAPPING.md section 5 item 7 | Owner decision |

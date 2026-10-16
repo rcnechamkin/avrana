@@ -108,16 +108,32 @@ failing (`webtests/test_web_isolation_h2.py`).
    it is not implemented. Docker's default iptables DNAT normally preserves LAN client addresses (the shared
    address arises with the userland proxy), so the owner should check which address the gate sees on
    `avrana` before deciding. The gate is unchanged: constant-time compare, throttle, outermost position.
-6. **Username reuse (AVR-503 benchmark F4).** The cache partition is an HMAC of the Authentik username; the
-   principal carries no stable account id (no uid or sub is parsed today, and adding one would touch the
-   identity path PR #52 changes). If an account is deleted and its username given to a new person while the
-   previous holder's entries are still live (at most 300 s for covers, 120 s for sections, 60 s for the
-   mapping; the cache is in memory only and dies with the process), the new holder could be served the
-   previous holder's cached titles, progress or covers. The new holder's upstream accounts would also have
-   to carry the same names. Mitigation, owner offboarding step: after deleting a member, wait at least
-   5 minutes (or restart Home, with approval) before reusing that username; `MemberCache.purge_member` exists
-   but is wired to nothing. Follow-up once the verified-JWT identity lands: key the partition by the token's
-   stable `sub` as well as the username.
+6. **Username reuse: no stable account identifier (AVR-503 benchmark F4, broadened in the review of #54).** The
+   username is the only identity the application has. It is used twice: as the cache partition key (an HMAC of
+   the username) and as the upstream account name (Jellyfin and Audiobookshelf are matched by exact username).
+   So if an Authentik account is deleted and its username given to someone else, the new holder:
+   * reaches the **previous holder's upstream accounts** (their Jellyfin and Audiobookshelf libraries, history
+     and progress) for as long as those accounts keep that name, regardless of any cache; and
+   * could be served the previous holder's cached entries while they live (at most 300 s for covers, 120 s for
+     sections, 60 s for the mapping; the cache is in memory only and dies with the process).
+
+   **What a stable identifier would require.** Either (a) a stable Authentik attribute in the principal (the
+   outpost's `X-authentik-uid`, or the verified token's `sub` from PR #52's JWT mode), used as the cache
+   partition key and recorded against each upstream account, which needs an owner-maintained mapping table
+   (principal uid to Jellyfin and Audiobookshelf user ids), because upstream accounts carry no Authentik uid;
+   or (b) that mapping table alone, keyed by username but written by the owner at onboarding and removed at
+   offboarding, so a reused username maps to nothing until the owner links it. Both replace the owner's
+   2026-10-15 decision (match by username, no link table) and touch the identity path that PR #52 changes, so
+   neither is implemented here; it is an **owner decision** before members whose accounts may be recycled.
+
+   **What offboarding must do today** (add to `docs/runbooks/offboarding.md` when the owner approves):
+   1. In Authentik, deactivate the member (do not delete and recreate under the same username).
+   2. In Jellyfin and Audiobookshelf, disable the member's account, or rename it to a name no Authentik user
+      can have (for example with a suffix Authentik usernames never carry), so the username no longer maps.
+      A disabled account already maps to `NOT_LINKED` (`disabled`); a renamed one to `unmapped`.
+   3. Wait at least 5 minutes before any reuse of that username, or restart Home (owner approval), so cached
+      entries are gone. `MemberCache.purge_member` exists but is wired to nothing.
+   4. Never assign a former member's username to a new person while their upstream accounts still carry it.
 7. **Upstream-side permission changes (AVR-503 benchmark F5), owner decision.** A permission change made inside
    Jellyfin or Audiobookshelf (not in Authentik) reaches cached sections only when they expire: 30 s for
    Continue, 120 s for New this week and item lookups. Covers from those two services are re-checked on every

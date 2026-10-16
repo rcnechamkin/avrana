@@ -10,6 +10,10 @@ For `/`, `/home.json`, `/search?q=` and `/art/...`: no title, item id, cover or 
 for the other, with a cold cache, with a warm cache, and while one upstream is down, slow, failing, malformed
 or answering with another user's data.
 
+Group revocation with a warm cache (same member, one group lost, another member after revocation) is covered
+by `webtests/test_bench_cache_revocation.py` (#54) and is not repeated here; item-level revocation is in
+`tests/test_h2_security.py`.
+
 TODO(Lane C, title pages): when `/title/...` lands, add it to ROUTES below and assert the same: a title page
 for an item only A can see is the standard 404 for B (cold and warm), and its cover likewise.
 """
@@ -132,17 +136,6 @@ class Covers(Fixture):
                 for path in sorted(other):
                     r = c.get(path, headers=headers)
                     self.assertEqual((404, nf), (r.status_code, r.text), (rnd, path))
-
-    def test_a_member_who_loses_a_group_loses_its_covers_at_once(self):
-        c = self.client()
-        own = sorted(p for p in self.covers(c, A) if p.startswith("/art/audiobookshelf/"))
-        for path in own:
-            self.assertEqual(200, c.get(path, headers=A).status_code)
-        lost = [(USER, "member-a"), (GROUPS, "avrana-users|avrana-videos")]
-        self.ab.reset()
-        for path in own:
-            self.assertEqual(404, c.get(path, headers=lost).status_code, path)
-        self.assertEqual([], self.ab.paths())                      # no upstream call, no cache read
 
 
 class OneUpstreamFailing(Fixture):
