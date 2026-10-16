@@ -322,6 +322,17 @@ class LogOnlyTests(Fixture):
         self.assertEqual(["ok", "missing_header", "unverified_identity", "identity_mismatch", "duplicate_header"],
                          self.codes(records))
 
+    def test_a_non_ascii_token_header_does_not_drop_the_header_identity_in_log_only(self):
+        # Review #52 F1: a malformed token header must be reported, not take the plain sign-in down.
+        records = self.capture()
+        bad = (JWT.encode("ascii"), ("x" + chr(0xe9)).encode("utf-8"))
+        hdr = [(n.encode("ascii"), v.encode("ascii")) for n, v in self.plain()]
+        self.assertEqual(self.headers_app.get("/", headers=self.plain()).content,
+                         self.log_only.get("/", headers=hdr + [bad]).content)
+        self.assertEqual(["malformed_header", "missing_header"], self.codes(records))
+        # jwt_required still fails closed on the same request.
+        self.assertEqual(["help"], self.tiles(self.required.get("/", headers=hdr + [bad]).text))
+
     def test_log_lines_never_carry_secrets_tokens_or_identity(self):
         from avrana_home.app.logsafe import ForbiddenValues
         records = self.capture()

@@ -61,6 +61,23 @@ def _report(code: str) -> None:
     log_event(app_log, logging.INFO, "identity_jwt", reason=code)   # fixed codes only
 
 
+def _without_malformed_jwt(raw: list) -> list:
+    """Drops a non-ASCII token header (reported as `malformed_header`) so it cannot take the plain
+    header identity down with it in log-only mode. In jwt_required the request then simply has no
+    token and fails closed exactly as a missing token does."""
+    jwt = JWT_HEADER.lower().encode("ascii")
+    kept = []
+    for name, value in raw:
+        if name == jwt:
+            try:
+                value.decode("ascii")
+            except UnicodeDecodeError:
+                _report("malformed_header")
+                continue
+        kept.append((name, value))
+    return kept
+
+
 class IdentityResolver:
     """Built once per app from `Settings`. In `headers` mode it holds no verifier and does exactly
     what the application did before AVR-498."""
@@ -85,8 +102,11 @@ class IdentityResolver:
 
     def viewer(self, scope) -> Viewer:
         names = _TRUSTED_NAMES if self.mode == MODE_HEADERS else _JWT_NAMES
+        raw = trusted_pairs(scope, names)
+        if self.mode != MODE_HEADERS:
+            raw = _without_malformed_jwt(raw)
         try:
-            pairs = decode_raw_headers(trusted_pairs(scope, names), extra_ascii=(JWT_HEADER,))
+            pairs = decode_raw_headers(raw, extra_ascii=(JWT_HEADER,))
             return Viewer(principal_for_request(pairs, mode=self.mode, verifier=self.verifier,
                                                 report=_report))
         except PrincipalError:
