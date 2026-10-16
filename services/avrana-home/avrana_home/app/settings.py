@@ -56,6 +56,9 @@ class Settings:
     audiobookshelf_token: str = field(default="", repr=False)
     komga_base_url: str = ""                     # "" = the Komga adapter is not built
     komga_token: str = field(default="", repr=False)
+    calibre_web_base_url: str = ""               # "" = the Calibre-Web adapter is not built
+    calibre_web_credential: str = field(default="", repr=False)    # "user:password" of the viewer account
+    calibre_web_owner_confirms: bool = False     # the owner's statement that no member is restricted
     timeout: float = 2.0
     section_limit: int = 12
     health_detail: str = "loopback"              # "loopback" | "off"
@@ -138,6 +141,9 @@ class Settings:
         abs_token = _read_key(env, problems, "AUDIOBOOKSHELF_TOKEN")
         komga_url = get("KOMGA_BASE_URL")
         komga_token = _read_key(env, problems, "KOMGA_TOKEN")
+        cw_url = get("CALIBRE_WEB_BASE_URL")
+        cw_cred = _read_key(env, problems, "CALIBRE_WEB_CREDENTIAL")
+        cw_confirms = boolean("CALIBRE_WEB_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS", False)
         if mode == "mock":
             base_url = base_url or DEFAULT_MOCK_JELLYFIN_URL
             if not is_loopback_host(url_host(base_url) or ""):
@@ -158,6 +164,13 @@ class Settings:
             if komga_url and not is_loopback_host(url_host(komga_url) or ""):
                 problems.append("KOMGA_BASE_URL must be a loopback address in mock mode")
             komga_token = MOCK_API_KEY if komga_url else ""
+            if cw_cred:
+                problems.append("a Calibre-Web credential is set but HOME_UPSTREAM_MODE is mock "
+                                "(mock mode never sends a real credential; unset it or choose real)")
+            if cw_url and not is_loopback_host(url_host(cw_url) or ""):
+                problems.append("CALIBRE_WEB_BASE_URL must be a loopback address in mock mode")
+            cw_cred = "viewer:" + MOCK_API_KEY if cw_url else ""
+            cw_confirms = False                  # a real-mode statement; mock mode passes its own constant
         else:
             if get("HOME_GATES_VERIFIED").lower() != "yes":
                 problems.append("HOME_UPSTREAM_MODE=real needs HOME_GATES_VERIFIED=yes "
@@ -170,6 +183,19 @@ class Settings:
                 # ADAPTER-CONTRACT 12.2: the key scope and the member mapping are open OWNER decisions.
                 problems.append("Komga cannot be configured in real mode until the owner decides the "
                                 "key scope and member mapping (ADAPTER-CONTRACT 12.2)")
+            if cw_url or cw_cred:
+                # ADAPTER-CONTRACT 13.2: a SHARED view; refused unless the owner states, deliberately, that
+                # no member has a Calibre-Web restriction (default off). HOME_GATES_VERIFIED applies above.
+                if not cw_confirms:
+                    problems.append("Calibre-Web is a shared view and cannot be configured in real mode "
+                                    "without CALIBRE_WEB_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS=yes "
+                                    "(ADAPTER-CONTRACT 13.2)")
+                if not cw_url or ":" not in cw_cred:
+                    problems.append("CALIBRE_WEB_BASE_URL and CALIBRE_WEB_CREDENTIAL (user:password, or "
+                                    "_FILE) must be set together")
+            elif cw_confirms:
+                problems.append("CALIBRE_WEB_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS is set but Calibre-Web "
+                                "is not configured")
             if bool(abs_url) != bool(abs_token):
                 problems.append("AUDIOBOOKSHELF_BASE_URL and AUDIOBOOKSHELF_TOKEN (or _FILE) must be "
                                 "set together, or both left unset")
@@ -179,13 +205,16 @@ class Settings:
             _check_url(abs_url, problems, "AUDIOBOOKSHELF_BASE_URL")
         if komga_url:
             _check_url(komga_url, problems, "KOMGA_BASE_URL")
+        if cw_url:
+            _check_url(cw_url, problems, "CALIBRE_WEB_BASE_URL")
 
         if problems:
             raise SettingsError("invalid configuration: " + "; ".join(problems))
         return cls(home_sections=sections, upstream_mode=mode, jellyfin_base_url=base_url,
                    jellyfin_api_key=key, audiobookshelf_base_url=abs_url,
                    audiobookshelf_token=abs_token, komga_base_url=komga_url,
-                   komga_token=komga_token, timeout=timeout, section_limit=limit,
+                   komga_token=komga_token, calibre_web_base_url=cw_url,
+                   calibre_web_credential=cw_cred, calibre_web_owner_confirms=cw_confirms, timeout=timeout, section_limit=limit,
                    health_detail=detail, catalogue_path=catalogue, log_level=level,
                    host=host, port=port)
 

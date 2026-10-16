@@ -185,6 +185,7 @@ class _Access:
 
 class KomgaAdapter(GuardedAdapter):
     service = Service.KOMGA
+    not_offered = frozenset({"continue"})
 
     def __init__(self, transport: Transport, timeout: float = DEFAULT_TIMEOUT,
                  linker: Linker = exact_name_linker, **kw):
@@ -197,10 +198,7 @@ class KomgaAdapter(GuardedAdapter):
     # -- what this adapter does not offer: no upstream call, nothing cached ----------------
     def continue_items(self, principal: MemberPrincipal, limit: int = DEFAULT_LIMIT) -> SectionResult:
         """Komga read progress belongs to the credential's user, not the member: not offered."""
-        self._require_principal(principal)
-        if not principal.has_group(self.required_group):
-            return self._not_permitted("continue")
-        return SectionResult(self.service, "continue", SectionState.EMPTY, reason="not_offered")
+        return self._not_offered(principal, "continue")
 
     # -- mapping ---------------------------------------------------------------------------
     def _user_list(self, guard) -> List[Any]:
