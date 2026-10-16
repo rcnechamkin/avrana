@@ -94,6 +94,19 @@ class Settings:
     owner_preview_username: str = ""             # the one principal the member-username overrides apply to
     jellyfin_member_username: str = ""           # "" = the principal's username, exactly (the default rule)
     audiobookshelf_member_username: str = ""     # "" = the principal's username, exactly (the default rule)
+    # The sealed token, carried only by settings built through the owner-preview path. Constructing Settings
+    # directly (or with dataclasses.replace from unsealed settings) cannot switch the preview or a member
+    # username override on: __post_init__ refuses (Home 2.0, AVR-375).
+    preview_seal: object = field(default=None, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        overrides = (self.owner_preview_username, self.jellyfin_member_username,
+                     self.audiobookshelf_member_username)
+        if (self.owner_preview or any(overrides)) and self.preview_seal is not _OWNER_PREVIEW_SEAL:
+            raise SettingsError("the owner preview and member username overrides are set only by the "
+                                "sealed preview entrypoint")
+        if any(overrides) and not (self.owner_preview and self.owner_preview_username):
+            raise SettingsError("member username overrides need the owner preview and PREVIEW_OWNER_USERNAME")
 
     def __repr__(self) -> str:
         return (f"Settings(home_sections={self.home_sections}, upstream_mode={self.upstream_mode!r}, "
@@ -285,7 +298,8 @@ class Settings:
                    calibre_web_credential=cw_cred, calibre_web_owner_confirms=cw_confirms, timeout=timeout, section_limit=limit,
                    health_detail=detail, catalogue_path=catalogue, log_level=level,
                    host=host, port=port, owner_preview=owner_preview, owner_preview_username=owner_name,
-                   jellyfin_member_username=jf_member, audiobookshelf_member_username=abs_member)
+                   jellyfin_member_username=jf_member, audiobookshelf_member_username=abs_member,
+                   preview_seal=_OWNER_PREVIEW_SEAL if owner_preview else None)
 
 
 def _check_url(url: str, problems: list, name: str = "JELLYFIN_BASE_URL") -> None:

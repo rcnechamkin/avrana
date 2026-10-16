@@ -712,7 +712,10 @@ class Covers(Base):
         self.assertIs(self.cover(self.c, "li_book000005").state, SectionState.EMPTY)  # member-c may not
         n = len(self.fake.requests)
         self.assertIs(self.cover(self.a, "li_book000005").state, SectionState.OK)    # a's own cache hit
-        self.assertEqual(len(self.fake.requests), n)
+        # Home 2.0 (Lane D): visibility is re-checked as member-a on every request; only the bytes are cached
+        later = [p for _, p, _ in self.fake.requests[n:]]
+        self.assertNotIn("/api/items/li_book000005/cover", later)
+        self.assertIn("/api/items/li_book000005", later)
 
     def test_the_guard_allows_only_the_cover_route_shape(self):
         guard = GuardedTransport(FakeTransport(FakeAudiobookshelf()), UA)

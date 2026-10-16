@@ -311,6 +311,10 @@ class MediaAdapter:
     # request them at all, so the member view carries no empty noise; the methods still answer
     # (EMPTY, reason `not_offered`) for a direct caller.
     not_offered: frozenset = frozenset()
+    # True for a service whose upstream decides item visibility PER MEMBER (Jellyfin, Audiobookshelf): the
+    # artwork hook then takes `cached=` and re-checks visibility before it may return cached bytes. False for
+    # a shared view (Komga, Calibre-Web), where the group is the whole permission. See `fetch_artwork`.
+    artwork_rechecks_visibility: bool = False
 
     def __init__(self, breaker: Optional[CircuitBreaker] = None,
                  cache: Optional[MemberCache] = None, clock=None,
@@ -360,7 +364,9 @@ class MediaAdapter:
     def _item(self, user: UpstreamUser, item_id: str) -> SectionResult:
         raise NotImplementedError
 
-    def _fetch_artwork(self, user: UpstreamUser, ref: str) -> ArtworkResult:
+    def _fetch_artwork(self, user: UpstreamUser, ref: str, cached=None) -> ArtworkResult:
+        """`cached` is passed only when `artwork_rechecks_visibility` is True: a callable returning this
+        member's cached OK result or None. Call it ONLY after the member-scoped visibility check passed."""
         raise NotImplementedError
 
     def _search(self, user: UpstreamUser, query: str, limit: int) -> SectionResult:
@@ -411,16 +417,42 @@ class MediaAdapter:
         return self._section(principal, "search", None, lambda user: self._search(user, term, limit))
 
     def fetch_artwork(self, principal: MemberPrincipal, ref: str) -> ArtworkResult:
+        """Order: principal, GROUP (no cache read, no upstream call without it), ref shape, then:
+
+        * per-member visibility (`artwork_rechecks_visibility`, Jellyfin and Audiobookshelf): the upstream
+          is asked, as THIS member, whether the item is visible on EVERY request, and only then may the
+          member's own cached bytes be served (the hook calls `cached()` after its check). A hidden item, a
+          lost mapping or an unreachable upstream is never served from the cache, and the stale entry is
+          dropped. Only the image bytes are cached, never the permission.
+        * shared view (Komga, Calibre-Web: one account, no per-member visibility): the member's own cached
+          bytes are served for up to ARTWORK_TTL; the group is still checked first on every request.
+
+        Every cache entry lives in the member's own partition (`for_member`), so one member's warm cover is
+        never another member's."""
         self._require_principal(principal)
         if not principal.has_group(self.required_group):
             return ArtworkResult(SectionState.NOT_PERMITTED)
         if not isinstance(ref, str) or not 0 < len(ref) <= 100:
             return ArtworkResult(SectionState.EMPTY)
         scope = self.cache.for_member(principal)
-        cached = scope.get(self.service.value, "art:" + ref)
-        if cached is not None:
-            return cached
-        out = self._call(principal, lambda user: self._fetch_artwork(user, ref))
+        key = "art:" + ref
+        served_from_cache = []
+        if self.artwork_rechecks_visibility:
+            def cached() -> Optional[ArtworkResult]:
+                value = scope.get(self.service.value, key)
+                if isinstance(value, ArtworkResult) and value.state is SectionState.OK:
+                    served_from_cache.append(True)
+                    return value
+                return None
+            out = self._call(principal, lambda user: self._fetch_artwork(user, ref, cached=cached))
+        else:
+            hit = scope.get(self.service.value, key)
+            if hit is not None:
+                return hit
+            out = self._call(principal, lambda user: self._fetch_artwork(user, ref))
+        ok = out.kind == "ok" and out.value.state is SectionState.OK
+        if not ok and self.artwork_rechecks_visibility:
+            scope.delete(self.service.value, key)        # not visible (or not checkable) now: forget it
         if out.kind == "unavailable":
             return ArtworkResult(SectionState.UNAVAILABLE)
         if out.kind == "not_linked":
@@ -428,8 +460,8 @@ class MediaAdapter:
         if out.kind == "gone":
             return ArtworkResult(SectionState.EMPTY)
         result = out.value
-        if result.state is SectionState.OK and out.fresh:
-            scope.set(self.service.value, "art:" + ref, result, ttl=ARTWORK_TTL, data_class="artwork")
+        if ok and out.fresh and not served_from_cache:
+            scope.set(self.service.value, key, result, ttl=ARTWORK_TTL, data_class="artwork")
         return result
 
     def health(self):
