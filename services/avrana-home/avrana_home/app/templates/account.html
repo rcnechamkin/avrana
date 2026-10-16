@@ -16,11 +16,30 @@
 {% endfor %}
       </ul>
     </section>
+{% elif shell %}
+    <section class="block">
+      <h2>Your access</h2>
+      <p class="note msg">{{ no_library_said }}</p>
+    </section>
 {% else %}
     <section class="block">
       <h2>Your access</h2>
       <p class="note msg">Nothing is set up on this account yet. Ask Cody to add what you need.</p>
     </section>
+{% endif %}
+{% if shell %}
+  <section class="block">
+    <h2>Signing in</h2>
+    <p class="note">Avrana and each library you open from it have their own sign&#8209;in. Some libraries offer an Avrana sign&#8209;in button; others ask for a username and password. If a library asks you to sign in, that is expected. Help has the steps for each library and device.</p>
+  </section>
+  <section class="block">
+    <h2>Signing out</h2>
+    <p class="note">Sign out, below, ends your Avrana session in this browser. Apps and libraries you signed in to separately stay signed in until you sign out inside each one. On a shared device, sign out of each.</p>
+  </section>
+  <section class="block">
+    <h2>Getting help</h2>
+    <p class="note">Open Help for your devices and libraries. If something is still wrong, ask the person who invited you.</p>
+  </section>
 {% endif %}
   <section class="block">
     <h2>Preferences</h2>

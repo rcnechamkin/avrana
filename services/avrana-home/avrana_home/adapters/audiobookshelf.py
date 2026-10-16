@@ -158,6 +158,7 @@ def _require_active(record: Dict[str, Any]) -> None:
 class AudiobookshelfAdapter(GuardedAdapter):
     service = Service.AUDIOBOOKSHELF
     not_offered = frozenset({"recent", "item"})
+    artwork_rechecks_visibility = True     # visibility is per member: re-checked before any cached cover
 
     def __init__(self, transport: Transport, timeout: float = DEFAULT_TIMEOUT, *,
                  member_username: Optional[Tuple[str, str]] = None, **kw):
@@ -212,7 +213,7 @@ class AudiobookshelfAdapter(GuardedAdapter):
         _require_active(record)
         return record, _Access.from_record(record)
 
-    def _fetch_artwork(self, user: UpstreamUser, ref: str) -> ArtworkResult:
+    def _fetch_artwork(self, user: UpstreamUser, ref: str, cached=None) -> ArtworkResult:
         m = _ARTWORK_REF.fullmatch(ref)
         if m is None:
             return ArtworkResult(SectionState.EMPTY)
@@ -228,6 +229,9 @@ class AudiobookshelfAdapter(GuardedAdapter):
         visible, _status = self._visible(raw, item_id, access, 0.0, None, None)
         if visible is None or visible.artwork is None:
             return ArtworkResult(SectionState.EMPTY)      # not visible to THIS member, or no cover: neutral
+        hit = cached() if cached is not None else None      # only AFTER this member's visibility check
+        if hit is not None:
+            return hit
         return self._fetch_image(guard, budget, f"/api/items/{item_id}/cover", COVER_QUERY)
 
     # -- search: library by library, every hit re-checked for THIS member ------------------

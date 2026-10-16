@@ -29,6 +29,7 @@ import enum
 import logging
 import re
 import threading
+import time
 import unicodedata
 from dataclasses import dataclass
 from typing import Any, Callable, Optional, Tuple
@@ -45,6 +46,13 @@ MAX_TITLE_LEN = 200
 ARTWORK_TTL = 300.0   # longest an item hidden from a member can still be served from cache
 DEFAULT_MAX_IN_FLIGHT = 8             # upstream calls running at once, per adapter
 DEFAULT_MAX_IN_FLIGHT_PER_MEMBER = 2  # ... of which one member may hold at most this many
+# Artwork has its OWN allowance (review of #57): a page asks for many covers at once, and since per-member services
+# re-check visibility on every cover, covers must neither starve the sections nor be refused under ordinary
+# browser parallelism. Unlike sections (refused at once), a cover may wait briefly for a slot, the wait taken from
+# its own request deadline. Artwork failures never count toward the service's circuit (they are neutral).
+ARTWORK_MAX_IN_FLIGHT = 8
+ARTWORK_MAX_IN_FLIGHT_PER_MEMBER = 4
+ARTWORK_SLOT_WAIT = 0.4               # seconds, at most, and never more than half the request deadline
 MAPPING_TTL_FOUND = 60.0              # bounds how long a renamed or swapped upstream account can linger
 MAPPING_TTL_ABSENT = 60.0
 
@@ -259,16 +267,43 @@ class ForbiddenRequest(Exception):
 
 
 class _SharedFailure(Exception):
-    """A follower saw the failure its single-flight leader already reported and counted."""
+    """A follower saw the failure its single-flight leader already reported. `counted` is False when the leader was
+    an artwork call (neutral for the circuit): a section follower then counts the failure itself."""
 
-    def __init__(self, err: Exception):
+    def __init__(self, err: Exception, flight: "Optional[_Flight]" = None):
         super().__init__(type(err).__name__)
         self.err = err
+        self.flight = flight              # set only when the leader may not have counted it (see _call)
+
+
+class _ArtworkBreaker:
+    """The circuit as an artwork call sees it (review of #57): it may only ASK. It never takes the half-open trial
+    and its results change nothing, in either direction, so covers can neither open the circuit nor keep it closed
+    or close it while the sections fail. Freshness is still the token's validity."""
+    __slots__ = ("_inner",)
+
+    def __init__(self, inner):
+        self._inner = inner
+
+    def acquire(self):
+        return self._inner.acquire(trial=False)
+
+    def valid(self, token):
+        return self._inner.valid(token)
+
+    def success(self, token):
+        return self._inner.valid(token)
+
+    def failure(self, error_class, token):
+        return False
+
+    def neutral(self, token):
+        return None
 
 
 class _Flight:
     """One in-progress mapping lookup that concurrent sections of the same member share."""
-    __slots__ = ("event", "result", "exc", "started", "finished")
+    __slots__ = ("event", "result", "exc", "started", "finished", "counted")
 
     def __init__(self, started: float):
         self.event = threading.Event()
@@ -276,6 +311,7 @@ class _Flight:
         self.exc = None
         self.started = started            # when the leader began: an old flight is abandoned
         self.finished = None              # when the leader reported: a stale answer is not shared
+        self.counted = True               # False when an artwork call led it (its failure was not counted)
 
 
 def _fresh_copy(err: Exception) -> Exception:
@@ -288,11 +324,12 @@ def _fresh_copy(err: Exception) -> Exception:
 
 class _Ctx:
     """Per-call facts the breaker accounting needs."""
-    __slots__ = ("upstream", "fresh_mapping")
+    __slots__ = ("upstream", "fresh_mapping", "artwork")
 
-    def __init__(self):
+    def __init__(self, artwork: bool = False):
         self.upstream = False         # did any request actually reach the upstream?
         self.fresh_mapping = False    # was the mapping confirmed against the upstream in this call?
+        self.artwork = artwork        # an artwork call: neutral for the circuit
 
 
 @dataclass(frozen=True)
@@ -311,6 +348,10 @@ class MediaAdapter:
     # request them at all, so the member view carries no empty noise; the methods still answer
     # (EMPTY, reason `not_offered`) for a direct caller.
     not_offered: frozenset = frozenset()
+    # True for a service whose upstream decides item visibility PER MEMBER (Jellyfin, Audiobookshelf): the
+    # artwork hook then takes `cached=` and re-checks visibility before it may return cached bytes. False for
+    # a shared view (Komga, Calibre-Web), where the group is the whole permission. See `fetch_artwork`.
+    artwork_rechecks_visibility: bool = False
 
     def __init__(self, breaker: Optional[CircuitBreaker] = None,
                  cache: Optional[MemberCache] = None, clock=None,
@@ -329,6 +370,9 @@ class MediaAdapter:
         self._by_member: dict = {}
         self._flights: dict = {}                      # member -> in-progress mapping lookup
         self._flight_lock = threading.Lock()
+        self._slot_freed = threading.Condition(self._flight_lock)
+        self._art_in_flight = 0
+        self._art_by_member: dict = {}
         self._local = threading.local()
 
     @property
@@ -360,7 +404,9 @@ class MediaAdapter:
     def _item(self, user: UpstreamUser, item_id: str) -> SectionResult:
         raise NotImplementedError
 
-    def _fetch_artwork(self, user: UpstreamUser, ref: str) -> ArtworkResult:
+    def _fetch_artwork(self, user: UpstreamUser, ref: str, cached=None) -> ArtworkResult:
+        """`cached` is passed only when `artwork_rechecks_visibility` is True: a callable returning this
+        member's cached OK result or None. Call it ONLY after the member-scoped visibility check passed."""
         raise NotImplementedError
 
     def _search(self, user: UpstreamUser, query: str, limit: int) -> SectionResult:
@@ -411,16 +457,47 @@ class MediaAdapter:
         return self._section(principal, "search", None, lambda user: self._search(user, term, limit))
 
     def fetch_artwork(self, principal: MemberPrincipal, ref: str) -> ArtworkResult:
+        """Order: principal, GROUP (no cache read, no upstream call without it), ref shape, then:
+
+        * per-member visibility (`artwork_rechecks_visibility`, Jellyfin and Audiobookshelf): the upstream
+          is asked, as THIS member, whether the item is visible on EVERY request, and only then may the
+          member's own cached bytes be served (the hook calls `cached()` after its check). A hidden item, a
+          lost mapping or an unreachable upstream is never served from the cache, and the stale entry is
+          dropped. Only the image bytes are cached, never the permission.
+        * shared view (Komga, Calibre-Web: one account, no per-member visibility): the member's own cached
+          bytes are served for up to ARTWORK_TTL; the group is still checked first on every request.
+
+        Every cache entry lives in the member's own partition (`for_member`), so one member's warm cover is
+        never another member's."""
         self._require_principal(principal)
         if not principal.has_group(self.required_group):
             return ArtworkResult(SectionState.NOT_PERMITTED)
         if not isinstance(ref, str) or not 0 < len(ref) <= 100:
             return ArtworkResult(SectionState.EMPTY)
         scope = self.cache.for_member(principal)
-        cached = scope.get(self.service.value, "art:" + ref)
-        if cached is not None:
-            return cached
-        out = self._call(principal, lambda user: self._fetch_artwork(user, ref))
+        key = "art:" + ref
+        served_from_cache = []
+        if self.artwork_rechecks_visibility:
+            def cached() -> Optional[ArtworkResult]:
+                value = scope.get(self.service.value, key)
+                if isinstance(value, ArtworkResult) and value.state is SectionState.OK:
+                    served_from_cache.append(True)
+                    return value
+                return None
+            out = self._call(principal, lambda user: self._fetch_artwork(user, ref, cached=cached), artwork=True)
+        else:
+            hit = scope.get(self.service.value, key)
+            if hit is not None:
+                return hit
+            out = self._call(principal, lambda user: self._fetch_artwork(user, ref), artwork=True)
+        ok = out.kind == "ok" and out.value.state is SectionState.OK
+        definitive = out.kind in ("not_linked", "gone") or (
+            out.kind == "ok" and out.value.state in (SectionState.EMPTY, SectionState.NOT_PERMITTED,
+                                                     SectionState.NOT_LINKED))
+        if definitive and self.artwork_rechecks_visibility:
+            # A definitive negative (not visible, not linked): forget the bytes. A transient refusal (busy, timeout,
+            # unreachable) keeps them: serving still needs a passing check, so keeping them is not a leak.
+            scope.delete(self.service.value, key)
         if out.kind == "unavailable":
             return ArtworkResult(SectionState.UNAVAILABLE)
         if out.kind == "not_linked":
@@ -428,8 +505,8 @@ class MediaAdapter:
         if out.kind == "gone":
             return ArtworkResult(SectionState.EMPTY)
         result = out.value
-        if result.state is SectionState.OK and out.fresh:
-            scope.set(self.service.value, "art:" + ref, result, ttl=ARTWORK_TTL, data_class="artwork")
+        if ok and out.fresh and not served_from_cache:
+            scope.set(self.service.value, key, result, ttl=ARTWORK_TTL, data_class="artwork")
         return result
 
     def health(self):
@@ -471,13 +548,44 @@ class MediaAdapter:
             else:
                 self._by_member.pop(member, None)
 
+    def _acquire_art_slot(self, member: str, budget: CallBudget) -> Optional[str]:
+        """The artwork allowance: separate from the section slots, with a short bounded wait (real time, at most
+        ARTWORK_SLOT_WAIT and half of what is left of this request's deadline) before refusing."""
+        try:
+            wait = min(ARTWORK_SLOT_WAIT, budget.remaining() / 2)
+        except UpstreamTimeout:
+            wait = 0.0
+        end = time.monotonic() + wait
+        with self._slot_freed:
+            while True:
+                if (self._art_in_flight < ARTWORK_MAX_IN_FLIGHT
+                        and self._art_by_member.get(member, 0) < ARTWORK_MAX_IN_FLIGHT_PER_MEMBER):
+                    self._art_in_flight += 1
+                    self._art_by_member[member] = self._art_by_member.get(member, 0) + 1
+                    return None
+                left = end - time.monotonic()
+                if left <= 0:
+                    return "busy" if self._art_in_flight >= ARTWORK_MAX_IN_FLIGHT else "member_busy"
+                self._slot_freed.wait(left)
+
+    def _release_art_slot(self, member: str) -> None:
+        with self._slot_freed:
+            self._art_in_flight -= 1
+            left = self._art_by_member.get(member, 0) - 1
+            if left > 0:
+                self._art_by_member[member] = left
+            else:
+                self._art_by_member.pop(member, None)
+            self._slot_freed.notify_all()
+
     def _account(self, err: Exception, token: Optional[int], member_scoped: bool,
-                 force_count: bool = False) -> None:
+                 force_count: bool = False, breaker=None) -> None:
+        breaker = breaker if breaker is not None else self.breaker
         log_failure(self.service.value, err)
         if force_count or counts_toward_breaker(err, member_scoped=member_scoped):
-            self.breaker.failure(type(err).__name__, token)
+            breaker.failure(type(err).__name__, token)
         else:
-            self.breaker.neutral(token)          # a per-request problem: the shared circuit is untouched
+            breaker.neutral(token)               # a per-request problem: the shared circuit is untouched
 
     def _mapped(self, scope, principal: MemberPrincipal, token: int, ctx: "_Ctx") -> UpstreamUser:
         """Mapping with member-scoped caching of the outcome (positive and negative)."""
@@ -497,6 +605,7 @@ class MediaAdapter:
             leader = flight is None
             if leader:
                 flight = self._flights[member] = _Flight(self.clock.now())
+                flight.counted = not ctx.artwork
         if not leader:
             # Single-flight: a concurrent section of the same page is already asking the upstream
             # for this member; share its answer (and its one counted failure) instead of repeating.
@@ -517,7 +626,7 @@ class MediaAdapter:
             if isinstance(flight.exc, AmbiguousMappingError):
                 raise AmbiguousMappingError()
             if flight.exc is not None:
-                raise _SharedFailure(_fresh_copy(coerce(flight.exc) or UpstreamUnreachable()))
+                raise _SharedFailure(_fresh_copy(coerce(flight.exc) or UpstreamUnreachable()), flight=flight)
             if flight.result is None:
                 raise _SharedFailure(UpstreamUnreachable())
             ctx.fresh_mapping = True         # the leader just confirmed it against the upstream
@@ -559,7 +668,7 @@ class MediaAdapter:
         return user
 
     def _call(self, principal: MemberPrincipal, work: Callable[[UpstreamUser], Any],
-              reaches_upstream: bool = True) -> _Outcome:
+              reaches_upstream: bool = True, artwork: bool = False) -> _Outcome:
         """The one place that touches the upstream: in-flight caps, shared circuit, mapping, then
         `work`. Every upstream-provoked failure becomes an outcome; nothing raises for it.
 
@@ -568,16 +677,19 @@ class MediaAdapter:
         keep a failing service circuit closed."""
         scope = self.cache.for_member(principal)
         member = principal.username
-        refused = self._acquire_slot(member)
+        budget = CallBudget(self.clock, self._request_timeout) if artwork else None
+        refused = self._acquire_art_slot(member, budget) if artwork else self._acquire_slot(member)
         if refused is not None:
             return _Outcome("unavailable", reason=refused)
+        br = _ArtworkBreaker(self.breaker) if artwork else self.breaker
         try:
-            # inside the try: whatever the clock does, the slot is released below
-            self._local.budget = CallBudget(self.clock, self._request_timeout)
-            token = self.breaker.acquire()
+            # inside the try: whatever the clock does, the slot is released below. An artwork call's deadline
+            # started before its (bounded) wait for a slot, so the wait is part of it.
+            self._local.budget = budget if budget is not None else CallBudget(self.clock, self._request_timeout)
+            token = br.acquire()
             if token is None:
                 return _Outcome("unavailable", reason="cooling_off")
-            ctx = _Ctx()
+            ctx = _Ctx(artwork)
             stage = "mapping"
             try:
                 user = self._mapped(scope, principal, token, ctx)
@@ -585,22 +697,30 @@ class MediaAdapter:
                 ctx.upstream = ctx.upstream or reaches_upstream
                 value = work(user)
             except _SharedFailure as shared:
-                # The leader of this mapping lookup already counted the failure: not twice.
-                self.breaker.neutral(token)
+                claim = False
+                if not artwork and shared.flight is not None:
+                    with self._flight_lock:          # an artwork call led and counted nothing: ONE section counts it
+                        if not shared.flight.counted:
+                            shared.flight.counted = True
+                            claim = True
+                if claim:
+                    self._account(shared.err, token, member_scoped=False, breaker=br)
+                else:
+                    br.neutral(token)    # already counted once (or this call may not count at all)
                 return _Outcome("unavailable", reason=type(shared.err).__name__)
             except (MappingFailed, AmbiguousMappingError) as exc:
-                self._report_ok(token, ctx)
+                self._report_ok(token, ctx, br)
                 reason = exc.reason if isinstance(exc, MappingFailed) else "ambiguous"
                 return _Outcome("not_linked", reason=reason)
             except Exception as exc:
                 err = coerce(exc)
                 if err is None:                       # a programming error in OUR code: stay visible
-                    self.breaker.neutral(token)
+                    br.neutral(token)
                     raise
                 if isinstance(err, ItemGone):
                     # The route is addressed by one item and that item is absent or hidden: an empty
                     # result for that item. Says nothing about the service; never counted.
-                    self.breaker.neutral(token)
+                    br.neutral(token)
                     return _Outcome("gone", reason="item_not_found")
                 if isinstance(err, UserGone):
                     if stage == "work" and not ctx.fresh_mapping:
@@ -608,29 +728,33 @@ class MediaAdapter:
                         # this member. Forget the mapping (re-resolved next time); circuit untouched.
                         scope.delete(self.service.value, "mapping")
                         log_failure(self.service.value, err)
-                        self.breaker.neutral(token)
+                        br.neutral(token)
                         return _Outcome("not_linked", reason="upstream_user_not_found")
                     # The user was confirmed against the upstream a moment ago (by this call or by the
                     # single-flight leader it followed) and is now "gone": contradictory, so it is
                     # drift and counts. The mapping is NOT dropped on that contradiction.
-                    self._account(err, token, member_scoped=False, force_count=True)
+                    self._account(err, token, member_scoped=False, force_count=True, breaker=br)
                 elif isinstance(err, UpstreamNotFound):
                     # A fixed route (or one nobody classified) is missing: service-wide drift.
-                    self._account(err, token, member_scoped=False, force_count=True)
+                    self._account(err, token, member_scoped=False, force_count=True, breaker=br)
                 else:
-                    self._account(err, token, member_scoped=(stage == "work"))
+                    self._account(err, token, member_scoped=(stage == "work"), breaker=br)
                 return _Outcome("unavailable", reason=type(err).__name__)
-            return _Outcome("ok", value, fresh=self._report_ok(token, ctx))
+            return _Outcome("ok", value, fresh=self._report_ok(token, ctx, br))
         finally:
             self._local.budget = None
-            self._release_slot(member)
+            if artwork:
+                self._release_art_slot(member)
+            else:
+                self._release_slot(member)
 
-    def _report_ok(self, token: int, ctx: "_Ctx") -> bool:
+    def _report_ok(self, token: int, ctx: "_Ctx", breaker=None) -> bool:
         """Success only if the upstream really answered; returns whether the result is still fresh."""
+        breaker = breaker if breaker is not None else self.breaker
         if ctx.upstream:
-            return self.breaker.success(token)
-        self.breaker.neutral(token)
-        return self.breaker.valid(token)
+            return breaker.success(token)
+        breaker.neutral(token)
+        return breaker.valid(token)
 
     def _section(self, principal: MemberPrincipal, section: str, cache_name: Optional[str],
                  fetch: Callable[[UpstreamUser], SectionResult]) -> SectionResult:

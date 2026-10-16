@@ -30,8 +30,18 @@ The marker text in steps is for reviewers and must be removed (by the wiring cha
 
 Open decisions that these topics wait on: D-1 support contact, D-12 television app, D-13 password
 recovery, D-15 unavailable wording (all in `docs/member/DECISIONS-NEEDED.md` on the AVR-361 branch).
-Install prompts also depend on the web app manifest in AVR-364, which is not built. Until it is, a home
-screen icon is only a shortcut.
+Installable Home (Home 2.0, Lane D): the shell pages now link a web app manifest (`/manifest.webmanifest`,
+`display: standalone`, black theme, generated monochrome PNG icons at 180, 192 and 512 pixels, an
+`apple-touch-icon`). There is no service worker and no offline mode. None of this has been tried on a phone:
+whether Chrome offers Install app, whether iOS shows the icon behind Authentik's forward auth (the icon and
+manifest requests may not carry the session), and how links to other Avrana hosts open in standalone mode
+(iOS: a separate in-app browser view; Android: a browser view on top) are all **unverified on a real device**.
+
+Accuracy review (2026-10-16, against `feat/home-2.0`): the open-* topics now describe what Home does. Titles
+are found under Continue or New this week, or with Search; Resume and Open both open the title's page on the
+library's own host in the same tab (no new window, no app); Resume never starts playback; each library still
+has its own sign-in (no single sign-on across all of them yet). Continue is not offered for Books and Comics,
+so those topics name New this week and Search only.
 
 ## For whoever wires these into the shell
 - Convert `none` store and url values to an empty value. The template shows a store button only when both are set.

@@ -309,17 +309,23 @@ that key.
 | Continue items | No | member, service, section, **limit** | 30 s |
 | Recently added | **No**, because library visibility depends on the member | member, service, section, limit | 120 s |
 | Item metadata | No | member, service, item id | 120 s |
-| Artwork bytes | No (visibility is checked per member first) | member, service, ref | 300 s |
+| Artwork bytes | No. Jellyfin and Audiobookshelf re-check the member's item visibility upstream on every request before the cache is read; Komga and Calibre-Web (shared views) check the group only | member, service, ref | 300 s |
 | Failures, `UNAVAILABLE`, `NOT_LINKED` section results, and results from a call that finished after the circuit moved on | Never cached | | |
 
-**Artwork TTL, and why 300 s.** If an item is hidden from a member in Jellyfin, or the member's
-library access changes, cached artwork for that item can still be served until its TTL expires.
-Five minutes is accepted because the image is a poster the member could legitimately see within
-the previous five minutes, and because a loss of the Authentik group takes effect immediately
-(the group check precedes the cache). `ARTWORK_TTL` is the one place to tighten it.
+**Artwork TTL and revocation (Home 2.0, review of #53).** For a service whose upstream decides
+visibility per member (Jellyfin, Audiobookshelf: `artwork_rechecks_visibility = True`), every artwork
+request asks the upstream, as that member, whether the item is visible, and only then may the member's
+own cached bytes be served; a hidden item, a lost mapping or an unreachable upstream is a 404 and the
+entry is dropped. Only the image bytes are cached, never the permission. For a shared view (Komga,
+Calibre-Web) there is no per-member visibility: the group is checked first on every request, and a
+book removed from the one account's view can still have its cover served from that member's own cache
+for up to `ARTWORK_TTL` (300 s). The browser is told `Cache-Control: private, no-store`; a browser that
+already holds the bytes in an open page keeps showing them until the page is reloaded (residual, not
+fixable from the server). Tests: `tests/test_h2_security.py`.
 
 The permission check runs **before** any cache read, so removing a group takes effect immediately
-even with a warm cache. A cache hit is served even while the circuit is open.
+even with a warm cache. A cache hit is served even while the circuit is open, except artwork from a
+per-member service, which needs the live visibility check and is a 404 while the upstream cannot answer.
 
 **Owner decision (open): may per-member watch state be written to a disk file?** Today the answer
 is no, by policy default, because it is an unresolved privacy question. Options and consequences:

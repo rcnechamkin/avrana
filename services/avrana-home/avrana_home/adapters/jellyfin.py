@@ -84,12 +84,9 @@ class GuardedTransport(_base.GuardedTransport):
 
 
 # ---- adapter ------------------------------------------------------------------------------
-def _norm_name(value: str) -> str:
-    return unicodedata.normalize("NFKC", value).casefold().strip()
-
-
 class JellyfinAdapter(GuardedAdapter):
     service = Service.JELLYFIN
+    artwork_rechecks_visibility = True     # visibility is per member: re-checked before any cached cover
 
     def __init__(self, transport: Transport, timeout: float = DEFAULT_TIMEOUT, *,
                  member_username: Optional[Tuple[str, str]] = None, **kw):
@@ -241,7 +238,7 @@ class JellyfinAdapter(GuardedAdapter):
         found = self._visible_item(guard, self._budget(), user, item_id)
         return SectionResult.of(Service.JELLYFIN, "item", (found,) if found else ())
 
-    def _fetch_artwork(self, user: UpstreamUser, ref: str) -> ArtworkResult:
+    def _fetch_artwork(self, user: UpstreamUser, ref: str, cached=None) -> ArtworkResult:
         m = _ARTWORK_REF.fullmatch(ref)
         if m is None:
             return ArtworkResult(SectionState.EMPTY)
@@ -251,5 +248,8 @@ class JellyfinAdapter(GuardedAdapter):
         visible = self._visible_item(guard, budget, user, item_id)   # member-scoped permission check
         if visible is None or visible.artwork is None:
             return ArtworkResult(SectionState.EMPTY)
+        hit = cached() if cached is not None else None      # only AFTER this member's visibility check
+        if hit is not None:
+            return hit
         return self._fetch_image(guard, budget, f"/Items/{item_id}/Images/Primary",
                                  {"maxWidth": "400", "quality": "80"})

@@ -641,7 +641,7 @@ class Covers(Base):
         self.assertEqual(self.cover_requests(), [])
         for item_id in ("li_book000003", "li_book000004", "li_book000005"):      # member-b may see all three
             self.assertIs(self.cover(self.b, item_id).state, SectionState.OK, item_id)
-        self.assertEqual(self.adapter.health().state, "ok")
+        self.assertEqual("unknown", self.adapter.health().state)   # artwork is neutral for the circuit
 
     def test_other_media_missing_and_invalid_items_get_no_cover(self):
         for field, value in (("mediaType", "podcast"), ("isMissing", True), ("isInvalid", True)):
@@ -658,7 +658,7 @@ class Covers(Base):
         self.assertEqual(self.cover_requests(), [])
         del self.fake.items["li_book000001"]["media"]["coverPath"]   # field absent: asked, upstream 404 is neutral
         self.assertIs(self.cover(self.a, "li_book000001").state, SectionState.EMPTY)
-        self.assertEqual(self.adapter.health().state, "ok")
+        self.assertEqual("unknown", self.adapter.health().state)   # artwork is neutral for the circuit
 
     def test_malformed_refs_and_ids_make_no_upstream_call(self):
         for ref in ("audiobookshelf/cover/LI_BOOK000001", "audiobookshelf/cover/li_", "audiobookshelf/cover/",
@@ -712,7 +712,10 @@ class Covers(Base):
         self.assertIs(self.cover(self.c, "li_book000005").state, SectionState.EMPTY)  # member-c may not
         n = len(self.fake.requests)
         self.assertIs(self.cover(self.a, "li_book000005").state, SectionState.OK)    # a's own cache hit
-        self.assertEqual(len(self.fake.requests), n)
+        # Home 2.0 (Lane D): visibility is re-checked as member-a on every request; only the bytes are cached
+        later = [p for _, p, _ in self.fake.requests[n:]]
+        self.assertNotIn("/api/items/li_book000005/cover", later)
+        self.assertIn("/api/items/li_book000005", later)
 
     def test_the_guard_allows_only_the_cover_route_shape(self):
         guard = GuardedTransport(FakeTransport(FakeAudiobookshelf()), UA)
