@@ -20,7 +20,7 @@
             <p class="as">Signed in as {{ shell.member_name }}</p>
             <ul>
 {% for label, to in account_menu %}
-              <li><a href="{{ to }}"{% if (to == "/account" and shell.current == "account") or (to == "/help" and shell.current == "help") %} aria-current="page"{% endif %}>{{ label }}</a></li>
+              <li><a href="{{ to }}"{% if (to == "/account" and shell.current == "account") %} aria-current="page"{% endif %}>{{ label }}</a></li>
 {% endfor %}
             </ul>
           </div>
@@ -47,14 +47,15 @@
 
 {# One card, one link, one action. Order: title (two lines at most), the creator, series or episode line
    (dim, one line), progress in words, then the action verb (Continue cards only: `verb=True`). Clamping is
-   visual only: the full title and line stay in the link's text, so its accessible name carries them in full.
+   visual only: the full title and line stay in the link's text, so its accessible name carries them in full,
+   with a spoken comma between the parts. The link never takes an aria-label (it would hide line and progress).
    When `action_label` is set it stands in for the verb for assistive technology. #}
 {% macro card(c, verb=False) -%}
 <li class="w-{{ c.shape }}"><a class="card" href="{{ c.href }}">
   {{ frame(c.image, c.title) }}
   <span class="t">{{ c.title }}</span>
-  {% if c.line or (not verb and c.kind_label) %}<span class="d">{{ c.line or c.kind_label }}</span>{% endif +%}
-  {% if c.progress %}<span class="p">{{ c.progress }}</span>{% endif +%}
-  {% if verb %}<span class="go">{% if c.action_label %}<span aria-hidden="true">{{ c.action }}</span><span class="sr">{{ c.action_label }}</span>{% else %}{{ c.action }}{% endif %}</span>{% endif +%}
+  {% if c.line or (not verb and c.kind_label) %}<span class="d"><span class="sr">, </span>{{ c.line or c.kind_label }}</span>{% endif +%}
+  {% if c.progress %}<span class="p"><span class="sr">, </span>{{ c.progress }}</span>{% endif +%}
+  {% if verb %}<span class="go"><span class="sr">, </span>{% if c.action_label %}<span aria-hidden="true">{{ c.action }}</span><span class="sr">{{ c.action_label }}</span>{% else %}{{ c.action }}{% endif %}</span>{% endif +%}
 </a></li>
 {%- endmacro %}

@@ -318,9 +318,19 @@ Cover art in lists is a square crop with no rounding.
 - Every frame in a rail stands on one baseline: the rail's artwork height, each shape's natural width
   (posters, books, comics, audiobook squares); a video still is held to a maximum width and stands
   shorter, bottom-aligned. Images are contained, never cropped into another shape.
-- Rails scroll sideways with proximity snapping; cards are at least 8.75rem wide on phones so the next
-  card peeks in; a thin Quiet Rule scrollbar shows on pointer devices; the rail's padding keeps the
-  focus ring unclipped.
+- Rails scroll sideways with proximity snapping. On phones every card in a rail is one width (8.75rem,
+  about 2.2 to a screen), so the next card peeks in as a sliver; a thin Quiet Rule scrollbar shows on
+  pointer devices.
+- Keyboard focus: browsers scroll a focused element into view only when it is wholly outside the
+  scroller's optimal viewing region (the scroller less its `scroll-padding`), so a partly visible card
+  would stay clipped. The rail's right `scroll-padding` leaves a region one card (plus focus ring) wide:
+  a peeking card counts as outside, Tab and Shift+Tab bring it fully into view, and the rail's padding
+  keeps the 4px ring unclipped. No script. `tests/ui/check_home_export.mjs` checks it in Chromium with
+  real key presses at 360, 390 and 390 at 200% text.
+- Residual: from 45rem a still may be wider than the other cards; if the four cards ever overflow the
+  column there (large text on a desktop), a still that straddles the edge can stay partly clipped when
+  focused. Safari keyboard and VoiceOver behaviour is not covered by the Chromium check; it is part of
+  the real-iPhone review (AVR-455).
 
 ### Help page (signature component)
 - Headline names the topic ("Movies and TV"). Under it, a row of platform links that jump to each

@@ -2,7 +2,8 @@
 //   PLAYWRIGHT_FROM=<folder with node_modules/@playwright/test and axe-core> \
 //     node tests/ui/check_home_export.mjs --base http://127.0.0.1:PORT --dir <export folder> --shots <folder>
 // Every exported page at 390x844 (touch), 1280x800 and 844x390 landscape, light and dark: axe-core
-// (serious and critical fail), sideways scroll, and the smallest tap target on the page. Exit 1 on a finding.
+// (serious and critical fail), sideways scroll, and the smallest tap target on the page; then keyboard focus in the
+// rails (a focused card is wholly visible) at 360, 390 and 390 at 200% text. Exit 1 on a finding.
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import fs from 'node:fs';
@@ -53,6 +54,39 @@ for (const scheme of ['light', 'dark']) for (const [label, w, h, touch] of SIZES
   }
   await ctx.close();
 }
+// Keyboard focus in the sideways rails: real Tab (then Shift+Tab) presses through each Home page at 360x800, 390x844
+// and 390 at 200% text. Every focused card must lie wholly inside its rail's visible box with room for the 4px
+// focus ring (the browser scrolls a card into view only when it is wholly outside the optimal region; see
+// home.css). The rail's own top/bottom padding is part of its box, so only the inline edges are measured.
+let focusViews = 0;
+const homes = pages.filter(p => /\/home(-new-[a-z-]+)?\.html$/.test(p));
+for (const [label, w, h, zoom] of [['360', 360, 800, 100], ['390', 390, 844, 100], ['390@200%', 390, 844, 200]]) {
+  const ctx = await browser.newContext({ viewport: { width: w, height: h }, javaScriptEnabled: true });
+  const page = await ctx.newPage();
+  for (const p of homes) {
+    await page.goto(`${base}/${p}`);
+    if (zoom !== 100) await page.addStyleTag({ content: `html{font-size:${zoom}%}` });
+    const cards = await page.locator('.rail a.card').count();
+    const bad = [];
+    for (const key of ['Tab', 'Shift+Tab']) {
+      for (let i = 0; i < cards + 40; i++) {
+        await page.keyboard.press(key);
+        const r = await page.evaluate(() => {
+          const a = document.activeElement;
+          if (!a || !a.matches('.rail a.card')) return null;
+          const rail = a.closest('.rail'), ar = a.getBoundingClientRect(), rr = rail.getBoundingClientRect();
+          return { ok: ar.left >= rr.left + 4 - 0.5 && ar.right <= rr.right - 4 + 0.5,
+                   at: `${Math.round(ar.left)}..${Math.round(ar.right)} in ${Math.round(rr.left)}..${Math.round(rr.right)}` };
+        });
+        if (r && !r.ok) bad.push(`${key} ${r.at}`);
+      }
+    }
+    focusViews++;
+    if (bad.length) { findings++; console.log(`FAIL focus ${label} ${p}: focused card not fully visible: ${[...new Set(bad)].slice(0, 3).join('; ')}`); }
+  }
+  await ctx.close();
+}
 await browser.close();
+console.log(`keyboard focus in rails: ${focusViews} page views (360, 390, 390@200%), Tab and Shift+Tab`);
 console.log(`checked ${checked} page views (${pages.length} pages x 3 sizes x light/dark); findings: ${findings}; smallest link/summary height ${smallest}px`);
 process.exit(findings ? 1 : 0);
