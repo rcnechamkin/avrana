@@ -137,9 +137,13 @@ The user can switch modes or disconnect at any time.
 
 ## Account removal
 
-- **User self-service:** the “Disconnect” button (mode & progress pages) calls the companion's
-  idempotent `POST /v1/revoke`, which deletes the profile directory (stored Audible tokens and
-  state) and removes the connector rows. A revoked account cannot be scanned again.
+- **User self-service:** the “Disconnect” link (mode & progress pages) opens a confirmation page,
+  `GET /contribute/audible/disconnect`, which only reads: it says what disconnecting removes and keeps,
+  and offers **Cancel** (back to the page it came from) and **Disconnect**. There is no script and no
+  inline handler (AVR-502). Only that page's CSRF-protected `POST /contribute/audible/disconnect` acts:
+  it calls the companion's idempotent `POST /v1/revoke`, which deletes the profile directory (stored
+  Audible tokens and state), and removes the connector rows. A revoked account cannot be scanned again.
+  `connector/tests/test_disconnect_confirm.py` covers it.
 - **One-time mode** does this automatically after a fully successful import.
 - **Admin:** delete `profiles/<profile_id>` and the matching `connection` row.
 
