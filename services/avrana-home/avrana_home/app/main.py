@@ -35,6 +35,7 @@ from ..resilience import SystemClock, UrllibTransport
 from . import catalogue as catalogue_mod
 from .catalogue import Trusted
 from . import artwork as artwork_mod
+from . import install as install_mod
 from .identity import Viewer, get_viewer, has_identity_headers, new_tab_from_scope, search_term_from_scope
 from .logsafe import app_log, log_event, silence_uvicorn_access
 from .middleware import HygieneMiddleware
@@ -206,7 +207,9 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
                           section=s.section, state=s.state.value, reason=s.reason or "")
             decision = search_decision(build_search(result.search_view(), term))
             scope["avrana_route"] = decision.label
-            return respond(decision, shell=shell_for(viewer, "search"))
+            shell = shell_for(viewer, "search")
+            mark_shell(scope, shell)
+            return respond(decision, shell=shell)
 
         if route.startswith(artwork_mod.PREFIX):
             ref = artwork_mod.ref_from_route(route)
@@ -219,6 +222,13 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
             scope["avrana_route"] = "/art/{ref}"
             return Response(result.data, media_type=result.content_type,
                             headers={"Cache-Control": artwork_mod.CACHE_CONTROL})
+
+        # Installable Home (install.py): only where the shell can render, so with sections off these paths stay
+        # the portal's 404. Static bytes, the same for every viewer, so no identity is needed to fetch them.
+        asset = install_mod.asset_for(route) if (settings.home_sections and adapter_list) else None
+        if asset is not None:
+            scope["avrana_route"] = "/manifest.webmanifest" if route == install_mod.MANIFEST_PATH else "/icons/{size}"
+            return Response(asset[0], media_type=asset[1])
 
         p = viewer.principal
         facts = AccountFacts(name=(p.name or "").strip(), username=p.username,
@@ -234,7 +244,14 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
             extra["shell"] = shell_for(viewer, "home", places=home.places)
         elif decision.status == 200 and decision.label in SHELL_PAGES:
             extra["shell"] = shell_for(viewer, SHELL_PAGES[decision.label])
+        mark_shell(scope, extra.get("shell"))
         return respond(decision, **extra)
+
+    def mark_shell(scope, shell) -> None:
+        """Tell the middleware this response is a shell page: only these pages link the manifest, so only these
+        get `manifest-src 'self'` in their CSP (middleware.py). Every other response keeps the CSP unchanged."""
+        if shell is not None:
+            scope["avrana_shell"] = True
 
     def shell_for(viewer: Viewer, current: str, places=None):
         """The masthead data (places, Search, Help, account menu) for a shell page, or None where the shell is
