@@ -17,13 +17,13 @@ and `avrana_home/app/brand.py` refuses to serve a file that does not match it.
 
 **Why base64.** This repository tracks no binary files, and `scripts/review_git_content.py` refuses PNG and NUL
 bytes. The PNG icons and the WOFF2 are therefore stored as base64 text of the exact package bytes (`*.b64`); the
-SVGs and `OFL.txt` are verbatim. This packaging choice is proposed for owner review in the AVR-584 pull request;
-approval of the brand design does not itself approve base64 storage in this repository.
+SVGs and `OFL.txt` are verbatim. The owner accepted this packaging for brand v1.0 on 2026-10-18, for this folder
+only, because every file is hash-verified and self-contained; it does not broaden the repository's binary policy.
 
 **Colours and type** are not copied from the package as a file: the Home shell maps the package tokens
 (`03-Typography-and-Colors/tokens/avrana-tokens.css`: Spire Ink `#121214`, Cream `#EDEAE4`, Stone, Ash, Graphite,
 Control and the Geist stack) onto its existing variables in `templates/home.css`. Atomic Purple is Party only and is
-not used. See DESIGN.md, "Approved brand on Home shell pages".
+not used. See DESIGN.md, "Brand v1.0.0 on Home shell pages".
 
 Check against a local copy of the package (run from the repository root):
 
