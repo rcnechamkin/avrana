@@ -26,6 +26,7 @@ body{background:var(--ink);color:var(--paper);
 h1{font-weight:400;font-size:clamp(1.7rem,5vw,2.3rem);letter-spacing:0.05em;margin:0 0 .5rem;
   overflow-wrap:anywhere}
 .lede{color:var(--ash);margin:0 0 1.6rem;font-size:1.05rem}
+h2{font-weight:400;font-size:1.15rem;margin:1.6rem 0 .4rem;overflow-wrap:anywhere}
 
 .card{background:transparent;border:1px solid var(--rule-quiet);padding:20px 22px;margin:18px 0}
 label{display:block;margin:.9rem 0;font-weight:400}

@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}{{ brand }} · Disconnect Audible{% endblock %}
+{% block content %}
+<h1>Disconnect your Audible account?</h1>
+<p class="lede">Nothing changes until you select Disconnect below.</p>
+
+<h2>Disconnecting will</h2>
+<ul class="steps">
+  <li>Remove the Audible authorization {{ brand }} saved for you, so your library can no longer be
+    checked or imported.</li>
+  <li>Forget your Audible book list, your choices and your import progress here.</li>
+  <li>Start no further imports. A book already downloading may still finish.</li>
+</ul>
+
+<h2>Disconnecting will not</h2>
+<ul class="steps">
+  <li>Remove books already imported. They stay in {{ brand }}.</li>
+  <li>Change your Audible or Amazon account, or your purchases.</li>
+</ul>
+<p class="hint">You can connect again at any time.</p>
+
+<div class="rowbar">
+  <a href="{{ cancel_href }}" class="ghost as-button">Cancel</a>
+  <form method="post" action="/contribute/audible/disconnect" class="inline">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <button type="submit" class="ghost danger">Disconnect</button>
+  </form>
+</div>
+{% endblock %}
