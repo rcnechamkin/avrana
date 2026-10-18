@@ -128,6 +128,9 @@ components:
 > `services/authentik/blueprints/avrana-landing.yaml`). It codifies the existing identity and
 > closes the gaps listed in [the 2026-10-11 audit](../audits/2026-10-11-web-interface-audit.md).
 > It is the visual standard for [Avrana Media 2.0](MEDIA-2.0.md).
+> **Brand, 2026-10-18:** the approved AVRANA brand package v1.0.0 supersedes the serif, `#000`/`#fff` and typed
+> wordmark below on Home shell pages only; see "Approved brand on Home shell pages (AVR-584)". The rest of this
+> document still describes the portal and connectors until AVR-362 converges them.
 > Nothing here is deployed. Every change to a running service needs the owner's approval for that
 > change, per `AGENTS.md`.
 
@@ -302,6 +305,8 @@ Cover art in lists is a square crop with no rounding.
 - Hidden with the clip pattern (not `display:none`), visible on `:focus-visible` as an inverted Paper-on-Ink block, fixed at top left so a sticky header cannot cover it, with the shared two-ring focus ring from `a:focus-visible`. Existing tokens only; no transition, so nothing to gate on reduced motion. Works without JavaScript.
 
 ### Shell masthead (Home, Search, Account, Help)
+- The heading is the approved Media L3 lockup, not the typed wordmark (AVR-584; "Approved brand on Home shell
+  pages" below).
 - Top row, right-aligned: Search (when the member has a searchable library) and the native account
   disclosure, whose menu holds "Account and security". Help lives in the places bar only: it is always the
   last place (Watch, Listen, Read, Request, Help), on every shell page. The places bar keeps one row at 360px and wraps whole
@@ -346,6 +351,53 @@ Cover art in lists is a square crop with no rounding.
   section, so a member with a Roku does not scroll past six other devices.
 - Each platform is a section with a Subtitle heading, the recommended app first, store link as an
   inline text link (not full width), then numbered steps. Server addresses are in Copyable Mono.
+
+## Approved brand on Home shell pages (AVR-584)
+
+> **Status: implemented on a fixture-only branch, not approved for merge.** The AVRANA brand package v1.0.0
+> (approved 2026-10-17) replaces this document's Times New Roman, `#000`/`#fff` and typed-wordmark stand-ins on the
+> **Home shell pages only**: Home with sections, Search, Account, Help and its topics, title pages, Watch, Listen,
+> Read and Request. Owner iPhone review (AVR-455) is still required before merge.
+
+**Where it applies.** Only `templates/home.css`, which is added to a page only when it wears the shell. The portal,
+the Kindle and Audible connectors, and every Home page without the shell (sections off, the chooser and
+interstitial without a principal, errors and the 404) keep the frontmatter tokens above, byte-identical to the
+portal (the parity test). Converging those is AVR-362's job; this section adds no second token file.
+
+**Tokens.** The shell maps the package tokens (`03-Typography-and-Colors/tokens/avrana-tokens.css`) onto its
+existing variables, so no rule below them changes:
+
+| Variable | Was | Brand token | On Spire Ink |
+|---|---|---|---|
+| `--bg` | `#000000` | Spire Ink `#121214` | |
+| `--fg` | `#ffffff` | Cream `#EDEAE4` | 15.6:1 |
+| `--dim` | `#9a9a9a` | Stone `#AEABA7` | 8.2:1 |
+| `--rule-strong` | `#999999` | Ash `#8F8C89` | 5.6:1 |
+| `--rule-control` | `#6e6e6e` | Control `#6E6C72` | 3.6:1 (clears 1.4.11) |
+| `--rule-quiet` | `#474747` | Graphite `#5E5B57` | 2.8:1, decorative only |
+| `--dim-on-fg` | `#333333` | Graphite `#5E5B57` | 5.6:1 on Cream |
+
+Atomic Purple and Purple Deep are Party only and are not used. Media stays monochrome; library artwork keeps its
+original colour and natural shape.
+
+**Type.** Geist (variable, 100 to 900, SIL OFL 1.1) replaces the serif on shell pages, served from
+`/brand/geist.woff2` with `font-display: swap` and the package's system fallback stack. Sizes and the existing
+hierarchy are unchanged; section labels keep Regular caps tracked 0.22em, which is the package's Media heading.
+
+**Mark.** The masthead shows the package's **L3 Media product lockup** (`/brand/avrana-media-l3.svg`, cream,
+trimmed) as an `<img alt="Avrana Media">` inside the home link, 3.5rem tall (56px, twice the package's 28px
+minimum so the product name inside it stays legible, and scaling with text size), with the 1px rule beneath. The
+size is a proposal for the owner's iPhone review. The wordmark is never retyped. The favicon is the
+package's 16 px micro cut (`/brand/favicon.svg`); the install icons and manifest colours are the package's.
+
+**CSP.** Shell pages, and only they, add `font-src 'self'` beside `manifest-src 'self'`. No script source, no
+other origin. Every other response keeps the CSP unchanged.
+
+**Files and provenance.** `avrana_home/app/brand/` (README and `SOURCES.json`: package path, byte count and SHA-256
+per file; the server refuses a file that does not match). Refreshed only by `tools/sync_brand_assets.py`.
+
+**Browse width.** Unchanged at 720px (45rem). A wider 960 to 1120px stage is shown only as an unapproved
+comparison in the AVR-584 review.
 
 ## Do's and Don'ts
 

@@ -260,11 +260,13 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
             return Response(result.data, media_type=result.content_type,
                             headers={"Cache-Control": artwork_mod.CACHE_CONTROL})
 
-        # Installable Home (install.py): only where the shell can render, so with sections off these paths stay
-        # the portal's 404. Static bytes, the same for every viewer, so no identity is needed to fetch them.
+        # Installable Home and the approved brand files (install.py, brand.py): only where the shell can render, so
+        # with sections off these paths stay the portal's 404. Static bytes, the same for every viewer, so no
+        # identity is needed to fetch them.
         asset = install_mod.asset_for(route) if (settings.home_sections and adapter_list) else None
         if asset is not None:
-            scope["avrana_route"] = "/manifest.webmanifest" if route == install_mod.MANIFEST_PATH else "/icons/{size}"
+            scope["avrana_route"] = ("/manifest.webmanifest" if route == install_mod.MANIFEST_PATH
+                                     else "/brand/{file}" if route.startswith("/brand/") else "/icons/{size}")
             return Response(asset[0], media_type=asset[1])
 
         p = viewer.principal
@@ -301,8 +303,9 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
         return respond(decision, scope, **extra)
 
     def mark_shell(scope, shell) -> None:
-        """Tell the middleware this response is a shell page: only these pages link the manifest, so only these
-        get `manifest-src 'self'` in their CSP (middleware.py). Every other response keeps the CSP unchanged."""
+        """Tell the middleware this response is a shell page: only these pages link the manifest and load the brand
+        font, so only these get `manifest-src 'self'; font-src 'self'` in their CSP (middleware.py). Every other
+        response keeps the CSP unchanged."""
         if shell is not None:
             scope["avrana_shell"] = True
 

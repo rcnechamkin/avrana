@@ -201,15 +201,18 @@ class Exporter:
             pre, href, post = m.groups()
             if href.startswith("#"):
                 return m.group(0)
+            if href.startswith("/brand/"):                    # the approved brand files, copied by finish()
+                return f"{pre}../..{href}{post}"
             if href.startswith("/") and not href.startswith("//"):
                 base, _, frag = href.partition("#")
                 if base in pages or (TITLE.match(base) and slug_of(base) in {slug_of(p) for p in pages}):
                     return f'{pre}{slug_of(base)}.html{"#" + frag if frag else ""}{post}'
             return f'{pre}../../not-in-export.html{post}'
         text = HREF.sub(link, text)
+        text = text.replace('src="/brand/', 'src="../../brand/')
         text = ACTION.sub(r"\g<1>../../not-in-export.html\g<3>", text)     # the search form is not live here
         def sheet(m):
-            body = m.group(1)
+            body = m.group(1).replace('url("/brand/', 'url("../brand/')
             name = "style-" + hashlib.sha256(body.encode()).hexdigest()[:8] + ".css"
             self.css[name] = body
             return f'<link rel="stylesheet" href="../../assets/{name}">'
@@ -226,6 +229,10 @@ class Exporter:
         for n, body in self.art.items():
             (art / n).write_bytes(body.encode("utf-8"))
         (art / "missing.svg").write_bytes(placeholder("missing", "poster", "A").encode())
+        from avrana_home.app import brand                     # the shell's approved brand files (AVR-584)
+        (self.out / "brand").mkdir(exist_ok=True)
+        for route in brand.ROUTES:
+            (self.out / route.lstrip("/")).write_bytes(brand.asset_for(route)[0])
         stub_note = ('<p><a href="index.html">Back to the review index</a></p>')
         (self.out / "not-in-export.html").write_bytes((
             '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" '
