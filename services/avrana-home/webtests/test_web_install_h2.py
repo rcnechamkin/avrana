@@ -1,12 +1,12 @@
 """Tier B, Home 2.0 Lane D (AVR-364/386): installable Home. The manifest and icons, the head tags only on shell
-pages, and the narrowest CSP change (`manifest-src 'self'` on shell pages only; every other route unchanged).
-Synthetic data only (StubAdapter), no upstream."""
+pages, and the narrowest CSP change (`manifest-src 'self'; font-src 'self'` on shell pages only, the second for the
+brand font since AVR-584; every other route unchanged). Synthetic data only (StubAdapter), no upstream."""
+import hashlib
 import json
 import struct
 import unittest
-import zlib
 
-from avrana_home.app import install
+from avrana_home.app import brand, install
 from avrana_home.app.middleware import CSP, CSP_SEARCH
 from .support import GROUPS, USER, StubAdapter, make_client, make_settings, require_framework
 
@@ -14,15 +14,17 @@ require_framework()
 
 MEMBER = [(USER, "member-a"), (GROUPS, "avrana-users|avrana-videos")]
 NO_GROUPS_HEADER = [(USER, "member-a")]                     # no principal: the portal's no-group view
-MANIFEST_CSP = CSP.decode() + "; manifest-src 'self'"
+SHELL_SOURCES = "; manifest-src 'self'; font-src 'self'"
+MANIFEST_CSP = CSP.decode() + SHELL_SOURCES
 HEAD_TAGS = ('<link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials">',
+             '<link rel="icon" href="/brand/favicon.svg" type="image/svg+xml">',
              '<link rel="apple-touch-icon" href="/icons/avrana-180.png">',
-             '<meta name="theme-color" content="#000000">',
+             '<meta name="theme-color" content="#121214">',
              '<meta name="apple-mobile-web-app-capable" content="yes">')
 SHELL_ROUTES = ("/", "/account", "/help", "/help/movies", "/help/trouble", "/search", "/search?q=Film", "/watch",
                 "/request")   # Watch and Request wear the shell since #59; Read is 404 for this member
 OTHER_ROUTES = ("/read", "/nope", "/healthz", "/home.json", "/manifest.webmanifest",
-                "/icons/avrana-192.png", "/art/jellyfin/primary/aaaa0000000000000000000000000001",
+                "/icons/avrana-192.png", "/brand/geist.woff2", "/brand/avrana-media-l3.svg", "/art/jellyfin/primary/aaaa0000000000000000000000000001",
                 "/help/comics", "/outpost.goauthentik.io/sign_out")
 
 
@@ -49,31 +51,26 @@ class ManifestAndIcons(Base):
         self.assertEqual(200, r.status_code)
         self.assertEqual("application/manifest+json", r.headers["content-type"])
         m = json.loads(r.content)
-        self.assertEqual(("Avrana", "Avrana", "standalone", "/", "/", "#000000", "#000000"),
+        self.assertEqual(("Avrana", "Avrana", "standalone", "/", "/", "#121214", "#121214"),
                          (m["name"], m["short_name"], m["display"], m["start_url"], m["scope"],
                           m["background_color"], m["theme_color"]))
         self.assertEqual({"192x192", "512x512"}, {i["sizes"] for i in m["icons"]})
+        self.assertEqual({"any", "maskable"}, {i["purpose"] for i in m["icons"]})
         for icon in m["icons"]:
             self.assertTrue(icon["src"].startswith("/icons/") and icon["type"] == "image/png")
             self.assertEqual(200, self.client().get(icon["src"]).status_code, icon["src"])
         self.assertNotIn("serviceworker", r.text.lower())
 
-    def test_icons_are_monochrome_pngs_of_the_declared_size(self):
+    def test_icons_are_the_brand_pngs_of_the_declared_size(self):
+        """AVR-584: the approved brand package's icons, byte for byte (SHA-256 recorded in brand/SOURCES.json)."""
         c = self.client()
-        for n in install.ICON_SIZES:
-            r = c.get(f"/icons/avrana-{n}.png")
-            self.assertEqual((200, "image/png"), (r.status_code, r.headers["content-type"]))
-            self.assertEqual((n, n, 8, 0), png_size(r.content))            # 8-bit greyscale
-            # decode and check: only black and white, both present
-            data, pos, idat = r.content, 8, b""
-            while pos < len(data):
-                length, kind = struct.unpack(">I4s", data[pos:pos + 8])
-                if kind == b"IDAT":
-                    idat += data[pos + 8:pos + 8 + length]
-                pos += 12 + length
-            raw = zlib.decompress(idat)
-            self.assertLessEqual(set(raw), {0, 255})                       # black, white, filter byte 0
-            self.assertIn(255, raw)
+        pins = brand.sources()["files"]
+        for path, name in install.ICON_PATHS.items():
+            r = c.get(path)
+            self.assertEqual((200, "image/png"), (r.status_code, r.headers["content-type"]), path)
+            n = 180 if "180" in path else 192 if "192" in path else 512
+            self.assertEqual((n, n), png_size(r.content)[:2], path)
+            self.assertEqual(pins[name]["sha256"], hashlib.sha256(r.content).hexdigest(), path)
             self.assertEqual("nosniff", r.headers["x-content-type-options"])
 
     def test_the_same_bytes_for_every_viewer_without_identity(self):
@@ -117,7 +114,7 @@ class HeadTagsAndCsp(Base):
                 self.assertEqual(200, r.status_code)
                 for tag in HEAD_TAGS:
                     self.assertIn(tag, r.text)
-                want = (CSP_SEARCH.decode() + "; manifest-src 'self'") if path.startswith("/search") else MANIFEST_CSP
+                want = (CSP_SEARCH.decode() + SHELL_SOURCES) if path.startswith("/search") else MANIFEST_CSP
                 self.assertEqual(want, r.headers["content-security-policy"])
                 self.assertNotIn("script-src", r.headers["content-security-policy"])
 
