@@ -2,9 +2,8 @@
 SYNTHETIC fixtures from tests/fake_komga.py, real UrllibTransport). Komga is off unless
 `komga_base_url` is set, and mock mode is the only mode that accepts it.
 
-Members are linked by the adapter's default rule: the Authentik username must equal the Komga login
-exactly, so the fixtures' logins (`member-a@synthetic.invalid`, ...) are the usernames here. How real
-members are mapped is an open owner decision (ADAPTER-CONTRACT 12.2).
+Komga is a SHARED regular-account view (ADAPTER-CONTRACT 12.2, owner decision 2026-10-15): there is no
+member mapping, so any username that holds the comics group sees what the one shared account sees.
 """
 import json
 import unittest
@@ -17,14 +16,15 @@ require_framework()
 
 
 def member(letter, groups="avrana-users|avrana-comics"):
-    return [(USER, f"member-{letter}@synthetic.invalid"), (GROUPS, groups)]
+    return [(USER, f"comics-{letter}"), (GROUPS, groups)]
 
 
-A, B, C, D = member("a"), member("b"), member("c"), member("d")
+A, B = member("a"), member("b")
 NO_COMICS = member("a", "avrana-users|avrana-videos")
 TOKEN = "mock-api-key-not-real"
 
-A_BOOKS = ["Synthetic Comic One", "Synthetic Comic Two", "Synthetic Mature One", "Synthetic Teen One"]
+A_BOOKS = ["Synthetic Comic One", "Synthetic Comic Two", "Synthetic Manga One", "Synthetic Mature One",
+           "Synthetic Kids One", "Synthetic Teen One"]
 TRACES = ("Comic", "Manga", "Kids One", "Mature", "Teen", "Recently added to Comics", "komga", "SERIES",
           "BOOKAAAA")
 
@@ -92,57 +92,49 @@ class RecentComicsTests(Fixture):
         self.addCleanup(other.__exit__, None, None, None)
         self.assertEqual(other.get("/", headers=NO_COMICS).text, self.client().get("/", headers=NO_COMICS).text)
 
-    def test_an_age_restricted_member_sees_only_allowed_titles(self):
+    def test_two_members_with_the_comics_group_see_the_same_shared_items(self):
         c = self.client()
-        # member-b: allowed up to 12, label "adult" excluded; member-d: 16 and over excluded
-        for headers, shown, hidden in (
-                (B, ["Synthetic Manga One", "Synthetic Comic Two", "Synthetic Comic One"],
-                 ["Synthetic Mature One", "Synthetic Teen One", "Synthetic Kids One"]),
-                (D, ["Synthetic Kids One", "Synthetic Manga One", "Synthetic Comic Two"],
-                 ["Synthetic Mature One", "Synthetic Teen One"])):
-            with self.subTest(member=headers[0][1]):
-                html = c.get("/", headers=headers).text
-                raw = c.get("/home.json", headers=headers).text
-                for title in shown:
-                    self.assertIn(title, html)
-                for title in hidden:
-                    self.assertNotIn(title, html, title)
-                    self.assertNotIn(title, raw, title)
+        a = [i["id"] for i in self.recent(c, A)["items"]]
+        b = [i["id"] for i in self.recent(c, B)["items"]]
+        self.assertEqual(6, len(a))
+        self.assertEqual(a, b)
+        self.assertEqual([i["title"] for i in self.recent(c, A)["items"]],
+                         [i["title"] for i in self.recent(c, B)["items"]])
+        for title in A_BOOKS:
+            self.assertIn(title, c.get("/", headers=B).text)
 
-    def test_a_label_allow_list_member_sees_only_labelled_titles(self):
-        html = self.client().get("/", headers=C).text
-        self.assertIn("Synthetic Kids One", html)
-        for title in ("Synthetic Comic One", "Synthetic Manga One", "Synthetic Mature One"):
-            self.assertNotIn(title, html)
-
-    def test_two_members_never_see_each_others_items(self):
+    def test_no_per_member_restriction_and_no_user_listing_reaches_the_upstream(self):
         c = self.client()
-        a = {i["title"] for i in self.recent(c, A)["items"]}
-        b = {i["title"] for i in self.recent(c, B)["items"]}
-        self.assertIn("Synthetic Mature One", a - b)
-        self.assertIn("Synthetic Manga One", b - a)
-        self.assertFalse(a & {"Synthetic Manga One"})
-        # nothing selects another member: not a query, a cookie, nor a spoofed look-alike header
-        r = c.get("/home.json?user=member-b%40synthetic.invalid&userId=USERBBBBBBBB2", headers=A + [
-            ("cookie", "user=member-b@synthetic.invalid"), ("X-Forwarded-User", "member-b@synthetic.invalid")])
-        self.assertIn("Synthetic Mature One", r.text)
-        self.assertNotIn("Synthetic Manga One", r.text)
+        self.recent(c, A)
+        self.recent(c, member("zzz"))                      # any username: there is no mapping to fail
+        paths = self.komga.paths()
+        self.assertTrue(paths)
+        self.assertEqual([], [p for p in paths if "/users" in p or "/api/v2" in p])
+        self.assertTrue(all(p.startswith("/api/v1/books/") for p in paths))
 
-    def test_an_unlinked_member_gets_the_neutral_state_not_anothers_items(self):
+    def test_nothing_selects_another_identity_and_no_read_progress_is_shown(self):
         c = self.client()
-        r = c.get("/", headers=member("zzz"))
+        r = c.get("/home.json?user=comics-b&userId=USERBBBBBBBB2", headers=A + [
+            ("cookie", "user=comics-b"), ("X-Forwarded-User", "comics-b")])
         self.assertEqual(200, r.status_code)
-        self.assertIn("Comics are not set up for your account yet.", r.text)
-        self.assertNotIn("Synthetic", r.text)
+        sec = [s for s in r.json()["sections"] if s["service"] == "komga" and s["section"] == "recent"][0]
+        self.assertEqual(6, len(sec["items"]))
+        for item in sec["items"]:
+            self.assertIsNone(item.get("progress"))
+        # the fixtures carry the shared account's read progress (page 77); it never appears
+        self.assertNotIn("77", json.dumps(sec))
+        self.assertNotIn("readProgress", r.text)
+        self.assertNotIn("Continue reading", c.get("/", headers=A).text)
 
 
 class DegradationTests(Fixture):
     def test_komga_down_shows_the_member_safe_state_while_other_sections_render(self):
-        stub = StubAdapter({"member-a@synthetic.invalid": [("a" * 31 + "1", "Stub Film", 0.5)]})
+        stub = StubAdapter({"comics-a": [("a" * 31 + "1", "Stub Film", 0.5)]})
         from avrana_home.adapters.komga import KomgaAdapter
         from avrana_home.resilience import UrllibTransport
         self.komga.set_mode("down")
-        komga = KomgaAdapter(UrllibTransport(self.komga.url, {"X-API-Key": TOKEN}), timeout=self.timeout)
+        komga = KomgaAdapter(UrllibTransport(self.komga.url, {"X-API-Key": TOKEN}), timeout=self.timeout,
+                             owner_confirms_no_member_restrictions=True)
         c = self.client(adapters=[stub, komga])
         r = c.get("/", headers=member("a", "avrana-users|avrana-videos|avrana-comics"))
         self.assertEqual(200, r.status_code)
@@ -175,6 +167,7 @@ class SettingsTests(unittest.TestCase):
         from avrana_home.app.settings import Settings, SettingsError
         ok = Settings.from_mapping({"KOMGA_BASE_URL": "http://127.0.0.1:18098"})
         self.assertEqual(TOKEN, ok.komga_token)
+        self.assertFalse(ok.komga_owner_confirms)               # mock mode states it itself, never from the env
         self.assertNotIn(TOKEN, repr(ok))
         for env in ({"KOMGA_BASE_URL": "http://komga.internal:25600"},
                     {"KOMGA_BASE_URL": "http://127.0.0.1:18098", "KOMGA_TOKEN": "x"},
@@ -184,18 +177,61 @@ class SettingsTests(unittest.TestCase):
                     Settings.from_mapping(env)
                 self.assertNotIn("komga.internal", str(cm.exception))
 
-    def test_real_mode_refuses_komga_until_the_owner_decides(self):
+    REAL = {"HOME_UPSTREAM_MODE": "real", "HOME_GATES_VERIFIED": "yes",
+            "JELLYFIN_BASE_URL": "https://jf.example.test", "JELLYFIN_API_KEY": "k"}
+    KOMGA = {"KOMGA_BASE_URL": "https://komga.example.test", "KOMGA_TOKEN": "sentinel-komga"}
+    CONFIRM = {"KOMGA_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS": "yes"}
+
+    def test_real_mode_komga_needs_the_confirmation_gates_url_and_key(self):
         from avrana_home.app.settings import Settings, SettingsError
-        real = {"HOME_UPSTREAM_MODE": "real", "HOME_GATES_VERIFIED": "yes",
-                "JELLYFIN_BASE_URL": "https://jf.example.test", "JELLYFIN_API_KEY": "k"}
-        Settings.from_mapping(real)                                     # without Komga it is fine
-        for extra in ({"KOMGA_BASE_URL": "https://komga.example.test", "KOMGA_TOKEN": "sentinel-komga"},
-                      {"KOMGA_BASE_URL": "https://komga.example.test"}, {"KOMGA_TOKEN": "sentinel-komga"}):
+        Settings.from_mapping(self.REAL)                                 # without Komga it is fine
+        ok = Settings.from_mapping({**self.REAL, **self.KOMGA, **self.CONFIRM})
+        self.assertTrue(ok.komga_owner_confirms)
+        self.assertEqual("https://komga.example.test", ok.komga_base_url)
+        self.assertNotIn("sentinel-komga", repr(ok))
+        for extra, needle in (
+                (self.KOMGA, "KOMGA_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS"),                       # no confirmation
+                ({**self.KOMGA, "KOMGA_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS": "no"}, "CONFIRMS"),
+                ({**self.KOMGA, "KOMGA_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS": "maybe"}, "on or off"),
+                ({"KOMGA_BASE_URL": "https://komga.example.test", **self.CONFIRM}, "set together"),  # no key
+                ({"KOMGA_TOKEN": "sentinel-komga", **self.CONFIRM}, "set together"),                 # no URL
+                (self.CONFIRM, "not configured")):                                                   # flag alone
             with self.subTest(extra=sorted(extra)):
                 with self.assertRaises(SettingsError) as cm:
-                    Settings.from_mapping({**real, **extra})
-                self.assertIn("12.2", str(cm.exception))
+                    Settings.from_mapping({**self.REAL, **extra})
+                self.assertIn(needle, str(cm.exception))
                 self.assertNotIn("sentinel-komga", str(cm.exception))
+                self.assertNotIn("komga.example.test", str(cm.exception))
+
+    def test_real_mode_still_needs_the_gates_and_a_clean_url(self):
+        from avrana_home.app.settings import Settings, SettingsError
+        gates_off = {k: v for k, v in self.REAL.items() if k != "HOME_GATES_VERIFIED"}
+        with self.assertRaises(SettingsError) as cm:
+            Settings.from_mapping({**gates_off, **self.KOMGA, **self.CONFIRM})
+        self.assertIn("HOME_GATES_VERIFIED", str(cm.exception))
+        with self.assertRaises(SettingsError):
+            Settings.from_mapping({**self.REAL, **self.KOMGA, **self.CONFIRM,
+                                   "KOMGA_BASE_URL": "https://komga.example.test/"})
+
+    def test_the_key_can_come_from_a_file_and_not_both(self):
+        import os
+        import tempfile
+        from avrana_home.app.settings import Settings, SettingsError
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "komga-key")
+            with open(path, "w", encoding="utf-8", newline="") as f:
+                f.write("sentinel-komga-file\n")
+            env = {**self.REAL, "KOMGA_BASE_URL": self.KOMGA["KOMGA_BASE_URL"], "KOMGA_TOKEN_FILE": path,
+                   **self.CONFIRM}
+            self.assertEqual("sentinel-komga-file", Settings.from_mapping(env).komga_token)
+            with self.assertRaises(SettingsError):
+                Settings.from_mapping({**env, **self.KOMGA})
+
+    def test_mock_mode_builds_the_adapter_without_the_environment_flag(self):
+        c = make_client(make_settings(home_sections=True, komga_base_url="http://127.0.0.1:1", komga_token=TOKEN))
+        c.__enter__()
+        self.addCleanup(c.__exit__, None, None, None)
+        self.assertIn("komga", [a.service.value for a in c.fastapi_app.state.adapters])
 
 
 if __name__ == "__main__":
