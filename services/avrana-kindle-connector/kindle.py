@@ -237,7 +237,7 @@ STYLE = """
   .sr{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;
     clip:rect(0,0,0,0);white-space:nowrap;border:0}
   header{text-align:center;display:flex;flex-direction:column;gap:14px;align-items:center}
-  h1{margin:0;font-weight:400;font-size:clamp(2rem,7vw,3rem);letter-spacing:.28em;text-indent:.28em;line-height:1;
+  h1{margin:0;font-weight:400;font-size:clamp(1.75rem,6vw,2.5rem);letter-spacing:0.34em;text-indent:0.34em;line-height:1;
     overflow-wrap:anywhere}
   h1 a{color:inherit;text-decoration:none}
   .rule{width:64px;height:1px;background:var(--rule-strong)}
@@ -363,7 +363,7 @@ NOT_FOUND_STYLE = """
   .page{width:100%;max-width:640px;padding:10vh 24px 8vh;display:flex;flex-direction:column;gap:36px}
   main{display:flex;flex-direction:column;gap:36px}
   header{text-align:center;display:flex;flex-direction:column;gap:14px;align-items:center}
-  h1{margin:0;font-weight:400;font-size:clamp(2rem,7vw,3rem);letter-spacing:.28em;text-indent:.28em;line-height:1;
+  h1{margin:0;font-weight:400;font-size:clamp(1.75rem,6vw,2.5rem);letter-spacing:0.34em;text-indent:0.34em;line-height:1;
     overflow-wrap:anywhere}
   h1 a{color:inherit;text-decoration:none}
   .rule{width:64px;height:1px;background:var(--rule-strong)}

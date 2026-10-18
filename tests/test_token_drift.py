@@ -34,6 +34,28 @@ class TokenDriftTests(unittest.TestCase):
                         "font.family", "wordmark.tracking", "layout.column"):
                 self.assertIn(tok, per[svc], f"{svc} no longer yields {tok}: has the stylesheet moved or the reader broken?")
 
+    def test_wordmark_sizes_are_anchored_to_design_md(self):
+        marks = T.design_wordmarks()
+        self.assertEqual(marks["compact"], "clamp(1.75rem,6vw,2.5rem)")
+        # both compact services drifting together is still a divergence: DESIGN.md is the anchor
+        src = T.load_sources()
+        moved = {s: src[s].replace("clamp(1.75rem,6vw,2.5rem)", "clamp(1.5rem,5vw,2rem)") for s in ("kindle", "audible")}
+        r = T.run(overrides=moved, allowlist=[])
+        self.assertIn(("wordmark.compact.size", "kindle"), {(d["token"], d["service"]) for d in r["new"]})
+        self.assertIn(("wordmark.compact.size", "audible"), {(d["token"], d["service"]) for d in r["new"]})
+        # the portal's full size, the only one of its kind, is anchored too
+        r = T.run(overrides={"portal": src["portal"].replace("clamp(2.6rem,9vw,4.4rem)", "clamp(2rem,8vw,4rem)")}, allowlist=[])
+        self.assertIn(("wordmark.full.size", "portal"), {(d["token"], d["service"]) for d in r["new"]})
+
+    def test_an_unknown_wordmark_kind_is_an_error_not_a_skip(self):
+        old = T.SELECTORS["kindle"]["mark"]
+        try:
+            T.SELECTORS["kindle"]["mark"] = "compakt"
+            with self.assertRaises(ValueError):
+                T.run()
+        finally:
+            T.SELECTORS["kindle"]["mark"] = old
+
     def test_no_new_divergence(self):
         r = T.run()
         print(f"\ntoken drift: reference={r['source']}, {len(r['divergences'])} divergences "
