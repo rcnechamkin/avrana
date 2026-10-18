@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<meta name="color-scheme" content="dark">
+<title>{% if query %}{{ query }} · {% endif %}Search · Avrana</title>
+<link rel="stylesheet" href="/static/home.css">
+</head>
+<body class="art-{{ art }}">
+{% import "_frame.html" as frame %}
+{{ frame.preview(states, state, viewers, who, art, '/search') }}
+
+<a class="skip" href="#content">Skip to search</a>
+{{ frame.mast(q, signed_in, member_name, initial, account_menu, false, signed_in and not no_library) }}
+{{ frame.places(nav) }}
+
+{# Search (AVR-426). One field, a plain GET form: no script, no suggestions while typing (a suggestion
+   list is a second way to leak a title). Results are grouped by library and each says where it lives.
+   Only the member's own libraries are searched, so "nothing found" never hints at another library. #}
+<main id="content">
+  {% if notice %}
+  <p class="banner" role="status">{{ notice }}</p>
+  {% endif %}
+  <h1 class="section" id="h-search">Search</h1>
+  {% if no_library %}
+  {{ frame.nothing_to_show(signed_in) }}
+  {% else %}
+  <form class="search" method="get" action="/search" role="search" aria-labelledby="h-search">
+    <input type="hidden" name="state" value="{{ state }}">
+    {% if who != 'member' %}<input type="hidden" name="who" value="{{ who }}">{% endif %}
+    <label for="q">Title, author or year</label>
+    <div class="ask">
+      <input id="q" name="q" type="search" value="{{ query }}" maxlength="100" autocomplete="off" spellcheck="false" aria-describedby="q-hint"{% if all_gone %} disabled{% endif %}>
+      <button type="submit"{% if all_gone %} disabled{% endif %}>Search</button>
+    </div>
+    <p class="hint" id="q-hint">Searches your libraries only.</p>
+  </form>
+
+  {# What could not be searched, said once each, before any result. #}
+  {% for line in said %}<p class="said"{% if wait or all_gone %} role="status"{% endif %}>{{ line }}{% if wait %} <a class="link" href="/search?{{ q }}&amp;q={{ query | urlencode }}">Try again</a>{% endif %}</p>{% endfor %}
+
+  {% if query and not all_gone %}
+  <section aria-labelledby="h-results">
+    <h2 id="h-results" class="sr">Results</h2>
+    {% if none_found %}
+    {% if partial %}
+    <p class="said" role="status">Nothing called &ldquo;{{ query }}&rdquo; in the libraries that answered.</p>
+    {% else %}
+    <p class="said" role="status">Nothing called &ldquo;{{ query }}&rdquo; in your libraries. Check the spelling, or ask for it with <a class="link" href="/stop?to=Request">Request</a>.</p>
+    {% endif %}
+    {% else %}
+    <p class="said" role="status">{{ found }} found.</p>
+    {% for g in groups %}
+    <section class="found" aria-labelledby="h-{{ g.key }}">
+      <h3 id="h-{{ g.key }}">{{ g.name }}</h3>
+      <ul class="rows">
+        {% for item in g['items'] %}
+        <li class="w-{{ item.shape }}"><a class="row" href="/title/{{ item.slug }}?{{ q }}">
+          <img class="art" src="/art/{{ item.shape }}/{{ item.slug }}.svg" alt="" loading="lazy">
+          <span class="meta"><span class="t">{{ item.title }}</span><span class="d">{{ item.line }}</span><span class="d">In {{ item.where }}</span></span>
+        </a></li>
+        {% endfor %}
+      </ul>
+    </section>
+    {% endfor %}
+    {% endif %}
+  </section>
+  {% endif %}
+  {% endif %}
+  <p class="more"><a class="link" href="/?{{ q }}">Back to the home page</a></p>
+</main>
+
+<footer>
+  {% if signed_in %}<a class="link" href="/stop?to=Account%20and%20security">Account and security</a>{% endif %}
+  <a class="link" href="/stop?to=Help">Help</a>
+</footer>
+</body>
+</html>
