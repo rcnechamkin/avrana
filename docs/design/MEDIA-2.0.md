@@ -7,6 +7,7 @@ the owner's approval for that specific change, with rollback material prepared f
 approval of any step in it.
 
 Companion documents: [design system](DESIGN.md) ·
+[shared Design Foundation](foundation/README.md) and [its Media mapping](FOUNDATION-MAPPING.md) (proposed) ·
 [2026-10-11 interface audit](../audits/2026-10-11-web-interface-audit.md) ·
 [roadmap](../ROADMAP.md).
 

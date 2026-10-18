@@ -57,7 +57,8 @@ class Settings:
     audiobookshelf_base_url: str = ""            # "" = the Audiobookshelf adapter is not built
     audiobookshelf_token: str = field(default="", repr=False)
     komga_base_url: str = ""                     # "" = the Komga adapter is not built
-    komga_token: str = field(default="", repr=False)
+    komga_token: str = field(default="", repr=False)    # a REGULAR (non-admin) account's API key; never an admin key
+    komga_owner_confirms: bool = False           # the owner's statement that no member is restricted
     calibre_web_base_url: str = ""               # "" = the Calibre-Web adapter is not built
     calibre_web_credential: str = field(default="", repr=False)    # "user:password" of the viewer account
     calibre_web_owner_confirms: bool = False     # the owner's statement that no member is restricted
@@ -150,6 +151,7 @@ class Settings:
         abs_token = _read_key(env, problems, "AUDIOBOOKSHELF_TOKEN")
         komga_url = get("KOMGA_BASE_URL")
         komga_token = _read_key(env, problems, "KOMGA_TOKEN")
+        komga_confirms = boolean("KOMGA_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS", False)
         cw_url = get("CALIBRE_WEB_BASE_URL")
         cw_cred = _read_key(env, problems, "CALIBRE_WEB_CREDENTIAL")
         cw_confirms = boolean("CALIBRE_WEB_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS", False)
@@ -173,6 +175,7 @@ class Settings:
             if komga_url and not is_loopback_host(url_host(komga_url) or ""):
                 problems.append("KOMGA_BASE_URL must be a loopback address in mock mode")
             komga_token = MOCK_API_KEY if komga_url else ""
+            komga_confirms = False               # a real-mode statement; mock mode passes its own constant
             if cw_cred:
                 problems.append("a Calibre-Web credential is set but HOME_UPSTREAM_MODE is mock "
                                 "(mock mode never sends a real credential; unset it or choose real)")
@@ -189,9 +192,16 @@ class Settings:
             if not key:
                 problems.append("JELLYFIN_API_KEY or JELLYFIN_API_KEY_FILE is required in real mode")
             if komga_url or komga_token:
-                # ADAPTER-CONTRACT 12.2: the key scope and the member mapping are open OWNER decisions.
-                problems.append("Komga cannot be configured in real mode until the owner decides the "
-                                "key scope and member mapping (ADAPTER-CONTRACT 12.2)")
+                # ADAPTER-CONTRACT 12.2 (owner decision 2026-10-15): a SHARED regular-account view, no admin
+                # key; refused unless the owner states, deliberately, that no member has a Komga restriction.
+                if not komga_confirms:
+                    problems.append("Komga is a shared view and cannot be configured in real mode "
+                                    "without KOMGA_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS=yes "
+                                    "(ADAPTER-CONTRACT 12.2)")
+                if not komga_url or not komga_token:
+                    problems.append("KOMGA_BASE_URL and KOMGA_TOKEN (or _FILE) must be set together")
+            elif komga_confirms:
+                problems.append("KOMGA_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS is set but Komga is not configured")
             if cw_url or cw_cred:
                 # ADAPTER-CONTRACT 13.2: a SHARED view; refused unless the owner states, deliberately, that
                 # no member has a Calibre-Web restriction (default off). HOME_GATES_VERIFIED applies above.
@@ -254,7 +264,8 @@ class Settings:
         return cls(home_sections=sections, upstream_mode=mode, jellyfin_base_url=base_url,
                    jellyfin_api_key=key, audiobookshelf_base_url=abs_url,
                    audiobookshelf_token=abs_token, komga_base_url=komga_url,
-                   komga_token=komga_token, calibre_web_base_url=cw_url,
+                   komga_token=komga_token, komga_owner_confirms=komga_confirms,
+                   calibre_web_base_url=cw_url,
                    calibre_web_credential=cw_cred, calibre_web_owner_confirms=cw_confirms, timeout=timeout, section_limit=limit,
                    health_detail=detail, catalogue_path=catalogue, log_level=level,
                    host=host, port=port, identity_mode=id_mode, jwt_issuer=jwt_issuer,
