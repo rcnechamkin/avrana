@@ -81,6 +81,9 @@ def check_startup(*, enabled: bool, host: str, settings) -> _Checked:
         raise DevIdentityRefused("the development identity needs a loopback bind (127.0.0.1 or ::1)")
     if getattr(settings, "uses_real_upstream", True):
         raise DevIdentityRefused("the development identity refuses a real upstream configuration")
+    if getattr(settings, "identity_mode", None) != "headers":
+        # The shim forges plain headers; a JWT mode ignores them. It never mints tokens (AVR-498).
+        raise DevIdentityRefused("the development identity is headers-only: HOME_IDENTITY_MODE must be headers")
     if not is_loopback_host(url_host(settings.jellyfin_base_url) or ""):
         raise DevIdentityRefused("the development identity needs a loopback mock upstream URL")
     if settings.audiobookshelf_base_url and not is_loopback_host(

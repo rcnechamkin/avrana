@@ -52,8 +52,11 @@ class RouteLayerTests(unittest.TestCase):
 
     def test_identity_py_reads_only_trusted_headers_through_the_one_parser(self):
         text = sources()["identity.py"]
-        self.assertEqual(1, len(re.findall(r"principal_from_raw_headers\(", code(text))))
         body = code(text)
+        self.assertEqual(1, len(re.findall(r"principal_for_request\(", body)))       # AVR-498: the one entry point
+        self.assertEqual(1, len(re.findall(r"decode_raw_headers\(", body)))          # the strict raw decoding
+        self.assertNotIn("principal_from_headers", body)
+        self.assertNotIn("principal_from_verified_jwt", body)
         self.assertNotIn("query", body.lower().replace("query_string", ""))
         self.assertNotIn("cookie", body.lower())
 
