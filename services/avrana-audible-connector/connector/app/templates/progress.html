@@ -48,11 +48,7 @@ twice.</p>
 <div class="rowbar">
   <a href="/contribute/audible/library" class="ghost as-button">Back to library</a>
   {% if connection and connection.state == 'connected' %}
-  <form method="post" action="/contribute/audible/disconnect" class="inline"
-        onsubmit="return confirm('Disconnect your Audible account?');">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <button type="submit" class="ghost danger">Disconnect</button>
-  </form>
+  <a href="/contribute/audible/disconnect?from=progress" class="ghost danger as-button">Disconnect</a>
   {% endif %}
 </div>
 {% endblock %}
