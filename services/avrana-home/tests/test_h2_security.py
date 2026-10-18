@@ -263,23 +263,55 @@ class CoversNeverSteerTheCircuit(unittest.TestCase):
         self.assertEqual(adapter.health().state, "cooling_off")
 
     def test_one_cover_led_lookup_is_counted_once_however_many_sections_shared_it(self):
-        slow = _SlowTransport(self.fake)
-        slow.delay = 0.3
-        adapter = JellyfinAdapter(slow, clock=self.clock)
+        # Hold the cover's lookup until BOTH sections have actually joined it. Sleeping for
+        # 100 ms did not establish that ordering on a busy Windows/browser-test machine.
+        entered, release = threading.Event(), threading.Event()
+        followers = threading.Barrier(3)
+        transport = FakeTransport(self.fake)
+        original_request = transport.request
+
+        def held_request(*args, **kwargs):
+            entered.set()
+            if not release.wait(5):
+                raise AssertionError("the test did not release the mapping request")
+            return original_request(*args, **kwargs)
+
+        transport.request = held_request
+        adapter = JellyfinAdapter(transport, clock=self.clock)
         self.fake.overrides["/Users"] = ("status", 500)
         got = {}
         threads = [threading.Thread(target=lambda: got.update(cover=adapter.fetch_artwork(self.a, A_FILM)))]
         threads[0].start()
-        time.sleep(0.1)                                              # the cover leads the user-list lookup
-        threads += [threading.Thread(target=lambda: got.update(cont=adapter.continue_items(self.a))),
-                    threading.Thread(target=lambda: got.update(recent=adapter.recent_items(self.a)))]
-        for th in threads[1:]:
-            th.start()
-        for th in threads:
-            th.join(5)
+        try:
+            self.assertTrue(entered.wait(5), "the cover did not start its mapping request")
+            with adapter._flight_lock:
+                flight = adapter._flights[self.a.username]
+                completed = flight.event
+
+                class JoinedWait:
+                    def wait(self, timeout):
+                        followers.wait(5)
+                        return completed.wait(timeout)
+
+                    def set(self):
+                        completed.set()
+
+                flight.event = JoinedWait()
+            threads += [threading.Thread(target=lambda: got.update(cont=adapter.continue_items(self.a))),
+                        threading.Thread(target=lambda: got.update(recent=adapter.recent_items(self.a)))]
+            for th in threads[1:]:
+                th.start()
+            followers.wait(5)
+        finally:
+            release.set()
+            for th in threads:
+                th.join(5)
+        self.assertTrue(all(not th.is_alive() for th in threads))
+        self.assertEqual({"cover", "cont", "recent"}, set(got))
         self.assertEqual({SectionState.UNAVAILABLE}, {r.state for r in got.values()})
         health = adapter.health()
         self.assertEqual(("failing", 1), (health.state, health.consecutive_failures))
+
 
 
 # ---- 2. shared views (Komga, Calibre-Web): group first, per-member cache, bounded TTL ---------------------

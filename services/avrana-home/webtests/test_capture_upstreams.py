@@ -5,6 +5,7 @@ usernames, hosts and paths; the tests prove they never reach the output, the pri
 that the adapters would not make. No real server, account or credential is involved.
 """
 import importlib.util
+from copy import copy
 import io
 import json
 import re
@@ -32,7 +33,7 @@ EMAIL = "alice.secret@private-domain.example"
 OPDS = ('<?xml version="1.0" encoding="UTF-8"?><feed xmlns="http://www.w3.org/2005/Atom">'
         '<title>Secret Catalogue</title><id>urn:uuid:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee</id>'
         '<entry><title>Secret Book</title><author><name>Jane Secret</name></author>'
-        '<link rel="http://opds-spec.org/image/thumbnail" href="/opds/thumb_cover/42"/>'
+        '<link rel="http://opds-spec.org/image/thumbnail" href="/opds/cover_240_240/42"/>'
         '<link rel="enclosure" href="http://media.private-domain.example/opds/download/42/epub/"/>'
         '<content>Mailed to alice.secret@private-domain.example from 10.1.2.3</content></entry></feed>')
 PNG = b"\x89PNG\r\n\x1a\n" + b"0" * 32
@@ -64,7 +65,7 @@ BODIES = {
     f"/api/v1/series/{KG_SERIES}": {"id": KG_SERIES, "libraryId": "KGLIB1234567", "metadata": {"title": "Secret Series"}},
     f"/api/v1/books/{KG_BOOK}/thumbnail": PNG,
     "/opds/new": OPDS,
-    "/opds/thumb_cover/42": PNG,
+    "/opds/cover_240_240/42": PNG,
 }
 EXPECT_AUTH = {
     "/Users": f'MediaBrowser Token="{JF_KEY}"', "/UserItems/Resume": f'MediaBrowser Token="{JF_KEY}"',
@@ -238,7 +239,7 @@ class RedactionUnits(unittest.TestCase):
         out = r.redact_xml(OPDS)
         for bad in ("Secret", "Jane", "alice.secret", "10.1.2.3", "private-domain", "aaaaaaaa-bbbb"):
             self.assertNotIn(bad, out)
-        self.assertIn("/opds/thumb_cover/42", out)           # numeric book id kept: shape evidence
+        self.assertIn("/opds/cover_240_240/42", out)           # numeric book id kept: shape evidence
         self.assertEqual([], cap.scan_for_secrets(out))
 
 
@@ -401,7 +402,7 @@ class Runs(unittest.TestCase):
             self.assertEqual(0, code, err)
             self.assertEqual({"GET"}, {h[0] for h in stub.hits})
             self.assertTrue(all(h[3] for h in stub.hits), "a request went out without the right credential")
-            allowed = set(BODIES) | {"/opds/thumb_cover/9999", f"/api/users/{ABS_BOB}"}
+            allowed = set(BODIES) | {"/opds/cover_240_240/9999", f"/api/users/{ABS_BOB}"}
             self.assertTrue({h[1] for h in stub.hits} <= allowed, {h[1] for h in stub.hits} - allowed)
             self.assertNotIn("/api/v2/users", {h[1] for h in stub.hits})
             for must in ("/Users", "/api/users", "/api/v1/books/latest", "/opds/new", f"/api/users/{ABS_ALICE}",
@@ -572,7 +573,7 @@ class Allowlist(unittest.TestCase):
                 '<updated>2031-01-01T00:00:00Z</updated><author><name>Jane Secret</name><uri>http://who.example/jane</uri></author>'
                 '<dc:identifier>isbn:9780306406157</dc:identifier><summary>wikipedia leak</summary>'
                 '<link rel="x" href="https://www.imdb.com/title/tt0123456"/>'
-                '<link rel="y" href="/opds/thumb_cover/42"/><link rel="z" href="/opds/download/42/epub/"/>'
+                '<link rel="y" href="/opds/cover_240_240/42"/><link rel="z" href="/opds/download/42/epub/"/>'
                 '<link rel="w" href="/opds/author/9"/></entry></feed>')
         for keep in (False, True):
             files, _, refused = _built("calibre-web", "new", "/opds/new", feed, keep=keep, kind="xml")
@@ -581,7 +582,7 @@ class Allowlist(unittest.TestCase):
             for bad in ("Catalogue", "2031", "urn:uuid", "who.example", "wikipedia", "imdb.com", "tt0123456",
                         "/opds/author", "ann=1", "Jane", "Secret Book"):
                 self.assertNotIn(bad, text)
-            self.assertIn("/opds/thumb_cover/42", text)
+            self.assertIn("/opds/cover_240_240/42", text)
             self.assertIn("/opds/download/42/epub/", text)
             self.assertEqual(keep, "9780306406157" in text)
             self.assertEqual("Title", re.search(r"<title>(Title) \d+</title>", text).group(1))
@@ -726,6 +727,18 @@ def _search_routes():
     }
 
 
+def without_search_routes(routes):
+    """Model an older adapter explicitly, independently of this checkout's search support."""
+    result = []
+    for route in routes:
+        if route.name == "search":
+            continue
+        route = copy(route)
+        route.query_keys = route.query_keys - {"searchTerm", "search", "q", "query"}
+        result.append(route)
+    return tuple(result)
+
+
 class SearchCapture(unittest.TestCase):
     def with_search_routes(self):
         """Give the tool the feat/home-2.0 search routes for this test, as a checkout with those adapters would."""
@@ -737,6 +750,11 @@ class SearchCapture(unittest.TestCase):
         self.addCleanup(lambda: [cap.SERVICES[k].__setitem__("routes", v) for k, v in saved.items()])
 
     def test_without_search_routes_in_the_adapters_nothing_is_requested(self):
+        saved = {name: service["routes"] for name, service in cap.SERVICES.items()}
+        for name, routes in saved.items():
+            cap.SERVICES[name]["routes"] = without_search_routes(routes)
+        self.addCleanup(lambda: [cap.SERVICES[name].__setitem__("routes", routes)
+                                 for name, routes in saved.items()])
         with Stub(overrides=SEARCH_BODIES) as stub, tempfile.TemporaryDirectory() as d:
             code, out, err = run(["--members", "alice", "--search-term", TERM, "--out", str(Path(d) / "c")],
                                  stub.env())
@@ -830,7 +848,7 @@ class SearchCapture(unittest.TestCase):
                        ("searchTerm", "includeItemTypes", "recursive", "limit", "fields", "enableImageTypes",
                         "enableUserData"), user_scoped=True, bind_in="path", not_found=UserGone)
         saved = cap.SERVICES["jellyfin"]["routes"]
-        cap.SERVICES["jellyfin"]["routes"] = (legacy,) + tuple(saved)      # main's /Items has no searchTerm key
+        cap.SERVICES["jellyfin"]["routes"] = (legacy,) + without_search_routes(saved)  # explicitly model the legacy adapter
         self.addCleanup(cap.SERVICES["jellyfin"].__setitem__, "routes", saved)
         bodies = dict(SEARCH_BODIES)
         bodies[f"/Users/{JF_ALICE}/Items"] = {"Items": [{"Id": JF_ITEM, "Name": "Secret Film", "Type": "Movie",
