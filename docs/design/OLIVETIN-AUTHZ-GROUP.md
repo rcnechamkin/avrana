@@ -67,6 +67,10 @@ accessControlLists:
 The ACL name is deliberately kept: all actions reference `avrana-admins`, and `test-olivetin.sh` counts
 `acls: [avrana-admins]` lines, so no action and no existing check needs editing.
 
+Header identity is trustworthy only while the approved proxy/network isolation prevents direct access
+and forged identity headers. This proposal does not establish that live isolation; its verification remains
+a prerequisite. Keep every `defaultPermissions` grant false, so a missing or unmatched identity fails closed.
+
 **B. JWT path (after the D-3 decision for OliveTin).** `authJwtHeader: X-authentik-jwt`, `authJwtHmacSecret`
 (owner-entered into `services/olivetin/.env` on the host; the repository only has `.env.example`),
 `authJwtAud` (the provider's client id), `authJwtClaimUsername: preferred_username`,
@@ -96,7 +100,7 @@ the final step lands. The step 1 inventory below lists who that is before anythi
    array is joined, and whether `matchUsergroups` compares exact strings.
 2. In a local, fixture-only container with a synthetic secret and the proposed config, test: a member of
    `avrana-ops` (sees and runs actions), a member of `authentik Admins` only (sees nothing), a user in neither,
-   a user with both, an absent group header, a duplicated group header, and for option B a forged and an
+   a user with both, `akadmin` with no groups, an absent group header, a duplicated group header, and for option B a forged and an
    expired token. Expected: only `avrana-ops` members are served.
 3. Extend `services/olivetin/tests/test-olivetin.sh` or add a stdlib test that fails if the committed config has
    `matchUserNames`, any group name containing whitespace, `|` or `,`, a missing `acls:` on any action, or a
@@ -108,32 +112,41 @@ the final step lands. The step 1 inventory below lists who that is before anythi
 
 Each live step stops and is verified before the next. Offline PRs are reviewed and merged first.
 
-0. Offline PR: checks of section 6 (3) and (4) added, passing against today's config. No behaviour change.
+0. Offline PR: add fixture tests for the proposed union and final configurations. The final-state checks
+   in section 6 (3) and (4) must reject today's username/Admins configuration; do not claim that today's
+   unchanged configuration already meets the final policy.
 1. **[OWNER APPROVAL]** Read-only inventory in the Authentik admin UI of who is in `authentik Admins`, and
    confirm which of them need host operations. Record names in the owner's notes, not in the repository.
 2. Offline PR: ACL `avrana-admins` matches **both** `avrana-ops` and the old entries (union), blueprint binding
-   lists **both** groups. Safe resting state: nobody loses access.
-3. **[OWNER APPROVAL]** Create the Authentik group `avrana-ops` (no parents, no children) and add the owner.
+   lists **both** groups. Prove with fixtures that the old authorized population retains access and nobody
+   outside it gains access. The new group must initially contain only the already-authorized owner.
+3. **[OWNER APPROVAL]** Before applying either union configuration, create the Authentik group `avrana-ops`
+   (no parents, no children), add only the already-authorized owner, and verify membership and who can edit it
+   in the admin UI. Member self-assignment is not proven by repository source. Stop if the union would widen access.
 4. **[OWNER APPROVAL]** Apply the blueprint change and deploy the union OliveTin config (container restart, run
    by the owner). Verify the owner reaches the console and can run the harmless `health_report` action.
-5. **[OWNER APPROVAL]** Prove the new path alone: on a staging copy or by temporarily testing with a second,
-   non-admin test account in `avrana-ops` only, confirm it is served, and a test account in `authentik Admins`
-   only is not (after step 6 is staged, not applied).
+5. Offline only: test the final configuration on synthetic identities. An `avrana-ops`-only identity is
+   served; an `authentik Admins`-only identity and `akadmin` with no groups are denied. The live union still
+   admits the old grant, so its negative final-state test cannot pass yet. Any staging account or live group
+   membership change requires separate **[OWNER APPROVAL]**.
 6. Offline PR: remove `authentik Admins` and `akadmin` from the ACL, and `authentik Admins` from the
-   binding. **[OWNER APPROVAL]** to deploy it (restart).
+   binding. **[OWNER APPROVAL]** to deploy it (restart and Authentik blueprint re-apply). Then verify the
+   positive and negative cases from step 5 against the final live policy. On any failure, restore the known-good
+   config and blueprint, re-apply the blueprint and restart under the owner's approval before proceeding.
 7. Optional, later and separately approved: option B (JWT) for OliveTin, after the verified-identity work is
    accepted. **[OWNER APPROVAL]**
 
 ## 8. Rollback
 
 - Every config change is a Git revert of the one PR plus an owner-run restart. **[OWNER APPROVAL]** for each
-  restart.
+  restart and Authentik blueprint re-apply.
 - From the union state (after step 2) rollback is not needed for access: both grants work.
 - If step 6 locks the owner out: the owner restores the previous `config.yaml` and blueprint from Git and
-  restarts OliveTin; Authentik's own admin UI is unaffected because `authentik Admins` is untouched
+  re-applies the previous blueprint and restarts OliveTin; Authentik's own admin UI is unaffected because `authentik Admins` is untouched
   throughout. The group `avrana-ops` can stay; it grants nothing without the ACL.
 - If a mistaken member is in `avrana-ops`, removing them in Authentik takes effect at their next token or
-  session refresh (session lifetime 8 hours, `avrana-olivetin.yaml`); to cut a session sooner the owner ends
+  session refresh. The current blueprint says 8 hours; the D-3 adoption plan discusses 24 hours. Settle
+  and verify the actual lifetime before migration rather than assuming either is live. To cut a session sooner the owner ends
   it in the Authentik admin UI **[OWNER APPROVAL]**.
 
 ## 9. Owner decisions needed
