@@ -11,13 +11,13 @@ import unittest
 from avrana_home.adapters.audiobookshelf import AudiobookshelfAdapter
 from avrana_home.adapters.calibre_web import CalibreWebAdapter
 from avrana_home.adapters.jellyfin import JellyfinAdapter
-from avrana_home.adapters.komga import KomgaAdapter, link_table_linker
+from avrana_home.adapters.komga import KomgaAdapter
 from avrana_home.aggregate import gather, health_summary
 from avrana_home.contract import SectionState
 from avrana_home.resilience import FakeClock, UrllibTransport
 from tests.fake_abs import FakeAudiobookshelf
 from tests.fake_jellyfin import FakeJellyfin, FakeOpener, FakeTransport
-from tests.fake_komga import UA, FakeKomga
+from tests.fake_komga import FakeKomga
 from tests.helpers import make_principal
 
 TOKEN = "SENTINEL-HEALTH-TOKEN-0000"
@@ -31,7 +31,7 @@ class Setup(unittest.TestCase):
         self.jellyfin = JellyfinAdapter(FakeTransport(self.jf), clock=self.clock)
         self.abs = AudiobookshelfAdapter(FakeTransport(self.abs_fake), clock=self.clock)
         self.komga = KomgaAdapter(FakeTransport(self.kg), clock=self.clock,
-                                  linker=link_table_linker({"member-a": UA}))
+                                  owner_confirms_no_member_restrictions=True)
         self.adapters = [self.jellyfin, self.abs, self.komga]
         self.p = make_principal("member-a", ALL)
 
@@ -97,7 +97,7 @@ class Health(Setup):
         self.assertEqual(health_summary([])["libraries"], "ok")
 
     def test_one_failing_adapter_degrades_the_summary_and_the_others_stay_ok(self):
-        self.kg.overrides["/api/v2/users"] = ("status", 500)
+        self.kg.overrides["/api/v1/books/latest"] = ("status", 500)
         for name in ("member-a", "member-b", "member-c"):
             self.komga.recent_items(make_principal(name, ALL))
         h = health_summary(self.adapters)

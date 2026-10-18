@@ -48,14 +48,14 @@ DEV_IDENTITIES: Mapping[str, dict] = {
     "member-nolib": {"name": "Member NoLib", "email": "member-nolib@example.test",
                      "groups": "avrana-users|avrana-comics",
                      "note": "No Movies and TV permission: that section is absent"},
-    # Komga links a member only when the Authentik username equals the Komga login exactly
-    # (ADAPTER-CONTRACT 12.2, open owner decision), so these usernames are the fixtures' logins.
-    "member-a@synthetic.invalid": {"name": "Comics A", "email": "comics-a@example.test",
-                                   "groups": "avrana-users|avrana-comics",
-                                   "note": "Comics: sees the unrestricted recent books"},
-    "member-b@synthetic.invalid": {"name": "Comics B", "email": "comics-b@example.test",
-                                   "groups": "avrana-users|avrana-comics",
-                                   "note": "Comics, age restricted (12 and under, no 'adult' label)"},
+    # Komga is a shared regular-account view (ADAPTER-CONTRACT 12.2): any member with the comics group
+    # sees the same books, so these two exist to show that two members get the same Comics section.
+    "comics-a": {"name": "Comics A", "email": "comics-a@example.test",
+                 "groups": "avrana-users|avrana-comics",
+                 "note": "Comics: sees the shared account's recent books"},
+    "comics-b": {"name": "Comics B", "email": "comics-b@example.test",
+                 "groups": "avrana-users|avrana-comics",
+                 "note": "Comics: sees exactly what Comics A sees (shared view, no restrictions)"},
     "synthetic-admin": {"name": "Synthetic Admin", "email": "admin@example.test",
                         "groups": "authentik Admins",
                         "note": "Operations tile only; no library permission"},
@@ -81,6 +81,9 @@ def check_startup(*, enabled: bool, host: str, settings) -> _Checked:
         raise DevIdentityRefused("the development identity needs a loopback bind (127.0.0.1 or ::1)")
     if getattr(settings, "uses_real_upstream", True):
         raise DevIdentityRefused("the development identity refuses a real upstream configuration")
+    if getattr(settings, "identity_mode", None) != "headers":
+        # The shim forges plain headers; a JWT mode ignores them. It never mints tokens (AVR-498).
+        raise DevIdentityRefused("the development identity is headers-only: HOME_IDENTITY_MODE must be headers")
     if not is_loopback_host(url_host(settings.jellyfin_base_url) or ""):
         raise DevIdentityRefused("the development identity needs a loopback mock upstream URL")
     if settings.audiobookshelf_base_url and not is_loopback_host(

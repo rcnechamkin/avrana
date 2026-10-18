@@ -228,17 +228,16 @@ def principal_or_none(headers) -> Optional[MemberPrincipal]:
         return None
 
 
-def principal_from_raw_headers(raw_headers) -> MemberPrincipal:
-    """Build the principal from the RAW header list of the server (a list of `(bytes, bytes)`
-    pairs, as ASGI provides), so duplicates stay visible and nothing is decoded loosely.
-
-    Decoding is strict: header names must be ASCII; the identity headers (`X-authentik-username`,
-    `X-authentik-groups`) must be pure ASCII, so any non-ASCII or non-UTF-8 value, including the
-    latin-1 mojibake a lenient decoder would produce, yields no principal. The display-only headers
-    are decoded as strict UTF-8 and silently dropped if they are not. Raises PrincipalError."""
+def decode_raw_headers(raw_headers, extra_ascii=()) -> list:
+    """The strict decoding step of `principal_from_raw_headers`, reusable: a list of `(bytes, bytes)`
+    pairs (as ASGI provides, duplicates kept) becomes a list of `(lowercase name, str)` pairs holding only
+    the identity headers (pure ASCII or PrincipalError), the display headers (strict UTF-8, else dropped
+    by the cleaner) and any header named in `extra_ascii` (pure ASCII or PrincipalError). Every other
+    header is ignored. Raises PrincipalError."""
     if not isinstance(raw_headers, (list, tuple)):
         raise PrincipalError("malformed_input")
     identity = {USERNAME_HEADER.lower().encode("ascii"), GROUPS_HEADER.lower().encode("ascii")}
+    identity |= {str(h).lower().encode("ascii") for h in extra_ascii}
     display = {EMAIL_HEADER.lower().encode("ascii"), NAME_HEADER.lower().encode("ascii")}
     pairs = []
     for pair in raw_headers:
@@ -262,7 +261,18 @@ def principal_from_raw_headers(raw_headers) -> MemberPrincipal:
                 pairs.append((lname, bytes(value).decode("utf-8")))
             except UnicodeDecodeError:
                 pairs.append((lname, "\x00"))          # dropped by the display-only cleaner
-    return principal_from_headers(pairs)
+    return pairs
+
+
+def principal_from_raw_headers(raw_headers) -> MemberPrincipal:
+    """Build the principal from the RAW header list of the server (a list of `(bytes, bytes)`
+    pairs, as ASGI provides), so duplicates stay visible and nothing is decoded loosely.
+
+    Decoding is strict: header names must be ASCII; the identity headers (`X-authentik-username`,
+    `X-authentik-groups`) must be pure ASCII, so any non-ASCII or non-UTF-8 value, including the
+    latin-1 mojibake a lenient decoder would produce, yields no principal. The display-only headers
+    are decoded as strict UTF-8 and silently dropped if they are not. Raises PrincipalError."""
+    return principal_from_headers(decode_raw_headers(raw_headers))
 
 
 # --- Verified-JWT identity (AVR-498). Additive: nothing above this line changed. -----------------------

@@ -35,7 +35,7 @@ from ..resilience import SystemClock, UrllibTransport
 from . import catalogue as catalogue_mod
 from .catalogue import Trusted
 from . import artwork as artwork_mod
-from .identity import Viewer, get_viewer, has_identity_headers
+from .identity import IdentityResolver, Viewer, get_viewer, has_identity_headers
 from .logsafe import app_log, log_event, silence_uvicorn_access
 from .middleware import HygieneMiddleware
 from .routing import AccountFacts, Decision, decide, normalise_target, not_found
@@ -81,9 +81,15 @@ def build_adapters(settings: Settings, cache: MemberCache) -> list:
         abs_adapter = AudiobookshelfAdapter(abs_transport, timeout=settings.timeout, cache=cache)
         abs_adapter.cache = cache
         adapters.append(abs_adapter)
-    if settings.komga_base_url:                   # off unless configured; mock mode only (settings.py)
+    if settings.komga_base_url:                   # off unless configured (settings.py validates)
         komga_transport = UrllibTransport(settings.komga_base_url, {"X-API-Key": settings.komga_token})
-        komga_adapter = KomgaAdapter(komga_transport, timeout=settings.timeout, cache=cache)
+        # Komga is a SHARED regular-account view (ADAPTER-CONTRACT 12.2, owner decision 2026-10-15), like
+        # Calibre-Web below: the adapter refuses to be built without the owner's statement that no member has
+        # a Komga restriction. Mock mode (synthetic data) states it itself; real mode takes the value
+        # settings.py only accepts when KOMGA_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS=yes.
+        komga_confirmed = (settings.upstream_mode == "mock") or settings.komga_owner_confirms
+        komga_adapter = KomgaAdapter(komga_transport, timeout=settings.timeout, cache=cache,
+                                     owner_confirms_no_member_restrictions=komga_confirmed)
         komga_adapter.cache = cache
         adapters.append(komga_adapter)
     if settings.calibre_web_base_url:             # off unless configured (settings.py validates)
@@ -130,6 +136,7 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
     app.state.cache = cache
     app.router.redirect_slashes = False
     app.state.settings = settings
+    app.state.identity = IdentityResolver.from_settings(settings)    # SettingsError = refuse to start
     app.state.catalogue = cat
     app.state.adapters = adapter_list
     app.state.env = env

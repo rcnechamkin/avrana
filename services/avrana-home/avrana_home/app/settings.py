@@ -21,6 +21,8 @@ MOCK_API_KEY = "mock-api-key-not-real"          # obviously fake; the only key m
 DEFAULT_MOCK_JELLYFIN_URL = "http://127.0.0.1:18096"
 DEFAULT_CATALOGUE = Path(__file__).resolve().parents[3] / "avrana-portal" / "portal.py"
 LOOPBACK_HOSTS = ("127.0.0.1", "::1", "localhost")
+IDENTITY_MODES = ("headers", "jwt_log_only", "jwt_required")   # same strings as principal.IDENTITY_MODES
+MIN_JWT_SECRET_BYTES = 32                                      # same floor as outpost_jwt.MIN_HMAC_SECRET
 
 _TRUE = {"1", "true", "yes", "on"}
 _FALSE = {"0", "false", "no", "off", ""}
@@ -55,7 +57,8 @@ class Settings:
     audiobookshelf_base_url: str = ""            # "" = the Audiobookshelf adapter is not built
     audiobookshelf_token: str = field(default="", repr=False)
     komga_base_url: str = ""                     # "" = the Komga adapter is not built
-    komga_token: str = field(default="", repr=False)
+    komga_token: str = field(default="", repr=False)    # a REGULAR (non-admin) account's API key; never an admin key
+    komga_owner_confirms: bool = False           # the owner's statement that no member is restricted
     calibre_web_base_url: str = ""               # "" = the Calibre-Web adapter is not built
     calibre_web_credential: str = field(default="", repr=False)    # "user:password" of the viewer account
     calibre_web_owner_confirms: bool = False     # the owner's statement that no member is restricted
@@ -66,10 +69,17 @@ class Settings:
     log_level: str = "INFO"
     host: str = "127.0.0.1"
     port: int = 8096
+    identity_mode: str = "headers"               # "headers" | "jwt_log_only" | "jwt_required" (AVR-498)
+    jwt_issuer: str = ""
+    jwt_audience: str = ""
+    jwt_secret: str = field(default="", repr=False)             # HS256 client secret; never shown
+    jwt_secret_previous: str = field(default="", repr=False)    # optional, rotation overlap only
+    allowed_users: tuple = ()                    # () = no restriction; beta only, jwt_required only
 
     def __repr__(self) -> str:
         return (f"Settings(home_sections={self.home_sections}, upstream_mode={self.upstream_mode!r}, "
-                f"host={self.host!r}, port={self.port}, <secrets redacted>)")
+                f"host={self.host!r}, port={self.port}, "
+                f"identity_mode={self.identity_mode!r}, <secrets redacted>)")
 
     @property
     def uses_real_upstream(self) -> bool:
@@ -141,6 +151,7 @@ class Settings:
         abs_token = _read_key(env, problems, "AUDIOBOOKSHELF_TOKEN")
         komga_url = get("KOMGA_BASE_URL")
         komga_token = _read_key(env, problems, "KOMGA_TOKEN")
+        komga_confirms = boolean("KOMGA_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS", False)
         cw_url = get("CALIBRE_WEB_BASE_URL")
         cw_cred = _read_key(env, problems, "CALIBRE_WEB_CREDENTIAL")
         cw_confirms = boolean("CALIBRE_WEB_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS", False)
@@ -164,6 +175,7 @@ class Settings:
             if komga_url and not is_loopback_host(url_host(komga_url) or ""):
                 problems.append("KOMGA_BASE_URL must be a loopback address in mock mode")
             komga_token = MOCK_API_KEY if komga_url else ""
+            komga_confirms = False               # a real-mode statement; mock mode passes its own constant
             if cw_cred:
                 problems.append("a Calibre-Web credential is set but HOME_UPSTREAM_MODE is mock "
                                 "(mock mode never sends a real credential; unset it or choose real)")
@@ -180,9 +192,16 @@ class Settings:
             if not key:
                 problems.append("JELLYFIN_API_KEY or JELLYFIN_API_KEY_FILE is required in real mode")
             if komga_url or komga_token:
-                # ADAPTER-CONTRACT 12.2: the key scope and the member mapping are open OWNER decisions.
-                problems.append("Komga cannot be configured in real mode until the owner decides the "
-                                "key scope and member mapping (ADAPTER-CONTRACT 12.2)")
+                # ADAPTER-CONTRACT 12.2 (owner decision 2026-10-15): a SHARED regular-account view, no admin
+                # key; refused unless the owner states, deliberately, that no member has a Komga restriction.
+                if not komga_confirms:
+                    problems.append("Komga is a shared view and cannot be configured in real mode "
+                                    "without KOMGA_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS=yes "
+                                    "(ADAPTER-CONTRACT 12.2)")
+                if not komga_url or not komga_token:
+                    problems.append("KOMGA_BASE_URL and KOMGA_TOKEN (or _FILE) must be set together")
+            elif komga_confirms:
+                problems.append("KOMGA_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS is set but Komga is not configured")
             if cw_url or cw_cred:
                 # ADAPTER-CONTRACT 13.2: a SHARED view; refused unless the owner states, deliberately, that
                 # no member has a Calibre-Web restriction (default off). HOME_GATES_VERIFIED applies above.
@@ -208,15 +227,74 @@ class Settings:
         if cw_url:
             _check_url(cw_url, problems, "CALIBRE_WEB_BASE_URL")
 
+        # Identity mode (AVR-498). The default keeps today's behaviour exactly; an unknown or empty
+        # value is an error, never a silent fallback. The JWT modes need the provider's issuer,
+        # audience and HS256 client secret (what Authentik proxy providers sign with; the portal
+        # takes the same three values as AVRANA_JWT_*). Unused JWT settings in headers mode are an
+        # error so nobody believes a token is being checked when it is not.
+        id_mode = _identity_mode(env, problems)
+        jwt_issuer, jwt_audience = get("HOME_JWT_ISSUER"), get("HOME_JWT_AUDIENCE")
+        jwt_secret = _read_key(env, problems, "HOME_JWT_SECRET")
+        jwt_previous = _read_key(env, problems, "HOME_JWT_SECRET_PREVIOUS")
+        if id_mode == "headers":
+            if jwt_issuer or jwt_audience or jwt_secret or jwt_previous:
+                problems.append("HOME_JWT_* is set but HOME_IDENTITY_MODE is headers "
+                                "(nothing would be verified; choose jwt_log_only or jwt_required)")
+        else:
+            if not jwt_issuer:
+                problems.append("HOME_JWT_ISSUER is required in a JWT identity mode")
+            if not jwt_audience:
+                problems.append("HOME_JWT_AUDIENCE is required in a JWT identity mode")
+            if not jwt_secret:
+                problems.append("HOME_JWT_SECRET or HOME_JWT_SECRET_FILE is required in a JWT identity mode")
+            for name, value in (("HOME_JWT_SECRET", jwt_secret), ("HOME_JWT_SECRET_PREVIOUS", jwt_previous)):
+                if value and len(value.encode("utf-8")) < MIN_JWT_SECRET_BYTES:
+                    problems.append(f"{name} must be at least {MIN_JWT_SECRET_BYTES} bytes")
+            if jwt_previous and not jwt_secret:
+                problems.append("HOME_JWT_SECRET_PREVIOUS needs HOME_JWT_SECRET")
+
+        # Beta allowlist (AVR-373): a second lock behind the Authentik application binding. It only
+        # means something when the username comes from a verified token, so any other mode refuses it.
+        allowed = _allowed_users(env, problems)
+        if allowed and id_mode != "jwt_required":
+            problems.append("HOME_ALLOWED_USERS needs HOME_IDENTITY_MODE=jwt_required")
+
         if problems:
             raise SettingsError("invalid configuration: " + "; ".join(problems))
         return cls(home_sections=sections, upstream_mode=mode, jellyfin_base_url=base_url,
                    jellyfin_api_key=key, audiobookshelf_base_url=abs_url,
                    audiobookshelf_token=abs_token, komga_base_url=komga_url,
-                   komga_token=komga_token, calibre_web_base_url=cw_url,
+                   komga_token=komga_token, komga_owner_confirms=komga_confirms,
+                   calibre_web_base_url=cw_url,
                    calibre_web_credential=cw_cred, calibre_web_owner_confirms=cw_confirms, timeout=timeout, section_limit=limit,
                    health_detail=detail, catalogue_path=catalogue, log_level=level,
-                   host=host, port=port)
+                   host=host, port=port, identity_mode=id_mode, jwt_issuer=jwt_issuer,
+                   jwt_audience=jwt_audience, jwt_secret=jwt_secret, jwt_secret_previous=jwt_previous,
+                   allowed_users=allowed)
+
+
+def _allowed_users(env: Mapping[str, str], problems: list) -> tuple:
+    """Absent -> no restriction. Present -> a comma-separated list of exact usernames; an empty list
+    or a malformed entry is an error, never a silent "everyone"."""
+    if "HOME_ALLOWED_USERS" not in env:
+        return ()
+    names = [n.strip() for n in str(env["HOME_ALLOWED_USERS"]).split(",")]
+    if not names or any(not n or len(n) > 150 or not n.isascii() or not n.isprintable()
+                        or any(c.isspace() for c in n) for n in names):
+        problems.append("HOME_ALLOWED_USERS must be a comma-separated list of usernames")
+        return ()
+    return tuple(sorted(set(names)))
+
+
+def _identity_mode(env: Mapping[str, str], problems: list) -> str:
+    """Absent -> headers. Present but empty, unknown or differently cased -> an error."""
+    if "HOME_IDENTITY_MODE" not in env:
+        return "headers"
+    raw = str(env["HOME_IDENTITY_MODE"]).strip()
+    if raw not in IDENTITY_MODES:
+        problems.append("HOME_IDENTITY_MODE must be headers, jwt_log_only or jwt_required")
+        return "headers"
+    return raw
 
 
 def _check_url(url: str, problems: list, name: str = "JELLYFIN_BASE_URL") -> None:

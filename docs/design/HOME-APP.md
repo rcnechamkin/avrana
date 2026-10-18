@@ -73,6 +73,49 @@ gated route and chooser and help topic is the standard 404 (byte-identical to an
 a 403, a redirect to sign in, or a hint that anything exists. This is the portal's own fail-closed
 behaviour, applied to the stricter parser.
 
+### Identity modes (AVR-498, `HOME_IDENTITY_MODE`)
+
+`identity.get_viewer` is still the only reader of request headers. It now hands the trusted headers
+to `principal.principal_for_request` with the mode from `Settings.identity_mode`; the mode has no
+default inside the principal module, and the setting defaults to `headers`.
+
+| Mode | Identity comes from | Notes |
+|---|---|---|
+| `headers` (default) | the plain `X-authentik-*` headers, exactly as before | Byte-identical to the previous behaviour. `X-authentik-jwt` is not read at all. |
+| `jwt_log_only` | the plain headers (still served) | Also verifies `X-authentik-jwt` and logs one line `identity_jwt` with a fixed `reason` code through `logsafe`: `ok`, `identity_mismatch`, `missing_header`, `duplicate_header`, `unverified_identity`, or another `PrincipalError` code. Never a token, name or group. Never changes the outcome. |
+| `jwt_required` | only a verified token | A header-only request has **no principal**. A valid token whose claims disagree with plain identity headers that are also present is refused (`identity_mismatch`). Duplicate JWT headers are refused. |
+
+Optional beta allowlist: `HOME_ALLOWED_USERS` (a comma-separated list of exact usernames) is a second lock
+behind the Authentik application binding. It is accepted **only with `jwt_required`**, because a username
+from plain headers proves nothing; any other mode, an empty list or a malformed entry refuses to start. A
+verified member not on the list gets the same "no principal" outcome and one `identity_jwt` line with
+reason `not_allowed`. Unset means no restriction.
+
+Every failure in every mode is the "no principal" outcome above (portal parity): the standard 404 on
+gated routes, the Help tile, never a 403 and never a redirect. The verified path mints the same
+`MemberPrincipal` type as the header path, so adapters, templates and the route layer are unchanged.
+
+Algorithm and key: **HS256 with the proxy provider's client secret**, the same as the portal (#40) and
+the canonical `outpost_jwt.OutpostJwtVerifier` (#35). Authentik 2026.5.6 resets proxy providers to
+`signing_key = None` at startup, so the outpost's `X-authentik-jwt` ID token is HMAC-signed with the
+client secret (see `D3-outpost-identity-proof.md`, E5 and E6). The verifier also supports RS256 with
+pinned public keys, but Home does **not** expose it: there is no setting for keys, so a single
+Authentik provider configuration (issuer, client id as audience, client secret) serves both the portal
+and Home. Adding RS256 later would be a new setting, not a change of default.
+
+The JWT modes need `HOME_JWT_ISSUER`, `HOME_JWT_AUDIENCE` and `HOME_JWT_SECRET` (or
+`HOME_JWT_SECRET_FILE`, preferred; at least 32 bytes). `HOME_JWT_SECRET_PREVIOUS` (or `_FILE`) is an
+optional rotation overlap, as in the portal. JWT settings in `headers` mode are refused at start, so
+nobody believes a token is being checked when it is not. An unknown, empty or miscased mode is a
+`SettingsError`. The secret is a `repr=False` field, absent from `repr(settings)`, errors and logs.
+
+The development identity shim is **headers-only**: `check_startup` raises `DevIdentityRefused` when
+`HOME_IDENTITY_MODE` is not `headers`, and it never mints or forwards tokens (a client `X-authentik-jwt`
+is stripped like every other identity header).
+
+Status: nothing in production selects a JWT mode. Turning on `jwt_required` for the gated beta
+hostname is described in `docs/design/BETA-CHECKLIST.md` and needs owner approval at every live step.
+
 ### Differences from today's portal (each an owner decision)
 
 | # | Request | Portal today | This app | Recommendation |
@@ -245,8 +288,11 @@ variables (never the values).
 | `HOME_GATES_VERIFIED` | unset | Real mode requires the literal `yes`: an operator's statement that G1 and G2 are applied and verified. |
 | `AUDIOBOOKSHELF_BASE_URL` | unset (adapter not built) | Optional. Same URL rules as Jellyfin. Mock mode: loopback only. Real mode: needs the token too, and the same gates. |
 | `AUDIOBOOKSHELF_TOKEN` / `AUDIOBOOKSHELF_TOKEN_FILE` | none | Real mode only, with the URL, exactly one of the two; a token in mock mode is an error. Never in a repr, log line or error message. |
-| `KOMGA_BASE_URL` / `KOMGA_TOKEN` (`_FILE`) | unset (adapter not built) | Optional, **mock mode only**: loopback URL, the token is fixed and fake. In real mode setting either is a startup error until the owner decides the key scope and member mapping (ADAPTER-CONTRACT 12.2). |
+| `KOMGA_BASE_URL` / `KOMGA_TOKEN` (`_FILE`) / `KOMGA_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS` | unset (adapter not built) | Optional. Mock mode: loopback URL, the token is fixed and fake, the flag is ignored. Real mode (owner decision 2026-10-15, ADAPTER-CONTRACT 12.2): needs `HOME_GATES_VERIFIED=yes`, the URL, a REGULAR (non-admin) account's key and `KOMGA_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS=yes`; otherwise a startup error. |
 | `CALIBRE_WEB_BASE_URL` / `CALIBRE_WEB_CREDENTIAL` (`_FILE`) / `CALIBRE_WEB_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS` | unset / unset / `off` | Optional. Mock mode: loopback URL, fixed fake credential. Real mode is refused unless the owner setting is `yes` (default off; Calibre-Web is a shared view, ADAPTER-CONTRACT 13.2), and then also needs `HOME_GATES_VERIFIED=yes`, the URL and a `user:password` credential together. The constructor's `owner_confirms_no_member_restrictions` is `True` only in mock mode or from that setting. |
+| `HOME_IDENTITY_MODE` | `headers` | `headers`, `jwt_log_only` or `jwt_required` (section 2). Unknown, empty or miscased: refuses to start. |
+| `HOME_JWT_ISSUER`, `HOME_JWT_AUDIENCE` | unset | Required in a JWT mode (the provider's issuer URL and client id); refused in `headers` mode. |
+| `HOME_JWT_SECRET` / `HOME_JWT_SECRET_FILE` | none | Required in a JWT mode: the proxy provider's client secret (HS256), at least 32 bytes, exactly one of the two forms. Never in a repr, log line or error message. `HOME_JWT_SECRET_PREVIOUS` (`_FILE`) is an optional rotation overlap. |
 | `HOME_TIMEOUT` | `2.0` | Per-call seconds, 0.1 to 10. |
 | `HOME_SECTION_LIMIT` | `12` | Items per section, 1 to 50. |
 | `HOME_HEALTH_DETAIL` | `loopback` | `loopback` or `off`. |
@@ -261,7 +307,7 @@ setting.
 
 Audiobookshelf (AVR-381): the adapter is registered next to Jellyfin only when `AUDIOBOOKSHELF_BASE_URL` is set; it adds one *Continue listening* section (the adapter offers no recent list, so that section is `empty` and renders nothing). Dev: `run_dev.py --abs-mock-port 18097` starts `dev/mock_audiobookshelf.py`, which serves the adapter's own synthetic fixtures (`tests/fake_abs.py`, loaded by path, read-only). `member-a` and `member-b` carry the audiobooks group in the dev identities.
 
-Komga (AVR-382): registered the same way, from `KOMGA_BASE_URL`; it adds one *Recently added to Comics* section (Komga read progress belongs to the key's user, so no Continue). Dev: `run_dev.py --komga-mock-port 18098` runs `dev/mock_komga.py` over `tests/fake_komga.py`. Members link only when the Authentik username equals the Komga login exactly, so the dev identities `member-a@synthetic.invalid` and `member-b@synthetic.invalid` exist for it. `dev/` is never imported by the package (`webtests/test_dev_isolation.py`).
+Komga (AVR-382): registered the same way, from `KOMGA_BASE_URL`; it adds one *Recently added to Comics* section. It is a SHARED regular-account view (ADAPTER-CONTRACT 12.2): every member with the comics group sees the same books, no user list is read, and the shared account's read progress is never shown (no Continue). Dev: `run_dev.py --komga-mock-port 18098` runs `dev/mock_komga.py` over `tests/fake_komga.py`; the dev identities `comics-a` and `comics-b` exist to show two members getting the same section. `dev/` is never imported by the package (`webtests/test_dev_isolation.py`).
 
 Calibre-Web (AVR-380): registered the same way from `CALIBRE_WEB_BASE_URL`; one *Recently added to Books* section, the same for every member who holds the books group (shared view, no member mapping, no Continue). Dev: `run_dev.py --calibre-mock-port 18099` runs `dev/mock_calibre_web.py` over `tests/fake_calibre_web.py`. Covers go through `/art/calibre-web/cover/<id>` under the same 404 rules.
 
