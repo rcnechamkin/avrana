@@ -7,19 +7,20 @@ host: books.avrana.net
 ### Browser
 store: none
 url: none
-1. Open https://avrana.net and sign in. [UNVERIFIED on a real device]
-2. Choose Read and open the title you want. [UNVERIFIED on a real device]
-3. Avrana opens the page for that title on books.avrana.net. [UNVERIFIED on a real device]
-4. If a sign-in screen appears, sign in. To come back to Avrana, use the Back button. If that does not work, close the tab or app, or open Avrana again from your Home Screen or https://avrana.net. [UNVERIFIED on a real device]
+1. Open Avrana from your Home Screen, or open https://avrana.net, and sign in. [UNVERIFIED on a real device]
+2. On the Avrana home page, find the title under New this week, or use Search. [UNVERIFIED on a real device]
+3. Choose the title. Open takes you to its page, where you can read it or download it. [UNVERIFIED on a real device]
+4. The page for that title opens on books.avrana.net. If a sign-in screen appears, sign in to Read there. It has its own sign-in for now. [UNVERIFIED on a real device]
+5. To come back, use the Back button. If Avrana was opened from its Home Screen icon, the title may open in a separate browser view: close it to return to Avrana. [UNVERIFIED on a real device]
 
 ## If it does not open
 ### Try these in order
 store: none
 url: none
 1. If a page says it cannot be found, go back to Avrana and open the title again. [UNVERIFIED on a real device]
-2. If the app did not open, open books.avrana.net in your browser. [UNVERIFIED on a real device]
-3. If you are signed out, sign in and open the title from Avrana again. [UNVERIFIED on a real device]
-4. If it says unavailable, read the unavailable topic. [UNVERIFIED on a real device]
+2. Avrana opens titles in the browser, not in an app. To use an app instead, open the app and find the title there. [UNVERIFIED on a real device]
+3. If books.avrana.net shows a sign-in screen again, your session there ended. Sign in, then open the title from Avrana again. [UNVERIFIED on a real device]
+4. If Avrana says a library is unavailable, read the unavailable topic. [UNVERIFIED on a real device]
 5. If it still fails, send a help request. [OWNER DECISION D-1: where to send a help request] [UNVERIFIED on a real device]
 
 ## Computer
@@ -27,5 +28,5 @@ url: none
 store: none
 url: none
 1. Open https://avrana.net and sign in. [UNVERIFIED on a real device]
-2. Choose Read, open the title, and press the main button. [UNVERIFIED on a real device]
-3. The page opens in a new view on books.avrana.net. [UNVERIFIED on a real device]
+2. Find the title under New this week, or use Search, and choose it. [UNVERIFIED on a real device]
+3. The page for that title opens in the same tab on books.avrana.net. Use the browser's Back button to return to Avrana. [UNVERIFIED on a real device]

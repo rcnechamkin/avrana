@@ -101,7 +101,7 @@ Each public method runs these steps, in this order, in the shared base class
 | `continue_items(principal, limit)` | `SectionResult` | In-progress items for this member only (`section: "continue"`). |
 | `recent_items(principal, limit)` | `SectionResult` | Recently added items visible to this member (`"recent"`). |
 | `item(principal, item_id)` | `SectionResult` | Metadata for one id the member can see (`"item"`); an invalid id is `EMPTY`, never interpolated. |
-| `search(principal, query, limit)` | `SectionResult` | Signature defined; raises `NotImplementedError` for now. |
+| `search(principal, query, limit)` | `SectionResult` | Matching items for this member (`"search"`), see section 14. |
 | `fetch_artwork(principal, ref)` | `ArtworkResult` | Server-side image fetch for an opaque ref, after a member-scoped visibility check. |
 | `health()` | `AdapterHealth` | Circuit state only; no member data; no upstream call. |
 
@@ -117,13 +117,11 @@ Each public method runs these steps, in this order, in the shared base class
   (`docs/services/jellyfin.md`, "Auth: credential replication"), and a casing difference is the
   documented cause of duplicate accounts (`docs/services/sso-architecture.md`, "LDAP was NOT
   enabled"). Calibre-Web signs members in with their Authentik `cn` over LDAP
-  (`docs/services/calibre-web-automated.md`). **Komga and Audiobookshelf are keyed by e-mail, not
-  username:** Komga accounts are created "with the same email and password"
-  (`docs/services/komga.md`; the `avrana-komga-create` policy in
-  `services/authentik/blueprints/avrana-enrollment.yaml` looks accounts up by e-mail), and
-  Audiobookshelf matches existing users by e-mail (`authOpenIDMatchExistingBy: email`,
-  `docs/services/sso-architecture.md`). Those two need a different mapping rule, discussed in
-  [`ADAPTER-ASSESSMENT.md`](ADAPTER-ASSESSMENT.md).
+  (`docs/services/calibre-web-automated.md`). **Owner decision, 2026-10-15: members are matched by USERNAME for the
+  services that link per member (Jellyfin and Audiobookshelf), and Komga and Calibre-Web link no member at all** (shared views, sections
+  12.2 and 13.2). The e-mail-keyed observations in `docs/services/komga.md` and `docs/services/sso-architecture.md` therefore no longer decide
+  anything for the adapters; where an Audiobookshelf login differs from the Authentik username the member is `NOT_LINKED` and the operator
+  reconciles the names (see [`ADAPTER-ASSESSMENT.md`](ADAPTER-ASSESSMENT.md), now superseded on this point).
 - **Loose matches never link.** If no account matches exactly but one matches after Unicode NFKC
   normalisation, case folding or trimming, the result is `NOT_LINKED` (reason `case_or_unicode_mismatch`).
   The operator reconciles the names; the adapter does not guess.
@@ -311,17 +309,23 @@ that key.
 | Continue items | No | member, service, section, **limit** | 30 s |
 | Recently added | **No**, because library visibility depends on the member | member, service, section, limit | 120 s |
 | Item metadata | No | member, service, item id | 120 s |
-| Artwork bytes | No (visibility is checked per member first) | member, service, ref | 300 s |
+| Artwork bytes | No. Jellyfin and Audiobookshelf re-check the member's item visibility upstream on every request before the cache is read; Komga and Calibre-Web (shared views) check the group only | member, service, ref | 300 s |
 | Failures, `UNAVAILABLE`, `NOT_LINKED` section results, and results from a call that finished after the circuit moved on | Never cached | | |
 
-**Artwork TTL, and why 300 s.** If an item is hidden from a member in Jellyfin, or the member's
-library access changes, cached artwork for that item can still be served until its TTL expires.
-Five minutes is accepted because the image is a poster the member could legitimately see within
-the previous five minutes, and because a loss of the Authentik group takes effect immediately
-(the group check precedes the cache). `ARTWORK_TTL` is the one place to tighten it.
+**Artwork TTL and revocation (Home 2.0, review of #53).** For a service whose upstream decides
+visibility per member (Jellyfin, Audiobookshelf: `artwork_rechecks_visibility = True`), every artwork
+request asks the upstream, as that member, whether the item is visible, and only then may the member's
+own cached bytes be served; a hidden item, a lost mapping or an unreachable upstream is a 404 and the
+entry is dropped. Only the image bytes are cached, never the permission. For a shared view (Komga,
+Calibre-Web) there is no per-member visibility: the group is checked first on every request, and a
+book removed from the one account's view can still have its cover served from that member's own cache
+for up to `ARTWORK_TTL` (300 s). The browser is told `Cache-Control: private, no-store`; a browser that
+already holds the bytes in an open page keeps showing them until the page is reloaded (residual, not
+fixable from the server). Tests: `tests/test_h2_security.py`.
 
 The permission check runs **before** any cache read, so removing a group takes effect immediately
-even with a warm cache. A cache hit is served even while the circuit is open.
+even with a warm cache. A cache hit is served even while the circuit is open, except artwork from a
+per-member service, which needs the live visibility check and is a 404 while the upstream cannot answer.
 
 **Owner decision (open): may per-member watch state be written to a disk file?** Today the answer
 is no, by policy default, because it is an unresolved privacy question. Options and consequences:
@@ -464,7 +468,7 @@ other secret (`docs/SECRETS.md`), never reaching the browser.
 |---|---|---|
 | Jellyfin | An API key (Dashboard, API Keys). Jellyfin keys have **no scopes**; a key is authorised as an administrator-equivalent. *To verify on 10.11.11.* | The read-only property comes from the adapter's GET allow-list and user-id scoping, not from the key. The key must be dedicated (named for the home), only on the private path, and rotated on suspicion. |
 | Audiobookshelf | A per-user API token inherits that user's rights. Another member's progress needs an admin-capable token. *To verify on 2.36.* | Admin-scope risk; see the assessment. |
-| Komga | Per-user API key or HTTP Basic acting as that user; no impersonation. This repository records that `X-API-Key` was rejected in the deployed version, so admin Basic is what exists today. *To verify.* | Per-member progress is not readable with a non-admin service account; see the assessment. |
+| Komga | A dedicated REGULAR (non-admin) account's API key, shared view (owner decision 2026-10-15). No admin key. *Header form (API key vs HTTP Basic) and whether a regular key is accepted: to verify.* | Per-member progress and restrictions are not read; no member may have a Komga restriction (section 12.2). |
 | Calibre-Web | HTTP Basic against OPDS as a normal (non-admin) local user. *To verify.* | Catalogue only; no per-member state. |
 
 **Jellyfin authorization header form (unverified).** The transport sends the key only as a header,
@@ -534,8 +538,11 @@ adapter's job:
    transport's headers (for example `UrllibTransport(base, {"Authorization": "Bearer <token>"})`). It is
    in no repr, result, health report, log line or cache row (tested with a sentinel).
 2. **GET only, explicit route list**, enforced by the shared guard before any I/O: the user list
-   `/api/users` (mapping only, no query), the member's record `/api/users/{id}` and one item
-   `/api/items/{id}` (query key `expanded` only). Nothing else, in particular no "me" route.
+   `/api/users` (mapping only, no query), the member's record `/api/users/{id}`, one item
+   `/api/items/{id}` (query key `expanded` only) and that item's cover `/api/items/{id}/cover` (query
+   keys `width` and `format` only), and for search the library list `/api/libraries` (no query) and one
+   library's search `/api/libraries/{id}/search` (query keys `q` and `limit` only; library id `lib_` form or
+   UUID). Nothing else, in particular no "me" route.
 3. **The bound user id travels in the PATH** of the member route and the guard compares it with the id
    the adapter bound (a 36-character lowercase UUID, validated before binding). Another member's id, a
    traversal, an encoded slash, an upper-cased id or no bound id is `ForbiddenRequest`.
@@ -557,6 +564,26 @@ adapter's job:
    progress), stores only the opaque id, and never logs a body.
 8. Item 404 = omitted and neutral (`ItemGone`); user-route 404 = `NOT_LINKED` with a cached mapping,
    drift when the mapping was just confirmed; the user-list 404 = route drift (section 6).
+9. **Covers are re-checked per member.** The cover route cannot carry the member, so a cover
+   (`audiobookshelf/cover/<item id>`) is fetched only after the same checks as the section, in order:
+   group (no upstream call or cache read without it, nor for a malformed ref), the member's own record
+   (active, permissions parsed fail closed), the item through the same visibility rules (library, tags,
+   explicit, a book, not missing or invalid; a different id answered is `UpstreamMisbehaved`). An item
+   the member may not see, an unknown item and an item without a cover (`coverPath` null) are the same
+   neutral `EMPTY` and the cover route is not called. The answer passes the shared image check
+   (jpeg/png/webp with a matching magic number, at most 5 MiB) and is cached per member only. Visibility
+   is the member's Audiobookshelf rights, not their progress: a book two members can both open in
+   Audiobookshelf has a cover for both.
+10. **Search is re-checked per member.** Group first (no upstream call, the term is not even read), then
+   the term is cleaned by `clean_query` (section 14.2) and sent only as `q`. The member's own record is
+   read and its permissions parsed before any library is searched. The libraries searched are the
+   member's `librariesAccessible` (ids of an unexpected shape are skipped), or, only when the record
+   grants every library, the book libraries of `/api/libraries`; at most 6 per search, at most 50 hits
+   asked per library. Every hit goes through the same visibility rules as the section. A hit from a
+   library that was not searched, or more hits than asked for, is `UpstreamMisbehaved`; a non-object
+   body, a missing or non-list `book`, or only unusable hits is `UpstreamMalformed`: `UNAVAILABLE`, never
+   an empty or unfiltered list. An unknown library (404) is skipped. Results carry no progress and are
+   never cached (section 14.4).
 
 ### 11.2 Mapping, and the owner decision it needs
 
@@ -577,7 +604,7 @@ account that predates OIDC may carry a username different from the Authentik use
 | B. E-mail | Only as trustworthy as the e-mail: if members can edit their e-mail in Authentik, or it is unverified, one member could be mapped to another's account. Needs the owner to confirm e-mails are immutable and verified. Not implemented. |
 | C. Owner-maintained link list (username to ABS user id), outside Git | Strongest, as the assessment recommends; costs a maintained list and a load-time duplicate check. Not implemented; fits behind the same `_resolve_user` hook. |
 
-Until the owner decides, only A exists. Note the assessment recommended excluding the user-list route
+**Decided 2026-10-15: option A, matched by USERNAME.** Only A exists. Note the assessment recommended excluding the user-list route
 and using a link list; this adapter does list users (option A needs it) and mitigates by parsing only
 `username`, `id` and `isActive` and retaining only the id.
 
@@ -603,7 +630,8 @@ All titles are invented.
   {"id": "audiobookshelf:li_book000001", "service": "audiobookshelf", "kind": "audiobook",
    "title": "Synthetic Audiobook One", "subtitle": "Synthetic Author", "series": "Synthetic Saga #1",
    "progress": {"fraction": 0.42, "percent": 42, "position_seconds": 15120, "duration_seconds": 36000},
-   "artwork": null, "handoff_url": "https://listen.avrana.net/item/li_book000001"}]}
+   "artwork": {"ref": "audiobookshelf/cover/li_book000001", "alt": "Cover of Synthetic Audiobook One"},
+   "handoff_url": "https://listen.avrana.net/item/li_book000001"}]}
 ```
 
 The other states are as in section 4: `empty` (nothing in progress), `unavailable` (upstream down, slow,
@@ -618,7 +646,7 @@ the text equivalent of the progress as for Jellyfin.
   the adapter fails closed (`UNAVAILABLE`) rather than showing unfiltered items, at the cost of an
   outage until the field map is updated (it is one class, `_Access`).
 - The token is admin-capable: a bug in the allow-list would be a bug with admin reach. The allow-list
-  has three entries and no write method.
+  has six entries and no write method.
 - No per-member rate limit yet (as for Jellyfin).
 
 ### 11.6 Unverified upstream assumptions (every one)
@@ -647,6 +675,15 @@ Every fixture file carries `_target_version` (Audiobookshelf 2.36, the version t
    if the real API omits it for some items, those items will be left out (fail closed).
 9. OIDC-created accounts carry the Authentik username as the Audiobookshelf `username`.
 10. The user list and user record may contain per-user tokens (the adapter never retains them).
+11. Covers: the expanded item carries `media.coverPath` (null when there is no cover; an absent field is
+    treated as "maybe" and the cover route is asked), and `GET /api/items/{id}/cover?width=400&format=jpeg`
+    returns an `image/jpeg` (or png/webp) body with the admin token, HTTP 404 when there is no cover.
+12. Search: `GET /api/libraries` returns `{"libraries": [{"id", "name", "mediaType"}]}` (all libraries for
+    the admin token); `GET /api/libraries/{id}/search?q=&limit=` returns `{"book": [{"libraryItem":
+    <expanded item as in 6>, "matchKey", "matchText"}], "authors", "series", "tags", "narrators"}` for a
+    book library (`podcast` in place of `book` for a podcast library), with `limit` bounding the `book`
+    list, HTTP 404 for an unknown library; library ids are `lib_` plus 3 to 40 lowercase alphanumerics or
+    UUIDs. If the admin token's search applies no filter of its own, the adapter's filter is the only one.
 
 ### 11.7 Recorded read-only contract check (checklist, owner-approved, NOT run by this work)
 
@@ -655,13 +692,16 @@ the following with a dedicated, rotatable, read-only-by-habit token and records 
 
 1. **Request, read-only (GET), one at a time:** `/api/users` (once); `/api/users/{id}` for **two**
    members with different library or tag access and an explicit-content difference; `/api/items/{id}?expanded=1`
-   for one item in each of: an accessible library, an inaccessible library, an explicit item, a tagged item.
+   for one item in each of: an accessible library, an inaccessible library, an explicit item, a tagged item;
+   `/api/items/{id}/cover?width=400&format=jpeg` for one item with a cover and one without (content type,
+   size, 404); `/api/libraries` once and `/api/libraries/{id}/search?q=<a known title>&limit=5` for one
+   book library (response keys, hit shape, whether `limit` is honoured).
 2. **Compare:** each assumption in 11.6 against the real response (field names, types, presence of
    `userId` on every progress entry, boolean `explicit`, deny versus allow list meaning, 404 behaviour for
    an unknown id, the id formats); that the user record and the progress entries differ per member;
    that the admin token reads `/api/users/{id}` without needing `?include=`.
 3. **Do not request:** any POST, PATCH or DELETE; sessions, e-reader device settings, backups, libraries
-   listings, covers, or any "me" route.
+   listings, or any "me" route (the cover route is requested only as in step 1).
 4. **Redact before anything is stored or shared:** all tokens and API keys (the user list may contain
    them), e-mail addresses, real usernames (replace by `member-a`, `member-b`), real titles, authors and
    series, library and item ids (replace consistently), IP addresses and device names, timestamps (shift).
@@ -676,80 +716,84 @@ under `tests/fixtures/komga/` carries `_synthetic`, `_target_version` and `_prov
 shapes recalled from the public API documentation (not re-checked) from the SYNTHETIC assumptions, and says that
 live compatibility is **UNPROVEN**. A test enforces all three.
 
+**Owner decision, 2026-10-15: Komga is a SHARED regular-account view, the same pattern as Calibre-Web (section
+13.2). No admin key. Nobody will ever have Komga restrictions.** The earlier admin-key, per-member design (user
+listing, restriction filter, link-table linker) was **removed from the code**, not kept behind a flag: it needed a
+key that reaches everything, and keeping an unused admin path would leave admin reach one setting away.
+
 ### 12.1 What it offers
 
 One section, "Recently added" (`recent_items`, and `item` for one book): comics as `Kind.COMIC`, hand-off
 `https://read.avrana.net/book/<id>` from the contract builder. `continue_items` returns `EMPTY` (reason
-`not_offered`) with no upstream call: in Komga, read progress belongs to the credential's user, not to the member,
-and the book responses' `readProgress` is never read. `search` stays as the contract defines it (not implemented).
-Read lists and collections are server-global and are not in the route table (no collection or title leak).
-Artwork is the book thumbnail, fetched only after the member's restrictions allowed that book; a missing
-thumbnail is `EMPTY`.
+`not_offered`) with no upstream call: **read progress belongs to the shared account, not the member**. The adapter
+builds an item only from explicit fields (id, title, number, series title, id-derived hand-off and cover ref), so
+the book responses' `readProgress` is never read and can never be shown as a member's own (tested with fixtures that
+carry progress, in the adapter and over HTTP). `search` stays as the contract defines it (not implemented). Read
+lists, collections, `ondeck` and every per-user route are not in the route table. Artwork is the book thumbnail; a
+missing thumbnail is `EMPTY`.
 
-### 12.2 OWNER DECISIONS this adapter cannot make
+### 12.2 This is a SHARED VIEW (owner decision)
 
-1. **Key scope.** Komga has no impersonation. A member's restrictions (library sharing, age restriction, sharing
-   label allow and exclude lists) are in that member's user record, which only an **admin** credential can list.
-   Implemented here: an admin-capable key behind the GET-only allow-list (five routes), with a fail-closed
-   client-side filter built from the member's own record. The read-only property comes from the allow-list, not
-   from the key. The alternative is a non-admin shared-view account (`ADAPTER-ASSESSMENT.md`, section 2): it
-   cannot read restrictions, so it is correct only while no member is restricted. **Until the owner chooses, no
-   key may be wired to this adapter.** If the owner picks the non-admin account, the filter becomes a no-op and
-   the "no restricted member" invariant must be checked in the runbook.
-2. **Member mapping** (same open decision as section 11.2). A Komga user record has an `email` (the login) and no
-   username. The mapping is a seam, `linker`: the default `exact_name_linker` applies the contract's current rule
-   (exact, case-sensitive, loose matches never link, two matches ambiguous) to the Komga `email` field, which links
-   a member only when the Authentik username equals the Komga login exactly and otherwise gives `NOT_LINKED`
-   (fail safe). `link_table_linker` is option C (an owner-maintained link list, outside Git). The e-mail rule (B)
-   is **not** implemented, and the principal's e-mail is never consulted.
+Enforced in code: `KomgaAdapter(..., owner_confirms_no_member_restrictions=True)` is required, and any other value
+(including the default) raises `ValueError`, so the adapter cannot be constructed without the owner's deliberate
+opt-in. In real mode `settings.py` accepts a Komga URL and key only with `KOMGA_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS=yes`
+(plus `HOME_GATES_VERIFIED=yes`, and `KOMGA_BASE_URL` with `KOMGA_TOKEN` or `KOMGA_TOKEN_FILE` together); mock mode
+stays loopback-only, never accepts a real token, and `main.py` states the confirmation itself because mock data has
+nothing to restrict.
 
-### 12.3 How it stays member-scoped
+- **Key scope: a REGULAR (non-admin) Komga account's API key, minimum scope.** The home holds one dedicated account
+  with the comics libraries shared to it, and no upload, download-of-others or admin role. There is no admin key
+  anywhere. The read-only property comes from the three-route GET allow-list, not from the key.
+- **No member mapping.** `resolve_user` returns the fixed non-member `shared` viewer for every member who holds
+  `avrana-comics`; it never names a Komga account, and **`/api/v2/users` (admin-only) is never called** and is not in
+  the route table. Authorization is the Authentik group, checked before any upstream call and before any cache read.
+  The older open question of matching Komga members by e-mail or username is closed by this decision.
+- **No per-member visibility is enforced.** Every member with the group sees what the shared account sees; Komga
+  itself applies that account's library sharing, age rating and label rules to its answers, and the adapter adds no
+  filter of its own. **Invariant for the owner:** no member has a Komga restriction. If that ever stops being true,
+  the shared view would show that member more than Komga does and the adapter must not be enabled.
+- **Artwork authorization** is the group gate plus the shared account's own rights: a cover the account cannot read is
+  a 404 (`EMPTY`, never counted). Results are cached per member only (the open question of caching once for all
+  members is the one in section 13.2 and is not done).
+- **Read progress** is the shared account's and is never exposed (section 12.1).
 
-Komga routes cannot carry the member in the path or query, so, unlike Jellyfin and Audiobookshelf, the guard cannot
-bind a request to a member (it only requires that a mapped member exists before any non-mapping route). Isolation
-is the adapter's filter, built to fail closed:
+### 12.3 How it stays scoped
 
-- The member's own record is read from `/api/v2/users` (matched by the linked id; none = `NOT_LINKED`, two =
-  `UpstreamMisbehaved`) **before** any book is requested; a malformed restriction field makes the section
-  `UNAVAILABLE`, never an unfiltered list.
-- A book is shown only if its library (from the book, and equal to its series' library), its series' age rating and
-  its series' sharing labels pass. The check is **stricter than Komga's own combination** (every configured rule must
-  pass): an allow-only age rule hides unrated content, an exclude label wins over an allow label.
-- A book whose series cannot be checked is left out; if nothing could be shown and something was unusable the
-  section is `UNAVAILABLE` (drift), never "nothing new". Series lookups are bounded (12 per request), the page is
-  bounded (`size` at most 100, a larger answer is `UpstreamMisbehaved`).
-- Ids that are also Komga sub-routes (`latest`, `updated`) are never treated as ids.
+The route table has three entries: `GET /api/v1/books/latest` (query keys `page`, `size`), `GET /api/v1/books/<id>`
+and `GET /api/v1/books/<id>/thumbnail`. Everything else is refused by the guard (tested): other methods,
+`/api/v2/*` including users, series, read lists, collections, `ondeck`, pages, files, read progress, traversal.
+Ids that are also Komga sub-routes (`latest`, `updated`, `ondeck`) are never treated as ids. The guard binds every
+request to the fixed `shared` viewer and refuses any other bound id. The page is bounded (`size` at most 100, a
+larger answer is `UpstreamMisbehaved`); a book that is deleted or not `READY` is left out; if nothing could be shown
+and something was unusable the section is `UNAVAILABLE` (drift), never "nothing new".
 
 ### 12.4 Unverified upstream assumptions (every one)
 
-1. Authentication by an admin-capable credential in a transport header (Basic or API key: the repository records
-   that `X-API-Key` was rejected in the deployed version).
-2. `GET /api/v2/users` returns a bare array of users with `id`, `email`, `roles`, `sharedAllLibraries`,
-   `sharedLibrariesIds`, `labelsAllow`, `labelsExclude` and `ageRestriction` (`null` or `{age, restriction}` with
-   `ALLOW_ONLY` or `EXCLUDE`).
-3. Semantics: `ALLOW_ONLY n` shows ratings up to n; `EXCLUDE n` hides ratings from n; labels match case-insensitively.
-4. `GET /api/v1/books/latest?page&size` returns `{content: [...]}` newest first; each book has `id`, `seriesId`,
-   `seriesTitle`, `libraryId`, `name`, `deleted`, `media.status` and `metadata.{title,number}`.
-5. `GET /api/v1/series/{id}` returns `id`, `libraryId` and `metadata.{ageRating (integer or null), sharingLabels}`:
-   age and labels are series-level, not book-level.
-6. `GET /api/v1/books/{id}/thumbnail` returns a PNG, JPEG or WebP; an unknown id is 404.
-7. Ids are 6 to 32 alphanumeric characters (`contract.py` placeholder pattern); the hand-off path `/book/<id>` exists.
-8. A 404 for an unknown book or series (not 200 with an empty body).
+1. Authentication by a **regular-account** API key in the `X-API-Key` header. The repository records that `X-API-Key`
+   was rejected in the deployed version (admin Basic was what worked); whether a regular key works, and in which
+   header form (API key or HTTP Basic), is **UNVERIFIED** and is the first live check.
+2. `GET /api/v1/books/latest?page&size` returns `{content: [...]}` newest first; each book has `id`, `seriesTitle`,
+   `name`, `deleted`, `media.status` and `metadata.{title,number}`. A regular account may be refused this route
+   (UNVERIFIED).
+3. `GET /api/v1/books/{id}` returns the same shape; a book the account cannot see is 404 (not 200 with an empty body).
+4. `GET /api/v1/books/{id}/thumbnail` returns a PNG, JPEG or WebP; an unknown id is 404.
+5. Ids are 6 to 32 alphanumeric characters (`contract.py` placeholder pattern); the hand-off path `/book/<id>` exists.
+6. The shared account's library sharing is what Komga applies to `latest` (the whole premise of the shared view).
 
 ### 12.5 Recorded read-only contract check (owner-approved, NOT run by this work)
 
-As for section 11.7, with a dedicated token and redaction: GET `/api/v2/users` once; one book and its series for
-members with different library, age and label restrictions; compare every assumption above, in particular the
-meaning of the age and label rules and whether age and labels are series-level; do not request pages, files,
-read lists, collections or any write route. Record the Komga version and update fixtures and adapter in a
-separate reviewed change.
+As for section 11.7, with the dedicated regular-account key and redaction: one `GET /api/v1/books/latest?page=0&size=5`,
+one book by id and its thumbnail. Compare every assumption above, and record the Komga version. Do not request
+pages, files, read lists, collections, users or any write route. Search route shapes (`GET /api/v1/books?search=`,
+which newer Komga may replace with `POST /api/v1/books/list`) are **UNVERIFIED** and only matter once search lands.
+Update fixtures and adapter in a separate reviewed change.
 
 ### 12.6 Residual risks
 
-- The admin key reaches everything; a bug in the five-route allow-list would be a bug with admin reach.
-- The member's restrictions are re-read per section (one extra call to the user list, which returns every
-  account; only the member's record is read and nothing else is retained).
-- Komga's real combination of allow rules is not verified; the adapter shows less, never more, by design.
+- A member who is later given a Komga restriction would see more on Home than in Komga (the owner invariant).
+- The shared account's key is the only credential; it must stay regular, dedicated, on the private path, rotated on
+  suspicion. A bug in the three-route allow-list has that account's reach only.
+- Home shows book titles and covers the shared account may see to every member with `avrana-comics`.
 
 ## 13. Calibre-Web adapter (AVR-380)
 
@@ -789,7 +833,7 @@ needed, so there is no key-scope decision to stop on.** The consequences are exp
 - **Artwork authorization** is therefore the group gate plus the viewer account's own rights: a cover the viewer
   cannot read is a 404 (`EMPTY`, never counted); results are cached per member only.
 - **Per-account state never reaches a member.** The route table has two entries, `/opds/new` and
-  `/opds/thumb_cover/<id>`; shelves, read books, hot, discover, downloads, search and everything under `/admin`
+  `/opds/cover_240_240/<id>`; shelves, read books, hot, discover, downloads, search and everything under `/admin`
   are refused by the guard (tested). Public shelves, if any, are a visibility decision for the owner.
 - **Open owner decision (shared with sections 11.2 and 12.2):** whether a shared-view adapter's results may be
   cached once for all members. Not done: results stay keyed per member, which is safe and wasteful.
@@ -817,8 +861,8 @@ server-side and served by the home.
    (the repository records a local-password fallback in the patched image; OPDS coverage is unverified).
 2. `GET /opds/new` returns an Atom feed, newest first, with no query, listing a few dozen entries at most.
 3. Each entry has `title`, `author/name` and relative links: image `/opds/cover/<id>`, thumbnail
-   `/opds/thumb_cover/<id>`, acquisition `/opds/download/<id>/<format>/`; the numeric id appears only there.
-4. `GET /opds/thumb_cover/<id>` returns PNG, JPEG or WebP, and 404 for an id the viewer cannot see.
+   `/opds/cover_240_240/<id>`, acquisition `/opds/download/<id>/<format>/`; the numeric id appears only there.
+4. `GET /opds/cover_240_240/<id>` returns PNG, JPEG or WebP, and 404 for an id the viewer cannot see. (Calibre-Web-Automated v4 has no `thumb_cover` route; `cover_240_240` checked live 2026-10-16.)
 5. The hand-off path `/book/<id>` exists on `books.avrana.net`; the id pattern `[0-9]{1,9}` in `contract.py` is a
    placeholder.
 6. The viewer account sees the same catalogue as any member (the 13.2 invariant).
@@ -840,3 +884,95 @@ update the fixture and adapter in a separate reviewed change.
 - The standard-library XML parser is protected here by refusing declarations and capping size, not by a hardened
   parser; deep nesting is caught as a parser failure.
 - No per-member rate limit yet (as for the other adapters).
+
+## 14. Authorized cross-library search (AVR-383)
+
+Status: **proposed, not deployed.** Adapter side: `MediaAdapter.search` and the `_search` hooks. Aggregate side:
+`aggregate.search(...)` returning `SearchResults`. Fixtures are hand-written and synthetic; the Calibre-Web search
+fixture (`tests/fixtures/calibre_web/search_feed.json`) carries `_synthetic`, `_target_version` and `_provenance`
+(live compatibility UNPROVEN); the Jellyfin and Komga fakes search the existing fixtures. The UI (search page,
+"Request this title" handoff, 360 px and screen-reader flows) belongs to the shell and is not part of this unit.
+
+### 14.1 Order of checks (every adapter, in the base class)
+
+1. the principal is parser-minted; 2. **the Authentik group, before the query is even looked at** (so a member
+without the group gets `NOT_PERMITTED` with zero upstream calls for any input, including a hostile one);
+3. the term is validated and bounded (`clean_query`): an unusable term is `EMPTY` (reason `invalid_query`) and asks
+nobody; 4. in-flight caps and the circuit; 5. mapping; 6. the hook. `limit` is clamped to 1 to 50.
+
+### 14.2 The term
+
+`clean_query`: text only; at most 256 characters in (longer is refused, not truncated); Unicode NFC; control,
+format (including bidi overrides and zero-width characters), surrogate, private-use and unassigned characters and
+line or paragraph separators removed; wildcards and escapes (`* % _ ? \ [ ] { } ( ) | ^ ~ $ " backtick`) become
+spaces so a member cannot widen a search; whitespace collapsed; at most 100 characters out; at least 2. The term is
+sent **only as a query parameter** under one named allow-list key (`searchTerm`, `search`, `query`), never in a
+path (tested with path tricks, CR/LF, NUL, percent-encodings, very long and Unicode input). Slashes survive (they are
+harmless in a query value) and are URL-encoded by the transport.
+
+### 14.3 Per service
+
+| Service | Search | Member safety |
+|---|---|---|
+| Jellyfin | `GET /Items?userId=&searchTerm=` (`includeItemTypes`, `recursive`, `limit`), the user id in the QUERY bound by the guard (the same `items` route as the item lookup; moved 2026-10-16 from the legacy `/Users/{id}/Items`, which 10.9+ keeps only as an obsolete hidden alias) | The upstream scopes by user; the usual scope tripwires apply; more items than `limit` is `UpstreamMisbehaved`. |
+| Komga | `GET /api/v1/books?search=` | The SAME listing code as recent: the shared regular-account view (section 12.2, owner decision 2026-10-15); Komga applies that one account's library sharing, no per-member filter. |
+| Calibre-Web | `GET /opds/search?query=` (OpenSearch form, UNVERIFIED) | Shared view under the section 13.2 invariant, exactly like recent; the constructor flag still applies. |
+| Audiobookshelf | `GET /api/libraries/{id}/search?q=` (`limit`), per library the member may access (section 11.1, item 10) | The admin key is not member-scoped, so the member's own record decides which libraries are searched and every hit is re-checked with the section's library, tag and explicit rules. Response shape UNVERIFIED (section 11.6, assumption 12). |
+
+### 14.4 Cache and logging
+
+**Search results are never cached**: no cache read, no cache write (`_section(..., cache_name=None)`). The term is
+therefore stored nowhere, results cannot go stale past a revoked group or a changed restriction, and the cost is one
+upstream call per search (the in-flight caps and the shared circuit bound it). The term is never in a log line
+(failures log service and error class only), a health report, a result or the search view (it is not echoed).
+Autocomplete and suggestions are not implemented: no title or cover is offered before the member submits a term.
+Covers of results go through `fetch_artwork`, which re-checks visibility for the member.
+
+### 14.5 Aggregate and the view for the shell
+
+`aggregate.search(principal, adapters, query, limit=12, hard_cap=None)` validates the term once, then asks every
+adapter that does not list `search` in `not_offered`, concurrently, under the same derived hard cap as `gather` (one
+shared runner). A hung or crashing adapter costs its own group (`hard_cap`, or its exception class) and opens its
+circuit. `member_view()` is untouched; the new `SearchResults.search_view()` is:
+
+```json
+{"status": "ok", "entitled": true,
+ "groups": [{"service": "jellyfin", "state": "ok", "items": [ ...MediaItem... ]},
+            {"service": "komga", "state": "unavailable", "items": []}]}
+```
+
+`status` is `ok` or `invalid_query` (then `groups` is empty and nobody was asked). `state` is `ok`, `empty` (searched,
+no match), `unavailable` (service down, slow or cooling off) or `not_linked`; **a service the member may not use is
+omitted**, never a hint it exists. `entitled: false` says the member holds no searchable library's group (the
+"zero entitlements" state); `entitled: true` with an empty `groups` and `status: ok` cannot happen except when only
+non-searchable libraries are held. Stale cache is not a state, because nothing is cached.
+
+### 14.6 Verification status of the search and item shapes (2026-10-16)
+
+Three levels, kept apart: **doc-verified** (checked in this session against the upstream project's own source or
+API documentation, never against our servers), **live-verified** (seen on the owner's LAN preview), **UNVERIFIED**
+(recalled, not checked). Nothing here was requested from a real Avrana service by an agent.
+
+| Shape | Status |
+|---|---|
+| Jellyfin `GET /Items` with `userId`, `searchTerm`, `includeItemTypes`, `recursive`, `limit`, `fields`, `enableUserData`, `enableImageTypes`, `ids` | doc-verified (10.11 `ItemsController`: all parameters present; `/Users/{userId}/Items` is `[Obsolete]`, hidden). Response `{"Items": [...]}` and `ProductionYear`: UNVERIFIED live. That an API-key request with `userId` is scoped to that user: UNVERIFIED live |
+| Audiobookshelf `GET /api/libraries/{id}/search?q=&limit=` | doc-verified (server source: `{book: [{libraryItem: toOldJSONExpanded()}], narrators, tags, genres, series, authors}`; 404 for an unknown library; the token user's own explicit/tag filter applies to books, which with an admin token filters nothing, so the adapter's re-check stays the only member filter). There is no `matchKey`/`matchText` (we never read them). Item ids are UUIDs: live-verified (2026-10-16, preview). `media.metadata.publishedYear` (string) and `authorName` in the expanded item: UNVERIFIED live |
+| Komga `GET /api/v1/books?search=&page=&size=` | doc-verified (`BookController`: `search` param present, `@Deprecated("use /v1/books/list instead")` since 1.19.0; `POST /api/v1/books/list` exists but is a POST and stays outside the read-only guard). A future Komga that removes the GET would make search `unavailable` (RouteMissing), never empty. `metadata.authors` ({name, role}) and `metadata.releaseDate`: UNVERIFIED (recalled DTO) |
+| Calibre-Web `GET /opds/search?query=` | doc-verified (calibre-web `cps/opds.py`: `feed_normal_search` reads `request.args["query"]`; `/opds/search/<path:query>` also exists and is NOT used, the term never enters a path). Per-entry `<author><name>` and `<published>` (ISO date from `pubdate`): doc-verified (`templates/feed.xml`). Covers `/opds/cover_240_240/{id}`: live-verified (CWA v4, 2026-10-16). OPDS has **no single-book route** (doc-verified), so Calibre-Web offers no title page. Calibre-Web Automated is a fork: its OPDS search is UNVERIFIED live |
+| Item lookups for title pages: Jellyfin `/Items?ids=`, Audiobookshelf `/api/items/{id}?expanded=1` plus the member's own record, Komga `/api/v1/books/{id}` | same routes the sections and covers already use; UNVERIFIED live beyond what the preview showed |
+
+The recorded read-only check (#47's capture tool) captures the search routes so these become recorded shapes.
+
+### 14.7 Title pages (AVR-384)
+
+`GET /title/<service>/<id>` renders one item via the adapter's own `item(principal, id)`: group first (no upstream
+call and no cache read without it), the id must match the contract pattern for that service, then the member-scoped
+lookup (Jellyfin `userId`, Audiobookshelf the member's own permissions and own progress entry, Komga the shared
+view). The title page always makes the permission-checked upstream lookup (`item(..., fresh=True)`: no cache read
+or write), so a removed upstream permission takes effect on the next view; the group is still checked first.
+Calibre-Web has no item lookup, so its search results link straight to Calibre-Web. Not permitted, unknown, hidden,
+malformed: the standard 404. Komga's 403 for a book the shared account may not open is treated as hidden (404), not
+as an outage, and never counts toward the circuit; an Audiobookshelf item in a library the member may not use is
+hidden before any other field is checked, and a malformed item on the title path fails closed to hidden.
+Unavailable: a calm 503 page with Try again that says nothing about the title. The primary action and every search
+result link only to the item's own service host (`HANDOFF_BASE`).

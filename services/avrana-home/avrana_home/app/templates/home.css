@@ -1,0 +1,184 @@
+  /* Home (AVR-374/452/478): the approved preview's rules (tests/ui/home_preview/static/home.css, PR #26) adapted
+     to this shell's tokens (ink=--bg, paper=--fg, ash=--dim). Added to the page ONLY when the home sections render,
+     so no other page and no sections-off page changes (portal parity). Search, title and wall rules stay out. */
+  /* The portal's body centres its one column (justify-content:center); turned into a column here, that would centre
+     a short shell page vertically. The masthead stays at the top on every shell page. */
+  body:has(.mast){flex-direction:column;align-items:center;justify-content:flex-start;}
+  /* Footer links on one line and one box height, whether portal-styled (a.account: Manage account, Sign out) or
+     shell-styled (.link); they wrap only when the row is too narrow. */
+  body:has(.mast) footer nav{align-items:center;row-gap:0;}
+  body:has(.mast) footer a.account{display:inline-flex;align-items:center;min-height:2.75rem;padding:0;margin:0;}
+  body:has(.mast) .page{max-width:none;min-width:0;padding:0;gap:0;}
+  body:has(.mast) header{display:block;text-align:left;}
+  body:has(.mast) main{gap:1.75rem;}
+  /* Side gutters respect the safe area (zero unless a notch overlaps the page, as in an installed Home). */
+  .mast,.places,main,footer{width:100%;max-width:45rem;margin-inline:auto;
+    padding-left:max(1.25rem,env(safe-area-inset-left));padding-right:max(1.25rem,env(safe-area-inset-right));}
+  .mast{padding-top:max(0.5rem,env(safe-area-inset-top));display:flex;flex-direction:column;align-items:center;gap:0.625rem;text-align:center;}
+  /* The wordmark never wraps: it is capped by the viewport width (six letters at 0.34em spacing). */
+  .mast h1{font-size:min(clamp(1.75rem,6vw,2.5rem),calc((100vw - 3rem) / 7));white-space:nowrap;}
+  .mast a{text-decoration:none;display:inline-flex;align-items:center;min-height:2.75rem;}
+  .mast .rule{margin-top:0;}
+  .id{align-self:stretch;display:flex;flex-wrap:wrap;justify-content:flex-end;align-items:center;gap:0 0.25rem;min-height:2.75rem;}
+  .idlink{display:inline-flex;align-items:center;justify-content:center;min-height:2.75rem;min-width:2.75rem;padding:0 0.25rem;
+    font-size:0.92rem;letter-spacing:0.03em;color:var(--fg);text-decoration:none;}
+  .idlink:hover,.idlink[aria-current]{text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:0.25em;}
+  .idlink:focus-visible{outline:2px solid transparent;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--fg);}
+  .menu a[aria-current]{text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:0.25em;}
+  details.account{position:relative;}
+  .account summary{list-style:none;display:inline-flex;align-items:center;gap:0.5rem;min-height:2.75rem;min-width:2.75rem;
+    padding:0 0.25rem;cursor:pointer;font-size:0.92rem;letter-spacing:0.03em;}
+  .account summary::-webkit-details-marker{display:none;}
+  .account summary:focus-visible,.menu a:focus-visible{outline:2px solid transparent;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--fg);}
+  .mono{display:inline-flex;align-items:center;justify-content:center;width:1.75rem;height:1.75rem;
+    border:1px solid var(--rule-control);font-size:0.95rem;letter-spacing:0;}
+  .account[open] .mono{background:var(--fg);color:var(--bg);border-color:var(--fg);}
+  .menu{position:absolute;right:0;top:100%;z-index:2;text-align:left;background:var(--bg);border:1px solid var(--rule-control);
+    padding:0.25rem 0;width:max-content;min-width:min(14rem,calc(100vw - 2.5rem));max-width:calc(100vw - 2.5rem);}
+  .menu .as{margin:0;padding:0.5rem 1rem;color:var(--dim);font-size:0.92rem;border-bottom:1px solid var(--rule-quiet);overflow-wrap:anywhere;}
+  .menu ul{list-style:none;margin:0;padding:0;}
+  .menu a{display:flex;align-items:center;min-height:2.75rem;padding:0 1rem;text-decoration:none;color:var(--fg);}
+  .menu a:hover{text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:0.25em;}
+  .menu a:focus-visible{box-shadow:inset 0 0 0 2px var(--fg);}
+  /* The places bar: one row at 360px (five places); at large text it wraps to whole words, never mid-word,
+     and never past the screen edge. */
+  .places{display:flex;flex-wrap:wrap;justify-content:space-between;gap:0;margin-top:1rem;max-width:45rem;
+    border-top:1px solid var(--rule-quiet);border-bottom:1px solid var(--rule-quiet);
+    padding-left:max(0.625rem,env(safe-area-inset-left));padding-right:max(0.625rem,env(safe-area-inset-right));}
+  .places>*{display:inline-flex;align-items:center;justify-content:center;min-height:2.75rem;min-width:2.75rem;
+    padding:0 0.5rem;font-size:1.0625rem;letter-spacing:0.03em;text-decoration:none;color:var(--fg);white-space:nowrap;}
+  @media (max-width:24rem){.places>*{padding:0 0.375rem;font-size:1rem;letter-spacing:0.02em;}}
+  .places a:hover,.places a[aria-current]{text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:0.25em;}
+  .places a:focus-visible{box-shadow:inset 0 0 0 2px var(--fg);}
+  .places .off{color:var(--dim);}
+  .places .off s{text-decoration-color:var(--rule-strong);}
+  main{padding-top:1.5rem;padding-bottom:2rem;}
+  .shelf{display:flex;flex-direction:column;gap:0.75rem;min-width:0;}
+  .shelf h2{margin:0;font-weight:400;font-size:0.9rem;line-height:1.3;letter-spacing:0.22em;text-transform:uppercase;color:var(--dim);}
+  .link{color:var(--fg);text-decoration:underline;text-decoration-color:var(--rule-strong);text-decoration-thickness:1px;
+    text-underline-offset:0.2em;font-size:0.92rem;display:inline-flex;align-items:center;justify-content:center;
+    min-height:2.75rem;min-width:2.75rem;}
+  .link:hover{text-decoration-color:var(--fg);}
+  .link:focus-visible{outline:2px solid transparent;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--fg);}
+  .said{margin:0;color:var(--dim);max-width:34rem;line-height:1.55;}
+  .banner{margin:0;padding:0.75rem 1rem;border:1px solid var(--rule-strong);color:var(--fg);}
+  .tabs{display:flex;gap:0.25rem;margin:-0.25rem -1.25rem 0;padding:0 1.25rem;overflow-x:auto;scrollbar-width:none;
+    border-bottom:1px solid var(--rule-quiet);}
+  .tabs::-webkit-scrollbar{display:none;}
+  .tabs a{position:relative;flex:none;display:inline-flex;align-items:center;justify-content:center;min-height:2.75rem;
+    min-width:2.75rem;padding:0 0.5rem;font-size:0.92rem;color:var(--dim);text-decoration:none;}
+  .tabs a:first-child{margin-left:-0.5rem;}
+  .tabs a:hover,.tabs a[aria-current]{color:var(--fg);}
+  .tabs a[aria-current]::after{content:"";position:absolute;left:0.5rem;right:0.5rem;bottom:0;height:1px;background:var(--fg);}
+  .tabs a:focus-visible{box-shadow:inset 0 0 0 2px var(--fg);}
+  /* Artwork keeps its natural shape (owner decision 2026-10-15): --r is the shape's width/height ratio. Outside
+     a rail (Search) the frame takes its width and the ratio sets the height. Images are contained, never
+     cropped into another shape. */
+  .w-poster,.w-book{--r:0.6667;}
+  .w-comic{--r:0.65;}
+  .w-square{--r:1;}
+  .w-still{--r:1.7778;}
+  .frame{position:relative;display:block;width:100%;aspect-ratio:2/3;overflow:hidden;border:1px solid var(--rule-quiet);
+    background:var(--bg);transition:border-color 160ms ease;}
+  .w-still .frame{aspect-ratio:16/9;}
+  .w-poster .frame,.w-book .frame{aspect-ratio:2/3;}
+  .w-square .frame{aspect-ratio:1;}
+  .w-comic .frame{aspect-ratio:13/20;}
+  .ph{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--dim);font-size:2rem;}
+  .art{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;}
+  img{display:block;max-width:100%;}
+  /* A card: title (two lines at most), the dim creator/series/episode line (one line), progress, the action.
+     Clamping is visual only; the full text stays in the link, and so in its accessible name. */
+  .card{position:relative;display:flex;flex-direction:column;gap:0.125rem;min-width:0;text-decoration:none;color:var(--fg);}
+  .card .frame{margin-bottom:0.5rem;}
+  .t{font-size:1rem;line-height:1.25;overflow-wrap:anywhere;display:-webkit-box;-webkit-box-orient:vertical;
+    -webkit-line-clamp:2;line-clamp:2;overflow:hidden;}
+  .d{font-size:0.875rem;line-height:1.35;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .p{font-size:0.875rem;line-height:1.35;color:var(--fg);}
+  .go{align-self:flex-start;margin-top:0.25rem;font-size:0.875rem;line-height:1.35;letter-spacing:0.03em;color:var(--fg);
+    text-decoration:underline;text-decoration-color:var(--rule-strong);text-decoration-thickness:1px;text-underline-offset:0.25em;}
+  .card:hover .frame,.card:focus-visible .frame{border-color:var(--fg);}
+  .card:hover .t{text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:0.2em;}
+  .card:hover .go,.card:focus-visible .go{text-decoration-color:var(--fg);}
+  /* Rails scroll sideways whenever the column cannot hold them. Every frame in a rail stands on the same
+     baseline: the rail's height (--art-h) and its own natural width, except that a shape wider than the card
+     (a video still) is held to --wide-max and stands shorter, bottom-aligned, so titles still line up.
+     On phones every card is one width (--cw), about 2.2 to a screen, so the next card peeks in as a sliver.
+     Keyboard focus: a browser scrolls a focused card into view only when it lies wholly outside the rail's
+     "optimal viewing region", which is the scroller less its scroll-padding. The right scroll-padding leaves
+     a region exactly one card (plus its focus ring) wide, so a peeking card counts as outside: Tab scrolls it
+     fully into view and its focus ring is never clipped. That only holds while cards rest card-aligned, so
+     phone rails snap mandatorily to card starts, and a trailing spacer lets the last card snap to the start
+     too (otherwise the end of the rail leaves the card before last straddling the left edge). The thin
+     scrollbar has its own padding, below the text. */
+  .rail{--art-h:8rem;--card-min:8.75rem;--pad:1.25rem;--cw:min(var(--card-min),80vw);--wide-max:var(--cw);
+    list-style:none;margin:-0.375rem calc(0rem - var(--pad));padding:0.375rem var(--pad) 0.625rem;
+    display:flex;align-items:flex-start;gap:0.875rem;overflow-x:auto;overscroll-behavior-x:contain;
+    scroll-snap-type:x mandatory;
+    scroll-padding-inline:var(--pad) max(var(--pad),calc(100% - var(--pad) - max(var(--cw),var(--wide-max)) - 0.5rem));
+    scrollbar-width:thin;scrollbar-color:var(--rule-quiet) transparent;}
+  .rail.tall{--art-h:9rem;}
+  .rail::after{content:"";flex:none;width:calc(100% - var(--cw) - 0.875rem);}
+  .rail>li{--fw:min(var(--wide-max),calc(var(--art-h) * var(--r)));--fh:calc(var(--fw) / var(--r));
+    flex:none;scroll-snap-align:start;min-width:0;width:max(var(--cw),var(--fw));max-width:80vw;}
+  .rail .frame{aspect-ratio:auto;width:var(--fw);height:var(--fh);max-width:100%;margin-top:calc(var(--art-h) - var(--fh));}
+  /* From 45rem the four cards fit the column, so a still may be wider than the other cards, snapping is
+     gentle and no spacer is needed. */
+  @media (min-width:45rem){.rail{--art-h:9rem;--card-min:9rem;--pad:0.375rem;--wide-max:12.5rem;margin:-0.375rem;
+    scroll-snap-type:x proximity;}.rail::after{display:none;}
+    .rail.tall{--art-h:10.5rem;}.tabs{margin-inline:0;padding-inline:0;overflow:visible;}}
+  footer{display:flex;justify-content:center;gap:1.625rem;flex-wrap:wrap;padding-bottom:max(2.5rem,env(safe-area-inset-bottom));}
+  @media (prefers-reduced-motion:reduce){.frame{transition:none;}}
+  .retry{margin:0;}
+  /* Search (AVR-383): the same shell as Home. */
+  .srch{display:flex;flex-direction:column;gap:0.75rem;margin:0;}
+  .srch label{color:var(--dim);font-size:0.9rem;letter-spacing:0.08em;text-transform:uppercase;}
+  .srch .ask{display:flex;flex-wrap:wrap;gap:0.625rem;}
+  .srch input[type=search]{flex:1 1 9rem;width:0;min-width:0;min-height:2.75rem;padding:0.5rem 0.75rem;font:inherit;font-size:1.1rem;
+    color:var(--fg);background:var(--bg);border:1px solid var(--rule-control);border-radius:0;}
+  .srch input[aria-invalid=true]{border-color:var(--fg);border-width:2px;}
+  .srch button{min-height:2.75rem;padding:0.5rem 1.25rem;font:inherit;color:var(--bg);background:var(--fg);border:1px solid var(--fg);cursor:pointer;}
+  .srch input:focus-visible,.srch button:focus-visible{outline:2px solid transparent;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--fg);}
+  .hint,.err{margin:0;font-size:0.92rem;line-height:1.5;overflow-wrap:anywhere;}
+  .hint{color:var(--dim);}
+  .err{color:var(--fg);padding:0.5rem 0.75rem;border:1px solid var(--rule-strong);}
+  .found{display:flex;flex-direction:column;gap:0.75rem;}
+  /* A library's name under the results heading: body size, below the uppercase section label in weight. */
+  .found h3{margin:0;font-weight:400;font-size:1rem;letter-spacing:0.04em;}
+  ul.hits{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:0.625rem;}
+  /* A result row: thumbnail, then title (two lines) and meta (one line), then Open. On a phone Open sits under
+     the text, beside the thumbnail; from 30rem it ends the row. Nothing wraps word by word. */
+  ul.hits li{--thumb:min(3rem,16vw);display:grid;grid-template-columns:var(--thumb) minmax(0,1fr);grid-template-areas:"art meta" "art act";
+    gap:0.5rem min(0.875rem,3vw);align-items:start;border:1px solid var(--rule-quiet);padding:0.625rem 0.75rem;}
+  ul.hits .frame{grid-area:art;width:var(--thumb);margin:0;}
+  ul.hits .meta{grid-area:meta;min-width:0;display:flex;flex-direction:column;gap:0.125rem;}
+  @media (min-width:30rem){ul.hits li{grid-template-columns:var(--thumb) minmax(0,1fr) auto;grid-template-areas:"art meta act";align-items:center;}}
+  a.open{flex:none;display:inline-flex;align-items:center;min-height:2.75rem;padding:0 1rem;color:var(--fg);
+    border:1px solid var(--rule-strong);text-decoration:none;}
+  a.open:hover,a.open:focus-visible{background:var(--fg);color:var(--bg);}
+  a.open:focus-visible{outline:2px solid transparent;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--fg);}
+  /* Lane C (AVR-383/384): search result titles are the one link; the title page. Minimal, owned by Lane C. */
+  ul.hits a.t{color:var(--fg);text-decoration:underline;text-decoration-color:var(--rule-strong);text-decoration-thickness:1px;
+    text-underline-offset:0.2em;display:inline-flex;align-items:center;min-height:2.75rem;}
+  ul.hits a.t:hover{text-decoration-color:var(--fg);}
+  ul.hits a.t:focus-visible{outline:2px solid transparent;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--fg);}
+  .asks{margin:0;padding:0;list-style:none;display:flex;flex-wrap:wrap;gap:0 1.25rem;}
+  .kicker{margin:0;color:var(--dim);font-size:0.9rem;letter-spacing:0.08em;text-transform:uppercase;}
+  .title-body{display:flex;flex-wrap:wrap;gap:1rem 1.25rem;align-items:flex-start;}
+  .title-body .frame{width:min(12rem,45vw);flex:none;}
+  .title-body.w-still .frame,.title-body.w-square .frame{width:min(16rem,70vw);}
+  .title-meta{flex:1 1 14rem;min-width:0;display:flex;flex-direction:column;gap:0.375rem;}
+  .title-meta h2.t{margin:0;font-weight:400;font-size:clamp(1.4rem,5vw,2rem);letter-spacing:0;text-transform:none;color:var(--fg);}
+  .title-meta p{margin:0;}
+  .title-meta .act{margin-top:0.75rem;}
+  /* A link inside a sentence stays inline (no padded block, no orphaned full stop); WCAG 2.5.8 exempts it. */
+  a.inline{color:var(--fg);text-decoration:underline;text-decoration-color:var(--rule-strong);text-decoration-thickness:1px;
+    text-underline-offset:0.2em;}
+  a.inline:hover{text-decoration-color:var(--fg);}
+  a.inline:focus-visible{outline:2px solid transparent;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--fg);}
+  /* Account (shell): "Your access" split into Libraries and Requests. */
+  h3.sub{margin:0;font-weight:400;font-size:0.98rem;letter-spacing:0.04em;color:var(--fg);}
+  /* Help topics in the shell: the client name and its Recommended tag wrap as whole words at 200% text on a phone,
+     never pushing the page sideways. */
+  .client>div{display:flex;flex-wrap:wrap;align-items:baseline;gap:0.25rem 0.75rem;min-width:0;}
+  .client .tag{margin-left:0;}

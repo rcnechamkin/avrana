@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% from "_parts.html" import frame %}
+{% block title %}{% if page.outcome %}{{ page.outcome }} · {% endif %}Search · Avrana{% endblock %}
+{% block body %}
+{# Search (AVR-383). One plain GET form, no script, no suggestions. The typed term is autoescaped and bounded by
+   the view-model; results are grouped by library, only libraries the member may use are ever named, and every
+   group says truthfully what happened. The shell (masthead, places, Search, Help, account) is the same as Home. #}
+  <section class="shelf" aria-labelledby="h-search">
+    <h2 id="h-search">Search</h2>
+{% if page.mode == "no_library" %}
+    <p class="said" role="status">{{ page.message }} See <a class="link" href="/help">Help</a> for what is set up.</p>
+{% else %}
+    <form class="srch" method="get" action="/search" role="search">
+      <label for="q">Title or author</label>
+      <div class="ask">
+        <input id="q" name="q" type="search" value="{{ page.term }}" maxlength="100" autocomplete="off" spellcheck="false"
+          {%- if page.mode == "invalid" %} aria-invalid="true" aria-describedby="q-error q-hint"{% else %} aria-describedby="q-hint"{% endif %}>
+        <button type="submit">Search</button>
+      </div>
+{% if page.mode == "invalid" %}
+      <p class="err" id="q-error" role="alert">{{ page.message }}</p>
+{% endif %}
+      <p class="hint" id="q-hint">{{ page.hint }}</p>
+    </form>
+{% endif %}
+  </section>
+{% if page.mode == "results" %}
+  <section class="shelf" aria-labelledby="h-outcome">
+    <h2 id="h-outcome">{{ page.outcome }}</h2>
+{% if not page.found %}
+    <p class="said" role="status">{{ page.message }}{% if page.result_state == "unsearchable" and page.retry_href %} <a class="link" href="{{ page.retry_href }}">Try again<span class="sr"> searching your libraries</span></a>{% elif page.result_state == "not_set_up" %} <a class="link" href="/help/trouble#not-set-up">What to do next</a>{% endif %}</p>
+{% endif %}
+{% if page.requests %}
+    <ul class="asks">
+{% for r in page.requests %}
+      <li><a class="link" href="{{ r.href }}">{{ r.label }}{% if r.leaves %}<span class="sr">, opens the request website</span>{% endif %}</a>{% if r.leaves %} <span class="hint" aria-hidden="true">Opens the request website</span>{% endif %}</li>
+{% endfor %}
+    </ul>
+{% endif %}
+{% for g in page.groups %}
+    <section class="found" aria-labelledby="g-{{ loop.index }}">
+      <h3 id="g-{{ loop.index }}">{{ g.label }}</h3>
+{% if g.state == "ok" %}
+      <ul class="hits">
+{% for it in g.items %}
+        <li class="w-{{ it.shape }}">{{ frame(it.image, it.title) }}
+          <span class="meta"><a class="t" href="{{ it.href }}">{{ it.title }}<span class="sr">, {{ it.medium }}{% if it.opens %}, opens in {{ it.opens }}{% endif %}</span></a>{% if it.line %}<span class="d">{{ it.line }}</span>{% endif %}{% if it.opens %}<span class="d" aria-hidden="true">Opens in {{ it.opens }}</span>{% endif %}</span></li>
+{% endfor %}
+      </ul>
+{% elif page.found or page.result_state != "unsearchable" %}
+      <p class="said" role="status">{{ g.message }}{% if g.retry and page.retry_href %} <a class="link" href="{{ page.retry_href }}">Try again<span class="sr"> searching {{ g.label }}</span></a>{% elif g.state == "not_linked" %} <a class="link" href="/help/trouble#not-set-up">What to do next<span class="sr"> about {{ g.label }}</span></a>{% endif %}</p>
+{% else %}
+      <p class="said">{{ g.message }}{% if g.state == "not_linked" %} <a class="link" href="/help/trouble#not-set-up">What to do next<span class="sr"> about {{ g.label }}</span></a>{% endif %}</p>
+{% endif %}
+    </section>
+{% endfor %}
+  </section>
+{% endif %}
+{% endblock %}
+{% block footer %}    <a class="link" href="/">Back to home</a>{% endblock %}

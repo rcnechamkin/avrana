@@ -1,63 +1,59 @@
-"""Komga read-only member adapter: one section, "Recently added" (comics).
+"""Komga read-only catalogue adapter: one section, "Recently added" (comics). A SHARED REGULAR-ACCOUNT VIEW.
 
 Status: proposed, not deployed. Standard library only. Proven only against HAND-WRITTEN fixtures that
 are unverified against the deployed Komga; a recorded, read-only contract check is a separate,
 owner-approved step that must happen before any real member data is read (ADAPTER-CONTRACT.md, section 12.5).
 
-KEY SCOPE (OWNER DECISION, see the contract, section 12.2). Komga has no impersonation and its per-user
-restrictions (library sharing, age restriction, sharing labels) live in the member's user record, which
-only an ADMIN credential can list. So enforcing a member's restrictions needs an admin-capable key, and
-the read-only property comes from the GET allow-list below, never from the key. The alternative, a
-non-admin shared-view account, cannot read restrictions and is correct only while no member is restricted.
-This module implements the admin-key design with a fail-closed client-side filter, exactly like the
-Audiobookshelf adapter. It must not be wired to a key until the owner has chosen.
+OWNER DECISION, 2026-10-15 (contract section 12.2): Komga is a SHARED view, the same pattern as Calibre-Web
+(section 13.2). The home holds ONE dedicated regular (non-admin) Komga account and NO admin key. Nobody will
+ever have Komga restrictions, so there is nothing per member to enforce. What this module does:
 
-How it stays member-scoped:
+  * The Authentik group `avrana-comics` is checked before any upstream call (and before any cache read).
+  * There is no user listing (`/api/v2/users` is admin-only and is not in the route table) and no per-member
+    mapping: every member who holds the group is mapped to the same fixed, non-member "shared viewer"
+    (`SHARED_VIEWER`). `resolve_user` never names a real Komga account.
+  * No per-member restriction filter exists. Every member sees what the one regular account sees; Komga
+    itself applies that account's library sharing to the answers. The invariant that no member is restricted
+    is the owner's, and the constructor refuses unless `owner_confirms_no_member_restrictions` is True.
+  * Read progress in a book response belongs to the shared account, not the member: it is never read, so it
+    can never be shown as a member's own. "Continue" is not offered. The `ondeck`, read-list, collection and
+    per-user routes are not in the route table.
+  * The credential lives only inside the transport (a header, never a URL). Every request goes through
+    `GuardedTransport`: GET only, an explicit four-route list (latest, book, search, thumbnail), no query
+    keys beyond the list.
+  * Hand-off and artwork never use an upstream URL: the contract builder makes the hand-off URL from the
+    validated book id.
 
-  * The credential lives only inside the transport. Every request goes through `GuardedTransport`: GET
-    only, an explicit route list, and a mapped member must exist before any non-mapping route is used.
-    Komga routes cannot carry the member in the path or query, so the guard cannot bind a request to a
-    member: the isolation is this module's filter, which is why it is built to fail closed.
-  * The member's restrictions are read from that member's own record in `/api/v2/users` (matched by the
-    mapped id), BEFORE any book is requested. A malformed restriction field makes the section
-    unavailable, never an unfiltered list.
-  * Books and series are fetched with the admin key, so they are NOT member-scoped upstream. A book is
-    shown only if its library, its series' age rating and its series' sharing labels pass that member's
-    restrictions (stricter than Komga's own combination, see `_Access`).
-  * Read progress in a book response belongs to the credential's user, not the member: it is never read.
-    "Continue" is therefore not offered.
-  * Read lists and collections are server-global and are not in the route table.
-  * Artwork is fetched only after the same visibility check, per request.
+If any member ever has a Komga restriction, the shared view would show that member more than Komga does.
+The earlier admin-key, per-member design (user listing, restriction filter, link-table linker) was REMOVED,
+not kept behind a flag: it needed an admin key that reaches everything, and the owner will not issue one.
 
 Route and field names are recalled from Komga's public API documentation and are UNVERIFIED.
 """
 from __future__ import annotations
 
 import re
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, Optional, Tuple
 
-from ..contract import (ArtworkRef, ArtworkResult, DEFAULT_LIMIT, Kind, MappingFailed, MediaItem,
-                        SectionResult, SectionState, Service, UpstreamUser, build_handoff_url,
-                        clean_text, valid_upstream_id)
+from ..contract import (ArtworkRef, ArtworkResult, DEFAULT_LIMIT, Kind, MediaItem, SectionResult,
+                        SectionState, Service, UpstreamUser, build_handoff_url, clean_text,
+                        valid_upstream_id)
 from ..principal import MemberPrincipal
-from ..resilience import (DEFAULT_TIMEOUT, ItemGone, RouteMissing, Transport, UpstreamMalformed,
-                          UpstreamMisbehaved, UserGone)
-from ._base import GuardedAdapter, Route, bounded_int, match_exactly_one
+from ..resilience import (DEFAULT_TIMEOUT, ItemGone, RouteMissing, Transport, UpstreamAuthError,
+                          UpstreamMalformed, UpstreamMisbehaved)
+from ._base import GuardedAdapter, Route, year_from
 from ._base import GuardedTransport as _Guard
 
+SHARED_VIEWER = "shared"                      # the fixed, non-member upstream "user": a shared view, by design
+_BOUND_ID = re.compile(SHARED_VIEWER)
 _ID = r"[A-Za-z0-9]{6,32}"
-_BOUND_ID = re.compile(_ID)
 _ARTWORK_REF = re.compile(r"komga/book/(" + _ID + r")")
-MAX_LOOKUPS = 12                 # series lookups per request, however long the book list is
 MAX_PAGE = 100                   # books asked for in one page, whatever the limit
-MAX_LABELS = 200                 # a list longer than this in a record is hostile
 
 ALLOWED_ROUTES = (
-    # the user list: mapping and the member's restrictions (admin-only upstream); not bound to a member
-    Route("users", r"/api/v2/users", (), user_scoped=False, needs_user=False, not_found=RouteMissing),
     Route("latest", r"/api/v1/books/latest", ("page", "size"), user_scoped=False, not_found=RouteMissing),
     Route("book", r"/api/v1/books/(?!(?:latest|updated|ondeck)$)" + _ID, (), user_scoped=False, not_found=ItemGone),
-    Route("series", r"/api/v1/series/" + _ID, (), user_scoped=False, not_found=ItemGone),
+    Route("search", r"/api/v1/books", ("search", "page", "size"), user_scoped=False, not_found=RouteMissing),
     Route("thumbnail", r"/api/v1/books/(?!(?:latest|updated|ondeck)/)" + _ID + r"/thumbnail", (), user_scoped=False,
           not_found=ItemGone),
 )
@@ -73,14 +69,6 @@ class GuardedTransport(_Guard):
         return GuardedTransport(self._inner, user_id)
 
 
-# ---- member mapping: a SEAM (OWNER DECISION, contract section 11.2 / 12.2) ----------------------
-# A linker takes the verified principal and the raw upstream user list and returns the one Komga user id
-# for that member, or raises MappingFailed / AmbiguousMappingError. Nothing else in this module decides
-# who a member is. The owner has not yet decided between: A) the exact username, B) the e-mail, C) an
-# owner-maintained link list. Only A (as far as Komga's records allow) and C exist here; B is NOT implemented.
-Linker = Callable[[MemberPrincipal, Sequence[Any]], str]
-
-
 _RESERVED = frozenset({"latest", "updated", "ondeck"})     # Komga sub-routes that look like ids (UNVERIFIED list)
 
 
@@ -88,236 +76,120 @@ def _item_id(value: Any) -> bool:
     return valid_upstream_id(Service.KOMGA, value) and value not in _RESERVED
 
 
-def _komga_user_id(raw: Any) -> Optional[str]:
-    if isinstance(raw, dict) and valid_upstream_id(Service.KOMGA, raw.get("id")):
-        return raw["id"]
-    return None
-
-
-def exact_name_linker(principal: MemberPrincipal, users: Sequence[Any]) -> str:
-    """The contract's current rule (exact, case-sensitive, loose matches never link) applied to the only
-    name Komga's user record has: its `email` (the login). A Komga record has no separate username, so
-    this links only when the Authentik username equals the Komga login exactly, which will usually NOT be
-    the case: the member is then NOT_LINKED (fail safe). The principal's e-mail is never consulted."""
-    def extract(raw):
-        uid, name = _komga_user_id(raw), raw.get("email") if isinstance(raw, dict) else None
-        return (name, uid) if uid is not None and isinstance(name, str) else None
-    uid, _ = match_exactly_one(principal.username, users, extract)
-    return uid
-
-
-def link_table_linker(table: Dict[str, str]) -> Linker:
-    """Option C: an owner-maintained {Authentik username: Komga user id} table, kept outside Git. The id
-    must exist in the upstream list exactly once; an id shared by two usernames is refused up front."""
-    frozen = dict(table)
-    if len(set(frozen.values())) != len(frozen):
-        raise ValueError("two usernames link to one Komga user")
-    for uid in frozen.values():
-        if not valid_upstream_id(Service.KOMGA, uid):
-            raise ValueError("malformed Komga user id in the link table")
-
-    def link(principal: MemberPrincipal, users: Sequence[Any]) -> str:
-        uid = frozen.get(principal.username)
-        if uid is None:
-            raise MappingFailed("unmapped")
-        if sum(1 for u in users if _komga_user_id(u) == uid) != 1:
-            raise MappingFailed("unmapped")
-        return uid
-    return link
-
-
-# ---- what one member may see -----------------------------------------------------------------
-def _str_list(value: Any) -> Tuple[str, ...]:
-    if not isinstance(value, list) or len(value) > MAX_LABELS or not all(isinstance(x, str) for x in value):
-        raise UpstreamMalformed()
-    return tuple(value)
-
-
-class _Access:
-    """The restrictions of one member, read from that member's own record (fail closed on anything odd).
-
-    Komga's own combination of allow rules is not verified here; this class is STRICTER on purpose: every
-    configured rule must pass (library AND age AND labels), so it can only show less than Komga would."""
-
-    def __init__(self, libraries: Optional[frozenset], age: Optional[Tuple[str, int]],
-                 allow: frozenset, exclude: frozenset):
-        self.libraries = libraries          # None: every library
-        self.age = age                      # None, or ("ALLOW_ONLY" | "EXCLUDE", age)
-        self.allow = allow                  # sharing labels, case-folded; empty: no allow rule
-        self.exclude = exclude
-
-    @classmethod
-    def from_record(cls, record: Dict[str, Any]) -> "_Access":
-        shared_all = record.get("sharedAllLibraries")
-        if not isinstance(shared_all, bool):
-            raise UpstreamMalformed()
-        libraries = None if shared_all else frozenset(_str_list(record.get("sharedLibrariesIds")))
-        restriction = record.get("ageRestriction")
-        age = None
-        if restriction is not None:
-            if not isinstance(restriction, dict):
-                raise UpstreamMalformed()
-            kind, years = restriction.get("restriction"), restriction.get("age")
-            if kind not in ("ALLOW_ONLY", "EXCLUDE") or isinstance(years, bool) or not isinstance(years, int):
-                raise UpstreamMalformed()
-            age = (kind, years)
-        allow = frozenset(s.casefold() for s in _str_list(record.get("labelsAllow")))
-        exclude = frozenset(s.casefold() for s in _str_list(record.get("labelsExclude")))
-        return cls(libraries, age, allow, exclude)
-
-    def allows(self, library_id: str, age_rating: Optional[int], labels: Sequence[str]) -> bool:
-        if self.libraries is not None and library_id not in self.libraries:
-            return False
-        if self.age is not None:
-            kind, years = self.age
-            if kind == "ALLOW_ONLY" and (age_rating is None or age_rating > years):
-                return False                  # unrated content is not "allowed"
-            if kind == "EXCLUDE" and age_rating is not None and age_rating >= years:
-                return False
-        folded = {s.casefold() for s in labels}
-        if folded & self.exclude:
-            return False
-        if self.allow and not folded & self.allow:
-            return False
-        return True
+def _creator(authors: Any) -> Optional[str]:
+    """`metadata.authors` is a list of {name, role} (Komga BookMetadataDto, recalled from the public API, not
+    live-verified). The first writer is the creator; failing that, the first named author. Anything else: None."""
+    if not isinstance(authors, list):
+        return None
+    named = [a for a in authors[:50] if isinstance(a, dict) and clean_text(a.get("name"))]
+    pick = next((a for a in named if a.get("role") == "writer"), named[0] if named else None)
+    return clean_text(pick.get("name")) if pick else None
 
 
 class KomgaAdapter(GuardedAdapter):
     service = Service.KOMGA
     not_offered = frozenset({"continue"})
 
-    def __init__(self, transport: Transport, timeout: float = DEFAULT_TIMEOUT,
-                 linker: Linker = exact_name_linker, **kw):
+    def __init__(self, transport: Transport, timeout: float = DEFAULT_TIMEOUT, *,
+                 owner_confirms_no_member_restrictions: bool = False, **kw):
+        # A shared view (contract 12.2, owner decision 2026-10-15): every member sees what the regular
+        # account sees, so Komga's own per-member restrictions are NOT applied. The owner must opt in on
+        # purpose, and only while no member has a Komga restriction.
+        if owner_confirms_no_member_restrictions is not True:
+            raise ValueError("Komga adapter is a shared view; the owner must confirm no member is restricted")
         super().__init__(GuardedTransport(transport), timeout, **kw)
-        self._linker = linker
 
     def __repr__(self) -> str:
         return "KomgaAdapter(<redacted>)"
 
     # -- what this adapter does not offer: no upstream call, nothing cached ----------------
     def continue_items(self, principal: MemberPrincipal, limit: int = DEFAULT_LIMIT) -> SectionResult:
-        """Komga read progress belongs to the credential's user, not the member: not offered."""
+        """Read progress belongs to the shared account, not the member: not offered."""
         return self._not_offered(principal, "continue")
 
-    # -- mapping ---------------------------------------------------------------------------
-    def _user_list(self, guard) -> List[Any]:
-        users = self._get_json(guard, self._budget(), "/api/v2/users", None)
-        if not isinstance(users, list):
-            raise UpstreamMalformed()
-        return users
-
+    # -- mapping: none. A shared view (OWNER DECISION, contract 12.2) ------------------------
     def _resolve_user(self, principal) -> UpstreamUser:
-        users = self._user_list(self._guard.bind(None))
-        return UpstreamUser(Service.KOMGA, self._linker(principal, users))
-
-    def _access(self, user: UpstreamUser) -> _Access:
-        """The member's own restrictions. The list holds every account; only this member's record is read."""
-        mine = [u for u in self._user_list(self._guard.bind(None)) if _komga_user_id(u) == user.upstream_id]
-        if not mine:
-            raise UserGone(404)                   # the mapped account is gone
-        if len(mine) > 1:
-            raise UpstreamMisbehaved()
-        return _Access.from_record(mine[0])
+        return UpstreamUser(Service.KOMGA, SHARED_VIEWER)
 
     # -- books -----------------------------------------------------------------------------
-    def _series_meta(self, guard, budget, series_id: str) -> Optional[Tuple[str, Optional[int], List[str]]]:
-        """(library id, age rating, sharing labels) of a series, or None if it is gone."""
-        try:
-            raw = self._get_json(guard, budget, f"/api/v1/series/{series_id}", None)
-        except ItemGone:
-            return None
-        if not isinstance(raw, dict):
-            raise UpstreamMalformed()
-        if raw.get("id") != series_id:
-            raise UpstreamMisbehaved()            # the lookup answered with a different series
-        meta, library = raw.get("metadata"), raw.get("libraryId")
-        if not isinstance(meta, dict) or not isinstance(library, str):
-            raise UpstreamMalformed()
-        age = meta.get("ageRating")
-        if age is not None and (isinstance(age, bool) or not isinstance(age, int)):
-            raise UpstreamMalformed()
-        return library, age, list(_str_list(meta.get("sharingLabels")))
-
-    def _book(self, raw: Any, access: _Access, series: Dict[str, Any], guard, budget, lookups: List[int]
-              ) -> Tuple[Optional[MediaItem], str]:
-        """(item, status): "ok", "filtered" (a legitimate drop) or "bad" (unusable: fail closed)."""
+    @staticmethod
+    def _book(raw: Any) -> Tuple[Optional[MediaItem], str]:
+        """(item, status): "ok", "filtered" (a legitimate drop) or "bad" (unusable). Only explicit fields are
+        read: `readProgress` (the shared account's) is never touched."""
         if not isinstance(raw, dict):
             return None, "bad"
-        book_id, series_id, library = raw.get("id"), raw.get("seriesId"), raw.get("libraryId")
-        if not (_item_id(book_id) and _item_id(series_id) and isinstance(library, str)):
+        book_id = raw.get("id")
+        if not _item_id(book_id):
             return None, "bad"
         media = raw.get("media")
         if raw.get("deleted") is True or (isinstance(media, dict) and media.get("status") not in (None, "READY")):
             return None, "filtered"
-        if series_id not in series:
-            if lookups[0] >= MAX_LOOKUPS:
-                return None, "filtered"           # over the lookup bound: left out, never shown unchecked
-            lookups[0] += 1
-            try:
-                series[series_id] = self._series_meta(guard, budget, series_id)
-            except UpstreamMalformed:
-                series[series_id] = False             # unusable: its books are left out, never shown unchecked
-        meta = series[series_id]
-        if meta is False:
-            return None, "bad"
-        if meta is None:
-            return None, "filtered"
-        series_library, age, labels = meta
-        if series_library != library:
-            raise UpstreamMisbehaved()            # book and series disagree about the library
-        if not access.allows(library, age, labels):
-            return None, "filtered"
         info = raw.get("metadata") if isinstance(raw.get("metadata"), dict) else {}
         title = clean_text(info.get("title")) or clean_text(raw.get("name")) or "Untitled"
         number = clean_text(info.get("number"), 20)
-        return MediaItem(id=f"komga:{book_id}", service=Service.KOMGA, kind=Kind.COMIC, title=title,
+        return MediaItem(creator=_creator(info.get("authors")), year=year_from(info.get("releaseDate")),
+                         id=f"komga:{book_id}", service=Service.KOMGA, kind=Kind.COMIC, title=title,
                          handoff_url=build_handoff_url(Service.KOMGA, book_id),
                          subtitle=f"#{number}" if number else None, series=clean_text(raw.get("seriesTitle")),
                          artwork=ArtworkRef(f"komga/book/{book_id}", f"Cover of {title}")), "ok"
 
-    def _visible_book(self, guard, budget, access: _Access, book_id: str) -> Optional[MediaItem]:
+    def _visible_book(self, guard, budget, book_id: str) -> Optional[MediaItem]:
+        """The book if the shared account can see it, else None. Komga answers 404 for an unknown book and 403
+        for a book in a library or behind a content restriction the account may not use (BookController, from
+        the source; UNVERIFIED live). Both are the same "hidden" here, so a title page cannot tell them apart
+        (no existence oracle). The 403 is handled inside the hook, so it never reaches the shared circuit; a
+        refused credential (401) still does."""
         if not _item_id(book_id):
             return None
         try:
             raw = self._get_json(guard, budget, f"/api/v1/books/{book_id}", None)
         except ItemGone:
             return None
+        except UpstreamAuthError as exc:
+            if exc.status == 403:
+                return None
+            raise
         if isinstance(raw, dict) and raw.get("id") != book_id:
             raise UpstreamMisbehaved()
-        item, status = self._book(raw, access, {}, guard, budget, [0])
+        item, status = self._book(raw)
         if item is None and status == "bad":
             raise UpstreamMalformed()
         return item
 
     # -- hooks -----------------------------------------------------------------------------
     def _recent_items(self, user: UpstreamUser, limit: int) -> SectionResult:
-        access = self._access(user)                           # BEFORE any book is requested
+        return self._listing(user, limit, "/api/v1/books/latest", {}, "recent")
+
+    def _search(self, user: UpstreamUser, query: str, limit: int) -> SectionResult:
+        """Search is the SAME shared-account listing as recent (contract 12.2): Komga applies the one regular
+        account's library sharing to the answer; there is no per-member filter. The term is a query parameter only."""
+        return self._listing(user, limit, "/api/v1/books", {"search": query}, "search")
+
+    def _listing(self, user: UpstreamUser, limit: int, path: str, params: Dict[str, str],
+                 section: str) -> SectionResult:
         guard, budget = self._guard.bind(user.upstream_id), self._budget()
         size = min(MAX_PAGE, limit * 3)
-        body = self._get_json(guard, budget, "/api/v1/books/latest", {"page": "0", "size": str(size)})
+        body = self._get_json(guard, budget, path, dict(params, page="0", size=str(size)))
         raws = body.get("content") if isinstance(body, dict) else None
         if not isinstance(raws, list):
             raise UpstreamMalformed()
         if len(raws) > size:
             raise UpstreamMisbehaved()                         # the page size was ignored
-        series: Dict[str, Any] = {}
-        lookups = [0]
-        shown: List[MediaItem] = []
+        shown = []
         bad = 0
         for raw in raws:
             if len(shown) >= limit:
                 break
-            item, status = self._book(raw, access, series, guard, budget, lookups)
+            item, status = self._book(raw)
             bad += status == "bad"
             if item is not None and all(item.id != s.id for s in shown):
                 shown.append(item)
         if not shown and bad:
             raise UpstreamMalformed()                          # nothing usable and some drift: never "empty"
-        return SectionResult.of(Service.KOMGA, "recent", tuple(shown))
+        return SectionResult.of(Service.KOMGA, section, tuple(shown))
 
     def _item(self, user: UpstreamUser, item_id: str) -> SectionResult:
-        access = self._access(user)
-        found = self._visible_book(self._guard.bind(user.upstream_id), self._budget(), access, item_id)
+        found = self._visible_book(self._guard.bind(user.upstream_id), self._budget(), item_id)
         return SectionResult.of(Service.KOMGA, "item", (found,) if found else ())
 
     def _fetch_artwork(self, user: UpstreamUser, ref: str) -> ArtworkResult:
@@ -325,8 +197,9 @@ class KomgaAdapter(GuardedAdapter):
         if m is None:
             return ArtworkResult(SectionState.EMPTY)
         book_id = m.group(1)
-        access = self._access(user)
-        guard, budget = self._guard.bind(user.upstream_id), self._budget()
-        if self._visible_book(guard, budget, access, book_id) is None:   # member-scoped permission check
+        if book_id in _RESERVED:
             return ArtworkResult(SectionState.EMPTY)
-        return self._fetch_image(guard, budget, f"/api/v1/books/{book_id}/thumbnail", None)
+        # The shared account's own rights decide whether this cover exists (404 = EMPTY); there is no
+        # per-member visibility to check (contract 12.2).
+        return self._fetch_image(self._guard.bind(user.upstream_id), self._budget(),
+                                 f"/api/v1/books/{book_id}/thumbnail", None)

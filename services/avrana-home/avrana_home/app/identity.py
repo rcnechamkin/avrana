@@ -27,6 +27,8 @@ from ..principal import (EMAIL_HEADER, GROUPS_HEADER, NAME_HEADER, USERNAME_HEAD
 
 _TRUSTED_NAMES = frozenset(h.lower() for h in (USERNAME_HEADER, GROUPS_HEADER, EMAIL_HEADER, NAME_HEADER))
 _EMPTY = frozenset()
+_MAX_SEARCH_ADDRESS = 2048      # raw bytes of the address query
+_MAX_SEARCH_TERM = 300         # characters kept; contract.clean_query refuses > 256 and cuts to 100
 
 
 @dataclass(frozen=True)
@@ -57,6 +59,41 @@ async def get_viewer(request: Request) -> Viewer:
     """FastAPI dependency. Every route except /healthz (and the loopback-only /readyz, which
     never looks at identity) depends on this."""
     return viewer_from_scope(request.scope)
+
+
+def new_tab_from_scope(scope) -> Optional[str]:
+    """The one display preference a member may ask for in the address: `?new=<library>` (which New this week
+    tab to show). Bounded text only; the view-model checks it against the member's own allowlist and
+    never echoes it. It confers no identity and no access."""
+    from urllib.parse import parse_qsl
+    raw = scope.get("query_string") or b""
+    if not isinstance(raw, (bytes, bytearray)) or len(raw) > 512:
+        return None
+    for key, value in parse_qsl(bytes(raw).decode("ascii", "ignore"), keep_blank_values=False):
+        if key == "new":
+            return value[:32]
+    return None
+
+
+def search_term_from_scope(scope) -> Optional[str]:
+    """The one thing a member may type in the address of /search: `?q=<term>`. Bounded text only.
+    None: no `q` at all (an empty search box). A string, possibly empty: a term for `contract.clean_query`
+    to judge (an oversized address gives "", which that function refuses). The term confers no identity and
+    no access, is never echoed raw, and is never logged."""
+    from urllib.parse import parse_qsl
+    raw = scope.get("query_string") or b""
+    if not isinstance(raw, (bytes, bytearray)):
+        return None
+    if len(raw) > _MAX_SEARCH_ADDRESS:
+        return ""
+    try:
+        pairs = parse_qsl(bytes(raw).decode("ascii", "ignore"), keep_blank_values=False, max_num_fields=8)
+    except ValueError:
+        return ""
+    for key, value in pairs:
+        if key == "q":
+            return value[:_MAX_SEARCH_TERM]
+    return None
 
 
 def has_identity_headers(scope) -> bool:

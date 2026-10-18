@@ -1,4 +1,4 @@
-<!doctype html>
+{% from "_parts.html" import mast %}<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -6,15 +6,25 @@
 <meta name="color-scheme" content="dark">
 <meta name="robots" content="noindex, nofollow">
 <title>{% block title %}Avrana{% endblock %}</title>
-<style>{{ stylesheet }}</style>
+{% if shell %}
+<link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials">
+<link rel="apple-touch-icon" href="/icons/avrana-180.png">
+<meta name="theme-color" content="#000000">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Avrana">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+{% endif %}
+<style>{{ stylesheet }}{% if shell %}{{ home_stylesheet }}{% endif %}</style>
 </head>
 <body>
+<a class="skip-link" href="#main">Skip to main content</a>
 <div class="page">
   <header>
-    <h1>{% block heading %}<a href="/">AVRANA</a>{% endblock %}</h1>
-    <div class="rule"></div>
+{% block masthead %}{% if shell %}{{ mast(shell, account_menu) }}{% else %}    <h1>{% block heading %}<a href="/">AVRANA</a>{% endblock %}</h1>
+    <div class="rule"></div>{% endif %}{% endblock %}
   </header>
-  <main>
+  <main id="main" tabindex="-1">
 {% block body %}{% endblock %}
   </main>
   <footer>

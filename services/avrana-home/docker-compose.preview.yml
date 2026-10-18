@@ -1,0 +1,69 @@
+# Avrana Home OWNER PREVIEW (owner decision 2026-10-15). Runbook: docs/runbooks/home-owner-preview.md.
+#
+# LAN-ONLY: published on the host's LAN address 10.0.0.218, port 8197, and nowhere else (never 0.0.0.0,
+# never a Cloudflare tunnel hostname, no DNS name, no Authentik). Plain HTTP on the home LAN, behind ONE
+# password (preview/gate.py); every inbound identity header is replaced by the owner's fixed identity.
+#
+# Network: its own bridge network only. It joins NO authentik_* network: nothing that holds a member
+# session or forwards identity can reach it, and it reaches the media services by their LAN or host
+# addresses (preview.env).
+#
+# Secrets: files under ./secrets/ (gitignored, mode 0600, created by the owner at a hidden prompt), read
+# through the existing *_FILE settings. Non-secret settings: ./preview.env (gitignored; copy
+# preview.env.example). Every secret file below must exist, even if empty for a service left out.
+#
+# Build: the main context is this directory (.dockerignore allows only requirements.lock, avrana_home/
+# and preview/); the named context "portal" supplies the portal's route tables (portal.py).
+# `additional_contexts` needs Docker Compose 2.17 or later with BuildKit (UNVERIFIED on avrana).
+services:
+  avrana-home-preview:
+    build:
+      context: .
+      dockerfile: Dockerfile.preview
+      additional_contexts:
+        portal: ../avrana-portal
+    image: avrana-home-preview:local
+    container_name: avrana-home-preview
+    ports: ["10.0.0.218:8197:8096"]
+    networks: [preview]
+    env_file: [preview.env]
+    environment:
+      - HOME_OWNER_PREVIEW=yes
+      - HOME_SECTIONS=on
+      - PREVIEW_PASSWORD_FILE=/run/secrets/preview_password
+      - TZ=America/Los_Angeles
+    secrets: [preview_password, jellyfin_api_key, audiobookshelf_token, komga_token, calibre_web_credential]
+    read_only: true
+    tmpfs: ["/tmp:size=16m,mode=1777"]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    pids_limit: 128
+    # The portal runs with 128m; this is FastAPI + uvicorn + Jinja2 with an in-memory cache, so 256m.
+    mem_limit: 256m
+    cpus: 0.5
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8096/healthz',timeout=3).status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging: {driver: json-file, options: {max-size: "10m", max-file: "3"}}
+    # A preview: it does not come back by itself after a reboot or a crash. Start it again on purpose.
+    restart: "no"
+
+networks:
+  preview:
+    name: avrana-home-preview
+    driver: bridge
+
+secrets:
+  preview_password:
+    file: ./secrets/preview_password
+  jellyfin_api_key:
+    file: ./secrets/jellyfin_api_key
+  audiobookshelf_token:
+    file: ./secrets/audiobookshelf_token
+  komga_token:
+    file: ./secrets/komga_token
+  calibre_web_credential:
+    file: ./secrets/calibre_web_credential

@@ -1,12 +1,12 @@
 """A fake Komga served from HAND-WRITTEN synthetic fixtures (written from recollection of the public API;
 unverified against any real server). No sockets: a router behind the same FakeTransport the Jellyfin tests
-use. Like a real admin key it returns EVERYTHING, restricted members included: filtering is the adapter's job."""
+use. It stands for the ONE regular (non-admin) shared account (ADAPTER-CONTRACT 12.2): it returns what that
+account sees, and has no user list at all (`/api/v2/users` is a 404 here, as it is for a regular key)."""
 import copy
 import json
 from pathlib import Path
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "komga"
-UA, UB, UC, UD = "USERAAAAAAAA1", "USERBBBBBBBB2", "USERCCCCCCCC3", "USERDDDDDDDD4"
 PNG = b"\x89PNG\r\n\x1a\n" + b"synthetic-image-bytes"
 
 
@@ -22,8 +22,6 @@ def load(name):
 class FakeKomga:
     def __init__(self, clock=None):
         self.clock = clock
-        self.users = load("users.json")
-        self.series = load("series.json")
         self.books = load("books.json")
         self.latest = load("books_latest.json")
         self.requests = []
@@ -49,15 +47,17 @@ class FakeKomga:
             return val, b"{}", "application/json"
         if kind == "body":
             return 200, val, "application/json"
-        if path == "/api/v2/users":
-            return self._json(self.users)
         if path == "/api/v1/books/latest":
             page = dict(self.latest)
             page["content"] = page["content"][:int(query.get("size", "20"))]
             return self._json(page)
+        if path == "/api/v1/books":
+            term = query.get("search", "").casefold()
+            hits = [b for b in reversed(list(self.books.values()))
+                    if term and term in b["metadata"]["title"].casefold()]
+            page = {"content": hits[:int(query.get("size", "20"))], "number": 0, "totalElements": len(hits)}
+            return self._json(page)
         parts = path.strip("/").split("/")
-        if parts[:3] == ["api", "v1", "series"] and len(parts) == 4:
-            return self._lookup(self.series, parts[3])
         if parts[:3] == ["api", "v1", "books"] and len(parts) == 4:
             return self._lookup(self.books, parts[3])
         if parts[:3] == ["api", "v1", "books"] and len(parts) == 5 and parts[4] == "thumbnail":

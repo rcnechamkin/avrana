@@ -84,7 +84,7 @@ behaviour, applied to the stricter parser.
 | I-5 | Non-ASCII username (UTF-8, latin-1 or mojibake) | Latin-1 decoded and shown | No principal (adapter layer: `principal_from_raw_headers` refuses any non-ASCII username) | **Keep (owner decision).** Non-ASCII usernames get no principal, so a mojibake name can never map to another account. A non-ASCII display name is shown only if it is valid UTF-8. Tested over a real socket. |
 | I-6 | Display name or e-mail that is duplicated, over 254 characters or contains control characters | Shown, whitespace-stripped | Omitted from `/account` | **Keep.** Display-only values never decide anything. |
 | I-7 | Method other than GET and HEAD | 501 from `http.server`, before routing, body echoes the method | 501 from the middleware, before routing and identity, fixed body that does **not** echo the method | **Chosen: 501, not 405.** 501 is what members' clients see today; FastAPI's native 405 would differ per path and add an `Allow` header. Identical for every identity and path; same hygiene headers. |
-| I-8 | Every response | Cache-Control, Referrer-Policy, X-Content-Type-Options (`nosniff`, asserted on every response) | Those three **plus** `Content-Security-Policy: default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'` (no script source) | **Keep.** Inline `<style>` is how the portal is built today; dropping it needs a stylesheet route and the design team's agreement. |
+| I-8 | Every response | Cache-Control, Referrer-Policy, X-Content-Type-Options (`nosniff`, asserted on every response) | Those three **plus** `Content-Security-Policy: default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'` (no script source) | **Keep.** Exception (AVR-383): `/search` alone sends `form-action 'self'` so its GET form can submit; every other page keeps `'none'`, title pages (`/title/<service>/<id>`, AVR-384, no form) included. Exception (Home 2.0, AVR-364): every page that renders the shell (Home with sections, Search, title pages, Account, Help and help topics, and the Read, Request and Watch pages when they wear the shell) adds `manifest-src 'self'` for the web app manifest (`app/install.py`); `respond()` sets it whenever a shell is rendered. Every other response keeps the CSP above unchanged. Inline `<style>` is how the portal is built today; dropping it needs a stylesheet route and the design team's agreement. |
 | I-9 | Protocol-level problems (malformed request line, unknown HTTP version, oversized headers) | Python `http.server` replies (400/505) with the three headers | uvicorn/h11 replies **before the application runs**: 400/431 with no application headers; `HTTP/9.9` is accepted | **Accept.** These replies carry no application data. Documented, tested to contain no page. |
 | I-10 | Connection reuse | HTTP/1.0, one request per connection (pinned by the portal tests so a connection never carries two identities) | uvicorn keeps connections alive | **Accept.** Identity is read per request and no state is per connection; pipelined and reused connections are tested with different identities. |
 | I-11 | `/readyz`, `/home.json`, `/_dev/*` | 404 | `/readyz`: loopback peer only, else 404. `/home.json`: only with `HOME_SECTIONS` on and a valid principal, else 404. `/_dev/*`: 404 (the shim is not part of the app) | **Keep.** Unchanged for anyone who is not an operator on the host or a member with the flag on. |
@@ -194,7 +194,7 @@ Schema (the adapter contract's, section 4; `reason` is never serialised):
                 "state": "ok"|"empty"|"unavailable"|"not_linked",
                 "items": [ {"id", "service", "kind", "title", "subtitle"|null, "series"|null,
                             "progress": {"fraction","percent","position_seconds","duration_seconds"}|null,
-                            "artwork": {"ref","alt"}|null, "handoff_url"} ] } ] }
+                            "artwork": {"ref","alt"}|null, "creator": str|null, "year": int|null, "handoff_url"} ] } ] }
 ```
 
 One example per state (synthetic, produced by the tests' mock):
@@ -213,7 +213,68 @@ One example per state (synthetic, produced by the tests' mock):
 {"sections": []}      <- not_permitted: the section is omitted, so a member without the group gets this
 ```
 
+### Home: one rule for "unavailable" (polish pass, 2026-10-16)
+
+A library counts as unavailable when **any** of its sections says unavailable (`viewmodel.library_down`). That one
+rule drives both the notice and the places bar, so they cannot disagree. In the first minutes of an outage a
+section can still answer from the cache (recently added is cached for 120 s) while Continue fails. Before, Home
+then said "Movies and TV are unavailable right now." while New this week showed Movies and TV items and Watch was
+not struck. Now the place is struck and the notice reads "Movies and TV are unavailable right now. Anything shown
+from them may be out of date."; the cached items stay (they are still the member's own and may still open), and Try
+again is offered. Chosen over hiding cached items (an emptier page for a two-minute blip) and over leaving the place
+up (a struck notice beside a live-looking place). Read is struck only when every library behind it is down. The
+cost: a single failing call (for example Continue discarded by the scope tripwire) also strikes the place while
+the library otherwise answers; the notice says "may", and Try again recovers it.
+
+When nothing answers: everything unavailable is one calm block ("Your libraries are resting") with one combined
+line (the library's name when there is one library, otherwise "None of your libraries is answering right now."),
+never a line per library above it. Everything not set up (member-c, member-d) is one "Not set up yet" block with
+the sentence and "What to do next" (`/help/trouble#not-set-up`). A mix keeps the per-library lines, Try again and
+the next step.
+
 `artwork.ref` is opaque. `GET /art/<ref>` (for example `/art/komga/book/<id>`) serves it, member-scoped: `app/artwork.py` is the one module that calls `fetch_artwork`, with the verified principal and a ref of the exact shape `service/word/id` (`[A-Za-z0-9_-]` only). Unknown service, bad ref, missing group, an item the member may not see, an upstream failure and a refused content type are all the same standard 404. Responses carry `Cache-Control: private, no-store`, `nosniff`, and only `image/jpeg|png|webp` of at most 5 MiB (never SVG or HTML). Section items render `<img src="/art/..." alt=<title> width="80" height="120" loading="lazy">` only when a valid ref exists.
+
+### Search results and title pages (AVR-383/384)
+
+`GET /search?q=` groups results by library, in member language, only for the member's own libraries. Each result
+shows its medium (Movie, Series, Episode, Audiobook, Book, Comic), title, creator and year when the adapter read one,
+and small artwork through `/art/` only. **One link per result**: to the title page for libraries whose adapter offers
+the member-scoped item lookup (Jellyfin, Audiobookshelf, Komga), otherwise (Calibre-Web, OPDS has no single-book
+route) straight to the library, marked "Opens in Books". The title link's accessible name is "<title>, <medium>".
+
+Truthful states, never mixed: results (`N results`, with a note for each library that could not answer); every
+library answered and none matched (`No results`, spelling hint, request offers); some answered with no match and
+some could not answer (`No results`, naming the libraries that could not be searched); **no library could answer**
+(`Not searched`, "could not be searched right now", Try again; never "no matches", never a request offer); only
+not-set-up libraries; no searchable library; invalid term.
+
+Request fallback: only when at least one library answered with no match, and only for the request service that
+fills that library **and** that the member's own catalogue holds (Seerr for Movies and TV; the books request service
+for Books and Audiobooks; the comics request service for Comics). Links read "Ask for a film or show", "Ask for a
+book or an audiobook", "Ask for a comic". Seerr gets the cleaned term through its documented search address
+(`https://<catalogue host>/search?query=<percent-encoded>`; host from the static catalogue only), and the page says
+"Opens the request website" beside that link (and in its accessible name); the others link to their portal route
+(`/requestabook`, `/requestacomic`), which redirects by the fixed table. Nothing is submitted. The search hint is
+plain ("At least 2 characters."): the wildcard and escape characters `clean_query` turns into spaces are not listed,
+because none of them makes a term unusable while letters remain (tested).
+
+Account (shell only) splits "Your access" into Libraries and Requests in Home's language ("Movies and TV", never
+"Watch" or "Movies & TV"), each name once; a request service is named by the libraries it fills for this member, so
+a books-only member never reads "Audiobooks". Remaining services (Send to Kindle, Contribute, Operations) are listed
+under "Also". With sections off, Account is the portal's page, byte for byte.
+
+`GET /title/<service>/<id>`: the shell masthead, `<h2>` title, artwork in its natural shape, the library (with the
+medium only when the library's name does not already say it: "Episode · Movies and TV", but "Movies and TV" for a
+movie), creator and year, series or episode, progress in words whenever the upstream reports it for this member,
+and ONE primary action that opens the item in its library, by the Continue rule (`continue_state`): Resume for a
+saved position, Open when there is progress but no position, otherwise Watch / Listen / Read. It never says
+playback started. Under it, an inline link to "If something doesn't open" (`/help/trouble`). Footer: Back to search
+(only when the address carries a term that passes `clean_query`, re-encoded; no other query parameter is read) and
+Back to home; Help is the places bar's. A library not set up for the member links `/help/trouble#not-set-up`. Not permitted, unknown, hidden, malformed or hostile ids and a missing
+identity are the standard 404, identical to an unknown route. An unavailable library is a 503 page "The ... library
+is unavailable right now" with Try again; it says nothing about whether the title exists. The strict CSP applies.
+Every view makes the permission-checked upstream lookup (no cache), so access removed upstream shows at once.
+Hand-off links (results and the primary action) must be on the item's own service host (`contract.HANDOFF_BASE`).
 
 ## 6. Logging
 
@@ -245,7 +306,7 @@ variables (never the values).
 | `HOME_GATES_VERIFIED` | unset | Real mode requires the literal `yes`: an operator's statement that G1 and G2 are applied and verified. |
 | `AUDIOBOOKSHELF_BASE_URL` | unset (adapter not built) | Optional. Same URL rules as Jellyfin. Mock mode: loopback only. Real mode: needs the token too, and the same gates. |
 | `AUDIOBOOKSHELF_TOKEN` / `AUDIOBOOKSHELF_TOKEN_FILE` | none | Real mode only, with the URL, exactly one of the two; a token in mock mode is an error. Never in a repr, log line or error message. |
-| `KOMGA_BASE_URL` / `KOMGA_TOKEN` (`_FILE`) | unset (adapter not built) | Optional, **mock mode only**: loopback URL, the token is fixed and fake. In real mode setting either is a startup error until the owner decides the key scope and member mapping (ADAPTER-CONTRACT 12.2). |
+| `KOMGA_BASE_URL` / `KOMGA_TOKEN` (`_FILE`) / `KOMGA_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS` | unset (adapter not built) | Optional. Mock mode: loopback URL, the token is fixed and fake, the flag is ignored. Real mode (owner decision 2026-10-15, ADAPTER-CONTRACT 12.2): needs `HOME_GATES_VERIFIED=yes`, the URL, a REGULAR (non-admin) account's key and `KOMGA_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS=yes`; otherwise a startup error. |
 | `CALIBRE_WEB_BASE_URL` / `CALIBRE_WEB_CREDENTIAL` (`_FILE`) / `CALIBRE_WEB_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS` | unset / unset / `off` | Optional. Mock mode: loopback URL, fixed fake credential. Real mode is refused unless the owner setting is `yes` (default off; Calibre-Web is a shared view, ADAPTER-CONTRACT 13.2), and then also needs `HOME_GATES_VERIFIED=yes`, the URL and a `user:password` credential together. The constructor's `owner_confirms_no_member_restrictions` is `True` only in mock mode or from that setting. |
 | `HOME_TIMEOUT` | `2.0` | Per-call seconds, 0.1 to 10. |
 | `HOME_SECTION_LIMIT` | `12` | Items per section, 1 to 50. |
@@ -261,7 +322,7 @@ setting.
 
 Audiobookshelf (AVR-381): the adapter is registered next to Jellyfin only when `AUDIOBOOKSHELF_BASE_URL` is set; it adds one *Continue listening* section (the adapter offers no recent list, so that section is `empty` and renders nothing). Dev: `run_dev.py --abs-mock-port 18097` starts `dev/mock_audiobookshelf.py`, which serves the adapter's own synthetic fixtures (`tests/fake_abs.py`, loaded by path, read-only). `member-a` and `member-b` carry the audiobooks group in the dev identities.
 
-Komga (AVR-382): registered the same way, from `KOMGA_BASE_URL`; it adds one *Recently added to Comics* section (Komga read progress belongs to the key's user, so no Continue). Dev: `run_dev.py --komga-mock-port 18098` runs `dev/mock_komga.py` over `tests/fake_komga.py`. Members link only when the Authentik username equals the Komga login exactly, so the dev identities `member-a@synthetic.invalid` and `member-b@synthetic.invalid` exist for it. `dev/` is never imported by the package (`webtests/test_dev_isolation.py`).
+Komga (AVR-382): registered the same way, from `KOMGA_BASE_URL`; it adds one *Recently added to Comics* section. It is a SHARED regular-account view (ADAPTER-CONTRACT 12.2): every member with the comics group sees the same books, no user list is read, and the shared account's read progress is never shown (no Continue). Dev: `run_dev.py --komga-mock-port 18098` runs `dev/mock_komga.py` over `tests/fake_komga.py`; the dev identities `comics-a` and `comics-b` exist to show two members getting the same section. `dev/` is never imported by the package (`webtests/test_dev_isolation.py`).
 
 Calibre-Web (AVR-380): registered the same way from `CALIBRE_WEB_BASE_URL`; one *Recently added to Books* section, the same for every member who holds the books group (shared view, no member mapping, no Continue). Dev: `run_dev.py --calibre-mock-port 18099` runs `dev/mock_calibre_web.py` over `tests/fake_calibre_web.py`. Covers go through `/art/calibre-web/cover/<id>` under the same 404 rules.
 

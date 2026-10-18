@@ -21,7 +21,8 @@ from ..contract import (ArtworkRef, ArtworkResult, Kind, MappingFailed, MediaIte
 from ..resilience import (DEFAULT_TIMEOUT, ItemGone, RouteMissing, Transport, UpstreamMalformed,
                           UpstreamMisbehaved, UserGone)
 from . import _base
-from ._base import GuardedAdapter, Route, bounded_int, image_magic_ok, match_exactly_one
+from ._base import (GuardedAdapter, Route, bounded_int, image_magic_ok, lookup_username, match_exactly_one,
+                    member_override)
 
 TICKS_PER_SECOND = 10_000_000
 _GUID = re.compile(r"[0-9a-fA-F]{8}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{12}")
@@ -53,7 +54,12 @@ ALLOWED_ROUTES = (
     Route("latest", r"/Items/Latest",
           ("userId", "limit", "includeItemTypes", "groupItems", "fields", "enableImageTypes",
            "enableUserData"), user_scoped=True, not_found=UserGone),
-    Route("items", r"/Items", ("userId", "ids", "fields", "enableUserData", "enableImageTypes"),
+    # One route for the item lookup (`ids`) and search (`searchTerm`): both are user-scoped through the
+    # `userId` QUERY parameter. Search moved here from the legacy `/Users/{id}/Items`, which Jellyfin 10.9+
+    # keeps only as an obsolete, hidden alias (doc-verified against the 10.11 ItemsController source,
+    # 2026-10-16; not live-verified). The term travels only as `searchTerm`.
+    Route("items", r"/Items", ("userId", "ids", "fields", "enableUserData", "enableImageTypes",
+                               "searchTerm", "includeItemTypes", "recursive", "limit"),
           user_scoped=True, not_found=UserGone),
     # The image route cannot carry a userId, so ITS member scoping is not enforced here: it rests on
     # the adapter calling `_visible_item` (a userId-scoped lookup) for the same item first.
@@ -79,14 +85,15 @@ class GuardedTransport(_base.GuardedTransport):
 
 
 # ---- adapter ------------------------------------------------------------------------------
-def _norm_name(value: str) -> str:
-    return unicodedata.normalize("NFKC", value).casefold().strip()
-
-
 class JellyfinAdapter(GuardedAdapter):
     service = Service.JELLYFIN
+    artwork_rechecks_visibility = True     # visibility is per member: re-checked before any cached cover
 
-    def __init__(self, transport: Transport, timeout: float = DEFAULT_TIMEOUT, **kw):
+    def __init__(self, transport: Transport, timeout: float = DEFAULT_TIMEOUT, *,
+                 member_username: Optional[Tuple[str, str]] = None, **kw):
+        # member_username: (principal username, upstream username), owner preview only (settings.py);
+        # None keeps the default rule (the principal's username, exactly).
+        self._member_username = member_override(member_username)
         super().__init__(GuardedTransport(transport), timeout, **kw)
 
     def __repr__(self) -> str:
@@ -104,7 +111,7 @@ class JellyfinAdapter(GuardedAdapter):
                 return None
             name, uid = raw.get("Name"), normalise_guid(raw.get("Id"))
             return (name, uid) if isinstance(name, str) and uid is not None else None
-        uid, raw = match_exactly_one(principal.username, users, extract)
+        uid, raw = match_exactly_one(lookup_username(principal, self._member_username), users, extract)
         policy = raw.get("Policy")
         if isinstance(policy, dict) and policy.get("IsDisabled") is True:
             raise MappingFailed("disabled")
@@ -150,6 +157,9 @@ class JellyfinAdapter(GuardedAdapter):
         if require_progress and position is None:
             # a missing or non-numeric position is drift; zero means "not in progress"
             return None, ("filtered" if ticks is not None else "bad")
+        if require_progress and data.get("Played") is True:
+            # Watched to the end (Jellyfin keeps a position on some played items): never in Continue.
+            return None, "filtered"
 
         title = clean_text(raw.get("Name")) or "Untitled"
         series = clean_text(raw.get("SeriesName")) if kind is Kind.EPISODE else None
@@ -158,10 +168,10 @@ class JellyfinAdapter(GuardedAdapter):
             s, e = _int(raw.get("ParentIndexNumber")), _int(raw.get("IndexNumber"))
             if s is not None and e is not None and 0 <= s < 10000 and 0 <= e < 10000:
                 subtitle = f"S{s} E{e}"
-        else:
-            year = _int(raw.get("ProductionYear"))
-            if year is not None and 1800 <= year <= 2200:
-                subtitle = str(year)
+        year = _int(raw.get("ProductionYear"))
+        year = year if year is not None and 1800 <= year <= 2200 else None
+        if kind is not Kind.EPISODE and year is not None:
+            subtitle = str(year)
 
         artwork = None
         tags = raw.get("ImageTags")
@@ -173,7 +183,7 @@ class JellyfinAdapter(GuardedAdapter):
                          handoff_url=build_handoff_url(Service.JELLYFIN, item_id),
                          subtitle=subtitle, series=series, progress_fraction=fraction,
                          position_seconds=position, duration_seconds=duration,
-                         artwork=artwork), "ok"
+                         artwork=artwork, year=year), "ok"
 
     def _parse_list(self, raws: Any, user_id: str, limit: int, kinds, want_progress,
                     require_progress) -> Tuple[MediaItem, ...]:
@@ -204,6 +214,18 @@ class JellyfinAdapter(GuardedAdapter):
                                  want_progress=False, require_progress=False)
         return SectionResult.of(Service.JELLYFIN, "recent", items)
 
+    def _search(self, user: UpstreamUser, query: str, limit: int) -> SectionResult:
+        guard = self._guard.bind(user.upstream_id)
+        body = self._get_json(guard, self._budget(), "/Items", {
+            "userId": user.upstream_id, "searchTerm": query, "includeItemTypes": "Movie,Series,Episode", "recursive": "true",
+            "limit": str(limit), "fields": _ITEM_FIELDS, "enableImageTypes": "Primary",
+            "enableUserData": "true"})
+        if not isinstance(body, dict):
+            raise UpstreamMalformed()
+        items = self._parse_list(body.get("Items"), user.upstream_id, limit, ("Movie", "Series", "Episode"),
+                                 want_progress=False, require_progress=False)
+        return SectionResult.of(Service.JELLYFIN, "search", items)
+
     def _visible_item(self, guard, budget, user: UpstreamUser, item_id: str) -> Optional[MediaItem]:
         body = self._get_json(guard, budget, "/Items", {
             "userId": user.upstream_id, "ids": item_id, "fields": _ITEM_FIELDS,
@@ -220,7 +242,7 @@ class JellyfinAdapter(GuardedAdapter):
         found = self._visible_item(guard, self._budget(), user, item_id)
         return SectionResult.of(Service.JELLYFIN, "item", (found,) if found else ())
 
-    def _fetch_artwork(self, user: UpstreamUser, ref: str) -> ArtworkResult:
+    def _fetch_artwork(self, user: UpstreamUser, ref: str, cached=None) -> ArtworkResult:
         m = _ARTWORK_REF.fullmatch(ref)
         if m is None:
             return ArtworkResult(SectionState.EMPTY)
@@ -230,5 +252,8 @@ class JellyfinAdapter(GuardedAdapter):
         visible = self._visible_item(guard, budget, user, item_id)   # member-scoped permission check
         if visible is None or visible.artwork is None:
             return ArtworkResult(SectionState.EMPTY)
+        hit = cached() if cached is not None else None      # only AFTER this member's visibility check
+        if hit is not None:
+            return hit
         return self._fetch_image(guard, budget, f"/Items/{item_id}/Images/Primary",
                                  {"maxWidth": "400", "quality": "80"})

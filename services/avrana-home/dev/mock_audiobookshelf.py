@@ -26,6 +26,7 @@ from urllib.parse import parse_qsl, urlsplit
 HOME = Path(__file__).resolve().parents[1]
 if str(HOME) not in sys.path:
     sys.path.insert(0, str(HOME))
+from dev.synthetic_art import cover   # noqa: E402
 
 
 def load_fake(filename: str, cls: str):
@@ -48,6 +49,7 @@ class MockAudiobookshelf:
     FAKE = staticmethod(lambda: FakeAudiobookshelf())     # subclasses swap in another service's fake
     MALFORMED = b'{"users": [{"id": "aaaa'
     NAME = "audiobookshelf"
+    SHAPE = "square"          # the natural shape of this service's covers (dev/synthetic_art.py)
 
     def __init__(self, host: str = "127.0.0.1", port: int = 0, mode: str = "ok",
                  slow_seconds: float = 5.0, api_key: str = MOCK_KEY):
@@ -59,6 +61,10 @@ class MockAudiobookshelf:
         self.slow_seconds = slow_seconds
         self.api_key = api_key
         self.fake = self.FAKE()
+        # Answer the fake's stock cover with a real, decodable synthetic PNG in this service's natural shape. A
+        # test that sets `fake.image` to something else gets exactly that; False serves the fake's own bytes.
+        self.synthetic_covers = True
+        self._stock_image = self.fake.image
         self.requests = []
         mock = self
 
@@ -177,6 +183,9 @@ class MockAudiobookshelf:
         if mode == "malformed":
             return self._send(h, 200, self.MALFORMED)
         status, body, ctype = self.fake.handle("GET", path, query)
+        if self.synthetic_covers and self.fake.image is self._stock_image and status == 200 \
+                and body == self._stock_image[1]:
+            body, ctype = cover(self.SHAPE, path), "image/png"
         self._send(h, status, body, ctype)
 
 

@@ -21,6 +21,7 @@ class FakeCalibreWeb:
     def __init__(self, clock=None):
         self.clock = clock
         self.feed = load("new_feed.json")
+        self.search_doc = load("search_feed.json")
         self.covers = {"101", "102", "103"}
         self.requests = []
         self.overrides = {}        # path -> ("status", int) | ("body", bytes) | ("raise", exc)
@@ -28,7 +29,8 @@ class FakeCalibreWeb:
         self.image = (200, PNG, "image/png")
 
     def handle(self, method, path, query):
-        self.requests.append((method, path, dict(query or {})))
+        query = dict(query or {})
+        self.requests.append((method, path, query))
         if path in self.slow and self.clock is not None:
             self.clock.advance(self.slow[path])
         kind, val = self.overrides.get(path, (None, None))
@@ -40,7 +42,11 @@ class FakeCalibreWeb:
             return 200, val, "application/atom+xml"
         if path == "/opds/new":
             return 200, self.feed.encode("utf-8"), "application/atom+xml;profile=opds-catalog"
-        if path.startswith("/opds/thumb_cover/"):
+        if path == "/opds/search":
+            term = query.get("query", "").casefold() if query else ""
+            body = "".join(e["xml"] for e in self.search_doc["entries"] if term and term in e["title"].casefold())
+            return 200, (self.search_doc["head"] + body + "</feed>").encode("utf-8"), "application/atom+xml"
+        if path.startswith("/opds/cover_240_240/"):
             return self.image if path.rsplit("/", 1)[1] in self.covers else (404, b"", "text/html")
         return 404, b"", "text/html"
 

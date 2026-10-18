@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}{{ trouble.title }} · Help · Avrana{% endblock %}
+{% block body %}
+{# "If something doesn't open" (AVR-479). Shell only. Plain text from app/recovery.py, autoescaped; only libraries
+   this member can use are named. Fragment ids are fixed words. #}
+  <h2 class="topic">{{ trouble.title }}</h2>
+{% for s in trouble.sections %}
+  <section class="platform" id="{{ s.anchor }}" aria-labelledby="t-{{ s.anchor }}">
+    <h3 id="t-{{ s.anchor }}">{{ s.heading }}</h3>
+{% for line in s.paragraphs %}
+    <p class="note">{{ line }}</p>
+{% endfor %}
+{% if s.items %}
+    <ul>
+{% for line in s.items %}
+      <li>{{ line }}</li>
+{% endfor %}
+    </ul>
+{% endif %}
+{% if s.links %}
+    <p class="note">{% for text, to in s.links %}<a class="link" href="{{ to }}">{{ text }}</a>{% if not loop.last %} · {% endif %}{% endfor %}</p>
+{% endif %}
+  </section>
+{% endfor %}
+{% endblock %}
+{% block footer %}    <a class="link" href="/help">All help</a>
+    <a class="link" href="/">Back to home</a>{% endblock %}
