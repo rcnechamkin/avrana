@@ -1,6 +1,6 @@
 # Avrana
 
-Avrana is a single-host media and home server (`avrana`, 10.0.0.218): Jellyfin, the arr stack,
+Avrana is a single-host media and home server (`avrana`): Jellyfin, the arr stack,
 Audiobookshelf, Calibre-Web, Komga, Authentik single sign-on, Home Assistant and supporting tools, in 22
 Docker Compose projects plus three host services, published through a Cloudflare tunnel.
 
