@@ -99,3 +99,63 @@ published port).
 Stateless apart from a disposable in-memory SQLite cache (`:memory:`, no file setting; closed on shutdown; `MemberCache.purge_member` is the offboarding hook and is deliberately wired to nothing yet). Recover by rebuilding from Git and restoring
 the environment file from 1Password. Cut-over and rollback are a proxy-provider upstream switch
 between the new app and the still-deployed portal (MEDIA-2.0 section 5); see HOME-APP.md section 9.
+
+## Owner-run capture of upstream responses (AVR-376 sections 11.7, 12.5, 13.6)
+
+`tools/capture_upstreams.py` records what the four adapters would read, for the owner to compare with the
+fixtures. **The owner runs it, on the owner's own machine, with the owner's own accounts.** No agent runs it.
+It sends GET requests only, to routes the adapters allow, follows no redirect and uses no proxy. Members are
+matched by username. **Nothing leaves the owner's machine unless the owner hands the output over, and no real
+data is collected or transmitted without the owner's explicit involvement.** Status: written and tested only against a local stub server (`webtests/test_capture_upstreams.py`).
+It has never touched a real server, so its behaviour against real ones is unverified. It does not capture the
+search routes (AVR-383); those are checked separately once search is merged.
+
+**Strict field allowlist (owner decision), applied before any redaction.** For each captured route the tool keeps
+only the fields (JSON) or elements (OPDS/Atom) that the Home adapters actually read, with nesting and list shape
+preserved so the output still works as a fixture, and drops everything else: tags and labels the adapters do not
+read, device ids, cover and other paths, external URLs (`ExternalUrls`, `metadata.links`, non-API OPDS links),
+provider ids, last-login and other timestamps, host, server and device names. A new or unknown upstream field is
+dropped by default. A route with no allowlist is never written. What is kept still goes through the pseudonymisation
+(ids, titles, usernames other than yours, e-mails, paths, hosts) and then the final secret scan.
+- `--show-allowlist` prints, per service and route, the fields that will be kept. It makes no network call and needs
+  no credentials: read it before any run.
+- `--keep-provider-ids` is opt-in and off by default. It keeps IMDb/TMDB/TVDB ids (Jellyfin), ISBN and ASIN
+  (Audiobookshelf, Komga, OPDS `dc:identifier`). Use it only for a specific validation that needs them: ids can reveal
+  the real title behind a placeholder. External URLs are never kept, with or without the flag.
+- Timestamps are kept only where an adapter reads them (Audiobookshelf `mediaProgress.lastUpdate`).
+- Komga is a shared regular-account view: the tool uses the regular key only and never requests `GET /api/v2/users`
+  (admin-only). It captures `/api/v1/books/latest`, one book and (with `--images`) its thumbnail: the routes the
+  shared-view adapter uses (#50). No series, restriction, age or sharing-label fields are kept.
+- A search term (optional; prefer `$env:AVRANA_CAPTURE_SEARCH_TERM`, which wins over `--search-term WORD`, because a
+  command-line argument is visible in the process list and stays in shell history) also captures each adapter's
+  SEARCH route (AVR-383), but only the shapes the
+  adapters in the checkout you run from actually make (checked against their own `ALLOWED_ROUTES`; a search route
+  those adapters lack is reported as skipped and never sent): Jellyfin `/Items?userId=&searchTerm=` (or the legacy
+  `/Users/{id}/Items`), Audiobookshelf `/api/libraries` and `/api/libraries/{id}/search?q=`, Komga
+  `/api/v1/books?search=`, Calibre-Web `/opds/search?query=`. The term must be 3 to 40 plain letters, digits and
+  spaces; pick a harmless common word. It travels only as a query parameter and is never printed (dry runs show
+  `<term>`) or written: it is treated like a credential, replaced by `[REDACTED]` wherever it appears in a response,
+  and the final scan (which now also covers `manifest.json`) refuses any file that still contains it. Kept fields include the ones the adapters show as creator and year (Audiobookshelf
+  `authorName`/`publishedYear` (kept only when exactly four digits), Komga `metadata.authors`/`releaseDate`, Jellyfin `ProductionYear`, OPDS
+  `author/name`/`published`); names are pseudonymised like titles.
+- The Calibre-Web cover is captured on whichever cover route the adapters use (`/opds/cover_240_240/{id}` or the older
+  `/opds/thumb_cover/{id}`).
+
+Step by step (PowerShell shown; use `export` in a POSIX shell):
+
+1. Make a read-only credential for each service you want to capture, and use test accounts for the members you pick where you can.
+2. In your own shell set the variables. Never put a token on the command line:
+   `$env:AVRANA_CAPTURE_JELLYFIN_URL`, `..._JELLYFIN_KEY`, `..._AUDIOBOOKSHELF_URL`, `..._AUDIOBOOKSHELF_TOKEN`,
+   `..._KOMGA_URL`, `..._KOMGA_TOKEN`, `..._CALIBRE_WEB_URL`, `..._CALIBRE_WEB_USER`, `..._CALIBRE_WEB_PASSWORD`
+   (all prefixed `AVRANA_CAPTURE_`). Base URLs must be https, or loopback http. Unset a service to skip it.
+3. Look first: `python services/avrana-home/tools/capture_upstreams.py --show-allowlist` prints the kept fields, and
+   `python services/avrana-home/tools/capture_upstreams.py --dry-run --members alice,bob`
+   prints every request it would make and makes none. Neither prints a host or a credential.
+4. Run it: `python services/avrana-home/tools/capture_upstreams.py --members alice,bob --own-username you --out C:\captures\avrana-1`
+   Add `--images` for one cover per service (only status, type and size are kept). The output directory must be outside any Git work tree and empty.
+   Without `--members` only the user lists are fetched.
+5. Read every file in the output directory and `manifest.json`. Titles, ids, names, e-mails, hosts, IPs and paths are replaced.
+   Only allow-listed fields exist in the files. Numbers are kept. A four-part version number looks like an IP and is replaced: write the server versions down by hand.
+6. If the tool exits with 3, a file still matched a secret-like pattern and was not written. Do not share the others until you have read them.
+7. Unset the variables (`Remove-Item Env:AVRANA_CAPTURE_*`) and rotate the credentials you used.
+8. Give the files to a reviewed change that updates the fixtures and adapters. Do not paste them into chat unread.
