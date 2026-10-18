@@ -1,4 +1,4 @@
-"""The ONE identity path: raw ASGI headers -> `principal_from_headers` -> `Viewer`.
+"""The ONE identity path: raw ASGI headers -> `principal_for_request` -> `Viewer`.
 
 This is the only module in the application that reads request headers. The test
 `test_route_layer_reads_no_identity_input` fails if any other module in this package touches the
@@ -12,20 +12,31 @@ used. We pass only the four trusted header names, still as raw bytes, to
 so any non-ASCII value (UTF-8 or latin-1 mojibake) is no principal. Look-alike names
 (`X_authentik_username`, `X-Forwarded-User`) never reach it and confer nothing.
 
+Identity mode (AVR-498, `HOME_IDENTITY_MODE`, default `headers`): `headers` is the behaviour above,
+unchanged. `jwt_log_only` serves the header identity and also checks `X-authentik-jwt`, logging one
+fixed reason code through logsafe (never a token, name or group). `jwt_required` takes identity only
+from a verified token; a header-only request has no principal. Every failure is "no principal".
+
 No principal (missing, empty, duplicated, malformed, oversized): the request is served as the
 portal serves a request with NO groups. See docs/design/HOME-APP.md, "Identity".
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Optional
 
 from fastapi import Request
 
-from ..principal import (EMAIL_HEADER, GROUPS_HEADER, NAME_HEADER, USERNAME_HEADER,
-                         MemberPrincipal, PrincipalError, principal_from_raw_headers)
+from ..outpost_jwt import OutpostJwtVerifier
+from ..principal import (EMAIL_HEADER, GROUPS_HEADER, JWT_HEADER, MODE_HEADERS, MODE_JWT_REQUIRED,
+                         NAME_HEADER, USERNAME_HEADER, MemberPrincipal, PrincipalError, decode_raw_headers,
+                         principal_for_request)
+from .logsafe import app_log, log_event
+from .settings import IDENTITY_MODES, Settings, SettingsError
 
 _TRUSTED_NAMES = frozenset(h.lower() for h in (USERNAME_HEADER, GROUPS_HEADER, EMAIL_HEADER, NAME_HEADER))
+_JWT_NAMES = _TRUSTED_NAMES | {JWT_HEADER.lower()}
 _EMPTY = frozenset()
 
 
@@ -40,23 +51,92 @@ class Viewer:
         return self.principal.groups if self.principal is not None else _EMPTY
 
 
-def trusted_pairs(scope) -> list:
+def trusted_pairs(scope, names=_TRUSTED_NAMES) -> list:
     """The raw (bytes, bytes) pairs of the trusted headers only, duplicates kept, names lowercased."""
     return [(bytes(n).lower(), bytes(v)) for n, v in scope.get("headers", ())
-            if bytes(n).decode("latin-1").lower() in _TRUSTED_NAMES]
+            if bytes(n).decode("latin-1").lower() in names]
+
+
+def _report(code: str) -> None:
+    log_event(app_log, logging.INFO, "identity_jwt", reason=code)   # fixed codes only
+
+
+def _without_malformed_jwt(raw: list) -> list:
+    """Drops a non-ASCII token header (reported as `malformed_header`) so it cannot take the plain
+    header identity down with it in log-only mode. In jwt_required the request then simply has no
+    token and fails closed exactly as a missing token does."""
+    jwt = JWT_HEADER.lower().encode("ascii")
+    kept = []
+    for name, value in raw:
+        if name == jwt:
+            try:
+                value.decode("ascii")
+            except UnicodeDecodeError:
+                _report("malformed_header")
+                continue
+        kept.append((name, value))
+    return kept
+
+
+class IdentityResolver:
+    """Built once per app from `Settings`. In `headers` mode it holds no verifier and does exactly
+    what the application did before AVR-498."""
+
+    def __init__(self, mode: str = MODE_HEADERS, verifier: Optional[OutpostJwtVerifier] = None,
+                 allowed_users=()):
+        if mode not in IDENTITY_MODES or (mode != MODE_HEADERS and verifier is None):
+            raise SettingsError("identity mode is not usable")
+        if allowed_users and mode != MODE_JWT_REQUIRED:
+            raise SettingsError("an allowlist needs jwt_required")
+        self.mode, self.verifier = mode, verifier
+        self.allowed = frozenset(allowed_users)
+
+    @classmethod
+    def from_settings(cls, settings: Settings) -> "IdentityResolver":
+        mode = getattr(settings, "identity_mode", MODE_HEADERS)
+        if mode == MODE_HEADERS:
+            if getattr(settings, "allowed_users", ()):
+                raise SettingsError("an allowlist needs jwt_required")
+            return cls(MODE_HEADERS)
+        secrets = [s.encode("utf-8") for s in (settings.jwt_secret, settings.jwt_secret_previous) if s]
+        try:
+            verifier = OutpostJwtVerifier(issuer=settings.jwt_issuer, audience=settings.jwt_audience,
+                                          hmac_secrets=secrets)
+        except ValueError:
+            raise SettingsError("the JWT identity settings are not usable") from None
+        return cls(mode, verifier, getattr(settings, "allowed_users", ()))
+
+    def viewer(self, scope) -> Viewer:
+        names = _TRUSTED_NAMES if self.mode == MODE_HEADERS else _JWT_NAMES
+        raw = trusted_pairs(scope, names)
+        if self.mode != MODE_HEADERS:
+            raw = _without_malformed_jwt(raw)
+        try:
+            pairs = decode_raw_headers(raw, extra_ascii=(JWT_HEADER,))
+            principal = principal_for_request(pairs, mode=self.mode, verifier=self.verifier,
+                                              report=_report)
+        except PrincipalError:
+            return Viewer(None)
+        if self.allowed and principal is not None and principal.username not in self.allowed:
+            _report("not_allowed")                    # a verified member who is not a beta tester
+            return Viewer(None)
+        return Viewer(principal)
+
+
+_HEADERS_ONLY = IdentityResolver()
 
 
 def viewer_from_scope(scope) -> Viewer:
-    try:
-        return Viewer(principal_from_raw_headers(trusted_pairs(scope)))
-    except PrincipalError:
-        return Viewer(None)
+    return _HEADERS_ONLY.viewer(scope)
 
 
 async def get_viewer(request: Request) -> Viewer:
     """FastAPI dependency. Every route except /healthz (and the loopback-only /readyz, which
     never looks at identity) depends on this."""
-    return viewer_from_scope(request.scope)
+    resolver = getattr(request.app.state, "identity", None)
+    if resolver is None:                          # an app built without create_app: today's behaviour
+        resolver = _HEADERS_ONLY
+    return resolver.viewer(request.scope)
 
 
 def has_identity_headers(scope) -> bool:

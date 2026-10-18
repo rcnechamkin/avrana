@@ -35,7 +35,7 @@ from ..resilience import SystemClock, UrllibTransport
 from . import catalogue as catalogue_mod
 from .catalogue import Trusted
 from . import artwork as artwork_mod
-from .identity import Viewer, get_viewer, has_identity_headers
+from .identity import IdentityResolver, Viewer, get_viewer, has_identity_headers
 from .logsafe import app_log, log_event, silence_uvicorn_access
 from .middleware import HygieneMiddleware
 from .routing import AccountFacts, Decision, decide, normalise_target, not_found
@@ -136,6 +136,7 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
     app.state.cache = cache
     app.router.redirect_slashes = False
     app.state.settings = settings
+    app.state.identity = IdentityResolver.from_settings(settings)    # SettingsError = refuse to start
     app.state.catalogue = cat
     app.state.adapters = adapter_list
     app.state.env = env
