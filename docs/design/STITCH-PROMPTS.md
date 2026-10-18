@@ -15,7 +15,7 @@ contract, every screen prompt names its required states, and Prompt Z is the fin
 | `DESIGN.md` | "The Title Card": black, white, ash, one serif, tracked wordmark, square 1px rules, inversion on hover, no accent, no shadow, no rounding, no decorative icons |
 | AVR-452 (owner-approved composition B, 2026-10-11) | Compact content home: one bar under the wordmark (Watch, Listen, Read, Request, Help) ending above y=260 at 360x640; one Continue row (video and audio mixed, at most four); one "New this week" row (at most four) switched by link tabs; no per-library shelves on Home; Home at most two phone screens; a separate New page; a down service struck through in the bar, said once in a notice, its items absent |
 | AVR-431 (owner rejection) | The earlier previews put "shelves ahead of Request, Help and services" |
-| AVR-426 / PR 11 | Each library keeps its own artwork shape; artwork in colour on the monochrome page; rail on phones, single row from 720px; compact wordmark |
+| AVR-426 / DESIGN.md | Each library keeps its own artwork shape; artwork in colour on the monochrome page; rail on phones, single row from 720px; compact wordmark. The earlier shelves-first PR 11 was superseded by PR 23. |
 | AVR-430, portal rules | Copy never names a library the member cannot use; no first person; no dashes |
 | AVR-364, AVR-365 | Installable site without promising offline playback; outage notices in member language |
 | Media 2.0 charter | Avrana never plays media; every Play or Read names the app it hands off to |
@@ -180,8 +180,9 @@ no search field taking space. Show the focus ring on the first Continue item.
 Screen: the same Avrana Home at 1280x800.
 
 Same order and content: compact centred wordmark and rule, the five-link bar centred beneath it,
-"Search" and "Ada" at the far right. Continue and New this week each sit on a single line of four
-items in a centred column about 1080px wide; no rails. Tabs above New this week as text links. The
+"Search" and "Ada" beside the primary navigation. Continue and New this week each sit on a single line of four
+items in the current centred 720px browsing column; no rails. A wider column is a separate proposal,
+not approved by this prompt. Tabs above New this week as text links. The
 page fits in about one desktop screen with generous black space. Footer links centred. Show one bar
 link in its hover state (solid white, black text).
 ```
@@ -228,8 +229,9 @@ Comics this week."
 ### Prompt 5. Search and results
 
 ```
-Screen: Avrana search at 390x844, query "dune". Where search lives is not yet decided; explore it
-as its own page reached from the "Search" link at the top right.
+Screen: Avrana search at 390x844, query "dune". The owner decision of 2026-10-15 requires a visible,
+labelled Search entry near primary navigation once search works. Explore its own page reached from
+that entry; do not hide Search inside the account menu.
 
 A full-width field with a visible label "Search" above it, a 1px #6E6E6E border, square, and the
 placeholder "Films, shows, books, audiobooks…". Results grouped by where they live, each under a
