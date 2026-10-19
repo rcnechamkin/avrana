@@ -121,7 +121,26 @@ class BrandRoutes(unittest.TestCase):
         for path in ("/", "/account", "/help"):
             text = off.get(path, headers=MEMBER).text
             self.assertNotIn("/brand/", text, path)
+            self.assertNotIn("lockup-text", text, path)
             self.assertRegex(text, r"<h1>(<a href=\"/\">)?AVRANA(</a>)?</h1>", path)   # the portal's wordmark
+
+    def test_forced_colours_show_the_name_as_text_named_once(self):
+        """Windows high contrast cannot recolour the cream lockup, so the name shows as text there. The text is
+        aria-hidden and the image is only hidden visually, so the link keeps one accessible name: the alt text."""
+        text = self.client().get("/", headers=MEMBER).text
+        link = re.search(r'<h1><a href="/"[^>]*>(.*?)</a></h1>', text).group(1)
+        self.assertEqual(LOCKUP_TAG + '<span class="lockup-text" aria-hidden="true">Avrana Media</span>', link)
+        named = re.sub(r'<span[^>]*aria-hidden="true"[^>]*>.*?</span>', "", link)      # what assistive tech reads
+        self.assertEqual(["Avrana Media"], re.findall(r'alt="([^"]*)"', named))
+        self.assertEqual("", re.sub(r"<[^>]+>", "", named).strip())
+        css = re.sub(r"/\*.*?\*/", "", (TEMPLATES / "home.css").read_text(encoding="utf-8"), flags=re.S)
+        self.assertIn(".mast .lockup-text{display:none;}", css)                         # off everywhere else
+        forced = re.search(r"@media \(forced-colors:active\)\{(.*?)\n  \}", css, flags=re.S).group(1)
+        self.assertIn(".mast .lockup-text{display:inline;", forced)
+        lockup = re.search(r"\.mast \.lockup\{([^}]*)\}", forced).group(1)
+        self.assertIn("clip-path:inset(50%)", lockup)
+        for gone in ("display:none", "visibility:hidden"):                              # would drop the alt text
+            self.assertNotIn(gone, lockup)
 
 
 if __name__ == "__main__":

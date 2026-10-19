@@ -51,7 +51,8 @@ class ReturnNavigationTests(Fixture):
                 self.assertEqual(200, r.status_code)
                 self.assertIn('<nav class="places" aria-label="Avrana">', r.text)
                 self.assertRegex(r.text, r'<h1><a href="/"( aria-current="page")?><img class="lockup" src="/brand/avrana-media-l3.svg" '
-                                         r'alt="Avrana Media" width="1384" height="650"></a></h1>')
+                                         r'alt="Avrana Media" width="1384" height="650">'
+                                         r'<span class="lockup-text" aria-hidden="true">Avrana Media</span></a></h1>')
                 if path != "/":
                     self.assertIn('<a class="link" href="/">Back to home</a>', footer(r.text))
                 self.assertNotRegex(footer(r.text), r">Back<")          # one wording for return, everywhere

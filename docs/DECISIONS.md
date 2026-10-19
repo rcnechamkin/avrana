@@ -90,3 +90,13 @@ their own explicit approval.
 | **The compact Home stays**: bounded Continue and New rows, browsing on `/new` | As approved in AVR-452 |
 | Earlier approved direction is preserved | These decisions are not blanket visual approval |
 | **Visual approval of #23, #24, #26 and #27 is pending** (AVR-455): the direction is accepted | Reviewed on a real iPhone in Safari with VoiceOver from a private, fixture-only preview; no UI change that needs it merges before then |
+
+## Owner decisions, 2026-10-18: AVRANA Brand v1.0.0 on Home (AVR-584, PR #62)
+
+Recorded from the owner's direction of 2026-10-18. Neither decision approves the branded UI itself (that waits
+on the iPhone Safari and VoiceOver review, AVR-455), a merge or a deployment.
+
+| Decision | Consequence |
+|---|---|
+| **Brand binaries are stored as base64 text, in `services/avrana-home/avrana_home/app/brand/` only** | The PNG icons and the Geist WOFF2 are `*.b64` copies of the exact package bytes, each pinned by SHA-256 in `brand/SOURCES.json`; `brand.py` refuses to serve a file that does not match, and `brand/.gitattributes` (`* -text`) keeps every byte. The repository's binary policy and `scripts/review_git_content.py` are unchanged: no other folder gains this exception |
+| **Shell pages alone get `font-src 'self'`**, beside their existing `manifest-src 'self'` | Only pages that wear the Home shell load Geist from `/brand/geist.woff2`; every other response (portal, Kindle, errors, sections off) keeps the base CSP. No other source, and still no script |
