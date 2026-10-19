@@ -260,6 +260,13 @@ that is not a path starting with `/`. See the data-URI note above.
 Backup of the pre-change brand record and flow titles:
 `/mnt/avrana_media/.backups/authentik-branding-20260821T201629Z/branding.PRE.json`
 
+> **Staged, not applied (2026-10-18): AVRANA Brand v1.0.0.** `services/authentik/brand/` holds the brand
+> package's tokens and wordmark for this CSS, built into `avrana-landing.yaml`, with an owner-run backup, apply
+> and rollback tool. Until the owner approves and applies it, the description above is what is live.
+> **Drift to know about:** the wordmark rules above were a database-only edit; the Git blueprint still carries
+> the house style without them, and the worker re-applies a blueprint whenever its file changes
+> (`authentik/blueprints/v1/tasks.py:99-108`). Any edit to `avrana-landing.yaml` therefore resets the brand CSS.
+
 
 ## Session lifetime & passkeys
 
