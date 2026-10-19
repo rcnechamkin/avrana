@@ -231,9 +231,11 @@ class Safety(Fixture):
 
     def test_images_come_only_from_the_art_route(self):
         r = self.search(A, "Synthetic")
-        srcs = re.findall(r'<img[^>]*src="([^"]*)"', r.text)
+        srcs = re.findall(r'<img class="art"[^>]*src="([^"]*)"', r.text)
         self.assertTrue(srcs)
         self.assertTrue(all(s.startswith("/art/") for s in srcs), srcs)
+        # the only other image is the masthead's brand lockup, a fixed same-origin file (AVR-584)
+        self.assertEqual(["/brand/avrana-media-l3.svg"], re.findall(r'<img class="(?!art")[^"]*"[^>]*src="([^"]*)"', r.text))
 
     def test_the_term_is_never_logged(self):
         records = []

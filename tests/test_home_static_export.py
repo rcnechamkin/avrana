@@ -112,8 +112,25 @@ class StaticExportTests(unittest.TestCase):
         self.assertGreater(len(arts), 3)
         for p in arts:
             self.assertTrue(p.read_text(encoding="utf-8").startswith("<svg"))
+        # LF is a rule for what the export GENERATES. brand/ holds copies of the approved brand package, kept byte
+        # for byte (the package's SVGs use CRLF, the WOFF2 is binary); the next test holds them to their source.
         for p in self.files:
+            if p.parent == self.out / "brand":
+                continue
             self.assertNotIn(b"\r", p.read_bytes(), p.name)
+
+    def test_brand_files_are_the_package_bytes(self):
+        """AVR-584: every exported brand file is exactly the bytes brand.py serves, which are pinned by SHA-256 to
+        the approved package (brand/SOURCES.json). Nothing in the export normalises, re-encodes or adds to them."""
+        import hashlib
+        from avrana_home.app import brand
+        exported = {p.relative_to(self.out).as_posix(): p for p in self.files if p.parent == self.out / "brand"}
+        self.assertEqual({route.lstrip("/") for route in brand.ROUTES}, set(exported))
+        pins = brand.sources()["files"]
+        for route, (name, _type) in brand.ROUTES.items():
+            data = exported[route.lstrip("/")].read_bytes()
+            self.assertEqual(brand.file_bytes(name), data, route)
+            self.assertEqual(pins[name]["sha256"], hashlib.sha256(data).hexdigest(), route)
 
     def test_refuses_a_foreign_folder(self):
         import export_home_static
