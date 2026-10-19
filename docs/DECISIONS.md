@@ -90,3 +90,18 @@ their own explicit approval.
 | **The compact Home stays**: bounded Continue and New rows, browsing on `/new` | As approved in AVR-452 |
 | Earlier approved direction is preserved | These decisions are not blanket visual approval |
 | **Visual approval of #23, #24, #26 and #27 is pending** (AVR-455): the direction is accepted | Reviewed on a real iPhone in Safari with VoiceOver from a private, fixture-only preview; no UI change that needs it merges before then |
+
+## Owner decisions, 2026-10-18: AVRANA Brand v1.0.0 on the Authentik gate
+
+Relayed from the owner's chat on 2026-10-18. None of these approves the live change: applying the brand CSS to
+auth.avrana.net still needs the owner's explicit approval for that step, after a backup, with the rollback ready
+(`services/authentik/brand/README.md`).
+
+| Decision | Consequence |
+|---|---|
+| **The gate shows the plain AVRANA wordmark** (cream, `02-Logo-Exports/RGB/svg-trimmed`), not the Media L3 lockup | Embedded byte-exact in `Brand.branding_custom_css`, SHA-256 pinned in `services/authentik/brand/SOURCES.json` |
+| The gate work no longer waits on #62's iPhone review; the owner reports #62's branded UI approved | Timing of the live apply is the owner's call |
+| **The gate work is part of AVR-362** (cross-surface convergence), not its own ticket | Tracked and reviewed under AVR-362 |
+| **No rule under the wordmark**, on the gate and on Home | Removed from the gate's brand CSS; Home's masthead rule is removed in a separate Home change |
+| The live apply needs explicit approval, a backup and a rollback; push and a draft PR are approved | `brand_css_change.py backup`, `apply`, `rollback`; each live step is approved one at a time, Git-only until then |
+| **The gate uses the system font, not embedded Geist** (owner, 2026-10-18) | The staged stack stays: no font embedded in the brand CSS (16 KB, not 109 KB). Geist can come later from Home's own copy once Home is deployed, which needs CORS on the font |

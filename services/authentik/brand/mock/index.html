@@ -1,0 +1,105 @@
+<!doctype html>
+<!-- Local static mock of auth.avrana.net with avrana-brand-v1.css applied. NOT Authentik: the markup follows
+     Authentik 2026.5.6's flow executor (web/src/flow/FlowExecutor.ts:427-458) and user library header
+     (web/src/user/ak-interface-user.ts:147-154), and the base rules below are a small stand-in for its
+     PatternFly 4 and login.css styles, so the brand CSS has the defaults it must override (blue accents, rounded
+     corners, light card). The brand CSS is applied the way Authentik applies it: once in a document style element
+     (base/skeleton.html:30) and adopted into the executor's shadow root (web/src/elements/Base.ts:113).
+     Serve the brand folder over http (python -m http.server) and open /mock/?view=login|password|passkey|error|library -->
+<html lang="en" data-theme="dark" data-theme-choice="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>Avrana (mock)</title>
+<style id="stand-in">
+  :root { --pf-global--FontFamily--sans-serif: "RedHatText", "Overpass", sans-serif; }
+  html, body { margin: 0; background: #18191a; color: #fafafa; font-family: var(--pf-global--FontFamily--sans-serif); font-size: 16px; }
+  .pf-c-page__header { display: flex; align-items: center; gap: 1rem; padding: 0 1rem; min-height: 4.75rem; background: #151515; }
+  .pf-c-page__header-brand-link { color: inherit; }
+  .pf-c-brand { height: 2.25rem; }
+  .ak-library { padding: 1.5rem 1rem; }
+</style>
+<template id="executor-css">
+  :host { display: flex; min-height: 100dvh; flex-flow: column nowrap; }
+  .pf-c-login__main { margin: 0 auto; width: 100%; max-width: 35rem; box-sizing: border-box; background: oklab(0.2303 -0.0008 -0.0083);
+    color: var(--ak-c-login__main--Color, #fafafa); border-radius: 3px; box-shadow: 0 4px 8px rgba(3,3,3,.4); }
+  .pf-c-login__main-header.pf-c-brand { padding: 2rem 1rem 1rem; display: flex; justify-content: center; }
+  .branding-logo { display: block; max-width: 75%; }
+  .ak-flow-card { padding: 0 1.5rem 2rem; }
+  h1 { font-size: 1.5rem; font-weight: 400; margin: 0 0 1.5rem; text-align: center; }
+  .pf-c-form { display: grid; gap: 1.5rem; }
+  .pf-c-form__group { display: grid; gap: 0.5rem; }
+  .pf-c-form__label { font-size: 0.875rem; font-weight: 700; }
+  .pf-c-form-control { width: 100%; box-sizing: border-box; font: inherit; font-size: 1rem; padding: 0.375rem 0.5rem; min-height: 2.25rem; color: #fafafa;
+    background: #1b1d21; border: 1px solid #444548; border-bottom-color: #8a8d90; border-radius: 3px; }
+  .pf-c-form-control:focus { outline: none; border-bottom: 2px solid #2b9af3; }
+  .pf-c-form__helper-text { font-size: 0.875rem; color: #c7c7c7; }
+  .pf-c-form__helper-text.pf-m-error { color: #c9190b; }
+  .pf-c-check { display: flex; gap: 0.5rem; align-items: center; }
+  .pf-c-button { font: inherit; font-size: 1rem; padding: 0.375rem 1rem; border: 0; border-radius: 3px; cursor: pointer; }
+  .pf-c-button.pf-m-primary { background: #fd4b2d; color: #fff; }
+  .pf-c-button.pf-m-block { width: 100%; }
+  .pf-c-button.pf-m-link { background: none; color: #73bcf7; padding-inline: 0; }
+  a { color: #73bcf7; }
+  .pf-c-login__main-footer { padding: 0 1.5rem 1.5rem; }
+  .pf-c-login__footer { padding: 1rem; text-align: center; color: #c7c7c7; }
+</template>
+</head>
+<body>
+<script type="module">
+  const view = new URLSearchParams(location.search).get('view') || 'login';
+  const css = await (await fetch('../avrana-brand-v1.css', {cache: 'no-store'})).text();
+  // base/skeleton.html:30: the brand CSS in a document style element, after the interface stylesheet.
+  const doc = document.createElement('style'); doc.dataset.id = 'brand-css'; doc.textContent = css;
+  document.head.append(doc);
+  if (view === 'library') {
+    document.body.innerHTML = `
+      <header class="pf-c-page__header"><div part="brand" class="pf-c-page__header-brand">
+        <a href="#/" class="pf-c-page__header-brand-link"><img class="pf-c-brand" alt="Avrana"
+          src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='36'%3E%3Crect width='120' height='36' fill='%23fd4b2d'/%3E%3C/svg%3E"></a>
+      </div></header>
+      <main class="ak-library"><h1>My applications</h1><p><a href="#">TV and Movies</a></p></main>`;
+  } else {
+    const host = document.createElement('ak-flow-executor');
+    host.className = 'pf-c-login';
+    host.dataset.layout = 'stacked';
+    document.body.append(host);
+    const root = host.attachShadow({mode: 'open'});
+    const base = new CSSStyleSheet(); base.replaceSync(document.getElementById('executor-css').innerHTML);
+    const brand = new CSSStyleSheet(); brand.replaceSync(css);       // web/src/elements/Base.ts:113-116
+    root.adoptedStyleSheets = [base, brand];
+    const stock = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='60'%3E%3Crect width='240' height='60' fill='%23fd4b2d'/%3E%3C/svg%3E";
+    const bodies = {
+      login: `<h1>Welcome to Avrana!</h1><form class="pf-c-form" onsubmit="return false">
+          <div class="pf-c-form__group"><label class="pf-c-form__label" for="uid">Username or email</label>
+            <input class="pf-c-form-control" id="uid" name="uidField" autocomplete="username" placeholder="Username or email"></div>
+          <button class="pf-c-button pf-m-primary pf-m-block" type="submit">Log in</button></form>`,
+      password: `<h1>Welcome to Avrana!</h1><form class="pf-c-form" onsubmit="return false">
+          <div class="pf-c-form__group"><label class="pf-c-form__label" for="pw">Password</label>
+            <input class="pf-c-form-control" id="pw" type="password" autocomplete="current-password"></div>
+          <button class="pf-c-button pf-m-primary pf-m-block" type="submit">Continue</button>
+          <a href="#">Forgot username or password?</a></form>`,
+      error: `<h1>Welcome to Avrana!</h1><form class="pf-c-form" onsubmit="return false">
+          <div class="pf-c-form__group"><label class="pf-c-form__label" for="pw">Password</label>
+            <input class="pf-c-form-control" id="pw" type="password" aria-invalid="true" aria-describedby="pw-err">
+            <p class="pf-c-form__helper-text pf-m-error" id="pw-err">Invalid password</p></div>
+          <button class="pf-c-button pf-m-primary pf-m-block" type="submit">Continue</button></form>`,
+      passkey: `<h1>Welcome to Avrana!</h1><form class="pf-c-form" onsubmit="return false">
+          <div class="pf-c-check"><input type="checkbox" id="pk" checked><label for="pk">Set up Face ID or a passkey now</label></div>
+          <p class="pf-c-form__helper-text">Recovery code: <code>7KQ2-0OL1-IL9X</code></p>
+          <button class="pf-c-button pf-m-primary pf-m-block" type="submit">Continue</button></form>`,
+    };
+    root.innerHTML = `
+      <div part="locale-select">English</div>
+      <main data-layout="stacked" class="pf-c-login__main" aria-label="Authentication form" part="main">
+        <div class="pf-c-login__main-header pf-c-brand" part="branding">
+          <img src="${stock}" alt="authentik Logo" class="branding-logo"></div>
+        <div class="ak-flow-card">${bodies[view] || bodies.login}</div>
+      </main>
+      <footer class="pf-c-login__footer">Powered by authentik</footer>`;
+  }
+  document.documentElement.dataset.ready = '1';
+</script>
+</body>
+</html>

@@ -26,30 +26,72 @@ entries:
           theme:
             base: dark
       branding_custom_css: |
+        /* AVRANA Brand v1.0.0 on Authentik (auth.avrana.net): flow pages and the user library.
+           Source for Brand.branding_custom_css. build_brand_css.py fills the wordmark token below with the package's
+           cream wordmark (base64, byte-exact, SHA-256 pinned in SOURCES.json) and writes avrana-brand-v1.css and the
+           avrana-landing.yaml blueprint. Edit this file, never the generated ones.
+           Authentik puts this text in a document style element after replacing the three HTML-special characters
+           (less-than, greater-than, ampersand) with JSON escapes (authentik/brands/utils.py:63), and adopts it raw into
+           every component's shadow root (web/src/elements/Base.ts:113). So none of those three characters appear here
+           (no child combinators), and every selector works in both places. */
+
         :root,
+        :host,
         html[data-theme="dark"],
         html[data-theme="light"] {
           color-scheme: dark;
-          --ak-font-family-sans-serif: "Times New Roman", Times, serif;
-          --ak-font-family-monospace: "Times New Roman", Times, serif;
-          --ak-global--Color--100: #ffffff;
-          --ak-global--Color--200: #b8b8b8;
-          --ak-global--BackgroundColor--100: #000000;
-          --ak-global--BackgroundColor--200: #000000;
-          --ak-accent: #ffffff;
-          --ak-dark-background: #000000;
-          --ak-flow-background: #000000;
-          --pf-global--FontFamily--sans-serif: "Times New Roman", Times, serif;
-          --pf-global--FontFamily--heading--sans-serif: "Times New Roman", Times, serif;
-          --pf-global--Color--100: #ffffff;
-          --pf-global--Color--200: #b8b8b8;
-          --pf-global--BackgroundColor--100: #000000;
-          --pf-global--BackgroundColor--200: #000000;
-          --pf-global--primary-color--100: #ffffff;
-          --pf-global--primary-color--200: #d8d8d8;
-          --pf-global--link--Color: #ffffff;
-          --pf-global--link--Color--hover: #ffffff;
-          --pf-global--BorderColor--100: #686868;
+          --avr-wordmark: url("data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4NCjxzdmcgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIiB4bWxuczppbmtzY2FwZT0iaHR0cDovL3d3dy5pbmtzY2FwZS5vcmcvbmFtZXNwYWNlcy9pbmtzY2FwZSIgeG1sbnM6c29kaXBvZGk9Imh0dHA6Ly9zb2RpcG9kaS5zb3VyY2Vmb3JnZS5uZXQvRFREL3NvZGlwb2RpLTAuZHRkIiB3aWR0aD0iMTcwMS42IiBoZWlnaHQ9IjY1MC4wIiB2aWV3Qm94PSIwIDAgMTcwMS42IDY1MCIgdmVyc2lvbj0iMS4xIj4NCiAgPHRpdGxlPmF2cmFuYS13b3JkbWFya19jcmVhbV90cmltPC90aXRsZT4NCiAgPGRlc2M+QVZSQU5BIHdvcmRtYXJrLiBQcmltYXJ5IGlkZW50aXR5OiBTcGlyZS1BICsgVlJBTkEsIGNhbm9uaWNhbCB2MS4wLiBVbml0czogd29yZG1hcmsgdW5pdHMgKGNhcCBoZWlnaHQgNDQyKS4gRXhjbHVkZXMgY2xlYXIgc3BhY2Ugb2YgMTA0IHVuaXRzLiBHZW5lcmF0ZWQgYnkgQVZSQU5BIGJyYW5ka2l0LjwvZGVzYz4NCiAgPGcgaWQ9ImxheWVyLW1hcmsiIGlua3NjYXBlOmdyb3VwbW9kZT0ibGF5ZXIiIGlua3NjYXBlOmxhYmVsPSIwMV9QcmltYXJ5X01hcmtfU3BpcmVBIj4NCiAgICA8cGF0aCBpZD0iZ2x5cGgtMDEtc3BpcmUtQSIgaW5rc2NhcGU6bGFiZWw9IjAxX0FfU3BpcmVfTWFyayIgZD0iTSAxNDUwLDcwIEMgMTQ1OCwxMDggMTQ4NCwxNzAgMTUwMCwyMzAgQyAxNTE2LDI5MCAxNTMzLDM1MCAxNTMzLDQxNSBDIDE1MzMsNDkwIDE1MTAsNTI1IDE1MDgsNTkwIEMgMTUwNy4xNzMsNjMxLjM1MiAxNTEzLjE4Niw2NTkuMDI1IDE1MTguNjg1LDY4NC4zMzEgQyAxNTE5LjgzNSw2ODkuNjIzIDE1MjAuOTYyLDY5NC44MTEgMTUyMiw3MDAgTCAxNDkxLjIwNiw3MDAgUSAxNDc2LjE2MSw2MDYuMjcxIDE0NTAsNTE1IFEgMTQyMy44MzksNjA2LjI3MSAxNDA4Ljc5NCw3MDAgTCAxMzc4LDcwMCBDIDEzNzkuMDM4LDY5NC44MTEgMTM4MC4xNjUsNjg5LjYyMyAxMzgxLjMxNSw2ODQuMzMxIEMgMTM4Ni44MTQsNjU5LjAyNSAxMzkyLjgyNyw2MzEuMzUyIDEzOTIsNTkwIEMgMTM5MCw1MjUgMTM2Nyw0OTAgMTM2Nyw0MTUgQyAxMzY3LDM1MCAxMzg0LDI5MCAxNDAwLDIzMCBDIDE0MTYsMTcwIDE0NDIsMTA4IDE0NTAsNzAgWiBNIDE1NTgsNzEwLjcyNCBMIDE1NTgsNjk5IFEgMTU1OCw2OTMuMzU3IDE1NTYuMjk4LDY4OC4wNTIgUSAxNTU1LjM0Niw2ODMuNTA3IDE1NTMuODY0LDY3Ni42ODcgUSAxNTQ4LjUzNSw2NTIuMTYxIDE1NDYuNjM4LDYzOC4zMDEgUSAxNTQzLjUsNjE1LjM3MyAxNTQzLjk4Myw1OTEuMTA3IFEgMTU0NC41MjYsNTczLjQ2OSAxNTQ3LjcyMiw1NTQuNzc5IFEgMTU0OS43MjYsNTQzLjA1NiAxNTU1LjA0NCw1MTkuOTM5IFEgMTU2MS44MDksNDkwLjUzMSAxNTY0LjQ2Miw0NzMuNTcyIFEgMTU2Ni45ODEsNDU3LjQ2OCAxNTY4LjEwMiw0NDEuMTk2IEwgMTU2OC4xMDcsNDQxLjE5NiBRIDE2MjAuNTM1LDU3NS43OTcgMTYyOSw3MjAgQyAxNjA0LjA0NSw3MTguNzIgMTU4MC43MjgsNzE1LjgwMyAxNTU4LDcxMC43MjQgWiBNIDEzMzEuODk4LDQ0MS4xOTYgUSAxMzMzLjAxOSw0NTcuNDY4IDEzMzUuNTM4LDQ3My41NzIgUSAxMzM4LjE5MSw0OTAuNTMxIDEzNDQuOTU2LDUxOS45MzkgUSAxMzUwLjI3NCw1NDMuMDU2IDEzNTIuMjc4LDU1NC43NzkgUSAxMzU1LjQ3NCw1NzMuNDY5IDEzNTYuMDA3LDU5MC43MiBRIDEzNTYuNSw2MTUuMzczIDEzNTMuMzYyLDYzOC4zMDEgUSAxMzUxLjQ2NSw2NTIuMTYxIDEzNDYuMTM2LDY3Ni42ODcgUSAxMzQ0LjY1NCw2ODMuNTA3IDEzNDMuNzAyLDY4OC4wNTIgUSAxMzQyLDY5My4zNTcgMTM0Miw2OTkgTCAxMzQyLDcxMC43MjQgQyAxMzE5LjI3Miw3MTUuODAzIDEyOTUuOTU1LDcxOC43MiAxMjcxLDcyMCBRIDEyNzkuNDY1LDU3NS43OTcgMTMzMS44OTMsNDQxLjE5NiBaIE0gMTQ1MCwyNDIgQyAxNDQyLDI3MCAxNDE5LDM3MCAxNDE3LDQ0OCBMIDE0NTAsNDQxLjE5NiBMIDE0ODMsNDQ4IEMgMTQ4MSwzNzAgMTQ1OCwyNzAgMTQ1MCwyNDIgWiIgZmlsbD0iI2VkZWFlNCIgdHJhbnNmb3JtPSJ0cmFuc2xhdGUoLTEyNzEsLTcwKSIvPg0KICA8L2c+DQogIDxnIGlkPSJsYXllci13b3JkbWFyayIgaW5rc2NhcGU6Z3JvdXBtb2RlPSJsYXllciIgaW5rc2NhcGU6bGFiZWw9IjAyX0N1c3RvbV9Xb3JkbWFya19WUkFOQSI+DQogICAgPHBhdGggaWQ9ImdseXBoLTAyLVYiIGlua3NjYXBlOmxhYmVsPSIwMl9WX0N1c3RvbSIgZD0iTTM3MS42NiAyMDhWMjA5LjA4QzM3MS4xOCAyMTAuODcgMzcwLjk0IDIxNS4wOSAzNzAuOTQgMjE3Ljk2QzM3MC45NCAyMjkuMDggMzcyLjU1IDI0MS40NiAzNzguMyAyNjEuNTVMNDQ4Ljc2IDQ5OS43MUw1MTYuNzYgMjYzLjdDNTIwLjM2IDI1MC40MyA1MjUuNTYgMjM0LjEgNTI1LjU2IDIxNy45NkM1MjUuNTYgMjEzLjY1IDUyNC45NiAyMTAuNTEgNTI0LjQ4IDIwOS4wOFYyMDhINTc5LjE4VjIwOS4wOEM1NzQuNjMgMjE1Ljg5IDU2Ny45OSAyMzQuMSA1NjAuMzMgMjU5LjkzTDQ1OC4zNyA1OTkuMkg0NTguNTJMNDQzLjI1IDY1MEg0MzkuMjJMNDI0LjE3IDU5OS4ySDQyNC4zMkwzMjcuNzMgMjczLjEyQzMxOC42MyAyNDIuMjYgMzA2Ljk2IDIxMy4zOCAzMDQuNTcgMjA5LjA4VjIwOFoiIGZpbGw9IiNlZGVhZTQiLz4NCiAgICA8cGF0aCBpZD0iZ2x5cGgtMDMtUiIgaW5rc2NhcGU6bGFiZWw9IjAzX1JfQ3VzdG9tIiBkPSJNNTkzLjE5IDIwOEg2ODYuMTlDNzY3LjEgMjA4IDgyNS42OSAyNTIuODQgODI1LjY5IDMyNkM4MjUuNjkgMzk1LjMgNzk4LjE5IDQ0NiA3NjQuMTkgNDUyQzc4Ny41NiA1MTggODA1LjU2IDU4NCA4MTguOTkgNjUwSDc2MC45OUM3NDguNzYgNTg0IDcyOS44NyA1MTggNzEyLjE5IDQ1Mkg2NDUuMTlWNjUwSDU3OS4xOUM1ODYuODkgNjUwIDU5My4xOSA2MjEuMiA1OTMuMTkgNTg2Wk02NDUuMTkgMjMyVjQyOEg2ODYuMTlDNzMxLjU3IDQyOCA3NjguNjkgMzk4IDc2OC42OSAzMzBDNzY4LjY5IDI2MiA3MzEuNTcgMjMyIDY4Ni4xOSAyMzJaIiBmaWxsPSIjZWRlYWU0Ii8+DQogICAgPHBhdGggaWQ9ImdseXBoLTA0LUExIiBpbmtzY2FwZTpsYWJlbD0iMDRfQV8xX0N1c3RvbSIgZD0iTTgzMy40MyA2NTBWNjQ4LjkxQzgzNy43NCA2NDIgODQ0LjQzIDYyMy45IDg1Mi4wOCA1OTcuMzVMODgzLjYxIDQ5MC44OUw4OTIuMzIgNDYxLjQ5TDk1My45IDI1My42SDk1My43NUw5NjkuMDQgMjAySDk3MS45TDk4Ny4xOSAyNTMuNkg5ODcuMDRMMTA0OC42MiA0NjEuNDlMMTA1Ny4zMyA0OTAuODlMMTA4OC44NiA1OTcuMzVDMTA5Ni41MSA2MjMuOSAxMTAzLjIgNjQyIDExMDcuNTEgNjQ4LjkxVjY1MEgxMDQxLjQzQzEwNDkuMTMgNjUwIDEwNDcuMTkgNjIxLjIgMTAzNy4xMiA1ODZMMTA0MS4xMyA2MDBDMTA0MC41NCA1OTcuNzggMTAzOS45NyA1OTUuNjMgMTAzOS40MSA1OTMuNTNMMTAyMC42NSA1MjcuOTZIMTAyMC41NkwxMDA5Ljg4IDQ5MC4wNEgxMDEwLjA1TDEwMDQuOTcgNDcyLjEyTDk3MC40NyA0NTguMThMOTM1Ljk3IDQ3Mi4xMkw5MzAuODkgNDkwLjA0SDkzMS4wNkw5MjAuMzggNTI3Ljk2SDkyMC4yOUw5MDEuNTMgNTkzLjUzQzkwMC45NyA1OTUuNjMgOTAwLjQgNTk3Ljc4IDg5OS44MSA2MDBMOTAzLjgyIDU4NkM4OTMuNzUgNjIxLjIgODkxLjgxIDY1MCA4OTkuNTEgNjUwWk05NzAuNDcgMzMxLjE2Qzk2Ni4zOSAzNDUuNDQgOTU3LjEzIDM5Ni43NSA5NDYuMDUgNDM2LjIyTDk3MC40NyA0MzIuNzVMOTk0Ljg5IDQzNi4yMkM5ODMuODEgMzk2Ljc1IDk3NC41NSAzNDUuNDQgOTcwLjQ3IDMzMS4xNloiIGZpbGw9IiNlZGVhZTQiLz4NCiAgICA8cGF0aCBpZD0iZ2x5cGgtMDUtTiIgaW5rc2NhcGU6bGFiZWw9IjA1X05fQ3VzdG9tIiBkPSJNMTEzMy41MiAyMDhIMTE5MS41MkwxMzY5LjUyIDU1OS4yM1YyMDhIMTQxNS41MlY2NTBIMTM1Ny41MkwxMTc5LjUyIDI5OC43N1Y2NTBIMTExOS41MkMxMTI3LjIyIDY1MCAxMTMzLjUyIDYyMS4yIDExMzMuNTIgNTg2WiIgZmlsbD0iI2VkZWFlNCIvPg0KICAgIDxwYXRoIGlkPSJnbHlwaC0wNi1BMiIgaW5rc2NhcGU6bGFiZWw9IjA2X0FfMl9DdXN0b20iIGQ9Ik0xNDI3LjUzIDY1MFY2NDguOTFDMTQzMS44MyA2NDIgMTQzOC41MiA2MjMuOSAxNDQ2LjE3IDU5Ny4zNUwxNDc3LjcgNDkwLjg5TDE0ODYuNDEgNDYxLjQ5TDE1NDcuOTkgMjUzLjZIMTU0Ny44NEwxNTYzLjEzIDIwMkgxNTY2TDE1ODEuMjkgMjUzLjZIMTU4MS4xNEwxNjQyLjcyIDQ2MS40OUwxNjUxLjQzIDQ5MC44OUwxNjgyLjk2IDU5Ny4zNUMxNjkwLjYxIDYyMy45IDE2OTcuMyA2NDIgMTcwMS42IDY0OC45MVY2NTBIMTYzNS41MkMxNjQzLjIxIDY1MCAxNjQxLjI5IDYyMS4zMiAxNjMxLjI3IDU4Ni4yMkwxNjM1LjIxIDYwMEMxNjM0LjYzIDU5Ny43OCAxNjM0LjA2IDU5NS42MyAxNjMzLjUgNTkzLjUzTDE2MTQuNzQgNTI3Ljk2SDE2MTQuNjVMMTYwMy45NyA0OTAuMDRIMTYwNC4xNEwxNTk5LjA2IDQ3Mi4xMkwxNTY0LjU2IDQ1OC4xOEwxNTMwLjA3IDQ3Mi4xMkwxNTI0Ljk5IDQ5MC4wNEgxNTI1LjE2TDE1MTQuNDggNTI3Ljk2SDE1MTQuMzlMMTQ5NS42MyA1OTMuNTNDMTQ5NS4wNyA1OTUuNjMgMTQ5NC41IDU5Ny43OCAxNDkzLjkyIDYwMEwxNDk3Ljg2IDU4Ni4yMkMxNDg3Ljg0IDYyMS4zMiAxNDg1LjkyIDY1MCAxNDkzLjYxIDY1MFpNMTU2NC41NyAzMzEuMTZDMTU2MC40OSAzNDUuNDQgMTU1MS4yMyAzOTYuNzUgMTU0MC4xNSA0MzYuMjJMMTU2NC41NyA0MzIuNzVMMTU4OC45OSA0MzYuMjJDMTU3Ny45MSAzOTYuNzUgMTU2OC42NSAzNDUuNDQgMTU2NC41NyAzMzEuMTZaIiBmaWxsPSIjZWRlYWU0Ii8+DQogIDwvZz4NCiAgPGcgaWQ9ImxheWVyLWd1aWRlcyIgaW5rc2NhcGU6Z3JvdXBtb2RlPSJsYXllciIgaW5rc2NhcGU6bGFiZWw9Ijk5X0NsZWFyX1NwYWNlX0d1aWRlIiBzdHlsZT0iZGlzcGxheTpub25lIj4NCiAgICA8cmVjdCBpZD0iY2xlYXItc3BhY2UtYm91bmRhcnkiIGlua3NjYXBlOmxhYmVsPSJjbGVhciBzcGFjZSBib3VuZGFyeSIgeD0iLTEwNC4wMDAiIHk9Ii0xMDQuMDAwIiB3aWR0aD0iMTkwOS42MDAiIGhlaWdodD0iODU4LjAwMCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjZmYzYjMwIiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1kYXNoYXJyYXk9IjggNiIvPg0KICAgIDxyZWN0IGlkPSJhcnR3b3JrLWJvdW5kYXJ5IiBpbmtzY2FwZTpsYWJlbD0iYXJ0d29yayBib3VuZGFyeSIgeD0iMC4wMDAiIHk9IjAuMDAwIiB3aWR0aD0iMTcwMS42MDAiIGhlaWdodD0iNjUwLjAwMCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjMzRjOGZmIiBzdHJva2Utd2lkdGg9IjIiLz4NCiAgPC9nPg0KPC9zdmc+DQo=");
+          --pf-global--FontFamily--sans-serif: "Geist", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+          --pf-global--FontFamily--heading--sans-serif: "Geist", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+          --pf-global--FontFamily--monospace: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+          --ak-font-family-sans-serif: "Geist", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+          --ak-font-family-monospace: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+          /* Spire Ink ground, Cream type, Stone secondary (8.2:1), Control interactive edges (3.6:1) */
+          --pf-global--BackgroundColor--100: #121214;
+          --pf-global--BackgroundColor--150: #121214;
+          --pf-global--BackgroundColor--200: #121214;
+          --pf-global--BackgroundColor--300: #1e1e21;
+          --pf-global--BackgroundColor--400: #1e1e21;
+          --pf-global--BackgroundColor--light-100: #121214;
+          --pf-global--BackgroundColor--dark-100: #121214;
+          --pf-global--Color--100: #edeae4;
+          --pf-global--Color--200: #aeaba7;
+          --pf-global--Color--light-100: #edeae4;
+          --pf-global--Color--light-200: #aeaba7;
+          --pf-global--BorderColor--100: #6e6c72;
+          --pf-global--BorderColor--200: #6e6c72;
+          --pf-global--BorderColor--300: #6e6c72;
+          --pf-global--BorderColor--400: #8f8c89;
+          --pf-global--primary-color--100: #edeae4;
+          --pf-global--primary-color--200: #aeaba7;
+          --pf-global--active-color--100: #edeae4;
+          --pf-global--link--Color: #edeae4;
+          --pf-global--link--Color--hover: #edeae4;
+          --pf-global--link--Color--visited: #edeae4;
+          --pf-global--danger-color--100: #ff8b8b;
+          --pf-global--danger-color--200: #ff8b8b;
+          --pf-global--BoxShadow--md: none;
+          --ak-accent: #edeae4;
+          --ak-dark-foreground: #edeae4;
+          --ak-dark-background: #121214;
+          --ak-dark-background-light: #161618;
+          --ak-dark-background-lighter: #1e1e21;
+          --ak-flow-background: #121214;
+          --ak-global--Color--100: #edeae4;
+          --ak-global--Color--200: #aeaba7;
+          --ak-global--BackgroundColor--100: #121214;
+          --ak-global--BackgroundColor--200: #121214;
+          --ak-global--BackgroundContrastFilter: none;
+        }
+
+        /* The login card's own variables are set on the executor element (static.global.css), so set them there too. */
+        .pf-c-login,
+        :host(.pf-c-login) {
+          --ak-c-login__main--BackgroundColor: #121214 !important;
+          --ak-c-login__main--Color: #edeae4 !important;
+          --ak-c-login__main--BoxShadow: none !important;
+          --ak-c-login--BackgroundColorOverlay: #121214 !important;
+          --ak-c-login__footer--Color: #aeaba7 !important;
         }
 
         html,
@@ -58,7 +100,15 @@ entries:
         input,
         select,
         textarea {
-          font-family: "Times New Roman", Times, serif !important;
+          font-family: "Geist", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif !important;
+        }
+
+        /* Monospace only for strings people copy: recovery codes, secrets, tokens. */
+        code,
+        pre,
+        kbd,
+        samp {
+          font-family: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace !important;
         }
 
         html,
@@ -66,44 +116,199 @@ entries:
         .pf-c-page,
         .pf-c-background-image,
         .ak-login-container {
-          background: #000000 !important;
-          color: #ffffff !important;
+          background: #121214 !important;
+          color: #edeae4 !important;
         }
 
         .pf-c-background-image {
-          --ak-flow-background: #000000 !important;
+          --ak-flow-background: #121214 !important;
           background-image: none !important;
         }
 
         .pf-c-login__main,
         .pf-c-card,
         .pf-c-modal-box {
-          background: #000000 !important;
-          color: #ffffff !important;
-          border: 1px solid #686868 !important;
+          background: #121214 !important;
+          color: #edeae4 !important;
+          border: 1px solid #5e5b57 !important;
           border-radius: 0 !important;
           box-shadow: none !important;
         }
 
-        .pf-c-button,
+        /* Fields: transparent, Control edge, square; native controls drawn dark. */
         .pf-c-form-control,
-        input,
+        input:not([type="checkbox"]):not([type="radio"]),
         select,
         textarea {
+          background-color: transparent !important;
+          color: #edeae4 !important;
+          border: 1px solid #6e6c72 !important;
           border-radius: 0 !important;
           box-shadow: none !important;
+          max-width: 100%;
+        }
+
+        .pf-c-form-control:focus,
+        input:not([type="checkbox"]):not([type="radio"]):focus,
+        select:focus,
+        textarea:focus {
+          border-color: #edeae4 !important;
+        }
+
+        input::placeholder,
+        textarea::placeholder {
+          color: #aeaba7 !important;
+          opacity: 1;
+        }
+
+        input[type="checkbox"],
+        input[type="radio"] {
+          accent-color: #edeae4;
+          width: 1.25rem;
+          height: 1.25rem;
+        }
+
+        .pf-c-form__label,
+        .pf-c-form__label-text {
+          color: #edeae4 !important;
+        }
+
+        .pf-c-form__helper-text {
+          color: #aeaba7 !important;
+        }
+
+        .pf-c-form__helper-text.pf-m-error {
+          color: #ff8b8b !important;
+        }
+
+        /* Buttons: square, 44px; primary is Cream on Spire Ink and inverts on hover. */
+        .pf-c-button {
+          border-radius: 0 !important;
+          box-shadow: none !important;
+          min-height: 2.75rem;
+        }
+
+        .pf-c-button::after {
+          border-radius: 0 !important;
         }
 
         .pf-c-button.pf-m-primary {
-          color: #000000 !important;
-          background: #ffffff !important;
-          border-color: #ffffff !important;
+          color: #121214 !important;
+          background: #edeae4 !important;
+          border: 1px solid #edeae4 !important;
+        }
+
+        .pf-c-button.pf-m-primary:hover {
+          color: #edeae4 !important;
+          background: #121214 !important;
+        }
+
+        .pf-c-button.pf-m-secondary,
+        .pf-c-button.pf-m-tertiary,
+        .pf-c-button.pf-m-control {
+          color: #edeae4 !important;
+          background: transparent !important;
+          border: 1px solid #6e6c72 !important;
+        }
+
+        .pf-c-button.pf-m-secondary:hover,
+        .pf-c-button.pf-m-tertiary:hover,
+        .pf-c-button.pf-m-control:hover {
+          color: #121214 !important;
+          background: #edeae4 !important;
+          border-color: #edeae4 !important;
         }
 
         a,
         .pf-c-button.pf-m-link {
-          color: #ffffff !important;
-          text-decoration-color: #686868 !important;
+          color: #edeae4 !important;
+          text-decoration-line: underline;
+          text-decoration-color: #8f8c89 !important;
+          text-decoration-thickness: 1px;
+          text-underline-offset: 0.2em;
+        }
+
+        a:hover,
+        .pf-c-button.pf-m-link:hover {
+          text-decoration-color: #edeae4 !important;
+        }
+
+        /* One focus ring everywhere (DESIGN.md, the Focus Ring Rule); the outline keeps one in forced colours.
+           The field selectors repeat the field rule's :not() chain so this rule outranks its box-shadow: none. */
+        a:focus-visible,
+        button:focus-visible,
+        input:focus-visible,
+        input:not([type="checkbox"]):not([type="radio"]):focus-visible,
+        .pf-c-form-control:focus-visible,
+        select:focus-visible,
+        textarea:focus-visible,
+        summary:focus-visible,
+        [tabindex]:focus-visible,
+        .pf-c-button:focus-visible {
+          outline: 2px solid transparent !important;
+          outline-offset: 0 !important;
+          box-shadow: 0 0 0 2px #121214, 0 0 0 4px #edeae4 !important;
+        }
+
+        /* The mark. branding_logo cannot carry the package file (a media path or an http(s) URL only:
+           authentik/admin/files/validation.py:48, backends/passthrough.py:8), so the stock image is hidden and the
+           package wordmark is drawn from the data URI above. Never retyped, never redrawn. Decorative: the flow title
+           ("Welcome to Avrana!") names the page. Width 12.5rem (200px; package minimum 120px), clear space above
+           and below at least 16% of its height. No rule beneath it (owner, 2026-10-18). */
+        .pf-c-login__main-header.pf-c-brand .branding-logo,
+        .pf-c-brand img,
+        .ak-brand img {
+          display: none !important;
+        }
+
+        .pf-c-login__main-header.pf-c-brand {
+          flex-direction: column;
+          align-items: center;
+        }
+
+        .pf-c-login__main-header.pf-c-brand::before {
+          content: "";
+          display: block;
+          width: min(12.5rem, 100%);
+          aspect-ratio: 1701.6 / 650;
+          margin-block: 0.75rem;
+          background: var(--avr-wordmark) center / contain no-repeat;
+        }
+
+        /* User library header: the image stays in the accessibility tree (its alt is the link's name, "Avrana")
+           but is hidden visually, and the wordmark is drawn at the package's 120px minimum width. */
+        img.pf-c-brand {
+          position: absolute !important;
+          width: 1px !important;
+          height: 1px !important;
+          margin: -1px !important;
+          overflow: hidden !important;
+          clip-path: inset(50%) !important;
+        }
+
+        .pf-c-page__header-brand-link {
+          display: inline-flex;
+          align-items: center;
+          min-height: 2.75rem;
+        }
+
+        .pf-c-page__header-brand-link::before {
+          content: "";
+          display: block;
+          width: 7.5rem;
+          aspect-ratio: 1701.6 / 650;
+          background: var(--avr-wordmark) center / contain no-repeat;
+        }
+
+        /* Forced colours: keep the package artwork exactly, on its own Spire Ink patch, so it stays visible on a
+           light high-contrast ground without being retyped. */
+        @media (forced-colors: active) {
+          .pf-c-login__main-header.pf-c-brand::before,
+          .pf-c-page__header-brand-link::before {
+            forced-color-adjust: none;
+            background-color: #121214;
+            outline: 0.5rem solid #121214;
+          }
         }
 
         ak-flow-executor::part(locale-select),
