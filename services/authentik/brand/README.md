@@ -74,15 +74,17 @@ the document copy registers the face for the whole page.
 
 ## Owner decisions
 
-1. **Lockup**: plain wordmark (proposed) or the Media L3 product lockup used on Home (#62). The package says L3
-   is for "inside the product", and the wordmark is the primary identity; the sign-in page sits in front of
-   every Avrana service, not only Media. Swapping is one line in `SOURCES.json` and the source file.
-2. **Geist**: system fallback (proposed) or embedded (cost above). A third route, loading it from avrana.net,
-   needs #62 deployed plus CORS on the font, so it is not offered.
-3. **Timing**: after #62's iPhone Safari/VoiceOver approval (AVR-455) so both surfaces change together, or
-   before it. The proposal is after.
-4. **Ownership**: whether this lands as its own change or under AVR-362 (cross-surface convergence).
-5. The 64px rule under the mark, kept to match Home; the package's "one logo, one line" allows it.
+Relayed from the owner's chat on 2026-10-18 (answers: "1. Avrana wordmark  2. sure, and it's approved  3. yep
+4. sounds good"). Also in `docs/DECISIONS.md`.
+
+| Question | State |
+|---|---|
+| Lockup: plain wordmark or the Media L3 lockup | **Decided: the plain AVRANA wordmark**, cream, `02-Logo-Exports/RGB/svg-trimmed` (as staged) |
+| Timing relative to #62's iPhone review | **No longer waiting**: the owner reports #62's branded UI approved |
+| Ownership: its own change or under AVR-362 | Owner agreed ("yep") to a two-way question; **needs a one-line confirmation of which** |
+| Live apply | Agreed it needs the owner's explicit approval, a backup and a rollback. **Not an approval of the live change** |
+| Geist: system fallback (staged) or embedded (cost above) | **Open.** Loading it from avrana.net would need #62 deployed plus CORS on the font, so it is not offered |
+| The 64px rule under the mark, kept to match Home | Open, minor; the package's "one logo, one line" allows it |
 
 ## Live steps (each needs the owner's approval; run as cody on host avrana)
 
