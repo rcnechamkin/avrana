@@ -101,5 +101,7 @@ auth.avrana.net still needs the owner's explicit approval for that step, after a
 |---|---|
 | **The gate shows the plain AVRANA wordmark** (cream, `02-Logo-Exports/RGB/svg-trimmed`), not the Media L3 lockup | Embedded byte-exact in `Brand.branding_custom_css`, SHA-256 pinned in `services/authentik/brand/SOURCES.json` |
 | The gate work no longer waits on #62's iPhone review; the owner reports #62's branded UI approved | Timing of the live apply is the owner's call |
-| Ownership (its own change or part of AVR-362): the owner agreed to the proposal | Which of the two is to be confirmed in one line |
-| The live apply needs explicit approval, a backup and a rollback | `brand_css_change.py backup`, `apply`, `rollback`; Git-only until then |
+| **The gate work is part of AVR-362** (cross-surface convergence), not its own ticket | Tracked and reviewed under AVR-362 |
+| **No rule under the wordmark**, on the gate and on Home | Removed from the gate's brand CSS; Home's masthead rule is removed in a separate Home change |
+| The live apply needs explicit approval, a backup and a rollback; push and a draft PR are approved | `brand_css_change.py backup`, `apply`, `rollback`; each live step is approved one at a time, Git-only until then |
+| Geist on the gate: undecided (the owner asked what the difference is) | The system font stack stays as staged |

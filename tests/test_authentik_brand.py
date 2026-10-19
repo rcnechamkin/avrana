@@ -51,6 +51,11 @@ class GeneratedCss(unittest.TestCase):
         ui = re.search(r'textarea \{\n  font-family: ([^;]+);', CSS).group(1)
         self.assertTrue(ui.startswith('"Geist", system-ui'), ui)
 
+    def test_no_rule_under_the_wordmark(self):
+        # Owner, 2026-10-18: no rule beneath the mark (here and on Home).
+        self.assertNotIn('.pf-c-brand::after', CSS)
+        self.assertNotIn('linear-gradient', CSS)
+
     def test_colours_are_brand_tokens(self):
         used = {c.lower() for c in re.findall(r'#[0-9a-fA-F]{6}\b', CSS)}
         self.assertLessEqual(used, PALETTE, used - PALETTE)

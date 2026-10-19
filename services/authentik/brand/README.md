@@ -9,7 +9,7 @@
 | File | What it is |
 |---|---|
 | `avrana-brand-v1.src.css` | The hand-written CSS. Edit this one |
-| `avrana-brand-v1.css` | Generated: the source with the package wordmark embedded. What Authentik will hold (16,410 bytes, sha256 `d67e4843…965c5f`) |
+| `avrana-brand-v1.css` | Generated: the source with the package wordmark embedded. What Authentik will hold (16,266 bytes, sha256 `153f3461…d51b4f`) |
 | `../blueprints/avrana-landing.yaml` | Generated block: the same CSS as `branding_custom_css`; the rest of the blueprint is unchanged |
 | `SOURCES.json` | Package path, byte count and SHA-256 of every embedded package file |
 | `build_brand_css.py` | Builds both outputs from the source and a local copy of the package; `--check` compares |
@@ -21,7 +21,7 @@
 
 - **Tokens** on Authentik's PatternFly and `--ak-*` variables: Spire Ink `#121214` ground, Cream `#EDEAE4` type,
   Stone `#AEABA7` secondary text (8.2:1), Control `#6E6C72` field and secondary-button edges (3.6:1), Ash `#8F8C89`
-  link underlines and the rule, Graphite `#5E5B57` card edge (decorative). Error text `#FF8B8B` (8.3:1, DESIGN.md
+  link underlines, Graphite `#5E5B57` card edge (decorative). Error text `#FF8B8B` (8.3:1, DESIGN.md
   Err). No Atomic Purple. Square corners, no shadows, the two-ring focus indicator on every control.
 - **Type**: the package stack `"Geist", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial,
   sans-serif`. Geist is **not embedded** by default (see the decision below), so members see their system UI
@@ -29,8 +29,8 @@
   `samp`, which fixes the audit finding that recovery codes rendered in Times.
 - **Mark**: the package's **plain cream wordmark**, `02-Logo-Exports/RGB/svg-trimmed/avrana-wordmark_cream_trim.svg`
   (5,327 bytes, sha256 `295e520a836d9687aae85ef78ecd843a2fefaf5ba153044cb1bafbf04d9d80c9`), embedded byte-exact
-  as base64 once and reused through `--avr-wordmark`. 200px wide on flow pages (package minimum 120px), with a
-  64px Ash rule beneath as on Home; 120px in the user-library header. Never retyped or redrawn: the Times
+  as base64 once and reused through `--avr-wordmark`. 200px wide on flow pages (package minimum 120px), with no
+  rule beneath it (owner, 2026-10-18); 120px in the user-library header. Never retyped or redrawn: the Times
   `content: "AVRANA"` wordmark goes away. In forced colours the artwork keeps its own Spire Ink patch.
 - The stock logo stays in `branding_logo` and is hidden, as today. In the user library the image is hidden only
   visually, so its alt text ("Avrana") still names the home link (today it is `display: none`, which leaves an
@@ -66,25 +66,26 @@
 | Variant | CSS | gzip | Per flow page |
 |---|---|---|---|
 | Today (Git copy of the house style; the 2026-08-21 edit added wordmark rules in the database only) | 2,014 B | | |
-| **Proposed, Geist not embedded** | 16,410 B | 6,631 B | about twice: the `<style>` and the brand JSON (`header_js.html:10`), plus one parse per component |
-| Geist embedded (`--embed-geist`) | 109,423 B | 77,833 B | same, so roughly 220 KB more HTML per page before compression, re-parsed by every component |
+| **Proposed, Geist not embedded** | 16,266 B | 6,611 B | about twice: the `<style>` and the brand JSON (`header_js.html:10`), plus one parse per component |
+| Geist embedded (`--embed-geist`) | 109,279 B | 77,808 B | same, so roughly 220 KB more HTML per page before compression, re-parsed by every component |
 
 Geist adds 69,652 bytes of WOFF2, 92,872 as base64. A `@font-face` in a shadow root is not used by Chromium, but
 the document copy registers the face for the whole page.
 
 ## Owner decisions
 
-Relayed from the owner's chat on 2026-10-18 (answers: "1. Avrana wordmark  2. sure, and it's approved  3. yep
-4. sounds good"). Also in `docs/DECISIONS.md`.
+Relayed from the owner's chat on 2026-10-18 (first answers: "1. Avrana wordmark  2. sure, and it's approved
+3. yep  4. sounds good"; second: "1. the latter  2. What's the difference?  3. Remove the rule from there and Home
+for that matter  4. sounds good. proceed"). Also in `docs/DECISIONS.md`.
 
 | Question | State |
 |---|---|
 | Lockup: plain wordmark or the Media L3 lockup | **Decided: the plain AVRANA wordmark**, cream, `02-Logo-Exports/RGB/svg-trimmed` (as staged) |
 | Timing relative to #62's iPhone review | **No longer waiting**: the owner reports #62's branded UI approved |
-| Ownership: its own change or under AVR-362 | Owner agreed ("yep") to a two-way question; **needs a one-line confirmation of which** |
-| Live apply | Agreed it needs the owner's explicit approval, a backup and a rollback. **Not an approval of the live change** |
+| Ownership: its own change or under AVR-362 | **Decided: part of AVR-362** (cross-surface convergence) |
+| Live apply | Agreed it needs the owner's explicit approval, a backup and a rollback; push and a draft PR approved. **Not an approval of any live step**: each is approved one at a time |
 | Geist: system fallback (staged) or embedded (cost above) | **Open.** Loading it from avrana.net would need #62 deployed plus CORS on the font, so it is not offered |
-| The 64px rule under the mark, kept to match Home | Open, minor; the package's "one logo, one line" allows it |
+| The rule under the mark | **Decided: removed** here (and from Home, in a separate Home change) |
 
 ## Live steps (each needs the owner's approval; run as cody on host avrana)
 
@@ -96,7 +97,7 @@ Relayed from the owner's chat on 2026-10-18 (answers: "1. Avrana wordmark  2. su
    `authentik-default` exists.
 3. Apply: `python3 services/authentik/brand/brand_css_change.py apply BACKUP_DIR
    <reviewed checkout>/services/authentik/blueprints/avrana-landing.yaml --expect-sha256
-   816dd8205e6278ead19a63b41af018042464dba4aaf541cd43f2f868f19bc820`. It refuses if the file is not that one, if
+   b881f0fbae2d5ad0bbdff52d3cca5274f5cb3c7cbc8128a2ef82c209474be102`. It refuses if the file is not that one, if
    the production blueprint is not Git main's (`87b08d4b…`), or if the live CSS changed since the backup. It
    writes the blueprint in place, waits up to 180 s for the worker to record that file's SHA-512 with status
    `successful`, then checks the database value and the served `brand-css` block. The same apply re-asserts the

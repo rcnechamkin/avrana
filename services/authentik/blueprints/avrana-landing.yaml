@@ -254,7 +254,7 @@ entries:
            authentik/admin/files/validation.py:48, backends/passthrough.py:8), so the stock image is hidden and the
            package wordmark is drawn from the data URI above. Never retyped, never redrawn. Decorative: the flow title
            ("Welcome to Avrana!") names the page. Width 12.5rem (200px; package minimum 120px), clear space above
-           and below at least 16% of its height, a 1px Ash rule beneath as on Home. */
+           and below at least 16% of its height. No rule beneath it (owner, 2026-10-18). */
         .pf-c-login__main-header.pf-c-brand .branding-logo,
         .pf-c-brand img,
         .ak-brand img {
@@ -264,7 +264,6 @@ entries:
         .pf-c-login__main-header.pf-c-brand {
           flex-direction: column;
           align-items: center;
-          gap: 1rem;
         }
 
         .pf-c-login__main-header.pf-c-brand::before {
@@ -272,16 +271,8 @@ entries:
           display: block;
           width: min(12.5rem, 100%);
           aspect-ratio: 1701.6 / 650;
-          margin-block: 0.75rem 0;
+          margin-block: 0.75rem;
           background: var(--avr-wordmark) center / contain no-repeat;
-        }
-
-        .pf-c-login__main-header.pf-c-brand::after {
-          content: "";
-          display: block;
-          width: 4rem;
-          height: 1px;
-          background: #8f8c89;
         }
 
         /* User library header: the image stays in the accessibility tree (its alt is the link's name, "Avrana")
