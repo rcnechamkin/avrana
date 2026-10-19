@@ -84,7 +84,7 @@ for that matter  4. sounds good. proceed"). Also in `docs/DECISIONS.md`.
 | Timing relative to #62's iPhone review | **No longer waiting**: the owner reports #62's branded UI approved |
 | Ownership: its own change or under AVR-362 | **Decided: part of AVR-362** (cross-surface convergence) |
 | Live apply | Agreed it needs the owner's explicit approval, a backup and a rollback; push and a draft PR approved. **Not an approval of any live step**: each is approved one at a time |
-| Geist: system fallback (staged) or embedded (cost above) | **Open.** Loading it from avrana.net would need #62 deployed plus CORS on the font, so it is not offered |
+| Geist: system fallback (staged) or embedded (cost above) | **Decided 2026-10-18: system font**, not embedded. Loading it from avrana.net would need #62 deployed plus CORS on the font, so it is not offered |
 | The rule under the mark | **Decided: removed** here (and from Home, in a separate Home change) |
 
 ## Live steps (each needs the owner's approval; run as cody on host avrana)

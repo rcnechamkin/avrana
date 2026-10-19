@@ -104,4 +104,4 @@ auth.avrana.net still needs the owner's explicit approval for that step, after a
 | **The gate work is part of AVR-362** (cross-surface convergence), not its own ticket | Tracked and reviewed under AVR-362 |
 | **No rule under the wordmark**, on the gate and on Home | Removed from the gate's brand CSS; Home's masthead rule is removed in a separate Home change |
 | The live apply needs explicit approval, a backup and a rollback; push and a draft PR are approved | `brand_css_change.py backup`, `apply`, `rollback`; each live step is approved one at a time, Git-only until then |
-| Geist on the gate: undecided (the owner asked what the difference is) | The system font stack stays as staged |
+| **The gate uses the system font, not embedded Geist** (owner, 2026-10-18) | The staged stack stays: no font embedded in the brand CSS (16 KB, not 109 KB). Geist can come later from Home's own copy once Home is deployed, which needs CORS on the font |
