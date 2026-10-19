@@ -11,7 +11,8 @@
    The heading is the approved Media L3 product lockup (AVR-584, brand.py), an image of the brand's own SVG, never
    retyped; its alt text is the product name. The cream lockup cannot follow forced colours (Windows high
    contrast), so there home.css shows the name as text instead: that span is aria-hidden, and the image stays in
-   the accessibility tree, so the link is named once, by the alt text. #}
+   the accessibility tree, so the link is named once, by the alt text. No rule beneath it (owner, 2026-10-18): the
+   portal keeps its wordmark rule until AVR-362 converges them. #}
 {% macro mast(shell, account_menu) -%}
     <div class="mast">
       <div class="id">
@@ -31,7 +32,6 @@
         </details>
       </div>
       <h1><a href="/"{% if shell.current == "home" %} aria-current="page"{% endif %}><img class="lockup" src="/brand/avrana-media-l3.svg" alt="Avrana Media" width="1384" height="650"><span class="lockup-text" aria-hidden="true">Avrana Media</span></a></h1>
-      <div class="rule"></div>
     </div>
     <nav class="places" aria-label="Avrana">
 {% for p in shell.places %}

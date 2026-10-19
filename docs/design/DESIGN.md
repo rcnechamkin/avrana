@@ -397,8 +397,8 @@ hierarchy are unchanged; section labels keep Regular caps tracked 0.22em, which 
 
 **Mark.** The masthead shows the package's **L3 Media product lockup** (`/brand/avrana-media-l3.svg`, cream,
 trimmed) as an `<img alt="Avrana Media">` inside the home link, 3.5rem tall (56px, twice the package's 28px
-minimum so the product name inside it stays legible, and scaling with text size), with the 1px rule beneath. The
-size is provisionally retained, subject to the owner's real-device review. The wordmark is never retyped. The favicon is the
+minimum so the product name inside it stays legible, and scaling with text size), with no rule beneath it (owner, 2026-10-18; the portal keeps its rule until AVR-362).
+The owner approved the size, with the branded UI, after the real-device review on 2026-10-18. The wordmark is never retyped. The favicon is the
 package's 16 px micro cut (`/brand/favicon.svg`); the install icons and manifest colours are the package's.
 
 **CSP.** Shell pages, and only they, add `font-src 'self'` beside `manifest-src 'self'`. No script source, no
