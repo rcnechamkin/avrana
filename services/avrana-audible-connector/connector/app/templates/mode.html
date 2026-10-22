@@ -29,9 +29,5 @@ Choose what happens next.</p>
   <button type="submit" class="primary">Start import</button>
 </form>
 
-<form method="post" action="/contribute/audible/disconnect" class="inline"
-      onsubmit="return confirm('Disconnect your Audible account now?');">
-  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-  <button type="submit" class="ghost danger">Disconnect now</button>
-</form>
+<a href="/contribute/audible/disconnect?from=mode" class="ghost danger as-button">Disconnect now</a>
 {% endblock %}

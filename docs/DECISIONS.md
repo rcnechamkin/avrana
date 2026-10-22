@@ -100,3 +100,18 @@ on the iPhone Safari and VoiceOver review, AVR-455), a merge or a deployment.
 |---|---|
 | **Brand binaries are stored as base64 text, in `services/avrana-home/avrana_home/app/brand/` only** | The PNG icons and the Geist WOFF2 are `*.b64` copies of the exact package bytes, each pinned by SHA-256 in `brand/SOURCES.json`; `brand.py` refuses to serve a file that does not match, and `brand/.gitattributes` (`* -text`) keeps every byte. The repository's binary policy and `scripts/review_git_content.py` are unchanged: no other folder gains this exception |
 | **Shell pages alone get `font-src 'self'`**, beside their existing `manifest-src 'self'` | Only pages that wear the Home shell load Geist from `/brand/geist.woff2`; every other response (portal, Kindle, errors, sections off) keeps the base CSP. No other source, and still no script |
+
+## Owner decisions, 2026-10-18: AVRANA Brand v1.0.0 on the Authentik gate
+
+Relayed from the owner's chat on 2026-10-18. None of these approves the live change: applying the brand CSS to
+auth.avrana.net still needs the owner's explicit approval for that step, after a backup, with the rollback ready
+(`services/authentik/brand/README.md`).
+
+| Decision | Consequence |
+|---|---|
+| **The gate shows the plain AVRANA wordmark** (cream, `02-Logo-Exports/RGB/svg-trimmed`), not the Media L3 lockup | Embedded byte-exact in `Brand.branding_custom_css`, SHA-256 pinned in `services/authentik/brand/SOURCES.json` |
+| The gate work no longer waits on #62's iPhone review; the owner reports #62's branded UI approved | Timing of the live apply is the owner's call |
+| **The gate work is part of AVR-362** (cross-surface convergence), not its own ticket | Tracked and reviewed under AVR-362 |
+| **No rule under the wordmark**, on the gate and on Home | Removed from the gate's brand CSS; Home's masthead rule is removed in a separate Home change |
+| The live apply needs explicit approval, a backup and a rollback; push and a draft PR are approved | `brand_css_change.py backup`, `apply`, `rollback`; each live step is approved one at a time, Git-only until then |
+| **The gate uses the system font, not embedded Geist** (owner, 2026-10-18) | The staged stack stays: no font embedded in the brand CSS (16 KB, not 109 KB). Geist can come later from Home's own copy once Home is deployed, which needs CORS on the font |
