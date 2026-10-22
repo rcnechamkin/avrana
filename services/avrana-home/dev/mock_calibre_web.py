@@ -27,6 +27,7 @@ class MockCalibreWeb(MockAudiobookshelf):
     FAKE = staticmethod(lambda: FakeCalibreWeb())
     MALFORMED = b'<feed xmlns="http://www.w3.org/2005/Atom"><entry><title>'
     NAME = "calibre-web"
+    SHAPE = "book"
 
     def __init__(self, *a, **kw):
         kw.setdefault("api_key", EXPECTED_BASIC)

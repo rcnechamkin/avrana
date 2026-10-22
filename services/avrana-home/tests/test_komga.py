@@ -51,7 +51,7 @@ class Constructor(Base):
             KomgaAdapter(self.transport)                               # the default is refusal
 
     def test_there_is_no_user_route_and_no_member_mapping(self):
-        self.assertEqual([r.name for r in ALLOWED_ROUTES], ["latest", "book", "thumbnail"])
+        self.assertEqual([r.name for r in ALLOWED_ROUTES], ["latest", "book", "search", "thumbnail"])
         self.assertEqual(self.adapter.resolve_user(self.a).upstream_id, SHARED_VIEWER)
         self.assertEqual(self.adapter.resolve_user(self.b).upstream_id, SHARED_VIEWER)
         self.assertEqual(self.fake.requests, [])
@@ -172,7 +172,7 @@ class Artwork(Base):
     def test_missing_thumbnails_and_bad_images_are_graceful(self):
         self.fake.overrides["/api/v1/books/BOOKAAAA0001/thumbnail"] = ("status", 404)
         self.assertEqual(self.adapter.fetch_artwork(self.b, "komga/book/BOOKAAAA0001").state, SectionState.EMPTY)
-        self.assertEqual(self.adapter.health().state, "ok")
+        self.assertEqual("unknown", self.adapter.health().state)   # artwork is neutral for the circuit
         for image in ((200, b"<html>", "text/html"), (200, b"not a png", "image/png"),
                       (200, PNG + b"x" * (MAX_IMAGE_BYTES + 1), "image/png")):
             self.reset()
@@ -263,6 +263,11 @@ class GuardAndSecrets(Base):
             GuardedTransport(self.transport).bind("../x")
         with self.assertRaises(ForbiddenRequest):
             GuardedTransport(self.transport).bind("USERAAAAAAAA1")      # a real-looking Komga user id is refused
+        self.assertEqual([r.name for r in ALLOWED_ROUTES], ["latest", "book", "search", "thumbnail"])
+        for word in ("latest", "updated"):
+            self.assertEqual(self.adapter.item(self.a, word).items, ())
+            self.assertEqual(self.adapter.fetch_artwork(self.a, f"komga/book/{word}").state, SectionState.EMPTY)
+        self.assertEqual([p for p in self.fake.paths() if "latest" in p or "updated" in p], [])
 
     def test_the_credential_is_never_in_a_repr_a_result_a_health_report_or_a_log_line(self):
         opener = FakeOpener(self.fake)

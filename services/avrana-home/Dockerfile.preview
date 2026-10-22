@@ -1,0 +1,25 @@
+# Avrana Home OWNER PREVIEW (owner decision 2026-10-15): LAN-only, one password, the owner's own data.
+# Built by docker-compose.preview.yml; see docs/runbooks/home-owner-preview.md. NOT built in CI.
+#
+# Base image: the SAME pinned digest as services/avrana-portal/Dockerfile.
+# Contents: the pinned, hash-checked dependencies; avrana_home/ and preview/ only (never dev/, tests/,
+# webtests/, tools or secrets; .dockerignore denies everything else). The portal's route tables
+# (portal.py, data the Home catalogue loads at start) come from the named build context "portal"
+# (compose `additional_contexts`), as one file.
+FROM python:3.12-slim@sha256:dd29372629eeba2dd003fd9e9d35a5b8236c44727875a0364254b5127af88e65
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_DISABLE_PIP_VERSION_CHECK=1
+WORKDIR /app
+COPY requirements.lock /app/requirements.lock
+RUN pip install --no-cache-dir --require-hashes --only-binary=:all: -r /app/requirements.lock
+COPY avrana_home/ /app/avrana_home/
+COPY preview/ /app/preview/
+COPY --from=portal portal.py /app/catalogue/portal.py
+# Binds 0.0.0.0 INSIDE the container only (run_preview.py refuses 0.0.0.0 without PREVIEW_IN_CONTAINER);
+# the compose file publishes this port on the LAN address alone.
+ENV HOME_HOST=0.0.0.0 HOME_PORT=8096 PREVIEW_IN_CONTAINER=yes HOME_CATALOGUE_PATH=/app/catalogue/portal.py
+USER 1000:1000
+EXPOSE 8096
+# /healthz without the password answers ONLY a loopback peer (this check runs inside the container).
+HEALTHCHECK --interval=30s --timeout=4s --start-period=10s --retries=3 \
+  CMD python3 -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8096/healthz',timeout=3).status==200 else 1)"
+CMD ["python3", "-m", "preview.run_preview"]

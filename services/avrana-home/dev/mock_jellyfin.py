@@ -31,10 +31,14 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qsl, urlsplit
 
+try:
+    from dev.synthetic_art import JELLYFIN_SHAPE, cover
+except ImportError:                        # run as a script: dev/ itself is on the path
+    from synthetic_art import JELLYFIN_SHAPE, cover
+
 FIXTURES = Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "jellyfin"
 MOCK_KEY = "mock-api-key-not-real"
 MODES = ("ok", "slow", "down", "500", "malformed", "wrong-user")
-PNG = b"\x89PNG\r\n\x1a\n" + b"synthetic-image-bytes"
 LOOPBACK = ("127.0.0.1", "::1")
 
 
@@ -190,6 +194,17 @@ class MockJellyfin:
         except (FileNotFoundError, TypeError):
             return {"Items": [], "TotalRecordCount": 0} if kind == "resume" else []
 
+    def _types(self):
+        """Every synthetic item's Type by id, across all members' fixtures (for the cover's shape only)."""
+        out = {}
+        for f in sorted(FIXTURES.glob("*.json")):
+            if f.name.startswith(("resume_", "latest_")):
+                doc = _fixture(f.name)
+                for i in (doc.get("Items", []) if isinstance(doc, dict) else doc):
+                    if isinstance(i, dict) and "Id" in i:
+                        out[_hex(i["Id"])] = i.get("Type", "")
+        return out
+
     def _visible(self, name):
         resume = self._per_user("resume", name)["Items"]
         latest = self._per_user("latest", name)
@@ -200,6 +215,13 @@ class MockJellyfin:
         name = self._name_for(uid)
         if path == "/Users":
             return self._json(h, self.users)
+        if path == "/Items" and "searchTerm" in query:      # user-scoped search through userId (SYNTHETIC)
+            term = query.get("searchTerm", "").casefold()
+            kinds = set(query.get("includeItemTypes", "").split(","))
+            found = [i for i in self._visible(name).values()
+                     if term and term in str(i.get("Name", "")).casefold() and i.get("Type") in kinds]
+            found = found[:int(query.get("limit", "50"))]
+            return self._json(h, {"Items": found, "TotalRecordCount": len(found)})
         if path == "/UserItems/Resume":
             if wrong_user and name in ("member_a", "member_b"):
                 other = "member_b" if name == "member_a" else "member_a"
@@ -216,7 +238,10 @@ class MockJellyfin:
             found = [vis[i] for i in query.get("ids", "").split(",") if i in vis]
             return self._json(h, {"Items": found, "TotalRecordCount": len(found)})
         if path.startswith("/Items/") and path.endswith("/Images/Primary"):
-            return self._send(h, 200, PNG, "image/png")
+            # A real, decodable synthetic PNG in the item's natural shape (poster, or a still for an episode).
+            item_id = path[len("/Items/"):-len("/Images/Primary")].lower()
+            shape = JELLYFIN_SHAPE.get(self._types().get(item_id, ""), "poster")
+            return self._send(h, 200, cover(shape, path), "image/png")
         return self._send(h, 404, b"{}")
 
     def _json(self, h, obj):

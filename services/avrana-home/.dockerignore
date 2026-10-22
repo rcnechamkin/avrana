@@ -1,0 +1,14 @@
+# Build context of services/avrana-home (Dockerfile.preview). Deny everything, then allow the three inputs.
+*
+!requirements.lock
+!avrana_home/
+!preview/
+# Never in an image, even if a rule above changes: development shims and mocks, tests, secrets, env files.
+dev/
+tests/
+webtests/
+contracts/
+secrets/
+*.env
+**/__pycache__/
+**/*.pyc

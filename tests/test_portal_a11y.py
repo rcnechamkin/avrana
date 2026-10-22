@@ -349,7 +349,7 @@ class DocumentTests(unittest.TestCase):
             with self.subTest(page=label):
                 for e in root.walk():
                     if e.tag in ("input", "select", "textarea", "summary", "area") or \
-                            "onclick" in e.attrs or "tabindex" in e.attrs or \
+                            "onclick" in e.attrs or ("tabindex" in e.attrs and not (e.tag == "main" and e.attrs["tabindex"] == "-1")) or \
                             e.attrs.get("role") in ("button", "link", "tab", "menuitem"):
                         self.fail(f"<{e.tag}> is interactive but is not an <a> or <button>")
                     if e.tag in ("a", "button"):
@@ -530,7 +530,7 @@ class StylesheetTests(unittest.TestCase):
         for label, _m, root in unique_pages():
             for e in root.walk():
                 if e.tag == "a":
-                    self.assertTrue(e.classes and set(e.classes) <= {"tile", "account", "store"}
+                    self.assertTrue(e.classes and set(e.classes) <= {"tile", "account", "store", "skip-link"}
                                     or "h1" in {a.tag for a in e.ancestors()},
                                     f"{label}: link outside the styled classes {e.attrs}")
         # and no rule weakens the ring for any state
@@ -657,7 +657,7 @@ class StylesheetTests(unittest.TestCase):
         self.assertGreaterEqual(pad_t + pad_b + 22, 44 - 2.5, "padding plus one line must still make about 44px")
 
     def test_text_can_grow_without_clipping_or_sideways_scroll(self):
-        small_boxes = {".rule", ".sr"}
+        small_boxes = {".rule", ".sr", ".skip-link", ".skip-link:focus-visible"}
         for sel, d in css_rules():
             for prop, val in d.items():
                 where = f"{sel} {{{prop}:{val}}}"

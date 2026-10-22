@@ -343,7 +343,8 @@ def test_links_never_point_at_a_state_changing_route(docs):
         for a in d.find("a"):
             href = a.attrs.get("href", "")
             assert href not in post_only, f"{name}: link to {href}"
-            assert href in GET_PAGES or href.startswith("https://amazon.example/"), (name, href)
+            # the wordmark is the link home on every inner page (DESIGN.md, Wordmark header)
+            assert href in GET_PAGES or href == "https://avrana.net" or href.startswith("https://amazon.example/"), (name, href)
 
 
 @pytest.mark.parametrize("path,data", [
@@ -510,11 +511,14 @@ def test_the_not_updating_hint_goes_with_the_refresh_control(docs):
             assert "Refresh" in hint[0].all_text
 
 
-def test_base_text_is_in_rem_and_the_topbar_wraps_at_320px(docs, sheet):
+def test_base_text_is_in_rem_and_the_wordmark_header_wraps_at_320px(docs, sheet):
     s, _css = sheet
     d = docs["connect, empty"]
     body = d.find("body")[0]
     assert re.match(r"^1\.0625rem/1\.55 ", s.declared(body, "font") or ""), s.declared(body, "font")
     assert "px" not in (s.declared(body, "font") or "").split(" ")[0]
-    top = [e for e in d.all if "topbar" in e.classes][0]
-    assert s.declared(top, "display") == "flex" and s.declared(top, "flex-wrap") == "wrap"
+    # the shared header: the compact wordmark, a link home, in the house tracking, free to wrap
+    mark = [e for e in d.all if "wordmark" in e.classes][0]
+    assert s.declared(mark, "letter-spacing") == "0.34em" and s.declared(mark, "text-indent") == "0.34em"
+    assert s.declared(mark, "overflow-wrap") == "anywhere"
+    assert [a.attrs.get("href") for a in d.find("a") if a.parent is mark] == ["https://avrana.net"]

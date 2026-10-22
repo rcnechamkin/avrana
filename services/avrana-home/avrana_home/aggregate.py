@@ -21,7 +21,7 @@ import threading
 from dataclasses import dataclass
 from typing import Iterable, Optional, Sequence, Tuple
 
-from .contract import DEFAULT_LIMIT, MediaAdapter, SectionResult, SectionState
+from .contract import DEFAULT_LIMIT, MediaAdapter, SectionResult, SectionState, clean_query
 from .principal import MemberPrincipal, is_minted_principal
 from .resilience import REQUEST_BUDGET, log_failure
 
@@ -108,17 +108,23 @@ def gather(principal: MemberPrincipal, adapters: Sequence[MediaAdapter],
     if not is_minted_principal(principal):
         raise TypeError("gather takes a parser-minted MemberPrincipal")
     wanted = [s for s in sections if s in _METHODS]
-    jobs = [(a, s) for a in adapters for s in wanted if s not in a.not_offered]
+    jobs = [(a, s, getattr(a, _METHODS[s])) for a in adapters for s in wanted if s not in a.not_offered]
     if not jobs:
         return HomeSections(())
+    return HomeSections(_run(jobs, (principal, limit), adapters, hard_cap))
+
+
+def _run(jobs, args: tuple, adapters: Sequence[MediaAdapter], hard_cap: Optional[float]):
+    """Run (adapter, section, bound method) jobs concurrently on the shared pool under ONE hard cap and
+    return one SectionResult per job, in order. A hung, slow or crashing adapter costs its own entry only."""
     if hard_cap is None:
         hard_cap = derive_hard_cap(adapters)
     pool = _shared_pool()
-    futures = [pool.submit(getattr(a, _METHODS[s]), principal, limit) for a, s in jobs]
+    futures = [pool.submit(fn, *args) for _, _, fn in jobs]
     done, pending = cf.wait(futures, timeout=hard_cap)
     never_started = {fut for fut in pending if fut.cancel()}   # queued work is dropped; running work is not
     out = []
-    for (adapter, section), fut in zip(jobs, futures):
+    for (adapter, section, _), fut in zip(jobs, futures):
         if fut in never_started:
             # It never ran, so it is no evidence about the adapter: no circuit is touched.
             out.append(SectionResult(adapter.service, section, SectionState.UNAVAILABLE, reason="queued"))
@@ -136,7 +142,45 @@ def gather(principal: MemberPrincipal, adapters: Sequence[MediaAdapter],
             adapter.breaker.force_open(type(exc).__name__)
             out.append(SectionResult(adapter.service, section, SectionState.UNAVAILABLE,
                                      reason=type(exc).__name__))
-    return HomeSections(tuple(out))
+    return tuple(out)
+
+
+# ---- cross-library search (AVR-383) ----------------------------------------------------------
+@dataclass(frozen=True)
+class SearchResults:
+    """The answer to one search. NOT part of `member_view()`; `search_view()` is its own, new shape."""
+    status: str                              # "ok" | "invalid_query"
+    entitled: bool                           # the member holds the group of at least one registered adapter
+    sections: Tuple[SectionResult, ...]
+
+    def search_view(self) -> dict:
+        """JSON-serialisable view for a search page. Per service, one group whose `state` is truthful:
+        `ok` (items), `empty` (searched, no match), `unavailable` (service down or slow), `not_linked`.
+        A service the member may not use is OMITTED (never a hint it exists); `entitled: false` says the
+        member has no searchable library at all. The term is never echoed."""
+        return {"status": self.status, "entitled": self.entitled,
+                "groups": [{"service": s.service.value, "state": s.state.value,
+                            "items": [i.to_dict() for i in s.items]}
+                           for s in self.sections if s.state is not SectionState.NOT_PERMITTED]}
+
+
+def search(principal: MemberPrincipal, adapters: Sequence[MediaAdapter], query: str,
+           limit: int = DEFAULT_LIMIT, hard_cap: Optional[float] = None) -> SearchResults:
+    """Search every adapter the member may use, concurrently, under the same hard cap as `gather`.
+
+    The query is validated once here (`clean_query`); an unusable term asks nobody. Each adapter then checks
+    the member's group BEFORE any upstream call, validates the term again, and never caches or logs it.
+    Adapters that declare `search` in `not_offered` are not asked."""
+    if not is_minted_principal(principal):
+        raise TypeError("search takes a parser-minted MemberPrincipal")
+    entitled = any(principal.has_group(a.required_group) for a in adapters)
+    term = clean_query(query)
+    if term is None:
+        return SearchResults("invalid_query", entitled, ())
+    jobs = [(a, "search", a.search) for a in adapters if "search" not in getattr(a, "not_offered", ())]
+    if not jobs:
+        return SearchResults("ok", entitled, ())
+    return SearchResults("ok", entitled, _run(jobs, (principal, term, limit), adapters, hard_cap))
 
 
 def health_summary(adapters: Sequence[MediaAdapter]) -> dict:

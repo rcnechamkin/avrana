@@ -128,6 +128,10 @@ components:
 > `services/authentik/blueprints/avrana-landing.yaml`). It codifies the existing identity and
 > closes the gaps listed in [the 2026-10-11 audit](../audits/2026-10-11-web-interface-audit.md).
 > It is the visual standard for [Avrana Media 2.0](MEDIA-2.0.md).
+> **Brand, 2026-10-18:** on the AVR-584 draft branch, the AVRANA brand package v1.0.0 (approved 2026-10-17)
+> replaces the serif, `#000`/`#fff` and typed wordmark below on Home shell pages only, pending the owner's visual
+> review; see "Brand v1.0.0 on Home shell pages (AVR-584)". The rest of this document still describes the portal and
+> connectors until AVR-362 converges them.
 > Nothing here is deployed. Every change to a running service needs the owner's approval for that
 > change, per `AGENTS.md`.
 
@@ -248,14 +252,16 @@ High Contrast still draws one. No element sets `outline: none` without this ring
 
 Square everywhere (`border-radius: 0`). Edges are 1px. The rule under the wordmark is 64px wide
 on custom pages and 160px in Authentik, where the wordmark sits in a wider card; both are kept.
-Cover art in lists is a square crop with no rounding.
+Cover art in lists is a square crop with no rounding. Media artwork keeps each library's own shape
+(owner decision, 2026-10-15; see Media components).
 
 ## Components
 
 ### Wordmark header
 - Centred `AVRANA` in the wordmark style, a 64px Strong Rule beneath it.
 - On inner pages it is a link to `https://avrana.net` and uses the compact size.
-- The Audible connector's left-aligned topbar is replaced by this header.
+- The Audible connector draws this header in place of its old topbar, and Kindle uses the compact size
+  (AVR-362); the token-drift gate compares each size only with services that draw the same one.
 
 ### Tile (navigation)
 - Outlined block, Control Rule edge, 22px by 24px padding, label in Title style, one line of
@@ -296,11 +302,239 @@ Cover art in lists is a square crop with no rounding.
 - Paper text with a 1px Strong Rule underline offset 2px; underline turns Paper on hover; focus
   ring on focus. In footers, links get 12px of vertical padding so the target reaches 44px.
 
+### Skip link
+- Canonical definition: `docs/design/components/skip-link.html` (markup) and `docs/design/components/skip-link.css` (styles). Portal (`portal.SHELL`, `portal.STYLE`) and Home (`templates/base.html`, `templates/style.css`) carry byte-identical copies; `tests/test_skip_link.py` fails on drift.
+- Markup contract: the first element in `<body>` is `<a class="skip-link" href="#main">Skip to main content</a>`; the target is the page's single `<main id="main" tabindex="-1">`.
+- Hidden with the clip pattern (not `display:none`), visible on `:focus-visible` as an inverted Paper-on-Ink block, fixed at top left so a sticky header cannot cover it, with the shared two-ring focus ring from `a:focus-visible`. Existing tokens only; no transition, so nothing to gate on reduced motion. Works without JavaScript.
+
+### Shell masthead (Home, Search, Account, Help)
+- The heading is the brand package's Media L3 lockup, not the typed wordmark (AVR-584; "Brand v1.0.0 on Home
+  shell pages" below).
+- Top row, right-aligned: Search (when the member has a searchable library) and the native account
+  disclosure, whose menu holds "Account and security". Help lives in the places bar only: it is always the
+  last place (Watch, Listen, Read, Request, Help), on every shell page. The places bar keeps one row at 360px and wraps whole
+  words at large text; the compact wordmark is capped by the viewport width so it never wraps.
+- Side gutters are `max(1.25rem, env(safe-area-inset-*))`. `viewport-fit=cover` is not set, so Safari keeps
+  content clear of the notch itself; the insets matter only if a later change opts in.
+
+### Media card (Home rails)
+- One link per card, one action. Order: title (two lines at most), the creator, series or episode line
+  (Ash, one line, ellipsis), progress in words, then on Continue cards the action verb ("Resume" or
+  "Open") as small underlined text. New this week cards carry no verb: the whole card opens the item.
+- Clamping is visual only; the full title stays in the link text and so in its accessible name. When
+  the view-model gives an `action_label`, it replaces the verb for assistive technology only.
+- Every frame in a rail stands on one baseline: the rail's artwork height, each shape's natural width
+  (posters, books, comics, audiobook squares); a video still is held to a maximum width and stands
+  shorter, bottom-aligned. Images are contained, never cropped into another shape.
+- Rails scroll sideways. On phones every card in a rail is one width (8.75rem, about 2.2 to a screen), so
+  the next card peeks in as a sliver; the rail snaps to card starts (mandatory), and a trailing spacer
+  lets the last card snap to the start as well. From 45rem the cards fit the column and snapping is
+  proximity only. A thin Quiet Rule scrollbar shows on pointer devices.
+- Keyboard focus: browsers scroll a focused element into view only when it is wholly outside the
+  scroller's optimal viewing region (the scroller less its `scroll-padding`), so a partly visible card
+  would stay clipped. The rail's right `scroll-padding` leaves a region one card (plus focus ring) wide:
+  a peeking card counts as outside, Tab and Shift+Tab bring it fully into view, and the rail's padding
+  keeps the 4px ring unclipped. This relies on cards resting card-aligned, which is why phone rails snap
+  mandatorily and carry the trailing spacer. No script. `tests/ui/check_home_export.mjs` checks it in Chromium with
+  real key presses at 360, 390 and 390 at 200% text.
+- Known, not fixed: when a cover's bytes arrive but cannot be decoded, the browser draws its own broken-image icon
+  over the letter behind the frame. Hiding it needs script (an `onerror` handler, which the strict CSP forbids) or
+  a full server-side image decode on every artwork request. The artwork route already refuses anything whose
+  declared type is not JPEG, PNG or WebP or whose magic number does not match (`adapters/_base.py`); a matching
+  magic number on a corrupt body is the remaining case, and a 404 instead would still show the same icon, so a
+  decoder in the request path (more parsing of untrusted bytes) buys nothing. The dev mocks serve real,
+  decodable synthetic PNGs in each natural shape (`dev/synthetic_art.py`), so reviews see real layout.
+- Residual: from 45rem a still may be wider than the other cards; if the four cards ever overflow the
+  column there (large text on a desktop), a still that straddles the edge can stay partly clipped when
+  focused. Safari keyboard and VoiceOver behaviour is not covered by the Chromium check; it is part of
+  the real-iPhone review (AVR-455).
+
 ### Help page (signature component)
 - Headline names the topic ("Movies and TV"). Under it, a row of platform links that jump to each
   section, so a member with a Roku does not scroll past six other devices.
 - Each platform is a section with a Subtitle heading, the recommended app first, store link as an
   inline text link (not full width), then numbered steps. Server addresses are in Copyable Mono.
+
+## Brand v1.0.0 on Home shell pages (AVR-584)
+
+> **Status: implemented on a fixture-only draft branch. The branded UI is not approved, merged or deployed.** The
+> AVRANA brand package v1.0.0 (the package itself approved 2026-10-17) replaces this document's Times New Roman,
+> `#000`/`#fff` and typed-wordmark stand-ins on the **Home shell pages only**: Home with sections, Search, Account,
+> Help and its topics, title pages, Watch, Listen, Read and Request. The owner's review of the actual branded UI on
+> an iPhone (Safari, VoiceOver; AVR-455) is required before merge.
+
+| Owner direction, 2026-10-18 | State |
+|---|---|
+| Hash-verified base64 packaging of the brand's PNG and WOFF2 files in `avrana_home/app/brand/` | Accepted for v1.0, for that folder only; the repository's binary policy is unchanged |
+| `font-src 'self'` on shell pages only | Accepted |
+| 56px L3 lockup | Provisionally retained, subject to the real-device review |
+| Portal and every page without the shell unchanged | Accepted; AVR-362 owns broader convergence |
+| Browse at 720px | Kept; the 1120px comparison is not approved |
+| The branded UI as a whole | Not yet reviewed; no merge or deployment until the owner has seen it on a device |
+
+**Where it applies.** Only `templates/home.css`, which is added to a page only when it wears the shell. The portal,
+the Kindle and Audible connectors, and every Home page without the shell (sections off, the chooser and
+interstitial without a principal, errors and the 404) keep the frontmatter tokens above, byte-identical to the
+portal (the parity test). Converging those is AVR-362's job; this section adds no second token file.
+
+**Tokens.** The shell maps the package tokens (`03-Typography-and-Colors/tokens/avrana-tokens.css`) onto its
+existing variables, so no rule below them changes:
+
+| Variable | Was | Brand token | On Spire Ink |
+|---|---|---|---|
+| `--bg` | `#000000` | Spire Ink `#121214` | |
+| `--fg` | `#ffffff` | Cream `#EDEAE4` | 15.6:1 |
+| `--dim` | `#9a9a9a` | Stone `#AEABA7` | 8.2:1 |
+| `--rule-strong` | `#999999` | Ash `#8F8C89` | 5.6:1 |
+| `--rule-control` | `#6e6e6e` | Control `#6E6C72` | 3.6:1 (clears 1.4.11) |
+| `--rule-quiet` | `#474747` | Graphite `#5E5B57` | 2.8:1, decorative only |
+| `--dim-on-fg` | `#333333` | Graphite `#5E5B57` | 5.6:1 on Cream |
+
+Atomic Purple and Purple Deep are Party only and are not used. Media stays monochrome; library artwork keeps its
+original colour and natural shape.
+
+**Type.** Geist (variable, 100 to 900, SIL OFL 1.1) replaces the serif on shell pages, served from
+`/brand/geist.woff2` with `font-display: swap` and the package's system fallback stack. Sizes and the existing
+hierarchy are unchanged; section labels keep Regular caps tracked 0.22em, which is the package's Media heading.
+
+**Mark.** The masthead shows the package's **L3 Media product lockup** (`/brand/avrana-media-l3.svg`, cream,
+trimmed) as an `<img alt="Avrana Media">` inside the home link, 3.5rem tall (56px, twice the package's 28px
+minimum so the product name inside it stays legible, and scaling with text size), with no rule beneath it (owner, 2026-10-18; the portal keeps its rule until AVR-362).
+The owner approved the size, with the branded UI, after the real-device review on 2026-10-18. The wordmark is never retyped. The favicon is the
+package's 16 px micro cut (`/brand/favicon.svg`); the install icons and manifest colours are the package's.
+
+**CSP.** Shell pages, and only they, add `font-src 'self'` beside `manifest-src 'self'`. No script source, no
+other origin. Every other response keeps the CSP unchanged.
+
+**Files and provenance.** `avrana_home/app/brand/` (README and `SOURCES.json`: package path, byte count and SHA-256
+per file; the server refuses a file that does not match). Refreshed only by `tools/sync_brand_assets.py`.
+
+**Browse width.** Unchanged at 720px (45rem). A wider 960 to 1120px stage is shown only as an unapproved
+comparison in the AVR-584 review.
+
+## Media components
+
+> **Status: proposed (AVR-426, 2026-10-14). Nothing here is deployed.** Built against fixtures in
+> [the home preview](../../tests/ui/home_preview/README.md), which shows every component below in
+> every state at 360, 390 and 1280px (`check.mjs` writes the renders; this repository tracks no
+> images). **Owner-approved** and not to be revised here: the compact Home with one Continue row
+> and one bounded New row, and browsing on its own New page (AVR-431, AVR-452). **Owner decisions of
+> 2026-10-15** (`docs/DECISIONS.md`) settle the artwork shape and colour, the Search entry, the
+> 720px browsing column with Kindle's 640px form column, and the script-free account menu. The
+> visual result still waits for the owner's review on a phone (AVR-455); the rest of this section
+> is the specification that review checks.
+> It follows the [Media UX research](https://linear.app/avranakern/document/avrana-media-ux-research-implementation-principles-backlog-gap-4a08eb39e598).
+
+### Two shells
+- **Read and Operate** (Help, Account, Welcome, sign-in pages): the 640px single-form column.
+- **Browse** (Home, New, Search, a title page): the 720px column (owner decision, 2026-10-15,
+  subject to a desktop review). Kindle's form keeps the 640px single-form column.
+- Both shells share the top: the account control, the compact wordmark linking home, then the
+  bar of places. Both end with the shared footer: Account and security (signed in) and Help.
+
+### Four things that look alike and are not
+| Component | Used for | Looks like | One outcome |
+|---|---|---|---|
+| Navigation tile | Choosing a place (portal, choosers) | Outlined block, Title-style word, inverts on hover | Goes to the place |
+| Media card | One title in New, on Home or the New page | Cover in its library's shape, title, one Small/Ash line | Opens the title page |
+| Resume card | One title in Continue | A media card with a 3px progress rule and the time left in words | Opens the library's own app at the place the member stopped |
+| Search result | One match on the Search page | A ruled list row: small cover, title, one line, "In" and the library | Opens the title page |
+
+A tile never shows a title, and a card is never used for navigation. No card carries a second
+control, a menu or an icon.
+
+### Artwork
+- **Each library keeps its own shape** (owner decision, 2026-10-15)
+  (2:3 posters for films and series, 16:9 stills in Continue, square audiobook covers, 2:3 books,
+  13:20 comics). Covers keep 1px Quiet Rule edges, square corners and no shadow.
+- Covers in one row share a top edge; their widths differ. A cover is decoration (`alt=""`):
+  the title is always beside it in words.
+- Library artwork keeps its original colour; the page around it stays black and white (owner
+  decision, 2026-10-15).
+
+### Places bar
+- Watch, Listen, Read, Request and Help, as words in one ruled bar under the wordmark on every
+  Browse page. It wraps at large text and never scrolls.
+- Only places the member can use. A library the member cannot use has no place at all. A library
+  whose service is down keeps its word, struck through and not a link, with ", unavailable" for
+  screen readers (decided, preview decision 7).
+
+### Account control
+Specified in [the preview's account section](previews/home/README.md#account-and-shared-navigation-avr-478-proposed)
+(AVR-478): a square initial and the word Account, a native disclosure, three items, no icon.
+
+### Row of titles (rail)
+- At most four cards. On a phone it scrolls sideways inside itself with part of the next cover
+  showing; at 720px and wider all four fit and it does not scroll. The page never scrolls sideways.
+- Under the row, a text link to the whole list ("Everything new this week"). Nothing is reachable
+  only by swiping.
+- **Keyboard and focus on a phone:** each card is one link and one Tab stop, in reading order left
+  to right; the row scrolls the focused card into view (browser default, no script); the card
+  shows the two-ring focus mark and its cover's edge turns Paper. After the last card, Tab reaches
+  the "Everything new" link, then the next section.
+
+### Tabs
+Views of one row (All, then each library). Each tab is a link the server answers; the tab on
+screen is underlined in Paper and carries `aria-current`. On a phone the tabs scroll inside their
+own row. A tab exists only for a library that is answering and that the member can use.
+
+### Wall
+The New page's grid of media cards: three columns on a phone, six at 720px. Same card, same shape rules.
+
+### Search field
+- A plain GET form to the same site (`form-action 'self'`, still no script). A visible label above
+  the field ("Title, author or year"), the field (Fields component), a Primary button "Search",
+  and a Small/Ash hint linked by `aria-describedby`: "Searches your libraries only."
+- No suggestions while typing: a suggestion list is a second way to leak a title, and needs script.
+- The query is trimmed, cut to 100 characters, escaped, and shown back in the field and the page title.
+- **Entry point** (owner decision, 2026-10-15): the word **Search**, a visible text link at the top
+  left of every Browse page, opposite Account and directly above the bar of places. The bar keeps
+  Watch, Listen, Read, Request, Help in that order; Search is not a sixth place in it. Shown once
+  search works for members (M3.4); the preview shows it now for review.
+
+### Search result
+- Results grouped by library under Subtitle headings, each group a ruled list (List row). A row is
+  one link: the cover at a fixed width (60px, 48px on phones) in its own shape, the title, its
+  line, and "In Movies and TV", so a row read alone says where the title lives.
+- A count before the groups ("8 found."), announced as a status. Case, accents and punctuation do
+  not matter to a search ("bronte" finds Brontë).
+- Only libraries the member can use are searched. "Nothing called ... in your libraries" reads the
+  same whether the title is in a library the member cannot use or nowhere at all.
+
+### Title page
+- In this order: the title (Headline, the one `h1`), one line of kind and year or author, **one**
+  Primary action, the progress rule and time left when the library reports it, one sentence about
+  the title when the library has one, then the facts (Library, Year or Author) in a ruled list.
+- The action names the library and never claims anything plays: "Watch in Movies and TV",
+  "Resume in Audiobooks", "Read in Books". It opens that library's own app at the title (M3.5).
+- At 720px the cover sits beside the words; on a phone it sits above them, small enough that the
+  title and the action are on the first screen.
+- A title in a library the member cannot use does not exist: the same Not Found as an unknown title.
+
+### Unavailable section
+- One library down: one Warn banner under the bar on Home and the New page, said once
+  ("Movies and TV are unavailable right now. Everything else works."), its place struck through,
+  its tab, items and Continue entries gone. Everything else works as usual.
+- All of the member's libraries down: the operator's notice in the banner; Request, Help and the
+  account still work.
+- An error and a timeout read the same to a member as unavailable or slow. No raw error, host,
+  service or software name ever reaches the page.
+
+### States and the words for them
+Loading is never a spinner: the page renders once, and a part whose service missed its two
+seconds says so and offers "Try again", a plain link to the same page.
+
+| Component | Loading (slow) | Empty | One library down | All down | No library | Signed out |
+|---|---|---|---|---|---|---|
+| Continue | "Audiobooks are taking longer than usual." and Try again; other items shown | "Nothing in progress. Whatever you start in a library appears here, ready to pick up where you stopped." | Its items are left out; the banner says why | Not shown | Not shown | Not shown |
+| New row | The same sentence on that tab, and Try again | "Nothing new in audiobooks this week." or "Nothing new this week." | No tab for it | Not shown | Not shown | Not shown |
+| New page | The same sentence, and Try again | "Nothing new here this week." | No tab for it | "Movies and TV, audiobooks, books and comics are unavailable right now." | "No library is shared with this account yet. Ask the person who invited you, or read Help." | "Sign in to see the libraries shared with you." |
+| Search | "Audiobooks are taking longer than usual, so nothing from them is shown yet." and Try again; other results shown, or "Nothing called "…" in the libraries that answered." | "Nothing called "…" in your libraries. Check the spelling, or ask for it with Request." | "Movies and TV were not searched, because they are unavailable right now." (in place of the banner) | "… are unavailable right now, so nothing can be searched. Try again later, or read Help." Field and button disabled | As the New page | As the New page |
+| Title page | "Audiobooks are taking longer than usual." and Try again; no action | No progress: the action is the plain verb ("Watch in …") | "Movies and TV are unavailable right now. This title will be here when they are back." No title, no action | As one library down | Not Found | Not Found |
+| Places bar | Unchanged | Unchanged | Struck through, not a link | Every library struck through | Request and Help | Help, and Sign in in place of Account |
+
+All copy follows the house rules: second person or neutral, no "we", no dashes, library names in
+member language, and nothing named that the member cannot use.
 
 ## Do's and Don'ts
 

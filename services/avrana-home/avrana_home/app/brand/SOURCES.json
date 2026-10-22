@@ -1,0 +1,63 @@
+{
+ "_comment": "Written by tools/sync_brand_assets.py; do not edit by hand. sha256 is of the ORIGINAL package file; brand.py refuses to serve bytes that do not match.",
+ "files": {
+  "Geist-Variable.woff2": {
+   "bytes": 69652,
+   "licence": "SIL Open Font License 1.1 (OFL.txt, kept beside it)",
+   "package_path": "03-Typography-and-Colors/fonts/Geist-Variable.woff2",
+   "sha256": "a369fcf5628ea2aa4e1b9e2ec6a5b3624e365bda588e1f0f2f12b564f728fbb8",
+   "stored_as": "base64"
+  },
+  "OFL.txt": {
+   "bytes": 4368,
+   "licence": "SIL Open Font License 1.1 (OFL.txt, kept beside it)",
+   "package_path": "03-Typography-and-Colors/fonts/OFL.txt",
+   "sha256": "930853ee1daa68554d9e35c8a9175affb74f699fad9a5da6ee5ebe76379d9137",
+   "stored_as": "verbatim"
+  },
+  "apple-touch-icon.png": {
+   "bytes": 4214,
+   "licence": "AVRANA, all rights reserved (brand package README, Licences)",
+   "package_path": "04-Digital-Assets/Website/favicon/apple-touch-icon.png",
+   "sha256": "c96389ee1809d26f38ffb4525981290a9e41be5756907e69825413e156fbf037",
+   "stored_as": "base64"
+  },
+  "avrana-media-lockup-product_cream_trim.svg": {
+   "bytes": 8808,
+   "licence": "AVRANA, all rights reserved (brand package README, Licences)",
+   "package_path": "02-Logo-Exports/Product-Lockups/RGB/svg-trimmed/avrana-media-lockup-product_cream_trim.svg",
+   "sha256": "91111af66fcc29f27fb32abc428f5570a4f8dab410db9c4af6bc46bad7e3ea5c",
+   "stored_as": "verbatim"
+  },
+  "favicon.svg": {
+   "bytes": 389,
+   "licence": "AVRANA, all rights reserved (brand package README, Licences)",
+   "package_path": "04-Digital-Assets/Website/favicon/favicon.svg",
+   "sha256": "c2569799031ed28c3d6f3de0870b0f093ab078cd31348f7c12544815714647e3",
+   "stored_as": "verbatim"
+  },
+  "icon-192.png": {
+   "bytes": 4586,
+   "licence": "AVRANA, all rights reserved (brand package README, Licences)",
+   "package_path": "04-Digital-Assets/Website/favicon/icon-192.png",
+   "sha256": "15f8f67032d0cede70a7c93fb4cdb09721844c9b44db62e89fea2f78bfd8ae51",
+   "stored_as": "base64"
+  },
+  "icon-512.png": {
+   "bytes": 13444,
+   "licence": "AVRANA, all rights reserved (brand package README, Licences)",
+   "package_path": "04-Digital-Assets/Website/favicon/icon-512.png",
+   "sha256": "3880683785ea4d8732c6f20afb6b3d5e5a9ad831c6e60456c602b692302c2748",
+   "stored_as": "base64"
+  },
+  "icon-maskable-512.png": {
+   "bytes": 10989,
+   "licence": "AVRANA, all rights reserved (brand package README, Licences)",
+   "package_path": "04-Digital-Assets/Website/favicon/icon-maskable-512.png",
+   "sha256": "3d015973d12ecfc38587021880b7090f787915f27fdb0696484620f0ca6155d3",
+   "stored_as": "base64"
+  }
+ },
+ "package": "AVRANA-Brand",
+ "version": "1.0.0"
+}

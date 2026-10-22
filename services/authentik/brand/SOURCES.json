@@ -1,0 +1,21 @@
+{
+ "_comment": "Pins for build_brand_css.py. sha256 is of the ORIGINAL package file; the build refuses a package file that does not match, and --check refuses generated CSS whose embedded bytes do not decode to it.",
+ "package": "AVRANA-Brand",
+ "version": "1.0.0",
+ "files": {
+  "wordmark_cream": {
+   "package_path": "02-Logo-Exports/RGB/svg-trimmed/avrana-wordmark_cream_trim.svg",
+   "bytes": 5327,
+   "sha256": "295e520a836d9687aae85ef78ecd843a2fefaf5ba153044cb1bafbf04d9d80c9",
+   "licence": "AVRANA, all rights reserved (brand package README, Licences)",
+   "embedded": true
+  },
+  "geist_variable": {
+   "package_path": "03-Typography-and-Colors/fonts/Geist-Variable.woff2",
+   "bytes": 69652,
+   "sha256": "a369fcf5628ea2aa4e1b9e2ec6a5b3624e365bda588e1f0f2f12b564f728fbb8",
+   "licence": "SIL Open Font License 1.1 (03-Typography-and-Colors/fonts/OFL.txt)",
+   "embedded": false
+  }
+ }
+}

@@ -37,14 +37,14 @@ from ..contract import (ArtworkRef, ArtworkResult, DEFAULT_LIMIT, Kind, MediaIte
                         valid_upstream_id)
 from ..principal import MemberPrincipal
 from ..resilience import DEFAULT_TIMEOUT, ItemGone, RouteMissing, Transport, UpstreamMalformed
-from ._base import GuardedAdapter, Route
+from ._base import GuardedAdapter, Route, year_from
 from ._base import GuardedTransport as _Guard
 
 SHARED_VIEWER = "shared"                      # the fixed, non-member upstream "user": a shared view, by design
 _BOUND_ID = re.compile(SHARED_VIEWER)
 _ATOM = "{http://www.w3.org/2005/Atom}"
 _ARTWORK_REF = re.compile(r"calibre-web/cover/([0-9]{1,9})")
-_COVER_HREF = re.compile(r"/opds/(?:cover|thumb_cover)/([0-9]{1,9})")
+_COVER_HREF = re.compile(r"/opds/(?:cover|cover_240_240|cover_90_90|thumb_240_240)/([0-9]{1,9})")
 _DOWNLOAD_HREF = re.compile(r"/opds/download/([0-9]{1,9})/[a-z0-9]{1,10}/?")
 MAX_ENTRIES = 100                             # a feed with more entries than this is not a "new" feed
 MAX_ELEMENTS = 5000                           # every element in the document, so deep or wide nesting is bounded
@@ -52,7 +52,8 @@ _FORBIDDEN_XML = re.compile(rb"<!\s*(DOCTYPE|ENTITY|ELEMENT|ATTLIST)", re.IGNORE
 
 ALLOWED_ROUTES = (
     Route("new", r"/opds/new", (), user_scoped=False, not_found=RouteMissing),
-    Route("cover", r"/opds/thumb_cover/[0-9]{1,9}", (), user_scoped=False, not_found=ItemGone),
+    Route("search", r"/opds/search", ("query",), user_scoped=False, not_found=RouteMissing),
+    Route("cover", r"/opds/cover_240_240/[0-9]{1,9}", (), user_scoped=False, not_found=ItemGone),
 )
 
 
@@ -141,7 +142,9 @@ class CalibreWebAdapter(GuardedAdapter):
         author = clean_text(entry.findtext(f"{_ATOM}author/{_ATOM}name"))
         return MediaItem(id=f"calibre-web:{book_id}", service=Service.CALIBRE_WEB, kind=Kind.EBOOK,
                          title=title, handoff_url=build_handoff_url(Service.CALIBRE_WEB, book_id),
-                         subtitle=author, artwork=ArtworkRef(f"calibre-web/cover/{book_id}",
+                         subtitle=author, creator=author,
+                         year=year_from(entry.findtext(_ATOM + "published")),
+                         artwork=ArtworkRef(f"calibre-web/cover/{book_id}",
                                                              f"Cover of {title}")), "ok"
 
     def _recent_items(self, user: UpstreamUser, limit: int) -> SectionResult:
@@ -151,6 +154,14 @@ class CalibreWebAdapter(GuardedAdapter):
         items = self._parse_many(entries, MAX_ENTRIES, self._book)
         return SectionResult.of(Service.CALIBRE_WEB, "recent", items[:limit])
 
+    def _search(self, user: UpstreamUser, query: str, limit: int) -> SectionResult:
+        """OPDS search of the SHARED viewer account's catalogue (contract 13.2 invariant), like recent. The term
+        is a query parameter (`/opds/search?query=`, the OpenSearch form, UNVERIFIED), never part of the path."""
+        resp = self._get(self._guard.bind(user.upstream_id), self._budget(), "/opds/search", {"query": query})
+        entries: List[Any] = parse_feed(resp.body).findall(_ATOM + "entry")
+        items = self._parse_many(entries, MAX_ENTRIES, self._book)
+        return SectionResult.of(Service.CALIBRE_WEB, "search", items[:limit])
+
     def _fetch_artwork(self, user: UpstreamUser, ref: str) -> ArtworkResult:
         m = _ARTWORK_REF.fullmatch(ref)
         if m is None:
@@ -158,4 +169,4 @@ class CalibreWebAdapter(GuardedAdapter):
         # The viewer account's own rights decide whether this cover exists (404 = EMPTY); there is no
         # per-member visibility to check (contract 13.2).
         return self._fetch_image(self._guard.bind(user.upstream_id), self._budget(),
-                                 f"/opds/thumb_cover/{m.group(1)}", None)
+                                 f"/opds/cover_240_240/{m.group(1)}", None)

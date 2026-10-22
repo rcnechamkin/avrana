@@ -42,7 +42,7 @@ class RouteLayerTests(unittest.TestCase):
                     self.assertIsNone(re.search(pattern, body), f"{name} reads request input: {pattern}")
 
     def test_the_only_scope_reads_outside_identity_are_the_path_and_our_own_labels(self):
-        allowed = {"raw_path", "path", "avrana_route", "type", "method", "headers_unused"}
+        allowed = {"raw_path", "path", "avrana_route", "avrana_shell", "type", "method", "headers_unused"}
         for name, text in sources().items():
             if name in IDENTITY_ONLY:
                 continue
@@ -52,8 +52,11 @@ class RouteLayerTests(unittest.TestCase):
 
     def test_identity_py_reads_only_trusted_headers_through_the_one_parser(self):
         text = sources()["identity.py"]
-        self.assertEqual(1, len(re.findall(r"principal_from_raw_headers\(", code(text))))
         body = code(text)
+        self.assertEqual(1, len(re.findall(r"principal_for_request\(", body)))       # AVR-498: the one entry point
+        self.assertEqual(1, len(re.findall(r"decode_raw_headers\(", body)))          # the strict raw decoding
+        self.assertNotIn("principal_from_headers", body)
+        self.assertNotIn("principal_from_verified_jwt", body)
         self.assertNotIn("query", body.lower().replace("query_string", ""))
         self.assertNotIn("cookie", body.lower())
 

@@ -1,0 +1,95 @@
+{# What home.html and new.html share: the preview's own bar, the masthead with the account control, the
+   bar of places and a card. The preview bar is not part of the design. It labels the fixture data and
+   switches states and viewers. #}
+{% macro preview(states, state, viewers, who, art, here) %}
+<aside class="preview" aria-label="Preview controls">
+  <p><strong>Preview, fixture data.</strong> Invented member, public-domain titles, drawn covers. Nothing is contacted; every link stops at a note.</p>
+  <ul>
+    {% for key, name in states.items() %}
+    <li><a href="{{ here }}?state={{ key }}{% if who != 'member' %}&amp;who={{ who }}{% endif %}{% if art == 'mono' %}&amp;art=mono{% endif %}"{% if key == state %} aria-current="true"{% endif %}>{{ name }}</a></li>
+    {% endfor %}
+    <li class="gap"><a href="{{ here }}?state={{ state }}{% if who != 'member' %}&amp;who={{ who }}{% endif %}{% if art != 'mono' %}&amp;art=mono{% endif %}">Artwork: {{ 'grey' if art == 'mono' else 'colour' }}</a></li>
+    <li><a href="/before">Today&rsquo;s home</a></li>
+    <li class="gap"><a href="/search?state={{ state }}{% if who != 'member' %}&amp;who={{ who }}{% endif %}&amp;q=the">Search</a></li>
+    <li><a href="/title/nosferatu?state={{ state }}{% if who != 'member' %}&amp;who={{ who }}{% endif %}">Title page</a></li>
+  </ul>
+  <ul aria-label="Viewer">
+    {% for key, v in viewers.items() %}
+    <li><a href="{{ here }}?state={{ state }}{% if key != 'member' %}&amp;who={{ key }}{% endif %}{% if art == 'mono' %}&amp;art=mono{% endif %}"{% if key == who %} aria-current="true"{% endif %}>{{ v.label }}</a></li>
+    {% endfor %}
+  </ul>
+</aside>
+{% endmacro %}
+
+{# The masthead (AVR-478). The account control sits at the top right on every page, the same each
+   time: a square initial and the word Account, so it is found by its words, not by an icon. It is a
+   native disclosure (details/summary): it opens and closes from the mouse, touch, Enter and Space
+   with no script, and focus stays on it. Escape and a tap outside do not close it without script;
+   see docs/design/previews/home/README.md. The menu holds only places that exist, never an email,
+   access group or technical detail. A request without a verified identity gets Sign in instead. #}
+{% macro mast(q, signed_in, member_name, initial, account_menu, heading, searchable=False) %}
+<header class="mast">
+  <div class="id">
+    {# Search (owner decision, 2026-10-15): a visible word near the places, not a sixth place in the bar.
+       Only for a member with a library to search. #}
+    {% if searchable %}<a class="link find" href="/search?{{ q }}">Search</a>{% endif %}
+    {% if signed_in %}
+    <details class="account">
+      <summary aria-label="Account, signed in as {{ member_name }}"><span class="mono" aria-hidden="true">{{ initial }}</span>Account</summary>
+      <div class="menu">
+        <p class="as">Signed in as {{ member_name }}</p>
+        <ul>
+          {% for label, to in account_menu %}
+          <li><a href="/stop?to={{ to | urlencode }}">{{ label }}</a></li>
+          {% endfor %}
+        </ul>
+      </div>
+    </details>
+    {% else %}
+    <a class="link" href="/stop?to=Sign%20in">Sign in</a>
+    {% endif %}
+  </div>
+  {% if heading %}<h1><a href="/?{{ q }}">AVRANA</a></h1>{% else %}<p class="wordmark"><a href="/?{{ q }}">AVRANA</a></p>{% endif %}
+  <div class="rule"></div>
+</header>
+{% endmacro %}
+
+{# Where a member can go, said before anything else on the page. A library whose service does not
+   answer keeps its place and is struck through; the notice under the bar says why, once. A library
+   the member cannot use has no place at all. #}
+{% macro places(nav) %}
+<nav class="places" aria-label="Avrana">
+  {% for label, key, up in nav %}
+  {% if up %}<a href="/stop?to={{ label | urlencode }}">{{ label }}</a>
+  {% else %}<span class="off"><s>{{ label }}</s><span class="sr">, unavailable</span></span>
+  {% endif %}
+  {% endfor %}
+</nav>
+{% endmacro %}
+
+{# A card. A Continue card hands off to the library at the place the member stopped; a New card opens
+   the title page (href). One outcome per card, said by its words, never by an icon. #}
+{% macro card(item, state, href=None) %}
+<li class="w-{{ item.shape }}"><a class="card" href="{{ href or '/stop?to=' ~ (item.title | urlencode) }}">
+  <img class="art" src="/art/{{ item.shape }}/{{ item.slug }}.svg" alt="" loading="lazy">
+  {% if item.done is defined %}<progress max="100" value="{{ item.done }}" aria-label="{{ item.done }} percent {{ item.verb }}"></progress>{% endif %}
+  <span class="t">{{ item.title }}</span>
+  <span class="d">{{ item.line }}</span>
+</a></li>
+{% endmacro %}
+
+{# What a page says instead of libraries when there is no member or no library to show. #}
+{% macro nothing_to_show(signed_in) %}
+{% if not signed_in %}
+<section class="shelf" aria-labelledby="h-signin">
+  <h2 id="h-signin">Sign in</h2>
+  <p class="said">Sign in to see the libraries shared with you.</p>
+  <p class="more"><a class="link" href="/stop?to=Sign%20in">Sign in</a></p>
+</section>
+{% else %}
+<section class="shelf" aria-labelledby="h-none">
+  <h2 id="h-none">No library yet</h2>
+  <p class="said">No library is shared with this account yet. Ask the person who invited you, or read Help.</p>
+</section>
+{% endif %}
+{% endmacro %}

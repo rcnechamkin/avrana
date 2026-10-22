@@ -35,6 +35,19 @@ is not in the baseline. Exit 2: the browser tooling is missing (it says so; noth
 Exit 3: a page failed to load. Screenshots and `report.json` land in `tests/ui/harness/out/`, which
 is git-ignored (this repository tracks no binary files).
 
+### Skip link check (platform skip link, portal Home and avrana-home Home)
+
+```sh
+python -B tests/ui/harness/skip_link_run.py [--out DIR]
+```
+
+Starts `serve.py` and the avrana-home dev stack on loopback, then runs `skip_link.mjs` at 390px and
+1280px: first Tab focus, visibility, contrast (text 4.5:1, focus indicator 3:1), not obscured, Enter
+moves focus to `main#main`, next Tab, the accessibility tree, and axe with the link unfocused and
+focused. Home runs as served by the dev shim (its identity banner puts a "Switch" link before the
+skip link; development only) and with the banner removed (production-equivalent). This is automated
+checking, not screen-reader testing. `--tree PATH --axe-only` gives an axe baseline on another checkout.
+
 ### Browser tooling (kept outside the repository)
 
 Playwright and axe-core are **not vendored**. `run_ui.py` looks at `$PLAYWRIGHT_FROM`, then at
