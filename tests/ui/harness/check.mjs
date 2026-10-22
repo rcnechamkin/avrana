@@ -118,10 +118,17 @@ const overflow = () => {
   const vw = document.documentElement.clientWidth;
   for (const el of document.body.querySelectorAll('*')) {
     const cs = getComputedStyle(el);
-    if (cs.display === 'none' || el.classList.contains('skip-link')) continue;   // intentionally clipped until focus
+    if (cs.display === 'none' || el.classList.contains('skip-link')) continue;   // skip link is intentionally clipped until focus
+    const r = el.getBoundingClientRect();
+    // A non-interactive, deliberately clipped 1px screen-reader label is not lost
+    // visible content. Keep checking actual text boxes and every focusable control.
+    const screenReaderOnly = cs.position === 'absolute' && r.width <= 1 && r.height <= 1
+      && cs.overflowX === 'hidden' && cs.overflowY === 'hidden'
+      && (cs.clip !== 'auto' || cs.clipPath !== 'none')
+      && !el.matches('a[href],button,input,select,textarea,summary,[tabindex]');
+    if (screenReaderOnly) continue;
     if (/^(hidden|clip)$/.test(cs.overflowX) && el.scrollWidth > el.clientWidth + 1) clipped.push(label(el));
     if (/^(hidden|clip)$/.test(cs.overflowY) && el.scrollHeight > el.clientHeight + 1) clipped.push(label(el));
-    const r = el.getBoundingClientRect();
     if (r.width && (r.right > vw + 1 || r.left < -1) && cs.position !== 'fixed') beyond.push(label(el));
   }
   return { sideways: document.documentElement.scrollWidth > window.innerWidth + 1, clipped: [...new Set(clipped)], beyond: [...new Set(beyond)] };
