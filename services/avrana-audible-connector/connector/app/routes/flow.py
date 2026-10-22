@@ -358,6 +358,26 @@ async def retry(request: Request, ident: Identity = Depends(get_identity), asin:
     return RedirectResponse("/contribute/audible/progress", status_code=302)
 
 
+# Where Cancel on the confirmation page goes back to. Only these two pages offer Disconnect; anything
+# else in `from` falls back to the progress page, so the parameter can never point off the connector.
+_DISCONNECT_RETURN = {"mode": "/contribute/audible/mode", "progress": "/contribute/audible/progress"}
+
+
+@router.get("/contribute/audible/disconnect", response_class=HTMLResponse)
+async def disconnect_confirm(request: Request, ident: Identity = Depends(get_identity)):
+    """The JS-free confirmation (owner decision, 2026-10-15). Read only: it shows what disconnecting
+    does and offers the CSRF-protected POST below. Loading it never revokes, deletes or records."""
+    conn = _db(request)
+    try:
+        connection = get_connection_for_sub(conn, ident.sub)
+    finally:
+        conn.close()
+    if connection is None:
+        return RedirectResponse("/contribute/audible", status_code=302)
+    back = _DISCONNECT_RETURN.get(request.query_params.get("from", ""), _DISCONNECT_RETURN["progress"])
+    return _render(request, "disconnect_confirm.html", ident, cancel_href=back)
+
+
 @router.post("/contribute/audible/disconnect", response_class=HTMLResponse)
 async def disconnect(request: Request, ident: Identity = Depends(get_identity)):
     await require_csrf(request, ident.sub)
@@ -366,16 +386,18 @@ async def disconnect(request: Request, ident: Identity = Depends(get_identity)):
         connection = get_connection_for_sub(conn, ident.sub)
         if connection is None:
             return RedirectResponse("/contribute/audible", status_code=302)
+        revoked = True
         try:
             await request.app.state.companion.revoke(connection["profile_id"])
         except CompanionError:
-            pass  # best-effort; we still forget it locally
+            revoked = False  # best-effort; we still forget it locally, and the page says so
         audit.record(conn, audit.ACCOUNT_DISCONNECTED, sub=ident.sub,
-                     connection_id=connection["id"], detail="user disconnect")
+                     connection_id=connection["id"],
+                     detail="user disconnect" if revoked else "user disconnect; companion revoke failed")
         delete_connection_cascade(conn, connection["id"])
     finally:
         conn.close()
-    return _render(request, "disconnected.html", ident)
+    return _render(request, "disconnected.html", ident, revoked=revoked)
 
 
 def _counts(books) -> dict:
