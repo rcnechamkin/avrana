@@ -117,11 +117,13 @@ class BrandRoutes(unittest.TestCase):
             text = c.get(path, headers=MEMBER).text
             self.assertIn(LOCKUP_TAG, text, path)
             self.assertNotIn(">AVRANA</a>", text, path)
+            self.assertNotIn('<div class="rule">', text, path)        # no rule under the lockup (owner, 2026-10-18)
         off = self.client(sections=False)
         for path in ("/", "/account", "/help"):
             text = off.get(path, headers=MEMBER).text
             self.assertNotIn("/brand/", text, path)
             self.assertNotIn("lockup-text", text, path)
+            self.assertIn('<div class="rule"></div>', text, path)    # the portal keeps its wordmark rule (AVR-362)
             self.assertRegex(text, r"<h1>(<a href=\"/\">)?AVRANA(</a>)?</h1>", path)   # the portal's wordmark
 
     def test_forced_colours_show_the_name_as_text_named_once(self):

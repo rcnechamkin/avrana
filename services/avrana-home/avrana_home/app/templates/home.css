@@ -37,7 +37,6 @@
     .mast .lockup-text{display:inline;font-size:1.75rem;font-weight:300;line-height:1.2;}
   }
   .mast a{text-decoration:none;display:inline-flex;align-items:center;min-height:2.75rem;}
-  .mast .rule{margin-top:0;}
   .id{align-self:stretch;display:flex;flex-wrap:wrap;justify-content:flex-end;align-items:center;gap:0 0.25rem;min-height:2.75rem;}
   /* Search and Account keep their size; Geist is set untracked (the package's body tracking). With large text the
      row wraps to two right-aligned rows of full 44px targets rather than shrinking the labels. */
