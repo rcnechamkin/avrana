@@ -256,7 +256,8 @@ Cover art in lists is a square crop with no rounding. Media artwork keeps each l
 ### Wordmark header
 - Centred `AVRANA` in the wordmark style, a 64px Strong Rule beneath it.
 - On inner pages it is a link to `https://avrana.net` and uses the compact size.
-- The Audible connector's left-aligned topbar is replaced by this header.
+- The Audible connector draws this header in place of its old topbar, and Kindle uses the compact size
+  (AVR-362); the token-drift gate compares each size only with services that draw the same one.
 
 ### Tile (navigation)
 - Outlined block, Control Rule edge, 22px by 24px padding, label in Title style, one line of

@@ -17,10 +17,12 @@ body{background:var(--ink);color:var(--paper);
   font:1.0625rem/1.55 "Times New Roman",Times,"Liberation Serif",Tinos,"Noto Serif",serif;
   -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;min-height:100vh}
 
-.topbar{display:flex;align-items:baseline;gap:.7rem;padding:22px 20px 18px;flex-wrap:wrap;
-  border-bottom:1px solid var(--rule-quiet);justify-content:center}
-.brand{font-size:1.25rem;letter-spacing:0.3em;text-indent:0.3em;text-transform:uppercase}
-.topbar .sub{color:var(--ash);font-size:.85rem;letter-spacing:0.12em;text-transform:uppercase}
+/* The shared wordmark header (DESIGN.md): the compact wordmark, a link home, over a 64px Strong Rule. */
+.mast{display:flex;flex-direction:column;align-items:center;gap:10px;padding:6vh 20px 0;text-align:center}
+.wordmark{margin:0;font-weight:400;font-size:clamp(1.75rem,6vw,2.5rem);letter-spacing:0.34em;text-indent:0.34em;
+  line-height:1;text-transform:uppercase;overflow-wrap:anywhere}
+.wordmark a{color:inherit;text-decoration:none;display:inline-flex;align-items:center;min-height:44px}
+.rule{width:64px;height:1px;background:var(--rule-strong)}
 
 .wrap{max-width:720px;margin:0 auto;padding:44px 20px 70px}
 h1{font-weight:400;font-size:clamp(1.7rem,5vw,2.3rem);letter-spacing:0.05em;margin:0 0 .5rem;
@@ -66,7 +68,7 @@ summary:focus-visible{box-shadow:var(--ring);outline:2px solid transparent}
 .book{display:grid;grid-template-columns:60px 1fr auto;gap:16px;align-items:center;
   background:transparent;border:0;border-bottom:1px solid var(--rule-quiet);padding:14px 2px}
 .book:first-child{border-top:1px solid var(--rule-quiet)}
-.cover{width:60px;height:60px;border-radius:0;object-fit:cover;background:rgba(255,255,255,0.08)}
+.cover{width:60px;height:60px;border-radius:0;object-fit:cover;background:var(--ink);border:1px solid var(--rule-quiet)}
 .cover.ph{display:block}
 .meta{min-width:0;overflow-wrap:anywhere}
 .meta .t{font-size:1.1rem}
