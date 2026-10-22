@@ -66,6 +66,10 @@ MEMBER_MAX_BYTES = 8 * 1024 * 1024
 DEFAULT_SIZE = 512            # kept for source compatibility: callers can no longer declare a size
 STORED_OVERHEAD = 200         # fixed per-row cost added to the measured payload (keys, class, expiry)
 SCHEMA_VERSION = 2
+# Expired rows are deleted on read, under quota pressure, and by a sweep that any write runs at most once per
+# SWEEP_INTERVAL seconds (AVR-503 benchmark F3): an expired member entry is never served, and it no longer lingers
+# in memory until its own key happens to be read again. The sweep is one bounded DELETE per database.
+SWEEP_INTERVAL = 30.0
 APPLICATION_ID = int.from_bytes(b"AVRC", "big")
 
 # Data classes. Member-scoped writes may use the first three; shared writes only "catalogue".
@@ -241,6 +245,7 @@ class DisposableCache:
         self._lock = threading.RLock()
         self._conn: Optional[sqlite3.Connection] = None
         self._closed = False
+        self._last_sweep = -math.inf
         if path:
             key = _path_key(path)
             with _PATHS_LOCK:
@@ -479,6 +484,9 @@ class DisposableCache:
                 try:
                     self._delete_key(k)
                     now = self._clock.now()
+                    if now - self._last_sweep >= SWEEP_INTERVAL:
+                        self._purge_expired(now)          # F3: expired rows do not linger in memory
+                        self._last_sweep = now
                     count, used = self._usage(owner)
                     if count + 1 > self._owner_max or used + stored > self._owner_max_bytes:
                         self._purge_expired(now)

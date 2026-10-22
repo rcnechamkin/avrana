@@ -1,8 +1,11 @@
 # Avrana home
 
-Status: **not built into an image, not deployed, synthetic data only.** No Dockerfile, no compose
-file, no hostname; nothing here is wired into `services/avrana-portal`, which stays deployed and
-untouched. Gates G1 (network isolation) and G2 (authorization suites) have not passed in
+Status: **not built into an image, not deployed, synthetic data only.** No production Dockerfile, no
+production compose file, no hostname; nothing here is wired into `services/avrana-portal`, which stays
+deployed and untouched. The one exception is the LAN-only OWNER PREVIEW (owner decision 2026-10-15:
+`Dockerfile.preview`, `docker-compose.preview.yml`, `preview/`), which the owner runs by hand on `avrana`
+for his own libraries behind one password; see
+[`docs/runbooks/home-owner-preview.md`](../../docs/runbooks/home-owner-preview.md). It is not a member path. Gates G1 (network isolation) and G2 (authorization suites) have not passed in
 production, so nothing in this directory may read real member data. Real upstream adapters are
 disabled unless five explicit settings are present (see `docs/design/HOME-APP.md`, section 7).
 

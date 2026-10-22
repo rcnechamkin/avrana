@@ -68,6 +68,9 @@ WIRE_CASES = [k for k in CASES if not any(isinstance(v, str) and ("\r" in v or "
 
 def tile_paths(text):
     import re
+    places = re.search(r'<nav class="places".*?</nav>', text, flags=re.S)       # the Home design
+    if places:
+        return re.findall(r'<a href="/([^"]*)"', places.group(0))
     return re.findall(r'<a class="tile" href="/([^"]*)"', text)
 
 
@@ -90,7 +93,7 @@ class FailClosedTests(unittest.TestCase):
     def test_control_the_good_headers_do_grant(self):
         r = self.client.get("/", headers=OK)
         self.assertEqual(["watch", "request", "help"], tile_paths(r.text))
-        self.assertIn("Continue watching", r.text)
+        self.assertIn("Continue", r.text)
         self.assertEqual(200, self.client.get("/watch", headers=OK).status_code)   # the interstitial
 
     def test_every_bad_identity_is_treated_as_no_groups(self):

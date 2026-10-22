@@ -42,7 +42,7 @@ class RouteLayerTests(unittest.TestCase):
                     self.assertIsNone(re.search(pattern, body), f"{name} reads request input: {pattern}")
 
     def test_the_only_scope_reads_outside_identity_are_the_path_and_our_own_labels(self):
-        allowed = {"raw_path", "path", "avrana_route", "type", "method", "headers_unused"}
+        allowed = {"raw_path", "path", "avrana_route", "avrana_shell", "type", "method", "headers_unused"}
         for name, text in sources().items():
             if name in IDENTITY_ONLY:
                 continue

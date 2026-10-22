@@ -181,8 +181,28 @@ class Fixture(unittest.TestCase):
         return [(USER, user), (GROUPS, groups)]
 
     def tiles(self, text):
-        import re
-        return re.findall(r'<a class="tile" href="/([^"]*)"', text)
+        from html.parser import HTMLParser
+
+        class Places(HTMLParser):
+            def __init__(self):
+                super().__init__()
+                self.inside = False
+                self.paths = []
+
+            def handle_starttag(self, tag, attrs):
+                attrs = dict(attrs)
+                if tag == "nav":
+                    self.inside = bool({"tiles", "places"} & set(attrs.get("class", "").split()))
+                elif tag == "a" and self.inside:
+                    self.paths.append(attrs["href"].removeprefix("/"))
+
+            def handle_endtag(self, tag):
+                if tag == "nav":
+                    self.inside = False
+
+        places = Places()
+        places.feed(text)
+        return places.paths
 
 
 class ModeTests(Fixture):

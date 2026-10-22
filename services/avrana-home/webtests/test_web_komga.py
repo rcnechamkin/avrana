@@ -8,6 +8,7 @@ member mapping, so any username that holds the comics group sees what the one sh
 import json
 import unittest
 
+from avrana_home.app.viewmodel import RAIL_MOST
 from dev.mock_komga import MockKomga
 
 from .support import GROUPS, USER, StubAdapter, make_client, make_settings, require_framework
@@ -23,8 +24,8 @@ A, B = member("a"), member("b")
 NO_COMICS = member("a", "avrana-users|avrana-videos")
 TOKEN = "mock-api-key-not-real"
 
-A_BOOKS = ["Synthetic Comic One", "Synthetic Comic Two", "Synthetic Manga One", "Synthetic Mature One",
-           "Synthetic Kids One", "Synthetic Teen One"]
+A_BOOKS = sorted(["Synthetic Comic One", "Synthetic Comic Two", "Synthetic Manga One", "Synthetic Mature One",
+                  "Synthetic Kids One", "Synthetic Teen One"])
 TRACES = ("Comic", "Manga", "Kids One", "Mature", "Teen", "Recently added to Comics", "komga", "SERIES",
           "BOOKAAAA")
 
@@ -64,12 +65,12 @@ class RecentComicsTests(Fixture):
         c = self.client()
         r = c.get("/", headers=A)
         self.assertEqual(200, r.status_code)
-        self.assertIn("Recently added to Comics", r.text)
-        for title in A_BOOKS:
-            self.assertIn(title, r.text)
+        self.assertIn("New this week", r.text)
         sec = self.recent(c, A)
         self.assertEqual("ok", sec["state"])
-        for it in sec["items"]:
+        self.assertEqual(A_BOOKS, sorted(i["title"] for i in sec["items"]))
+        for it in sec["items"][:RAIL_MOST]:                  # the page shows one bounded rail
+            self.assertIn(it["title"], r.text)
             self.assertEqual("komga", it["service"])
             self.assertTrue(it["handoff_url"].startswith("https://"))
             self.assertIn(f'href="{it["handoff_url"]}"', r.text)
@@ -100,8 +101,9 @@ class RecentComicsTests(Fixture):
         self.assertEqual(a, b)
         self.assertEqual([i["title"] for i in self.recent(c, A)["items"]],
                          [i["title"] for i in self.recent(c, B)["items"]])
-        for title in A_BOOKS:
-            self.assertIn(title, c.get("/", headers=B).text)
+        page_b = c.get("/", headers=B).text
+        for title in [i["title"] for i in self.recent(c, A)["items"]][:RAIL_MOST]:
+            self.assertIn(title, page_b)
 
     def test_no_per_member_restriction_and_no_user_listing_reaches_the_upstream(self):
         c = self.client()

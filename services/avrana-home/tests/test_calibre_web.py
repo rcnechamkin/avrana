@@ -75,9 +75,8 @@ class States(Base):
     def test_continue_item_and_search_are_not_offered_without_an_upstream_call(self):
         for r in (self.adapter.continue_items(self.a), self.adapter.item(self.a, "101")):
             self.assertEqual((r.state, r.reason), (SectionState.EMPTY, "not_offered"))
-        with self.assertRaises(NotImplementedError):
-            self.adapter.search(self.a, "x")
         self.assertEqual(self.fake.requests, [])
+        self.assertEqual(self.adapter.search(self.a, "Synthetic").state, SectionState.OK)   # offered since AVR-383
 
 
 class SharedViewAndIsolation(Base):
@@ -112,7 +111,7 @@ class SharedViewAndIsolation(Base):
         self.adapter.fetch_artwork(self.a, "calibre-web/cover/101")
         for p in self.fake.paths():
             for banned in ("shelf", "read", "hot", "discover", "download", "user", "admin", "me"):
-                self.assertNotIn(banned, p.replace("thumb_cover", "").replace("opds", ""), p)
+                self.assertNotIn(banned, p.replace("cover_240_240", "").replace("opds", ""), p)
 
 
 class NoGroup(Base):
@@ -136,12 +135,12 @@ class Artwork(Base):
     def test_a_member_with_the_group_gets_the_cover(self):
         r = self.adapter.fetch_artwork(self.a, "calibre-web/cover/101")
         self.assertEqual((r.state, r.content_type, r.data), (SectionState.OK, "image/png", PNG))
-        self.assertEqual(self.fake.paths(), ["/opds/thumb_cover/101"])
+        self.assertEqual(self.fake.paths(), ["/opds/cover_240_240/101"])
 
     def test_a_cover_the_viewer_cannot_see_is_empty_and_never_counted(self):
         r = self.adapter.fetch_artwork(self.a, "calibre-web/cover/999")
         self.assertEqual((r.state, r.content_type, r.data), (SectionState.EMPTY, None, b""))
-        self.assertEqual(self.adapter.health().state, "ok")
+        self.assertEqual("unknown", self.adapter.health().state)   # artwork is neutral for the circuit
 
     def test_hostile_or_foreign_refs_are_empty_and_never_interpolated(self):
         for ref in ("calibre-web/cover/../../admin", "calibre-web/cover/1/../2", "calibre-web/cover/1?x=1",
@@ -173,7 +172,7 @@ class Feed(Base):
 
     def test_links_that_are_not_relative_paths_never_become_ids_or_urls(self):
         evil = self.fake.feed.replace('href="/opds/cover/101"', 'href="https://evil.invalid/opds/cover/101"') \
-            .replace('href="/opds/thumb_cover/101"', 'href="//evil.invalid/opds/thumb_cover/101"') \
+            .replace('href="/opds/cover_240_240/101"', 'href="//evil.invalid/opds/cover_240_240/101"') \
             .replace('href="/opds/download/101/epub/"', 'href="javascript:alert(1)"')
         self.serve(evil)
         r = self.adapter.recent_items(self.a)
@@ -267,15 +266,15 @@ class GuardAndSecrets(Base):
                                     ("GET", "/opds/shelfdetail/1", None), ("GET", "/opds/readbooks", None),
                                     ("GET", "/opds/download/101/epub/", None), ("GET", "/opds/cover/101", None),
                                     ("GET", "/opds/search/x", None), ("GET", "/admin/user/new", None),
-                                    ("GET", "/opds/new", {"offset": "1"}), ("GET", "/opds/thumb_cover/1/../2", None),
-                                    ("GET", "/opds/thumb_cover/%2e", None), ("GET", "/opds/thumb_cover/1", {"a": "b"})):
+                                    ("GET", "/opds/new", {"offset": "1"}), ("GET", "/opds/cover_240_240/1/../2", None),
+                                    ("GET", "/opds/cover_240_240/%2e", None), ("GET", "/opds/cover_240_240/1", {"a": "b"})):
             with self.assertRaises(ForbiddenRequest, msg=(method, path)):
                 g.request(method, path, query, 1.0, 1000)
         with self.assertRaises(ForbiddenRequest):
             GuardedTransport(self.transport).bind(None).request("GET", "/opds/new", None, 1.0, 1000)
         with self.assertRaises(ForbiddenRequest):
             GuardedTransport(self.transport).bind("member-a")      # only the fixed shared viewer can be bound
-        self.assertEqual([r.name for r in ALLOWED_ROUTES], ["new", "cover"])
+        self.assertEqual([r.name for r in ALLOWED_ROUTES], ["new", "search", "cover"])
         self.assertEqual(self.fake.requests, [])
 
     def test_the_credential_is_never_in_a_repr_a_result_a_health_report_or_a_log_line(self):
@@ -303,7 +302,7 @@ class GuardAndSecrets(Base):
 
     def test_fixtures_declare_their_target_version_and_which_shapes_are_synthetic(self):
         files = sorted(FIXTURES.glob("*.json"))
-        self.assertEqual(len(files), 1)
+        self.assertEqual(len(files), 2)
         for f in files:
             doc = json.loads(f.read_text(encoding="utf-8"))
             self.assertTrue(doc["_synthetic"].startswith("Hand-written SYNTHETIC"), f.name)

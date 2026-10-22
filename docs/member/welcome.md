@@ -45,7 +45,7 @@ On a shared or borrowed device, signing out of an app does not sign you out of A
 on your home page has a Sign out link and a Manage account link. Avrana's own documentation points to
 the account settings page, opened with Manage account, for signing out of Avrana itself.
 [UNVERIFIED U-19: what the Sign out link on the Account page actually ends]
-<!-- src: docs/services/sso-architecture.md:142-150 (sign out at the Authentik settings page); services/avrana-portal/portal.py:398-399, :744-747 (Manage account links to Authentik; Sign out is an outpost endpoint, not shown to end the Authentik session) -->
+<!-- src: docs/services/sso-architecture.md:142-150 (sign out at the Authentik settings page); services/avrana-portal/portal.py:398-399, :751-754 (Manage account links to Authentik; Sign out is an outpost endpoint, not shown to end the Authentik session) -->
 
 ## What you can use
 
@@ -76,7 +76,7 @@ are in Help, under Movies and TV.
 One thing to know: the Movies and TV password is a separate copy made when your account was created. If
 you later change your Avrana password, the Movies and TV password stays as it was.
 [OWNER DECISION D-13: what members are told to do to change or reset that separate password]
-<!-- src: services/avrana-portal/portal.py:190-268 (recommended = first listed, per render_help_page :727); docs/onboarding/welcome.md:35-43; docs/services/jellyfin.md:19-31; docs/services/authentik.md:21 -->
+<!-- src: services/avrana-portal/portal.py:190-268 (recommended = first listed, per render_help_page :734); docs/onboarding/welcome.md:35-43; docs/services/jellyfin.md:19-31; docs/services/authentik.md:21 -->
 <!-- endif -->
 
 <!-- if: avrana-audiobooks -->
@@ -163,6 +163,6 @@ contact route above.
 Your name, username, e-mail address and the list of what you can use are on the Account page. Your
 password, passkeys and active sessions are managed there too. What Avrana records about your use, and
 how to leave, are in [House rules and privacy](house-rules-and-privacy.md).
-<!-- src: services/avrana-portal/portal.py:697-754; docs/member/house-rules-and-privacy.md -->
+<!-- src: services/avrana-portal/portal.py:704-761; docs/member/house-rules-and-privacy.md -->
 
 Forgot your password? [OWNER DECISION D-13: current reset route, e-mail reset or contact the owner]

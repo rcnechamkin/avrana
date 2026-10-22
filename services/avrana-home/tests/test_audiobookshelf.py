@@ -19,7 +19,9 @@ from avrana_home.cache import MemberCache
 from avrana_home.contract import ForbiddenRequest, Kind, SectionState, Service
 from avrana_home.principal import principal_from_headers
 from avrana_home.resilience import FakeClock, UrllibTransport
-from tests.fake_abs import UA, UB, UC, UD, FakeAudiobookshelf
+from avrana_home.app import artwork
+from avrana_home.resilience import MAX_IMAGE_BYTES
+from tests.fake_abs import JPEG, UA, UB, UC, UD, FakeAudiobookshelf
 from tests.fake_jellyfin import FakeJellyfin, FakeOpener, FakeTransport
 from tests.helpers import make_principal
 
@@ -61,7 +63,9 @@ class States(Base):
         self.assertEqual((one.progress_fraction, one.position_seconds, one.duration_seconds),
                          (0.42, 15120, 36000))
         self.assertEqual((one.subtitle, one.series), ("Synthetic Author", "Synthetic Saga #1"))
-        self.assertIsNone(one.artwork)                        # covers are deliberately not offered
+        self.assertEqual((one.artwork.ref, one.artwork.alt),
+                         ("audiobookshelf/cover/li_book000001", "Cover of Synthetic Audiobook One"))
+        self.assertIsNone(r.items[1].artwork)                 # coverPath null: no cover offered
         self.assertEqual(r.to_dict()["items"][0]["progress"]["percent"], 42)
 
     def test_a_member_without_the_group_gets_nothing_and_nothing_is_asked_or_read(self):
@@ -107,10 +111,8 @@ class States(Base):
         self.assertEqual(self.adapter.continue_items(self.b).reason, "UpstreamTimeout")
 
     def test_unoffered_sections_make_no_upstream_call(self):
-        for r in (self.adapter.recent_items(self.a), self.adapter.item(self.a, "li_book000001")):
-            self.assertEqual((r.state, r.reason), (SectionState.EMPTY, "not_offered"))
-        self.assertEqual(self.adapter.fetch_artwork(self.a, "audiobookshelf/cover/li_book000001").state,
-                         SectionState.EMPTY)
+        r = self.adapter.recent_items(self.a)          # item lookup is offered since AVR-384 (title pages)
+        self.assertEqual((r.state, r.reason), (SectionState.EMPTY, "not_offered"))
         self.assertEqual(self.fake.requests, [])
 
 
@@ -281,7 +283,7 @@ class PermissionsFromTheUsersOwnRecord(Base):
         r = self.adapter.continue_items(self.a)
         self.assertEqual((r.state, r.reason, r.items), (SectionState.UNAVAILABLE, "UpstreamMalformed", ()))
 
-    def test_covers_and_other_media_types_are_not_shown(self):
+    def test_other_media_types_are_not_shown_and_the_section_fetches_no_cover(self):
         item = json.loads(json.dumps(self.fake.items["li_book000001"]))
         item["mediaType"] = "podcast"
         self.fake.serve("/api/items/li_book000001", item)
@@ -303,11 +305,32 @@ class ProgressRules(Base):
             rec["mediaProgress"][1].update(progress=0.5, currentTime="soon", duration=None, lastUpdate="x")
         self.edit_record(UA, hostile)
         r = self.adapter.continue_items(self.a)
-        one = next(i for i in r.items if i.title == "Synthetic Audiobook One")
-        self.assertEqual(one.progress_fraction, 1.0)
-        self.assertEqual(one.position_seconds, None)
-        self.assertEqual(one.duration_seconds, 0)
-        self.assertTrue(all(0.0 <= i.progress_fraction <= 1.0 for i in r.items))
+        # A progress of 1 or more is finished by its own numbers (Home 2.0, AVR-381): left out of Continue
+        # rather than clamped and shown as "finished".
+        self.assertNotIn("Synthetic Audiobook One", titles(r))
+        self.assertTrue(r.items)
+        self.assertTrue(all(0.0 < i.progress_fraction < 1.0 for i in r.items))
+
+    def test_a_hostile_position_or_duration_is_unknown_never_a_made_up_time(self):
+        def hostile(rec):
+            rec["mediaProgress"] = rec["mediaProgress"][:1]
+            rec["mediaProgress"][0].update(progress=0.5, currentTime=10 ** 400, duration=-5)
+        self.edit_record(UA, hostile)
+        one = next(i for i in self.adapter.continue_items(self.a).items if i.title == "Synthetic Audiobook One")
+        self.assertEqual(one.progress_fraction, 0.5)
+        self.assertIsNone(one.position_seconds)                 # too large: not a position
+        self.assertNotEqual(one.duration_seconds, 0)            # -5 is unknown: the item's own duration
+
+    def test_float_seconds_and_finished_boundaries(self):
+        def edges(rec):
+            rec["mediaProgress"] = rec["mediaProgress"][:3]
+            rec["mediaProgress"][0].update(progress=0.25, currentTime=9000.9, duration=36000.4)
+            rec["mediaProgress"][1].update(progress=1.0, isFinished=False)   # flag lagging: still finished
+            rec["mediaProgress"][2].update(progress=float("nan"))
+        self.edit_record(UA, edges)
+        r = self.adapter.continue_items(self.a, limit=50)
+        self.assertEqual(1, len(r.items), titles(r))
+        self.assertEqual((9000, 36000), (r.items[0].position_seconds, r.items[0].duration_seconds))
 
     def test_a_negative_zero_or_nan_progress_is_not_in_progress(self):
         def odd(rec):
@@ -379,8 +402,10 @@ class GuardAttacks(unittest.TestCase):
     def test_only_get_on_listed_routes(self):
         for method in ("POST", "PUT", "PATCH", "DELETE", "HEAD", "get", None):
             self.refused(method, f"/api/users/{UA}")
-        for path in ("/api/me", "/api/authorize", "/api/libraries", "/api/users/", f"/api/users/{UA}/listening-stats",
-                     "/api/items/li_book000001/cover", "/api/items", "/ping", "//api/users", "/api/users?x=1"):
+        for path in ("/api/me", "/api/authorize", "/api/libraries/lib_aaa", "/api/libraries/lib_aaa/items",
+                     "/api/users/", f"/api/users/{UA}/listening-stats",
+                     "/api/items/li_book000001/cover/x", "/api/items/li_book000001/covers",
+                     "/api/items/li_book000001/cover/", "/api/items", "/ping", "//api/users", "/api/users?x=1"):
             self.refused("GET", path)
 
     def test_another_users_id_traversal_and_encoded_slashes_are_refused(self):
@@ -409,7 +434,7 @@ class GuardAttacks(unittest.TestCase):
         self.refused("GET", "/api/users", {"x": "1"}, uid=None)
 
     def test_route_names(self):
-        self.assertEqual([r.name for r in ALLOWED_ROUTES], ["users", "user", "item"])
+        self.assertEqual([r.name for r in ALLOWED_ROUTES], ["users", "user", "item", "cover", "libraries", "search"])
 
 
 class FailureClasses(Base):
@@ -572,14 +597,18 @@ class AcceptanceScenarios(Base):
         self.clock.advance(61)
         self.assertIs(self.adapter.continue_items(self.d).state, SectionState.EMPTY)    # the trial succeeds
 
-    def test_artwork_of_another_members_item_is_never_fetched_or_returned(self):
-        # member-b's private book, asked for by member-a under any plausible ref shape
-        for ref in ("audiobookshelf/cover/li_book000010", "li_book000010", f"/api/items/li_book000010/cover",
-                    "../../api/users/" + UB):
+    def test_artwork_of_an_item_only_another_member_may_see_is_never_fetched_or_returned(self):
+        # li_book000003 is in lib_bbb: member-b may see it, member-a may not. Malformed refs make no call.
+        for ref in ("li_book000003", "/api/items/li_book000003/cover", "../../api/users/" + UB,
+                    "audiobookshelf/cover/../../api/users/" + UB):
             r = self.adapter.fetch_artwork(self.a, ref)
             self.assertEqual((r.state, r.content_type, r.data), (SectionState.EMPTY, None, b""), ref)
         self.assertEqual(self.fake.requests, [])
-        self.assertIsNone(self.adapter.continue_items(self.b).items[0].artwork)
+        r = self.adapter.fetch_artwork(self.a, "audiobookshelf/cover/li_book000003")
+        self.assertEqual((r.state, r.content_type, r.data), (SectionState.EMPTY, None, b""))
+        self.assertNotIn("/api/items/li_book000003/cover", self.fake.paths())
+        self.assertIs(self.adapter.fetch_artwork(self.b, "audiobookshelf/cover/li_book000003").state,
+                      SectionState.OK)
 
     def test_recently_added_is_not_offered_in_this_unit(self):
         r = self.adapter.recent_items(self.a)
@@ -594,6 +623,279 @@ class AcceptanceScenarios(Base):
             self.assertIn("NOT confirmed", doc["_target_version"], f.name)
             self.assertIn("SYNTHETIC assumption", doc["_provenance"], f.name)
             self.assertIn("UNPROVEN", doc["_provenance"], f.name)
+
+
+class Covers(Base):
+    """A cover only for an item THIS member may see, by the same rules as the continue section."""
+
+    def cover(self, principal, item_id):
+        return self.adapter.fetch_artwork(principal, f"audiobookshelf/cover/{item_id}")
+
+    def cover_requests(self):
+        return [(p, q) for _m, p, q in self.fake.requests if p.endswith("/cover")]
+
+    def test_a_visible_item_gets_its_vetted_image_bytes(self):
+        r = self.cover(self.a, "li_book000001")
+        self.assertEqual((r.state, r.content_type, r.data), (SectionState.OK, "image/jpeg", JPEG))
+        self.assertEqual(self.fake.paths(), ["/api/users", f"/api/users/{UA}", "/api/items/li_book000001",
+                                             "/api/items/li_book000001/cover"])
+        self.assertEqual(self.cover_requests(), [("/api/items/li_book000001/cover",
+                                                  {"width": "400", "format": "jpeg"})])
+        served = artwork.fetch(self.a, [self.adapter], "audiobookshelf/cover/li_book000001")
+        self.assertEqual((served.content_type, served.data), ("image/jpeg", JPEG))
+
+    def test_current_uuid_item_ids_are_accepted(self):
+        uuid_id = "0f0e0d0c-1111-4222-8333-444455556666"
+        item = json.loads(json.dumps(self.fake.items["li_book000001"]))
+        item["id"] = uuid_id
+        self.fake.items[uuid_id] = item
+        self.assertIs(self.cover(self.a, uuid_id).state, SectionState.OK)
+
+    def test_items_hidden_from_this_member_get_no_cover_and_no_cover_request(self):
+        cases = ((self.a, "li_book000003"),     # a library member-a may not access
+                 (self.a, "li_book000004"),     # explicit, member-a may not see explicit content
+                 (self.c, "li_book000005"))     # tag on member-c's deny list
+        for who, item_id in cases:
+            r = self.cover(who, item_id)
+            self.assertEqual((r.state, r.content_type, r.data), (SectionState.EMPTY, None, b""), item_id)
+            self.assertIsNone(artwork.fetch(who, [self.adapter], f"audiobookshelf/cover/{item_id}"))
+        self.assertEqual(self.cover_requests(), [])
+        for item_id in ("li_book000003", "li_book000004", "li_book000005"):      # member-b may see all three
+            self.assertIs(self.cover(self.b, item_id).state, SectionState.OK, item_id)
+        self.assertEqual("unknown", self.adapter.health().state)   # artwork is neutral for the circuit
+
+    def test_other_media_missing_and_invalid_items_get_no_cover(self):
+        for field, value in (("mediaType", "podcast"), ("isMissing", True), ("isInvalid", True)):
+            self.adapter.cache.clear()
+            item = json.loads(json.dumps(self.fake.items["li_book000001"]))
+            item[field] = value
+            self.fake.serve("/api/items/li_book000001", item)
+            self.assertIs(self.cover(self.a, "li_book000001").state, SectionState.EMPTY, field)
+        self.assertEqual(self.cover_requests(), [])
+
+    def test_unknown_items_and_items_without_a_cover_are_neutral(self):
+        for item_id in ("li_book999999", "li_book000002"):           # unknown; coverPath null
+            self.assertIs(self.cover(self.a, item_id).state, SectionState.EMPTY, item_id)
+        self.assertEqual(self.cover_requests(), [])
+        del self.fake.items["li_book000001"]["media"]["coverPath"]   # field absent: asked, upstream 404 is neutral
+        self.assertIs(self.cover(self.a, "li_book000001").state, SectionState.EMPTY)
+        self.assertEqual("unknown", self.adapter.health().state)   # artwork is neutral for the circuit
+
+    def test_malformed_refs_and_ids_make_no_upstream_call(self):
+        for ref in ("audiobookshelf/cover/LI_BOOK000001", "audiobookshelf/cover/li_", "audiobookshelf/cover/",
+                    "audiobookshelf/cover/li_book000001/x", "audiobookshelf/cover/li_book000001?width=9999",
+                    "audiobookshelf/cover/li_book%30", "audiobookshelf/item/li_book000001",
+                    "jellyfin/primary/li_book000001", "audiobookshelf/cover/" + UA.upper(),
+                    "audiobookshelf/cover/" + UA + "0", "audiobookshelf/cover/li_book000001 ", "", None, 7):
+            r = self.adapter.fetch_artwork(self.a, ref)
+            self.assertEqual((r.state, r.data), (SectionState.EMPTY, b""), ref)
+        self.assertEqual(self.fake.requests, [])
+
+    def test_the_group_is_checked_first_with_no_upstream_call_and_no_cache_read(self):
+        self.assertIs(self.cover(self.a, "li_book000001").state, SectionState.OK)     # warm a's cache
+        n = len(self.fake.requests)
+        outsider = make_principal("member-a", ("avrana-users", "avrana-videos"))
+        self.assertIs(self.cover(outsider, "li_book000001").state, SectionState.NOT_PERMITTED)
+        self.assertIsNone(artwork.fetch(outsider, [self.adapter], "audiobookshelf/cover/li_book000001"))
+        self.assertEqual(len(self.fake.requests), n)
+
+    def test_unlinked_and_disabled_members_get_no_cover(self):
+        r = self.cover(make_principal("member-zzz", GROUPS), "li_book000001")
+        self.assertIs(r.state, SectionState.NOT_LINKED)
+        self.edit_record(UA, lambda rec: rec.update(isActive=False))
+        self.assertIsNot(self.cover(self.a, "li_book000001").state, SectionState.OK)
+        self.assertEqual(self.cover_requests(), [])
+
+    def test_a_malformed_permission_record_or_a_different_item_answered_is_never_a_cover(self):
+        self.edit_record(UA, lambda rec: rec["permissions"].pop("accessExplicitContent"))
+        self.assertIs(self.cover(self.a, "li_book000001").state, SectionState.UNAVAILABLE)
+        self.fake.overrides.clear()
+        self.adapter.cache.clear()
+        item = json.loads(json.dumps(self.fake.items["li_book000002"]))
+        self.fake.serve("/api/items/li_book000001", item)           # asked for one, answered another
+        self.assertIs(self.cover(self.b, "li_book000001").state, SectionState.UNAVAILABLE)
+        self.assertEqual(self.cover_requests(), [])
+
+    def test_a_non_image_mismatched_or_oversize_answer_is_no_cover(self):
+        for image in ((200, b"<html>hi</html>", "text/html"),
+                      (200, b"<svg xmlns='http://www.w3.org/2000/svg'/>", "image/svg+xml"),
+                      (200, b"\x89PNG\r\n\x1a\nnot-a-jpeg", "image/jpeg"),
+                      (200, JPEG + b"0" * MAX_IMAGE_BYTES, "image/jpeg")):
+            self.adapter.cache.clear()
+            self.fake.image = image
+            r = self.cover(self.b, "li_book000001")
+            self.assertIsNot(r.state, SectionState.OK, image[2])
+            self.assertEqual(r.data, b"")
+            self.assertIsNone(artwork.fetch(self.b, [self.adapter], "audiobookshelf/cover/li_book000001"))
+
+    def test_a_cached_cover_is_per_member(self):
+        self.assertIs(self.cover(self.a, "li_book000005").state, SectionState.OK)    # member-a may see it
+        self.assertIs(self.cover(self.c, "li_book000005").state, SectionState.EMPTY)  # member-c may not
+        n = len(self.fake.requests)
+        self.assertIs(self.cover(self.a, "li_book000005").state, SectionState.OK)    # a's own cache hit
+        # Home 2.0 (Lane D): visibility is re-checked as member-a on every request; only the bytes are cached
+        later = [p for _, p, _ in self.fake.requests[n:]]
+        self.assertNotIn("/api/items/li_book000005/cover", later)
+        self.assertIn("/api/items/li_book000005", later)
+
+    def test_the_guard_allows_only_the_cover_route_shape(self):
+        guard = GuardedTransport(FakeTransport(FakeAudiobookshelf()), UA)
+        guard.request("GET", "/api/items/li_book000001/cover", {"width": "400", "format": "jpeg"}, 1.0, 10000)
+        for path, query in (("/api/items/li_book000001/cover", {"raw": "1"}),
+                            ("/api/items/li_book000001/cover", {"width": "400", "userId": UA}),
+                            ("/api/items/li_book000001/cover", {"width": 400}),
+                            ("/api/items/li_book000001/cover/../../users/" + UB, None),
+                            ("/api/items/LI_BOOK000001/cover", None),
+                            ("/api/authors/li_book000001/image", None)):
+            with self.assertRaises(ForbiddenRequest, msg=path):
+                guard.request("GET", path, query, 1.0, 10000)
+        for method in ("POST", "PATCH", "DELETE"):
+            with self.assertRaises(ForbiddenRequest):
+                guard.request(method, "/api/items/li_book000001/cover", None, 1.0, 10000)
+        with self.assertRaises(ForbiddenRequest):                       # never without a mapped member
+            GuardedTransport(FakeTransport(FakeAudiobookshelf()), None).request(
+                "GET", "/api/items/li_book000001/cover", None, 1.0, 10000)
+
+
+class Search(Base):
+    """Library search, every hit re-checked against the member's own permissions."""
+
+    def search_requests(self):
+        return [(p, q) for _m, p, q in self.fake.requests if p.endswith("/search")]
+
+    def test_visible_hits_are_shown_without_progress_and_with_a_cover_ref(self):
+        r = self.adapter.search(self.a, "Synthetic", limit=50)
+        self.assertIs(r.state, SectionState.OK)
+        self.assertEqual(sorted(titles(r)), ["Synthetic Audiobook Five", "Synthetic Audiobook One",
+                                             "Synthetic Audiobook Seven", "Synthetic Audiobook Six",
+                                             "Synthetic Audiobook Ten", "Synthetic Audiobook Two"])
+        one = next(i for i in r.items if i.id == "audiobookshelf:li_book000001")
+        self.assertIs(one.kind, Kind.AUDIOBOOK)
+        self.assertIsNone(one.progress_fraction)
+        self.assertIsNone(r.to_dict()["items"][0]["progress"])
+        self.assertEqual(one.artwork.ref, "audiobookshelf/cover/li_book000001")
+        self.assertEqual(one.handoff_url, "https://listen.avrana.net/item/li_book000001")
+        # member-a's record lists lib_aaa: that is the only library searched, and no library list is read
+        self.assertEqual(self.fake.paths(), ["/api/users", f"/api/users/{UA}", "/api/libraries/lib_aaa/search"])
+        self.assertEqual(self.search_requests()[0][1], {"q": "Synthetic", "limit": "50"})
+
+    def test_a_library_tag_or_explicit_rule_filters_hits(self):
+        self.assertEqual(titles(self.adapter.search(self.a, "Audiobook Three")), [])   # library not accessible
+        self.assertEqual(titles(self.adapter.search(self.a, "Audiobook Four")), [])    # explicit not allowed
+        self.assertEqual(titles(self.adapter.search(self.c, "Audiobook Five")), [])    # tag denied
+        for term, title in (("Audiobook Three", "Synthetic Audiobook Three"),
+                            ("Audiobook Four", "Synthetic Audiobook Four"),
+                            ("Audiobook Five", "Synthetic Audiobook Five")):
+            self.assertEqual(titles(self.adapter.search(self.b, term)), [title], term)
+
+    def test_a_filter_also_applies_when_the_upstream_returns_a_hidden_hit(self):
+        # Even if Audiobookshelf answered member-a's search with the explicit book, it is not shown.
+        body = {"book": [{"libraryItem": self.fake.items["li_book000004"]}], "tags": []}
+        self.fake.serve("/api/libraries/lib_aaa/search", body)
+        r = self.adapter.search(self.a, "anything")
+        self.assertEqual((r.state, r.items), (SectionState.EMPTY, ()))
+
+    def test_a_member_with_every_library_searches_the_listed_book_libraries_only(self):
+        self.adapter.search(self.b, "Synthetic")
+        self.assertIn("/api/libraries", self.fake.paths())
+        self.assertEqual([p for p, _q in self.search_requests()],
+                         ["/api/libraries/lib_aaa/search", "/api/libraries/lib_bbb/search"])
+
+    def test_library_ids_of_an_unexpected_shape_are_never_requested(self):
+        self.edit_record(UA, lambda rec: rec.update(librariesAccessible=["lib_aaa", "../users", "LIB_X", "lib_a/b"]))
+        self.adapter.search(self.a, "Synthetic")
+        self.assertEqual([p for p, _q in self.search_requests()], ["/api/libraries/lib_aaa/search"])
+        self.fake.overrides.clear()
+        self.fake.libraries_doc = {"libraries": [{"id": "../../users", "mediaType": "book"},
+                                                 {"id": "lib_bbb", "mediaType": "book"}]}
+        self.fake.requests.clear()
+        self.adapter.search(self.b, "Synthetic")
+        self.assertEqual([p for p, _q in self.search_requests()], ["/api/libraries/lib_bbb/search"])
+
+    def test_the_group_is_checked_first_with_no_upstream_call(self):
+        outsider = make_principal("member-a", ("avrana-users", "avrana-videos"))
+        r = self.adapter.search(outsider, "Synthetic")
+        self.assertEqual((r.state, r.items), (SectionState.NOT_PERMITTED, ()))
+        self.assertEqual(self.fake.requests, [])
+
+    def test_wildcards_are_neutralised_and_the_term_is_only_a_query_parameter(self):
+        for term in ("*", "%", "%%", "?", "a"):
+            r = self.adapter.search(self.a, term)
+            self.assertEqual((r.state, r.reason), (SectionState.EMPTY, "invalid_query"), term)
+        self.assertEqual(self.fake.requests, [])
+        for term, sent in (("Synth*", "Synth"), ("Synthetic%", "Synthetic"), ("Audio_book One", "Audio book One"),
+                           ("../users/" + UB, "../users/" + UB)):
+            self.fake.requests.clear()
+            self.adapter.search(self.a, term)
+            (path, query), = self.search_requests()
+            self.assertEqual(path, "/api/libraries/lib_aaa/search")
+            self.assertEqual(query["q"], sent)
+            for p in self.fake.paths():
+                self.assertNotIn(sent, p)
+
+    def test_malformed_answers_are_unavailable_never_empty(self):
+        for body in ({"authors": []}, ["x"], {"book": {"x": 1}}, {"book": [1, "x", {"libraryItem": None}]},
+                     {"book": [{"libraryItem": {"id": "li_book000001"}}]}):
+            self.fake.serve("/api/libraries/lib_aaa/search", body)
+            r = self.adapter.search(self.a, "Synthetic")
+            self.assertEqual((r.state, r.reason, r.items), (SectionState.UNAVAILABLE, "UpstreamMalformed", ()),
+                             body)
+            self.adapter.breaker.success(self.adapter.breaker.acquire())
+        self.fake.overrides.clear()
+        for libs in ({"libraries": "x"}, {"libraries": [1, "x"]}, "nope"):
+            self.fake.libraries_doc = libs
+            r = self.adapter.search(self.b, "Synthetic")
+            self.assertEqual((r.state, r.reason), (SectionState.UNAVAILABLE, "UpstreamMalformed"), libs)
+            self.adapter.breaker.success(self.adapter.breaker.acquire())
+
+    def test_a_malformed_permission_record_searches_nothing(self):
+        self.edit_record(UA, lambda rec: rec["permissions"].pop("accessAllTags"))
+        r = self.adapter.search(self.a, "Synthetic")
+        self.assertEqual((r.state, r.reason), (SectionState.UNAVAILABLE, "UpstreamMalformed"))
+        self.assertEqual(self.search_requests(), [])
+
+    def test_a_disabled_member_searches_nothing(self):
+        self.edit_record(UA, lambda rec: rec.update(isActive=False))
+        self.assertIsNot(self.adapter.search(self.a, "Synthetic").state, SectionState.OK)
+        self.assertEqual(self.search_requests(), [])
+
+    def test_a_hit_from_another_library_or_an_ignored_limit_is_misbehaviour(self):
+        foreign = {"book": [{"libraryItem": self.fake.items["li_book000003"]}]}
+        self.fake.serve("/api/libraries/lib_aaa/search", foreign)
+        r = self.adapter.search(self.a, "Synthetic")
+        self.assertEqual((r.state, r.reason, r.items), (SectionState.UNAVAILABLE, "UpstreamMisbehaved", ()))
+        self.adapter.breaker.success(self.adapter.breaker.acquire())
+        flood = {"book": [{"libraryItem": self.fake.items["li_book000001"]}] * 4}
+        self.fake.serve("/api/libraries/lib_aaa/search", flood)
+        r = self.adapter.search(self.a, "Synthetic", limit=1)                  # asked for 3 hits
+        self.assertEqual((r.state, r.reason), (SectionState.UNAVAILABLE, "UpstreamMisbehaved"))
+
+    def test_an_unknown_library_is_neutral_and_results_are_never_cached(self):
+        self.edit_record(UA, lambda rec: rec.update(librariesAccessible=["lib_gone", "lib_aaa"]))
+        r = self.adapter.search(self.a, "Audiobook One")
+        self.assertEqual(titles(r), ["Synthetic Audiobook One"])
+        n = len(self.search_requests())
+        self.adapter.search(self.a, "Audiobook One")
+        self.assertGreater(len(self.search_requests()), n)
+        self.assertEqual(self.adapter.health().state, "ok")
+
+    def test_the_guard_allows_only_the_search_route_shapes(self):
+        guard = GuardedTransport(FakeTransport(FakeAudiobookshelf()), UA)
+        guard.request("GET", "/api/libraries", None, 1.0, 10000)
+        guard.request("GET", "/api/libraries/lib_aaa/search", {"q": "ab", "limit": "3"}, 1.0, 10000)
+        for path, query in (("/api/libraries", {"include": "filterdata"}),
+                            ("/api/libraries/lib_aaa/search", {"q": "ab", "userId": UA}),
+                            ("/api/libraries/lib_aaa/search", {"q": "ab", "filter": "x"}),
+                            ("/api/libraries/LIB_AAA/search", {"q": "ab"}),
+                            ("/api/libraries/lib_a/search", {"q": "ab"}),
+                            ("/api/libraries/lib_aaa/../../users/" + UB + "/search", {"q": "ab"}),
+                            ("/api/libraries/lib_aaa/items", None),
+                            ("/api/libraries/lib_aaa/search/x", {"q": "ab"})):
+            with self.assertRaises(ForbiddenRequest, msg=path):
+                guard.request("GET", path, query, 1.0, 10000)
+        with self.assertRaises(ForbiddenRequest):
+            GuardedTransport(FakeTransport(FakeAudiobookshelf()), None).request(
+                "GET", "/api/libraries/lib_aaa/search", {"q": "ab"}, 1.0, 10000)
 
 
 class WithJellyfinThroughGather(unittest.TestCase):

@@ -31,6 +31,12 @@ HYGIENE = (
     (b"x-content-type-options", b"nosniff"),
     (b"content-security-policy", CSP),
 )
+# /search is the one page with a form (a plain GET to itself), so it alone may submit to its own origin.
+CSP_SEARCH = CSP.replace(b"form-action 'none'", b"form-action 'self'")
+# Shell pages (Home with sections, Search, Account, Help) link the web app manifest (install.py) and load the brand
+# font, Geist (brand.py, home.css; AVR-584); they alone may load those two from their own origin. Nothing else
+# changes: no script, no other source. Every other route keeps CSP.
+SHELL_SOURCES = b"; manifest-src 'self'; font-src 'self'"
 _HYGIENE_NAMES = frozenset(name for name, _ in HYGIENE)
 
 NOT_IMPLEMENTED_BODY = (b"<!DOCTYPE HTML>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n"
@@ -42,13 +48,18 @@ NOT_IMPLEMENTED_BODY = (b"<!DOCTYPE HTML>\n<html lang=\"en\">\n<head>\n<meta cha
 _PRIVATE_NO_STORE = (b"cache-control", b"private, no-store")
 
 
-def with_hygiene(headers) -> list:
+def csp_for(form_self: bool = False, manifest: bool = False) -> bytes:
+    return (CSP_SEARCH if form_self else CSP) + (SHELL_SOURCES if manifest else b"")
+
+
+def with_hygiene(headers, form_self: bool = False, manifest: bool = False) -> list:
     headers = list(headers)
     cache = HYGIENE[0]
     if any((bytes(k).lower(), bytes(v).lower()) == _PRIVATE_NO_STORE for k, v in headers):
         cache = _PRIVATE_NO_STORE
+    csp = csp_for(form_self, manifest)
     return ([(k, v) for k, v in headers if bytes(k).lower() not in _HYGIENE_NAMES]
-            + [cache] + list(HYGIENE[1:]))
+            + [cache] + [(k, csp if k == b"content-security-policy" else v) for k, v in HYGIENE[1:]])
 
 
 class HygieneMiddleware:
@@ -73,7 +84,9 @@ class HygieneMiddleware:
             if message["type"] == "http.response.start":
                 state["status"] = message["status"]
                 state["started"] = True
-                message = dict(message, headers=with_hygiene(message.get("headers", ())))
+                message = dict(message, headers=with_hygiene(message.get("headers", ()),
+                                                             scope.get("avrana_route") == "/search",
+                                                             scope.get("avrana_shell") is True))
             await send(message)
 
         try:

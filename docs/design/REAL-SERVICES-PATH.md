@@ -17,19 +17,22 @@ those listed. Route shapes marked **UNVERIFIED** are recalled from public docume
 
 | | Jellyfin | Audiobookshelf | Komga | Calibre-Web |
 |---|---|---|---|---|
-| **Adapter calls** | `/Users`, `/UserItems/Resume`, `/Items/Latest`, `/Items`, `/Items/{id}/Images/Primary` | `/api/users`, `/api/users/{uuid}`, `/api/items/li_{id}` | `/api/v1/books/latest`, `/api/v1/books/{id}`, `/api/v1/books/{id}/thumbnail` | `/opds/new`, `/opds/thumb_cover/{n}` |
+| **Adapter calls** | `/Users`, `/UserItems/Resume`, `/Items/Latest`, `/Items` (lookup by `ids` and search by `searchTerm`, both with `userId`), `/Items/{id}/Images/Primary` | `/api/users`, `/api/users/{uuid}`, `/api/items/{id}` (UUID or `li_`), `/api/items/{id}/cover`, `/api/libraries`, `/api/libraries/{id}/search` | `/api/v1/books/latest`, `/api/v1/books?search=`, `/api/v1/books/{id}`, `/api/v1/books/{id}/thumbnail` | `/opds/new`, `/opds/search?query=`, `/opds/cover_240_240/{n}` |
 | **Credential** | API key (`Authorization: MediaBrowser Token=...`). Jellyfin keys have no scopes: administrator-equivalent. Dedicated, named for Home, rotatable | API token that can read other users' progress (**admin-capable**, ADAPTER-CONTRACT 11.1). Dedicated | **Regular (non-admin)** Komga account's API key (`X-API-Key`), comics libraries shared to it, no admin role. Never an admin key | HTTP Basic, a dedicated non-admin local viewer account (`user:password`) |
 | **Minimum scope** | Read; the GET allow-list is the real limit, not the key | Same: allow-list, not the token, is the limit; the known risk of the design | Read; allow-list of three routes | Read OPDS catalogue only |
 | **Members matched** | By username, exact and case-sensitive, via `/Users`; loose or ambiguous matches are `NOT_LINKED` | Same rule against `/api/users` `username`; e-mail is never used | **Not matched.** All members with `avrana-comics` map to one fixed shared viewer | **Not matched.** All members with `avrana-books` map to one fixed shared viewer |
 | **Settings / env** | `HOME_UPSTREAM_MODE=real`, `HOME_GATES_VERIFIED=yes`, `JELLYFIN_BASE_URL`, `JELLYFIN_API_KEY` or `_FILE` | `AUDIOBOOKSHELF_BASE_URL`, `AUDIOBOOKSHELF_TOKEN` or `_FILE` (set together) | `KOMGA_BASE_URL`, `KOMGA_TOKEN` or `_FILE`, `KOMGA_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS=yes` | `CALIBRE_WEB_BASE_URL`, `CALIBRE_WEB_CREDENTIAL` or `_FILE`, `CALIBRE_WEB_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS=yes` |
 | **Sections** | Continue, New | Continue only | New only (no Continue: read progress is the shared account's) | New only |
-| **Verified only by synthetic fixtures today** | Every route, field and the key header form | Every route and field; whether OIDC-created accounts carry the Authentik username | Every route and field, that a regular key works at all, and that `latest` is filtered by the account's library sharing | Every OPDS route and Atom field; the `thumb_cover` path |
+| **Verified only by synthetic fixtures today** | Every route, field and the key header form | Every route and field; whether OIDC-created accounts carry the Authentik username | Every route and field, that a regular key works at all, and that `latest` is filtered by the account's library sharing | Every OPDS route and Atom field; the `cover_240_240` path |
 | **Live checks needed** | Key header form on 10.11.11; `/Users` and per-user list shapes; image route | Admin token reads `/api/users/{id}`; progress entries carry `userId`; item `expanded` shape | Regular key accepted (**UNVERIFIED**: the repo records `X-API-Key` rejected for admin once); `latest`, book, thumbnail shapes; **search** may need `POST /api/v1/books/list` instead of `GET /api/v1/books?search=` (**UNVERIFIED**, not built) | OPDS Basic accepted for the viewer; `/opds/new` shape; **search** may offer only `/opds/search/{term}` (**UNVERIFIED**, not built) |
 | **Owner approvals gating it** | Key creation; the capture run; real-mode run | Admin-capable token creation and acceptance of its reach; capture; real-mode run | Creating the regular account and key; the invariant that no member is restricted; capture; real-mode run | Creating the viewer account; the no-restriction invariant; capture; real-mode run |
 
 Komga detail: with a regular key every `/api/v2/*` route is refused by the guard before it leaves the process. The
 shared account's read progress exists in book responses and is never read. Calibre-Web has no member read state
-either. Search (AVR-383) is not on this branch; its Komga and Calibre-Web route shapes above are open.
+either. Search (AVR-383) is merged with this view on feat/lan-demo: Komga search uses the same shared listing.
+Search and title-page route shapes are now marked doc-verified, live-verified or UNVERIFIED per service in
+ADAPTER-CONTRACT 14.6 (2026-10-16); the table's "may need" notes are settled there (Komga's GET search is deprecated
+but present; Calibre-Web has both `/opds/search?query=` and `/opds/search/{term}`; Jellyfin search moved to `/Items`).
 
 ## 2. The ordered path
 

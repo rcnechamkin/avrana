@@ -2,12 +2,21 @@
 {% from "_parts.html" import tile %}
 {% block title %}Help · Avrana{% endblock %}
 {% block body %}
+{% if shell %}
+  <h2 class="topic">Help</h2>
+{% endif %}
 {% if tiles %}
   <nav class="tiles" aria-label="Help topics">
 {% for path, label, desc in tiles %}{{ tile(path, label, desc) }}
 {% endfor %}
+{% if shell %}    <a class="tile" href="/help/trouble">
+      <span class="label">If something doesn&#x27;t open</span>
+      <span class="desc">Sign-in, missing items and getting back</span>
+    </a>
+{% endif %}
   </nav>
 {% else %}
   <section class="block"><p class="note msg">Nothing is set up on this account yet.</p></section>
 {% endif %}
 {% endblock %}
+{% block footer %}{% if shell %}    <a class="link" href="/">Back to home</a>{% else %}    <a class="account" href="/">Back</a>{% endif %}{% endblock %}

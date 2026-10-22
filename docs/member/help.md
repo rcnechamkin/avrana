@@ -33,14 +33,14 @@ Sources (repo paths):
 
 The help topics are the libraries you have. Each topic page lists the apps for each device, the address
 to type and the steps. Open Help from your home page and choose a topic. Only your own topics are listed.
-<!-- src: services/avrana-portal/portal.py:116-137 (help tile), :696-700, :710-718 -->
+<!-- src: services/avrana-portal/portal.py:116-137 (help tile), :703-707, :717-725 -->
 
 ## Which app on which device
 
 On a topic page, a device that has more than one app lists them with the first marked Recommended and
 the others marked Alternative. A device that has only one app lists it without a tag. The list below is
 the short version. For the steps, open the topic page.
-<!-- src: services/avrana-portal/portal.py:791 (tag is added only when a device has more than one client) -->
+<!-- src: services/avrana-portal/portal.py:798 (tag is added only when a device has more than one client) -->
 
 <!-- if: avrana-videos -->
 **Movies and TV.** iPhone and iPad: Swiftfin. Android: Jellyfin. Roku: Jellyfin. Apple TV: Swiftfin.
@@ -146,7 +146,7 @@ it is changed there too.
 <!-- endif -->
 
 To change your password while you are signed in, open Account, then Manage account.
-<!-- src: services/avrana-portal/portal.py:738-747 -->
+<!-- src: services/avrana-portal/portal.py:745-754 -->
 
 ## Something is missing from your home page
 
@@ -156,7 +156,7 @@ to check your account. Use the contact route below.
 
 This is the same for everyone. A missing tile does not mean anything is broken, and the answer will only
 describe your own account.
-<!-- src: services/avrana-portal/portal.py:10-27 (404 not 403 rule), :778-787 (404 copy); docs/design/DESIGN.md:313, :321 -->
+<!-- src: services/avrana-portal/portal.py:10-27 (404 not 403 rule), :785-794 (404 copy); docs/design/DESIGN.md:313, :321 -->
 
 ## Asking for something that is missing
 
@@ -204,7 +204,7 @@ button on the same page.
 
 Today, when a service is switched off, an app shows its own error and a page can show "That page does
 not exist". Neither tells you whether the service is down or whether it is not set up for you.
-<!-- src: services/avrana-portal/portal.py:844-853 -->
+<!-- src: services/avrana-portal/portal.py:851-860 -->
 
 [OWNER DECISION D-15: the member wording for "this service is unavailable right now", and where an operator notice appears. The charter plans one sentence on the home page, which is not built yet]
 

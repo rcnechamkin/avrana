@@ -128,6 +128,10 @@ components:
 > `services/authentik/blueprints/avrana-landing.yaml`). It codifies the existing identity and
 > closes the gaps listed in [the 2026-10-11 audit](../audits/2026-10-11-web-interface-audit.md).
 > It is the visual standard for [Avrana Media 2.0](MEDIA-2.0.md).
+> **Brand, 2026-10-18:** on the AVR-584 draft branch, the AVRANA brand package v1.0.0 (approved 2026-10-17)
+> replaces the serif, `#000`/`#fff` and typed wordmark below on Home shell pages only, pending the owner's visual
+> review; see "Brand v1.0.0 on Home shell pages (AVR-584)". The rest of this document still describes the portal and
+> connectors until AVR-362 converges them.
 > Nothing here is deployed. Every change to a running service needs the owner's approval for that
 > change, per `AGENTS.md`.
 
@@ -298,11 +302,115 @@ Cover art in lists is a square crop with no rounding. Media artwork keeps each l
 - Paper text with a 1px Strong Rule underline offset 2px; underline turns Paper on hover; focus
   ring on focus. In footers, links get 12px of vertical padding so the target reaches 44px.
 
+### Skip link
+- Canonical definition: `docs/design/components/skip-link.html` (markup) and `docs/design/components/skip-link.css` (styles). Portal (`portal.SHELL`, `portal.STYLE`) and Home (`templates/base.html`, `templates/style.css`) carry byte-identical copies; `tests/test_skip_link.py` fails on drift.
+- Markup contract: the first element in `<body>` is `<a class="skip-link" href="#main">Skip to main content</a>`; the target is the page's single `<main id="main" tabindex="-1">`.
+- Hidden with the clip pattern (not `display:none`), visible on `:focus-visible` as an inverted Paper-on-Ink block, fixed at top left so a sticky header cannot cover it, with the shared two-ring focus ring from `a:focus-visible`. Existing tokens only; no transition, so nothing to gate on reduced motion. Works without JavaScript.
+
+### Shell masthead (Home, Search, Account, Help)
+- The heading is the brand package's Media L3 lockup, not the typed wordmark (AVR-584; "Brand v1.0.0 on Home
+  shell pages" below).
+- Top row, right-aligned: Search (when the member has a searchable library) and the native account
+  disclosure, whose menu holds "Account and security". Help lives in the places bar only: it is always the
+  last place (Watch, Listen, Read, Request, Help), on every shell page. The places bar keeps one row at 360px and wraps whole
+  words at large text; the compact wordmark is capped by the viewport width so it never wraps.
+- Side gutters are `max(1.25rem, env(safe-area-inset-*))`. `viewport-fit=cover` is not set, so Safari keeps
+  content clear of the notch itself; the insets matter only if a later change opts in.
+
+### Media card (Home rails)
+- One link per card, one action. Order: title (two lines at most), the creator, series or episode line
+  (Ash, one line, ellipsis), progress in words, then on Continue cards the action verb ("Resume" or
+  "Open") as small underlined text. New this week cards carry no verb: the whole card opens the item.
+- Clamping is visual only; the full title stays in the link text and so in its accessible name. When
+  the view-model gives an `action_label`, it replaces the verb for assistive technology only.
+- Every frame in a rail stands on one baseline: the rail's artwork height, each shape's natural width
+  (posters, books, comics, audiobook squares); a video still is held to a maximum width and stands
+  shorter, bottom-aligned. Images are contained, never cropped into another shape.
+- Rails scroll sideways. On phones every card in a rail is one width (8.75rem, about 2.2 to a screen), so
+  the next card peeks in as a sliver; the rail snaps to card starts (mandatory), and a trailing spacer
+  lets the last card snap to the start as well. From 45rem the cards fit the column and snapping is
+  proximity only. A thin Quiet Rule scrollbar shows on pointer devices.
+- Keyboard focus: browsers scroll a focused element into view only when it is wholly outside the
+  scroller's optimal viewing region (the scroller less its `scroll-padding`), so a partly visible card
+  would stay clipped. The rail's right `scroll-padding` leaves a region one card (plus focus ring) wide:
+  a peeking card counts as outside, Tab and Shift+Tab bring it fully into view, and the rail's padding
+  keeps the 4px ring unclipped. This relies on cards resting card-aligned, which is why phone rails snap
+  mandatorily and carry the trailing spacer. No script. `tests/ui/check_home_export.mjs` checks it in Chromium with
+  real key presses at 360, 390 and 390 at 200% text.
+- Known, not fixed: when a cover's bytes arrive but cannot be decoded, the browser draws its own broken-image icon
+  over the letter behind the frame. Hiding it needs script (an `onerror` handler, which the strict CSP forbids) or
+  a full server-side image decode on every artwork request. The artwork route already refuses anything whose
+  declared type is not JPEG, PNG or WebP or whose magic number does not match (`adapters/_base.py`); a matching
+  magic number on a corrupt body is the remaining case, and a 404 instead would still show the same icon, so a
+  decoder in the request path (more parsing of untrusted bytes) buys nothing. The dev mocks serve real,
+  decodable synthetic PNGs in each natural shape (`dev/synthetic_art.py`), so reviews see real layout.
+- Residual: from 45rem a still may be wider than the other cards; if the four cards ever overflow the
+  column there (large text on a desktop), a still that straddles the edge can stay partly clipped when
+  focused. Safari keyboard and VoiceOver behaviour is not covered by the Chromium check; it is part of
+  the real-iPhone review (AVR-455).
+
 ### Help page (signature component)
 - Headline names the topic ("Movies and TV"). Under it, a row of platform links that jump to each
   section, so a member with a Roku does not scroll past six other devices.
 - Each platform is a section with a Subtitle heading, the recommended app first, store link as an
   inline text link (not full width), then numbered steps. Server addresses are in Copyable Mono.
+
+## Brand v1.0.0 on Home shell pages (AVR-584)
+
+> **Status: implemented on a fixture-only draft branch. The branded UI is not approved, merged or deployed.** The
+> AVRANA brand package v1.0.0 (the package itself approved 2026-10-17) replaces this document's Times New Roman,
+> `#000`/`#fff` and typed-wordmark stand-ins on the **Home shell pages only**: Home with sections, Search, Account,
+> Help and its topics, title pages, Watch, Listen, Read and Request. The owner's review of the actual branded UI on
+> an iPhone (Safari, VoiceOver; AVR-455) is required before merge.
+
+| Owner direction, 2026-10-18 | State |
+|---|---|
+| Hash-verified base64 packaging of the brand's PNG and WOFF2 files in `avrana_home/app/brand/` | Accepted for v1.0, for that folder only; the repository's binary policy is unchanged |
+| `font-src 'self'` on shell pages only | Accepted |
+| 56px L3 lockup | Provisionally retained, subject to the real-device review |
+| Portal and every page without the shell unchanged | Accepted; AVR-362 owns broader convergence |
+| Browse at 720px | Kept; the 1120px comparison is not approved |
+| The branded UI as a whole | Not yet reviewed; no merge or deployment until the owner has seen it on a device |
+
+**Where it applies.** Only `templates/home.css`, which is added to a page only when it wears the shell. The portal,
+the Kindle and Audible connectors, and every Home page without the shell (sections off, the chooser and
+interstitial without a principal, errors and the 404) keep the frontmatter tokens above, byte-identical to the
+portal (the parity test). Converging those is AVR-362's job; this section adds no second token file.
+
+**Tokens.** The shell maps the package tokens (`03-Typography-and-Colors/tokens/avrana-tokens.css`) onto its
+existing variables, so no rule below them changes:
+
+| Variable | Was | Brand token | On Spire Ink |
+|---|---|---|---|
+| `--bg` | `#000000` | Spire Ink `#121214` | |
+| `--fg` | `#ffffff` | Cream `#EDEAE4` | 15.6:1 |
+| `--dim` | `#9a9a9a` | Stone `#AEABA7` | 8.2:1 |
+| `--rule-strong` | `#999999` | Ash `#8F8C89` | 5.6:1 |
+| `--rule-control` | `#6e6e6e` | Control `#6E6C72` | 3.6:1 (clears 1.4.11) |
+| `--rule-quiet` | `#474747` | Graphite `#5E5B57` | 2.8:1, decorative only |
+| `--dim-on-fg` | `#333333` | Graphite `#5E5B57` | 5.6:1 on Cream |
+
+Atomic Purple and Purple Deep are Party only and are not used. Media stays monochrome; library artwork keeps its
+original colour and natural shape.
+
+**Type.** Geist (variable, 100 to 900, SIL OFL 1.1) replaces the serif on shell pages, served from
+`/brand/geist.woff2` with `font-display: swap` and the package's system fallback stack. Sizes and the existing
+hierarchy are unchanged; section labels keep Regular caps tracked 0.22em, which is the package's Media heading.
+
+**Mark.** The masthead shows the package's **L3 Media product lockup** (`/brand/avrana-media-l3.svg`, cream,
+trimmed) as an `<img alt="Avrana Media">` inside the home link, 3.5rem tall (56px, twice the package's 28px
+minimum so the product name inside it stays legible, and scaling with text size), with no rule beneath it (owner, 2026-10-18; the portal keeps its rule until AVR-362).
+The owner approved the size, with the branded UI, after the real-device review on 2026-10-18. The wordmark is never retyped. The favicon is the
+package's 16 px micro cut (`/brand/favicon.svg`); the install icons and manifest colours are the package's.
+
+**CSP.** Shell pages, and only they, add `font-src 'self'` beside `manifest-src 'self'`. No script source, no
+other origin. Every other response keeps the CSP unchanged.
+
+**Files and provenance.** `avrana_home/app/brand/` (README and `SOURCES.json`: package path, byte count and SHA-256
+per file; the server refuses a file that does not match). Refreshed only by `tools/sync_brand_assets.py`.
+
+**Browse width.** Unchanged at 720px (45rem). A wider 960 to 1120px stage is shown only as an unapproved
+comparison in the AVR-584 review.
 
 ## Media components
 

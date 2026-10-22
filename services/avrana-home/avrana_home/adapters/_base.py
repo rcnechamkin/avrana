@@ -143,6 +143,29 @@ def bounded_int(value: Any) -> Optional[int]:
     return number if -MAX_INT < number < MAX_INT else None
 
 
+YEAR_MIN, YEAR_MAX = 1000, 2200
+_YEAR_TEXT = re.compile(r"([0-9]{4})(?:-[0-9]{2}(?:-[0-9]{2}(?:T[0-9:.]{1,18}(?:Z|[+-][0-9]{2}:?[0-9]{2})?)?)?)?")
+
+
+def year_from(value: Any) -> Optional[int]:
+    """A release or publication year from upstream JSON or XML text, or None. Accepts an integer, a
+    four-digit string ("2004") or the start of an ISO date ("2004-05-01", "2004-05-01T00:00:00+00:00").
+    Anything else, and any year outside YEAR_MIN..YEAR_MAX (Calibre's "unknown" date is year 101), is None:
+    a year is shown only when it is plausible."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        year = value
+    elif isinstance(value, str) and len(value) <= 40:
+        m = _YEAR_TEXT.fullmatch(value.strip())
+        if m is None:
+            return None
+        year = int(m.group(1))
+    else:
+        return None
+    return year if YEAR_MIN <= year <= YEAR_MAX else None
+
+
 def image_magic_ok(ctype: str, body: bytes) -> bool:
     """The bytes must really be the image type claimed (the serving app must still send
     X-Content-Type-Options: nosniff, see ADAPTER-CONTRACT.md)."""
@@ -191,6 +214,26 @@ def match_exactly_one(wanted: str, entries: Sequence[Any],
         raise MappingFailed("case_or_unicode_mismatch" if loose else "unmapped")
     (uid, entry), = exact.items()
     return uid, entry
+
+
+def member_override(value: Any) -> Optional[Tuple[str, str]]:
+    """Validate an optional (principal username, upstream username) pair for `lookup_username`."""
+    if value is None:
+        return None
+    if (not isinstance(value, tuple) or len(value) != 2
+            or not all(isinstance(v, str) and v and v == v.strip() for v in value)):
+        raise ValueError("member_username must be a (principal username, upstream username) pair")
+    return value
+
+
+def lookup_username(principal: Any, override: Optional[Tuple[str, str]]) -> str:
+    """The upstream account name to look up for `principal`: its own username, exactly (the default rule),
+    unless `override` names THIS principal's username, in which case the configured upstream name. Used only
+    for the lookup; cache scoping, logs and everything else keep the principal's own username. Only the
+    sealed owner preview configures an override (settings.py), for the owner's principal alone."""
+    if override is not None and principal.username == override[0]:
+        return override[1]
+    return principal.username
 
 
 # ---- the adapter base ----------------------------------------------------------------------
