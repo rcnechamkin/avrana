@@ -248,7 +248,8 @@ High Contrast still draws one. No element sets `outline: none` without this ring
 
 Square everywhere (`border-radius: 0`). Edges are 1px. The rule under the wordmark is 64px wide
 on custom pages and 160px in Authentik, where the wordmark sits in a wider card; both are kept.
-Cover art in lists is a square crop with no rounding.
+Cover art in lists is a square crop with no rounding. Media artwork keeps each library's own shape
+(owner decision, 2026-10-15; see Media components).
 
 ## Components
 
@@ -301,6 +302,130 @@ Cover art in lists is a square crop with no rounding.
   section, so a member with a Roku does not scroll past six other devices.
 - Each platform is a section with a Subtitle heading, the recommended app first, store link as an
   inline text link (not full width), then numbered steps. Server addresses are in Copyable Mono.
+
+## Media components
+
+> **Status: proposed (AVR-426, 2026-10-14). Nothing here is deployed.** Built against fixtures in
+> [the home preview](../../tests/ui/home_preview/README.md), which shows every component below in
+> every state at 360, 390 and 1280px (`check.mjs` writes the renders; this repository tracks no
+> images). **Owner-approved** and not to be revised here: the compact Home with one Continue row
+> and one bounded New row, and browsing on its own New page (AVR-431, AVR-452). **Owner decisions of
+> 2026-10-15** (`docs/DECISIONS.md`) settle the artwork shape and colour, the Search entry, the
+> 720px browsing column with Kindle's 640px form column, and the script-free account menu. The
+> visual result still waits for the owner's review on a phone (AVR-455); the rest of this section
+> is the specification that review checks.
+> It follows the [Media UX research](https://linear.app/avranakern/document/avrana-media-ux-research-implementation-principles-backlog-gap-4a08eb39e598).
+
+### Two shells
+- **Read and Operate** (Help, Account, Welcome, sign-in pages): the 640px single-form column.
+- **Browse** (Home, New, Search, a title page): the 720px column (owner decision, 2026-10-15,
+  subject to a desktop review). Kindle's form keeps the 640px single-form column.
+- Both shells share the top: the account control, the compact wordmark linking home, then the
+  bar of places. Both end with the shared footer: Account and security (signed in) and Help.
+
+### Four things that look alike and are not
+| Component | Used for | Looks like | One outcome |
+|---|---|---|---|
+| Navigation tile | Choosing a place (portal, choosers) | Outlined block, Title-style word, inverts on hover | Goes to the place |
+| Media card | One title in New, on Home or the New page | Cover in its library's shape, title, one Small/Ash line | Opens the title page |
+| Resume card | One title in Continue | A media card with a 3px progress rule and the time left in words | Opens the library's own app at the place the member stopped |
+| Search result | One match on the Search page | A ruled list row: small cover, title, one line, "In" and the library | Opens the title page |
+
+A tile never shows a title, and a card is never used for navigation. No card carries a second
+control, a menu or an icon.
+
+### Artwork
+- **Each library keeps its own shape** (owner decision, 2026-10-15)
+  (2:3 posters for films and series, 16:9 stills in Continue, square audiobook covers, 2:3 books,
+  13:20 comics). Covers keep 1px Quiet Rule edges, square corners and no shadow.
+- Covers in one row share a top edge; their widths differ. A cover is decoration (`alt=""`):
+  the title is always beside it in words.
+- Library artwork keeps its original colour; the page around it stays black and white (owner
+  decision, 2026-10-15).
+
+### Places bar
+- Watch, Listen, Read, Request and Help, as words in one ruled bar under the wordmark on every
+  Browse page. It wraps at large text and never scrolls.
+- Only places the member can use. A library the member cannot use has no place at all. A library
+  whose service is down keeps its word, struck through and not a link, with ", unavailable" for
+  screen readers (decided, preview decision 7).
+
+### Account control
+Specified in [the preview's account section](previews/home/README.md#account-and-shared-navigation-avr-478-proposed)
+(AVR-478): a square initial and the word Account, a native disclosure, three items, no icon.
+
+### Row of titles (rail)
+- At most four cards. On a phone it scrolls sideways inside itself with part of the next cover
+  showing; at 720px and wider all four fit and it does not scroll. The page never scrolls sideways.
+- Under the row, a text link to the whole list ("Everything new this week"). Nothing is reachable
+  only by swiping.
+- **Keyboard and focus on a phone:** each card is one link and one Tab stop, in reading order left
+  to right; the row scrolls the focused card into view (browser default, no script); the card
+  shows the two-ring focus mark and its cover's edge turns Paper. After the last card, Tab reaches
+  the "Everything new" link, then the next section.
+
+### Tabs
+Views of one row (All, then each library). Each tab is a link the server answers; the tab on
+screen is underlined in Paper and carries `aria-current`. On a phone the tabs scroll inside their
+own row. A tab exists only for a library that is answering and that the member can use.
+
+### Wall
+The New page's grid of media cards: three columns on a phone, six at 720px. Same card, same shape rules.
+
+### Search field
+- A plain GET form to the same site (`form-action 'self'`, still no script). A visible label above
+  the field ("Title, author or year"), the field (Fields component), a Primary button "Search",
+  and a Small/Ash hint linked by `aria-describedby`: "Searches your libraries only."
+- No suggestions while typing: a suggestion list is a second way to leak a title, and needs script.
+- The query is trimmed, cut to 100 characters, escaped, and shown back in the field and the page title.
+- **Entry point** (owner decision, 2026-10-15): the word **Search**, a visible text link at the top
+  left of every Browse page, opposite Account and directly above the bar of places. The bar keeps
+  Watch, Listen, Read, Request, Help in that order; Search is not a sixth place in it. Shown once
+  search works for members (M3.4); the preview shows it now for review.
+
+### Search result
+- Results grouped by library under Subtitle headings, each group a ruled list (List row). A row is
+  one link: the cover at a fixed width (60px, 48px on phones) in its own shape, the title, its
+  line, and "In Movies and TV", so a row read alone says where the title lives.
+- A count before the groups ("8 found."), announced as a status. Case, accents and punctuation do
+  not matter to a search ("bronte" finds Brontë).
+- Only libraries the member can use are searched. "Nothing called ... in your libraries" reads the
+  same whether the title is in a library the member cannot use or nowhere at all.
+
+### Title page
+- In this order: the title (Headline, the one `h1`), one line of kind and year or author, **one**
+  Primary action, the progress rule and time left when the library reports it, one sentence about
+  the title when the library has one, then the facts (Library, Year or Author) in a ruled list.
+- The action names the library and never claims anything plays: "Watch in Movies and TV",
+  "Resume in Audiobooks", "Read in Books". It opens that library's own app at the title (M3.5).
+- At 720px the cover sits beside the words; on a phone it sits above them, small enough that the
+  title and the action are on the first screen.
+- A title in a library the member cannot use does not exist: the same Not Found as an unknown title.
+
+### Unavailable section
+- One library down: one Warn banner under the bar on Home and the New page, said once
+  ("Movies and TV are unavailable right now. Everything else works."), its place struck through,
+  its tab, items and Continue entries gone. Everything else works as usual.
+- All of the member's libraries down: the operator's notice in the banner; Request, Help and the
+  account still work.
+- An error and a timeout read the same to a member as unavailable or slow. No raw error, host,
+  service or software name ever reaches the page.
+
+### States and the words for them
+Loading is never a spinner: the page renders once, and a part whose service missed its two
+seconds says so and offers "Try again", a plain link to the same page.
+
+| Component | Loading (slow) | Empty | One library down | All down | No library | Signed out |
+|---|---|---|---|---|---|---|
+| Continue | "Audiobooks are taking longer than usual." and Try again; other items shown | "Nothing in progress. Whatever you start in a library appears here, ready to pick up where you stopped." | Its items are left out; the banner says why | Not shown | Not shown | Not shown |
+| New row | The same sentence on that tab, and Try again | "Nothing new in audiobooks this week." or "Nothing new this week." | No tab for it | Not shown | Not shown | Not shown |
+| New page | The same sentence, and Try again | "Nothing new here this week." | No tab for it | "Movies and TV, audiobooks, books and comics are unavailable right now." | "No library is shared with this account yet. Ask the person who invited you, or read Help." | "Sign in to see the libraries shared with you." |
+| Search | "Audiobooks are taking longer than usual, so nothing from them is shown yet." and Try again; other results shown, or "Nothing called "…" in the libraries that answered." | "Nothing called "…" in your libraries. Check the spelling, or ask for it with Request." | "Movies and TV were not searched, because they are unavailable right now." (in place of the banner) | "… are unavailable right now, so nothing can be searched. Try again later, or read Help." Field and button disabled | As the New page | As the New page |
+| Title page | "Audiobooks are taking longer than usual." and Try again; no action | No progress: the action is the plain verb ("Watch in …") | "Movies and TV are unavailable right now. This title will be here when they are back." No title, no action | As one library down | Not Found | Not Found |
+| Places bar | Unchanged | Unchanged | Struck through, not a link | Every library struck through | Request and Help | Help, and Sign in in place of Account |
+
+All copy follows the house rules: second person or neutral, no "we", no dashes, library names in
+member language, and nothing named that the member cannot use.
 
 ## Do's and Don'ts
 
