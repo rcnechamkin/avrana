@@ -1,12 +1,14 @@
 # Optional social enrichment and future federation: feasibility and go/no-go (R4, AVR-749)
 
-Status: **recommendation for owner decision, 2026-10-26.** Documentation only. No social code, store, service or
+Status: **recommendation for owner decision, 2026-10-26. Owner disposition 2026-10-26: DEFERRED** (Q6a-d: no
+fixture prototype, no persistent social store, no feature launch, federation deferred indefinitely; archived as a
+long-term option, not to be re-asked as blocking work). Documentation only. No social code, store, service or
 federation exists or is proposed for M3. Evidence: `docs/audits/2026-10-26-oss-reuse/social-ids.md` (NeoDB
 0.19.9.1 `e7020d2f`, Floppy v26.10.22 `52c17cdb`, NodeBB v4.16.4 `ce62dcd5`), and the media identity contract
 `docs/design/MEDIA-IDENTITY.md` (R2-B). Coordinates with M4 tickets AVR-480 (private profile), AVR-481 (history
 provenance and retention) and AVR-482 (saved titles), whose gates are unchanged.
 
-## 1. Decision summary
+## 1. Recommendation summary
 
 | Option | Verdict | Why |
 |---|---|---|
@@ -75,7 +77,7 @@ sign-up, so no spam queue.
   query. Every existing page renders byte-identically to today.
 - With social on, social blocks are fetched after the media content, with their own short deadline; a failure hides
   the block and never changes the page's status code, the media sections, the primary action or the cache.
-- Tests the prototype must ship with (fixture-only): byte-identical Home, Library, Search, title, Me and help pages with
+- Tests a prototype would ship with, if ever approved (fixture-only): byte-identical Home, Library, Search, title, Me and help pages with
   social off; the same pages with social on but its store unavailable, slow and malformed; two members with
   different entitlements seeing a shared list differently; a friend's rating of a title the viewer cannot see is
   absent; revoked group removes the social block on the next request; no social data in cache keys, logs or
@@ -101,7 +103,7 @@ libraries a member can use, Continue, progress, history, upstream account names,
 | Actor key compromise | Impersonation on peers | Per-member keys stored with the instance secrets; rotation runbook before go-live |
 | Abuse from a peer | Harassment | Allow-list only, per-peer block, owner kill switch that stops all federation |
 
-## 7. Owner decisions needed before any code
+## 7. Owner decisions that would be needed before any code (all deferred, 2026-10-26)
 
 - **Q6a** Approve a fixture-only prototype of the native module (no store; in-memory synthetic records) as a draft PR?
 - **Q6b** Later, for production: approve a persistent store for social records (SQLite inside Home's volume is the
