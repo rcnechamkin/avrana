@@ -62,6 +62,14 @@ def _trusted(value):
     return Markup(value)
 
 
+# MK-6 (AVR-720): the motion Proposal, off by default. Tier 3 page transitions are 200 ms (home.css); with
+# HOME_MOTION_PROPOSAL=on this rule is appended to the shell stylesheet (so to shell pages and the offline page, which
+# carries it) and they take the 600 ms Proposal token instead, so the owner can compare. Still nothing at all with Reduce Motion. Off, the stylesheet is unchanged.
+MOTION_PROPOSAL_CSS = ("  /* Proposal (HOME_MOTION_PROPOSAL=on, default off): page transitions at the 600 ms token. */\n"
+                       "  @media (prefers-reduced-motion:no-preference){::view-transition-group(*),::view-transition-old(*),"
+                       "::view-transition-new(*){animation-duration:var(--motion-3-proposal);}}\n")
+
+
 def make_environment() -> Environment:
     env = Environment(loader=FileSystemLoader(str(TEMPLATES)), autoescape=True, auto_reload=False, trim_blocks=True,
                       lstrip_blocks=True, keep_trailing_newline=True)
@@ -148,6 +156,8 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
     cat = catalogue_mod.load(settings.catalogue_path)
     env = make_environment()
     env.globals["pwa_sw_off"] = not settings.pwa_sw          # kill switch: the script skips registration
+    if settings.motion_proposal:
+        env.globals["home_stylesheet"] = env.globals["home_stylesheet"] + Markup(MOTION_PROPOSAL_CSS)
     # The offline page and the worker are built once: static bytes, the same for every viewer (pwa.py).
     offline_html = env.get_template("offline.html").render(offline=True).encode("utf-8")
     worker_js = pwa_mod.worker_bytes(offline_html, enabled=settings.pwa_sw)

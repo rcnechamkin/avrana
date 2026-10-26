@@ -181,13 +181,14 @@ class Stylesheet(unittest.TestCase):
 
 # ---- Tier B -----------------------------------------------------------------------------------------------------
 from . import FRAMEWORK_MISSING  # noqa: E402
+from .support import GROUPS, USER, require_framework  # noqa: E402  (stdlib only at import)
 
 if not FRAMEWORK_MISSING:
     from dev.mock_audiobookshelf import MockAudiobookshelf
     from dev.mock_calibre_web import MockCalibreWeb
     from dev.mock_jellyfin import MockJellyfin
     from dev.mock_komga import MockKomga
-    from .support import GROUPS, USER, make_client, make_settings, require_framework
+    from .support import make_client, make_settings
 
 KEY = "mock-api-key-not-real"
 CRED = "viewer:mock-api-key-not-real"

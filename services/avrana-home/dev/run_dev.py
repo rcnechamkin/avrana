@@ -42,6 +42,8 @@ def build_stack(host: str, app_port: int, mock_port: int, enabled: bool, mode: s
            "HOME_PORT": str(app_port), "HOME_TIMEOUT": "2.0"}
     if os.environ.get("HOME_PWA_SW"):                  # the service worker's kill switch (MK-3), for local testing
         env["HOME_PWA_SW"] = os.environ["HOME_PWA_SW"]
+    if os.environ.get("HOME_MOTION_PROPOSAL"):         # the 600 ms motion Proposal (MK-6), for local comparison
+        env["HOME_MOTION_PROPOSAL"] = os.environ["HOME_MOTION_PROPOSAL"]
     if abs_mock_port:
         env["AUDIOBOOKSHELF_BASE_URL"] = f"http://127.0.0.1:{abs_mock_port}"
     if komga_mock_port:

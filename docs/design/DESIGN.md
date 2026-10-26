@@ -651,9 +651,22 @@ iPhone". The installed app is "Avrana Media" (D8).
 
 ### Motion (MK-6)
 
-*Reserved for MK-6 (AVR-720): cross-document View Transitions and same-document polish, tier 3 at 200 ms, longer
-only behind a default-off flag labelled Proposal, Reduce Motion honoured. Until MK-6 merges, the motion rules are
-those under "Shape, glass and motion" above.*
+AVR-720; memo section 10. Moving between shell pages is a cross-document view transition
+(`@view-transition { navigation: auto }`, Chrome 126+, Safari 18.2+), CSS only and with no CSP change, declared only
+inside `@media (prefers-reduced-motion: no-preference)`: with Reduce Motion nothing moves or fades, and the names are
+never set. Same origin only, so the sign-in bounce and the hand-off to a library get none; a browser without support
+just loads the page. The page cross-fades and two things travel, each name on one element per page: the tab bar's
+lens (`k-lens`, sliding to the new tab; the bar itself is not named, so it stays put and readable) and the art
+(`k-art`), which the title page's one frame carries and which, on the page being left, the page script gives to the
+frame beside the followed link (the hero's Details, or a search result) only while the old page is captured, so the
+art flies into the title page. Nothing flies back to Home (its hero may be another item). Every animation is tier 3,
+200 ms (`--motion-3`, `--ease-meaningful`); the 600 ms token is a Proposal behind `HOME_MOTION_PROPOSAL=on` (default
+off). Interruptible: a key or the browser's back still navigates during a transition; where the browser exposes the
+active transition, the script ends it on the first press, so a touch tap then reaches the page; a mouse click during
+the 200 ms may be lost. No
+inline script, no storage, no `preventDefault`; everything still works with JavaScript off (the page fade and the lens
+still run; only the art flight needs the script). Not built: a flight back to the list, and same-document transitions
+(cards hand off to the libraries, so there is no in-page detail to morph into).
 
 ## History
 

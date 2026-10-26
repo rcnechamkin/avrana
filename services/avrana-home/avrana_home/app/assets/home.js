@@ -2,7 +2,9 @@
    (pwa.py), on shell pages only, with `defer`. Every page works without it: this only adds
      1. the navigation lens slide (sets data-at on the tab bar; the browser still navigates normally),
      2. registration of the service worker (/sw.js) and an update banner,
-     3. a reload when a page comes back from the back/forward cache, so it goes through sign-in again.
+     3. a reload when a page comes back from the back/forward cache, so it goes through sign-in again,
+     4. the art flight into a title page during a page-to-page transition, and 5. where the browser exposes the
+        active transition, ending it on the first press, so a touch tap then reaches the page (MK-6, AVR-720).
    It reads no member data, uses no browser storage, builds no HTML from text and does nothing when its elements
    are absent. Inline preview behaviour (MK-4) is not here yet. */
 (function () {
@@ -125,7 +127,64 @@
     else window.addEventListener('load', register);
   }
 
+  /* 4. Art flight (MK-6, AVR-720). The stylesheet turns page-to-page transitions on (never with Reduce Motion, so then
+     no transition reaches this) and names the title page's one art frame. When the page being left links to that
+     title page, the art beside the followed link (the first page's large art, or a search result's) takes the same
+     name, so the browser carries one picture into the other. Exactly one element is named, only while the old page
+     is captured (pageswap comes just before that); the class is the stylesheet's, so no style is written here. A
+     title page names nothing more, and art that is off screen or hidden is left out. Nothing delays, stops or
+     changes the navigation; a browser without these events never runs any of it. */
+  function visible(element) {
+    var box = element.getBoundingClientRect();
+    return box.width > 0 && box.height > 0 && box.bottom > 0 && box.top < window.innerHeight &&
+      box.right > 0 && box.left < window.innerWidth;
+  }
+
+  function tag(art, transition) {
+    art.classList.add('k-flight');
+    transition.finished.then(function () { art.classList.remove('k-flight'); }, noop);
+  }
+
+  function flight() {
+    window.addEventListener('pageswap', function (event) {
+      var transition = event.viewTransition;
+      var entry = event.activation ? event.activation.entry : null;
+      if (!transition || !entry || !entry.url || document.querySelector('.title-page .frame')) return;
+      var to;
+      try { to = new URL(entry.url); } catch (error) { return; }
+      if (to.origin !== window.location.origin || to.pathname.indexOf('/title/') !== 0) return;
+      var links = document.querySelectorAll('a[href]');
+      for (var i = 0; i < links.length; i++) {
+        var link = links[i];
+        if (link.origin + link.pathname + link.search !== to.origin + to.pathname + to.search) continue;
+        var holder = link.closest('.hero, li');
+        var art = holder ? holder.querySelector('.frame') : null;
+        if (art && visible(art)) { tag(art, transition); return; }
+      }
+    });
+  }
+
+  /* 5. Interruptible (MK-6). While a page-to-page transition runs, the browser shows pictures of the two pages, so a
+     press lands on nothing. Where the browser exposes the active transition (document.activeViewTransition, or the
+     pagereveal event when this deferred script happens to run before it), the first press ends it at once (the new
+     page is already there, and that is what shows); a touch tap then reaches what is under the finger. A mouse or pen
+     click during the 200 ms may still be lost, and so may a tap where the transition is not exposed. Keys and the
+     browser's own back and forward navigate regardless. */
+  function interrupt() {
+    var revealed = null;
+    window.addEventListener('pagereveal', function (event) {
+      revealed = event.viewTransition || null;
+      if (revealed) revealed.finished.then(function () { revealed = null; }, noop);
+    });
+    document.addEventListener('pointerdown', function () {
+      var transition = document.activeViewTransition || revealed;
+      if (transition) transition.skipTransition();
+    }, { capture: true, passive: true });
+  }
+
   lens();
   bfcache();
   worker();
+  flight();
+  interrupt();
 })();
