@@ -19,14 +19,14 @@ returned. It is not a catalogue, an index or a store (owner decision 2026-10-11;
 | `tmdb` | work: movie, series or episode | Jellyfin `ProviderIds.Tmdb` | `[1-9][0-9]{0,9}` |
 | `imdb` | work | Jellyfin `ProviderIds.Imdb` | `tt[0-9]{7,10}` |
 | `tvdb` | work | Jellyfin `ProviderIds.Tvdb` | `[1-9][0-9]{0,9}` |
-| `isbn13` | edition | Audiobookshelf `media.metadata.isbn`, Komga `metadata.isbn` | ISBN-10 or ISBN-13 with a correct check digit; hyphens and spaces removed; ISBN-10 rewritten as ISBN-13 |
+| `isbn13` | edition | Audiobookshelf `media.metadata.isbn`, Komga `metadata.isbn` | ISBN-10 or ISBN-13 with a correct check digit; hyphens and spaces removed; ISBN-10 rewritten as ISBN-13; a body of one repeated digit (placeholders such as `0000000000`) refused |
 | `asin` | edition | Audiobookshelf `media.metadata.asin` | `[A-Z0-9]{10}`; a valid ISBN-10 given as an ASIN counts as that ISBN |
 
 Rules:
 
 1. **Upstream-held only.** Home never calls TMDB, TVDB, IMDb, Open Library, ComicVine or any other outside
    service, so their API terms (non-commercial use, attribution, TVDB's paid tier) never apply to Home.
-2. **Validate, never repair.** A value that does not match is dropped. One upstream giving two different valid
+2. **Validate, never repair.** A value that does not match is dropped (surrounding whitespace is ignored; the value itself is never changed). One upstream giving two different valid
    values for one scheme is a contradiction: that scheme is dropped for the item.
 3. **Work keys carry the kind.** TMDB numbers movies and TV separately, and an episode is not its series, so a
    key is `movie:tmdb:603`, `series:tmdb:1399`, `episode:tvdb:...`. Edition keys are `isbn13:...` and `asin:...`
@@ -35,10 +35,12 @@ Rules:
    link anything. An ebook and its audiobook have different ISBNs and are therefore **not** linked: linking
    formats of one work needs a work-level book identifier that none of the upstreams holds today.
 5. **Ambiguity is a state.** If one service gives the same key to two different items (a duplicate import, two
-   files of one edition), that key is ambiguous and links nothing.
+   files of one edition), that key is ambiguous and links nothing. If different keys would chain two items of one
+   service into one title, the whole chain is dropped as ambiguous.
 6. **Per member, per request, internal.** `link()` sees only the items one member's own adapters returned, so
    it cannot reveal another member's library. The identifiers are on `MediaItem.external_ids`, are not in
-   `to_dict()` (the public JSON view), are never rendered, and are never logged.
+   `to_dict()` (the public JSON view), are never rendered, and are left out of `repr(MediaItem)` so a stray log
+   line cannot carry them. Like the rest of the item they sit in the member's own in-memory cache for its TTL.
 
 ## Missing and partial data
 
@@ -48,14 +50,14 @@ Rules:
 | Malformed or hostile value (wrong pattern, bad check digit, non-string, nested object, over 32 characters) | Dropped |
 | Plugin keys in Jellyfin `ProviderIds` (AniDB, TvMaze, ...) | Ignored until a scheme is added here on purpose |
 | Same TMDB number on a movie and a series | Different keys (kind), not linked |
-| Same ISBN in Komga and Calibre-Web (one edition held twice) | Linked |
+| Same ISBN in Komga and Audiobookshelf (one edition held twice; Calibre-Web exposes no ISBN) | Linked |
 | Two Komga books with one ISBN | Ambiguous, not linked |
 | Upstream changes or removes an identifier | Takes effect when the item is next fetched (existing cache TTLs) |
 
 ## What uses it next
 
 Nothing renders a link yet. Planned consumers, each its own reviewed slice: a title page "also in" link
-between the same edition in two libraries (R3); a Seerr title deep link `/movie/{tmdb}` or `/tv/{tmdb}` (owner
+between the same edition in two libraries (R3; today only Komga and Audiobookshelf can share an ISBN); a Seerr title deep link `/movie/{tmdb}` or `/tv/{tmdb}` (owner
 question Q2 in the R1 audit); title-linked social records keyed by work identity (R4, AVR-749).
 
 ## Verification status

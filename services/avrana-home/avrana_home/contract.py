@@ -31,7 +31,7 @@ import re
 import threading
 import time
 import unicodedata
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Callable, Optional, Tuple
 
 from .cache import MemberCache, register_cacheable
@@ -208,7 +208,7 @@ class MediaItem:
     year: Optional[int] = None           # release or publication year, only when the upstream gives one
     # Validated (scheme, value) pairs the upstream itself returned (media_ids.py, MEDIA-IDENTITY.md). Internal:
     # used to link the same title across a member's own results, never displayed and not in to_dict().
-    external_ids: Tuple[Tuple[str, str], ...] = ()
+    external_ids: Tuple[Tuple[str, str], ...] = field(default=(), repr=False)
 
     def to_dict(self) -> dict:
         progress = None

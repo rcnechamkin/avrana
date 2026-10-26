@@ -33,19 +33,19 @@ class Item:
 
 class IsbnTests(unittest.TestCase):
     def test_valid_isbn10_becomes_its_isbn13(self):
-        self.assertEqual(media_ids.isbn13("0-00-000000-0"), "9780000000002")
         self.assertEqual(media_ids.isbn13("0 306 40615 2"), "9780306406157")
         self.assertEqual(media_ids.isbn13("080442957X"), "9780804429573")
         self.assertEqual(media_ids.isbn13("080442957x"), "9780804429573")
 
     def test_valid_isbn13_is_kept(self):
         self.assertEqual(media_ids.isbn13("978-0-306-40615-7"), "9780306406157")
-        self.assertEqual(media_ids.isbn13("9790000000001"), "9790000000001")
+        self.assertEqual(media_ids.isbn13("979-10-90636-07-1"), "9791090636071")
 
     def test_anything_else_is_refused(self):
         for bad in ("9780306406158", "0306406153", "978030640615", "1234567890123", "", "X306406152",
                     "97803064061577", "978-0-306-40615-7" + " " * 40, None, 9780306406157, ["9780306406157"],
-                    "９７８０３０６４０６１５７", "978–0306406157"):
+                    "９７８０３０６４０６１５７", "978–0306406157",
+                    "0-00-000000-0", "9780000000002", "1111111111", "9791111111110"):   # placeholder bodies
             self.assertIsNone(media_ids.isbn13(bad), repr(bad))
 
 
@@ -73,7 +73,7 @@ class ExternalIdTests(unittest.TestCase):
     def test_an_isbn10_given_as_asin_is_an_isbn(self):
         self.assertEqual(media_ids.external_ids([("asin", "0306406152")]), (("isbn13", "9780306406157"),))
         # ... and it must then agree with an explicit ISBN, or neither is trusted
-        self.assertEqual(media_ids.external_ids([("asin", "0306406152"), ("isbn13", "9780000000002")]), ())
+        self.assertEqual(media_ids.external_ids([("asin", "0306406152"), ("isbn13", "9780804429573")]), ())
 
     def test_from_jellyfin_reads_only_known_keys(self):
         got = media_ids.from_jellyfin({"Tmdb": "1", "imdb": "tt0000001", "Tvdb": "", "AniDB": "5",
@@ -83,8 +83,8 @@ class ExternalIdTests(unittest.TestCase):
             self.assertEqual(media_ids.from_jellyfin(hostile), (), repr(hostile))
 
     def test_from_book_metadata(self):
-        self.assertEqual(media_ids.from_book_metadata({"isbn": "0-00-000000-0", "asin": "B0SYNTH001"}),
-                         (("asin", "B0SYNTH001"), ("isbn13", "9780000000002")))
+        self.assertEqual(media_ids.from_book_metadata({"isbn": "0-306-40615-2", "asin": "B0SYNTH001"}),
+                         (("asin", "B0SYNTH001"), ("isbn13", "9780306406157")))
         self.assertEqual(media_ids.from_book_metadata({"isbn": None, "asin": ""}), ())
         self.assertEqual(media_ids.from_book_metadata("isbn"), ())
 
@@ -108,7 +108,7 @@ class LinkTests(unittest.TestCase):
 
     def test_an_ebook_and_its_audiobook_with_different_isbns_are_not_linked(self):
         linked = media_ids.link([
-            Item("audiobookshelf:x", Service.AUDIOBOOKSHELF, Kind.AUDIOBOOK, (("isbn13", "9780000000002"),)),
+            Item("audiobookshelf:x", Service.AUDIOBOOKSHELF, Kind.AUDIOBOOK, (("isbn13", "9780306406157"),)),
             Item("komga:y", Service.KOMGA, Kind.EBOOK, (("isbn13", "9780000000019"),))])
         self.assertEqual(linked.groups, ())
 
@@ -124,6 +124,22 @@ class LinkTests(unittest.TestCase):
         a = Item("komga:A1", Service.KOMGA, Kind.COMIC, (("isbn13", "9780000000019"),))
         b = Item("calibre-web:1", Service.CALIBRE_WEB, Kind.EBOOK, (("isbn13", "9780000000019"),))
         self.assertEqual(media_ids.link([a, a, b]).groups, (("calibre-web:1", "komga:A1"),))
+
+    def test_two_keys_bridging_two_items_of_one_service_link_nothing(self):
+        # komga:A1 and komga:A2 never share a key, but one Audiobookshelf item carries both of their keys
+        items = [Item("komga:A1", Service.KOMGA, Kind.COMIC, (("isbn13", "9780306406157"),)),
+                 Item("komga:A2", Service.KOMGA, Kind.COMIC, (("asin", "B0SYNTH001"),)),
+                 Item("audiobookshelf:x", Service.AUDIOBOOKSHELF, Kind.AUDIOBOOK,
+                      (("asin", "B0SYNTH001"), ("isbn13", "9780306406157")))]
+        linked = media_ids.link(items)
+        self.assertEqual(linked.groups, ())
+        self.assertEqual(linked.ambiguous, ("group:audiobookshelf:x,komga:A1,komga:A2",))
+
+    def test_identifiers_stay_out_of_repr(self):
+        from avrana_home.contract import MediaItem
+        item = MediaItem("komga:B1", Service.KOMGA, Kind.COMIC, "T", "https://read.avrana.net/book/B1",
+                         external_ids=(("isbn13", "9780306406157"),))
+        self.assertNotIn("9780306406157", repr(item))
 
     def test_no_ids_no_links(self):
         self.assertEqual(media_ids.link([Item("komga:A1", Service.KOMGA, Kind.COMIC, ())]).groups, ())
@@ -150,7 +166,7 @@ class AdapterTests(unittest.TestCase):
     def test_audiobookshelf_and_komga_carry_book_identifiers(self):
         abs_adapter = AudiobookshelfAdapter(FakeTransport(FakeAudiobookshelf(FakeClock())), clock=FakeClock())
         book = abs_adapter.item(self.member, "li_book000001", fresh=True).items
-        self.assertEqual(book[0].external_ids, (("asin", "B0SYNTH001"), ("isbn13", "9780000000002")))
+        self.assertEqual(book[0].external_ids, (("asin", "B0SYNTH001"), ("isbn13", "9780306406157")))
         komga = KomgaAdapter(FakeTransport(FakeKomga(FakeClock())), clock=FakeClock(),
                              owner_confirms_no_member_restrictions=True)
         comic = komga.item(self.member, "BOOKAAAA0001", fresh=True).items

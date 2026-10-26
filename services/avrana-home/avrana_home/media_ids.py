@@ -14,6 +14,7 @@ Status: proposed (R2-B, AVR-747), not deployed. Standard library only. Rules in 
 """
 from __future__ import annotations
 
+import itertools
 import re
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
@@ -41,6 +42,9 @@ def isbn13(value: Any) -> Optional[str]:
     if not isinstance(value, str) or len(value) > MAX_RAW:
         return None
     digits = _ISBN_SEPARATORS.sub("", value).upper()
+    body = digits[3:12] if len(digits) == 13 else digits[:9]
+    if len(set(body)) == 1:
+        return None                         # placeholder bodies ("0000000000") would pass the check digit
     if _ISBN13.fullmatch(digits):
         return digits if _isbn13_check(digits[:12]) == digits[12] else None
     if _ISBN10.fullmatch(digits):
@@ -55,7 +59,7 @@ def isbn13(value: Any) -> Optional[str]:
 def _clean(scheme: str, value: Any) -> Optional[str]:
     if not isinstance(value, str) or not value or len(value) > MAX_RAW:
         return None
-    value = value.strip()
+    value = value.strip()                   # surrounding whitespace only; the value itself is never changed
     if scheme in ("tmdb", "tvdb"):
         return value if _NUMERIC_ID.fullmatch(value) else None
     if scheme == "imdb":
@@ -96,7 +100,7 @@ def from_jellyfin(provider_ids: Any) -> Tuple[Tuple[str, str], ...]:
     if not isinstance(provider_ids, Mapping):
         return ()
     pairs = []
-    for key, value in list(provider_ids.items())[:64]:
+    for key, value in itertools.islice(provider_ids.items(), 64):
         if isinstance(key, str) and key.lower() in _JELLYFIN_KEYS:
             pairs.append((_JELLYFIN_KEYS[key.lower()], value))
     return external_ids(pairs)
@@ -131,7 +135,8 @@ def link(items: Iterable[Any]) -> Linked:
 
     Pure and per call: it only ever sees the items one member's own adapters returned for one page."""
     by_key: Dict[str, List[Any]] = {}
-    for item in items:
+    items_seen = list(items)
+    for item in items_seen:
         kind = getattr(item.kind, "value", item.kind)
         for key in identity_keys(kind, item.external_ids):
             by_key.setdefault(key, []).append(item)
@@ -157,4 +162,16 @@ def link(items: Iterable[Any]) -> Linked:
     groups: Dict[str, List[str]] = {}
     for item_id in parent:
         groups.setdefault(find(item_id), []).append(item_id)
-    return Linked(tuple(sorted(tuple(sorted(g)) for g in groups.values() if len(g) > 1)), tuple(ambiguous))
+    service_of = {}
+    for item in items_seen:
+        service_of[item.id] = item.service
+    kept = []
+    for group in groups.values():
+        services = [service_of[i] for i in group]
+        if len(group) > 1 and len(services) == len(set(services)):
+            kept.append(tuple(sorted(group)))
+        elif len(group) > 1:
+            # Two different keys bridged two items of ONE service into one title: that is a contradiction,
+            # so the whole group is dropped rather than guessed at.
+            ambiguous.append("group:" + ",".join(sorted(group)))
+    return Linked(tuple(sorted(kept)), tuple(ambiguous))
