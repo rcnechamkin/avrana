@@ -2,7 +2,8 @@
 
 Copied from the **AVRANA brand package v1.0.0** (`AVRANA-Brand/`, approved 2026-10-17) by
 `tools/sync_brand_assets.py`. Do not edit, redraw, recolour or re-encode them here; change the brand package and
-re-run the tool. `SOURCES.json` records each file's package path, byte count and the SHA-256 of the original bytes,
+re-run the tool. `SOURCES.json` records each file's package path (for the fonts, their npm `source`), byte count and
+the SHA-256 of the original bytes,
 and `avrana_home/app/brand.py` refuses to serve a file that does not match it.
 
 | Served at | File | Package source | Licence |
@@ -19,10 +20,10 @@ and `avrana_home/app/brand.py` refuses to serve a file that does not match it.
 
 **Why base64.** This repository tracks no binary files, and `scripts/review_git_content.py` refuses PNG and NUL
 bytes. The PNG icons and the WOFF2 fonts are therefore stored as base64 text of the exact package bytes (`*.b64`); the
-SVGs and `OFL.txt` are verbatim. The owner accepted this packaging for brand v1.0 on 2026-10-18, for this folder
+SVGs and the licence text are verbatim. The owner accepted this packaging for brand v1.0 on 2026-10-18, for this folder
 only, because every file is hash-verified and self-contained; it does not broaden the repository's binary policy.
 
-**Colours and type** are not copied from the package as a file: the Home shell maps the package tokens
+**Colours** are not copied from the package as a file (the fonts are, from npm, above): the Home shell maps the package tokens
 (`03-Typography-and-Colors/tokens/avrana-tokens.css`: Spire Ink `#121214`, Cream `#EDEAE4`, Stone, Ash, Graphite,
 Control) onto its variables in `templates/home.css`. Atomic Purple is Party only and is not used; the Media yellow
 (Concept K, AVR-715) is a Media-scoped token there, not a brand file. See DESIGN.md, "Brand v1.0.0 on Home shell pages".
@@ -30,5 +31,5 @@ Control) onto its variables in `templates/home.css`. Atomic Purple is Party only
 Check against a local copy of the package (run from the repository root):
 
 ```sh
-python services/avrana-home/tools/sync_brand_assets.py PATH/TO/AVRANA-Brand --fonts PATH/TO/avrana-party/web/party/fonts --check
+python services/avrana-home/tools/sync_brand_assets.py PATH/TO/AVRANA-Brand --fonts PATH/TO/FONTS --check
 ```

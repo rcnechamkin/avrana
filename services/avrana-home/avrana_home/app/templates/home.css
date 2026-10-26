@@ -46,10 +46,14 @@
       1.001,0.999,0.997,0.997,0.997,0.998,0.998,1);
   }
   @media (prefers-contrast:more){:root{--stone:#d2cfcb;--ash:#b9b6b3;--line:rgb(255 255 255 / 0.3);
-    --line-strong:rgb(255 255 255 / 0.5);--control:#a5a3a8;}}
+    --line-strong:rgb(255 255 255 / 0.5);--control:#a5a3a8;--rule-quiet:var(--ash);}}
   @media (prefers-reduced-motion:reduce){:root{--motion-2:150ms;--motion-3:150ms;--motion-spring:150ms;--ease-spring:linear;}}
   html{-webkit-text-size-adjust:100%;background:var(--ink);}
   body{font-family:var(--font-sans);-webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent;}
+  /* Every link's focus ring on a shell page is the yellow (the portal's style.css draws it in cream). :where() keeps
+     this at the portal rule's own weight, so controls with their own ring later in this file, and the skip link's
+     inverted block, keep theirs. */
+  :where(body:has(.mast)) a:focus-visible{outline:2px solid transparent;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--focus);}
   /* Type roles. */
   .k-display{font-size:var(--text-display);font-weight:300;line-height:1;letter-spacing:-0.02em;color:var(--cream);}
   .k-page{font-size:var(--text-page);font-weight:400;line-height:1.2;letter-spacing:-0.01em;}
@@ -57,7 +61,8 @@
   .k-eyebrow{font-size:var(--text-eyebrow);font-weight:500;letter-spacing:0.16em;text-transform:uppercase;color:var(--stone);}
   .k-eyebrow.yours{color:var(--accent);}
   .k-meta{font-size:var(--text-secondary);color:var(--stone);font-variant-numeric:tabular-nums;}
-  /* Liquid glass: only the three shell controls wear it (bottom bar, top-right utility, top-left Home button).
+  /* Liquid glass: only the three shell controls wear it (the tab bar, the top-left Home button, and the top-right
+     utility, which arrives with Library in MK-5).
      The element clips itself (radius set per control, overflow hidden, isolation), or Safari paints a square of
      blur around a round control. The rim is a masked ::before, never border-image. Blur is never animated. Controls
      inside a glass host draw focus inside it (outline-offset:-3px), because overflow:hidden clips anything outside. */
@@ -115,7 +120,8 @@
   .homebtn{width:2.75rem;height:2.75rem;justify-content:center;border-radius:50%;color:var(--cream);}
   .homebtn .spire{display:block;width:24px;height:24px;}
   .homebtn-text{display:none;}
-  .homebtn:focus-visible{outline:2px solid var(--focus);outline-offset:-3px;}
+  .homebtn:focus-visible{outline:2px solid var(--focus);outline-offset:-3px;
+    box-shadow:0 16px 40px rgb(0 0 0 / 0.45),inset 0 1px 0 rgb(255 255 255 / 0.28),inset 0 -8px 16px rgb(255 255 255 / 0.07);}
   @media (forced-colors:active){
     .homebtn{width:auto;min-width:2.75rem;padding:0 0.875rem;border-radius:1.375rem;}
     .homebtn .spire{position:absolute;width:1px;height:1px;margin:-1px;overflow:hidden;clip-path:inset(50%);}
@@ -146,7 +152,7 @@
     justify-content:center;gap:0.125rem;min-height:3.25rem;padding:0.25rem 2px;border-radius:1.875rem;
     color:var(--stone);text-decoration:none;font-size:var(--text-eyebrow);font-weight:500;line-height:1.2;text-align:center;}
   .tab:hover,.tab[aria-current]{color:var(--cream);}
-  .tab:focus-visible{outline:2px solid var(--focus);outline-offset:-3px;}
+  .tab:focus-visible{outline:2px solid var(--focus);outline-offset:-3px;box-shadow:none;}
   .tab .ic{width:1.5rem;height:1.5rem;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;}
   .tab .me{display:inline-flex;align-items:center;justify-content:center;width:1.5rem;height:1.5rem;border-radius:50%;
     background:var(--raised);border:1px solid var(--line-strong);color:var(--cream);font-size:var(--text-eyebrow);font-weight:600;}
@@ -155,10 +161,33 @@
     border-radius:1.875rem;transform:translateX(calc(var(--at) * 100%));pointer-events:none;
     transition:transform var(--motion-spring) var(--ease-spring);}
   .tabbar:not([data-at]) .lens{display:none;}
+  /* Very large text (the viewport is under 18em of the browser's text size: 200% at 390px, 150% at 320px): the bar
+     runs edge to edge, above the bottom safe area, and each tab takes the width its word needs, so whole words fit
+     even at 320px. The sliding lens assumes equal tabs, so here the section's own tab carries the capsule instead
+     (it does not slide; nothing else changes). */
+  @media (max-width:18em){
+    .tabbar{left:env(safe-area-inset-left,0px);right:env(safe-area-inset-right,0px);bottom:env(safe-area-inset-bottom,0px);
+      max-width:none;padding:4px 2px;border-radius:1.25rem 1.25rem 0 0;}
+    .tab{flex:1 1 auto;padding-inline:4px;}
+    .tabbar .lens{display:none;}
+    .tab[aria-current]{background:var(--accent-lens);box-shadow:inset 0 0 0 1px rgb(234 218 110 / 0.55);}
+  }
   @media (forced-colors:active){.tabbar .lens{border:2px solid Highlight;}
     .tab[aria-current] .tl{text-decoration:underline;text-underline-offset:0.2em;}}
   /* Scroll end: the last row clears the bar by 1rem (bar 4rem, its bottom offset, and 1rem). */
   body:has(.tabbar) .page{padding-bottom:calc(5rem + max(24px, env(safe-area-inset-bottom)));}
+  /* The update prompt (MK-3's script adds it only when a new version is waiting): an opaque panel just above the tab
+     bar, never glass, with one cream button. The words wrap; the button keeps a full target. */
+  .update-banner{position:fixed;z-index:21;left:max(16px,env(safe-area-inset-left));right:max(16px,env(safe-area-inset-right));
+    bottom:calc(max(24px, env(safe-area-inset-bottom)) + 4.75rem);max-width:28rem;margin-inline:auto;display:flex;flex-wrap:wrap;
+    align-items:center;justify-content:space-between;gap:0.5rem 0.75rem;padding:0.625rem 0.75rem 0.625rem 1rem;
+    background:var(--raised);border:1px solid var(--line-strong);border-radius:var(--radius-panel);color:var(--cream);
+    font-size:var(--text-secondary);box-shadow:0 12px 32px rgb(0 0 0 / 0.45);}
+  .update-banner-text{flex:1 1 12rem;min-width:0;}
+  .update-banner-button{min-height:2.75rem;min-width:2.75rem;padding:0 1rem;border:0;border-radius:var(--radius-button);
+    background:var(--cream);color:var(--ink);font:inherit;font-weight:600;cursor:pointer;}
+  .update-banner-button:focus-visible{outline:2px solid var(--focus);outline-offset:2px;}
+  @media (forced-colors:active){.update-banner{border-color:CanvasText;}.update-banner-button{border:1px solid ButtonText;}}
   /* Focus is never hidden under the bar (WCAG 2.4.11): scrolling to a focused control keeps it above the bar. */
   html:has(.tabbar){scroll-padding-bottom:calc(5rem + max(24px, env(safe-area-inset-bottom)));}
   main{padding-top:1.5rem;padding-bottom:2rem;}

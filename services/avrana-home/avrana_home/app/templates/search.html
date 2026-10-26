@@ -4,7 +4,7 @@
 {% block body %}
 {# Search (AVR-383). One plain GET form, no script, no suggestions. The typed term is autoescaped and bounded by
    the view-model; results are grouped by library, only libraries the member may use are ever named, and every
-   group says truthfully what happened. The shell (masthead, places, Search, Help, account) is the same as Home. #}
+   group says truthfully what happened. The shell (the tab bar) is the same as on every shell page. #}
   <section class="shelf" aria-labelledby="h-search">
     <h2 id="h-search">Search</h2>
 {% if page.mode == "no_library" %}
