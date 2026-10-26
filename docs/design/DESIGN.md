@@ -377,7 +377,7 @@ foundation's role names is in [FOUNDATION-MAPPING.md](FOUNDATION-MAPPING.md).
 | `--ash` | `#8F8C89` | Strong rules, quiet labels (5.6:1) |
 | `--graphite` | `#5E5B57` | Decorative only (2.8:1); never text on ink |
 | `--control` | `#6E6C72` | Resting edge of fields and controls (3.6:1, clears WCAG 1.4.11) |
-| `--line`, `--line-strong` | white at 9 % and 18 % | Panel and chip edges |
+| `--line`, `--line-strong` | white at 9 % and 18 % | Panel and chip edges, and 1px dividers between grouped rows and sections |
 | `--accent` | `#EADA6E` | Media yellow, Butter-High (13.1:1 on ink) |
 | `--accent-deep` | `#776A00` | Yellow Deep: 14px+ semibold text on cream only (4.55:1) |
 | `--accent-selected`, `--accent-lens` | yellow at 22 % and 24 % | Chosen chip tint, the tab lens |
@@ -538,7 +538,10 @@ art is the item's own `/art` image twice, as in the hero; from 360px a tall cove
 wide still or a square stays below it, so art never sits under the button. A Stone kicker, the display title,
 progress in words with the Cream rule, then one Cream action across the column (Resume, Open, or Watch, Listen,
 Read by the Continue rule, never claiming playback), then "Opens in" in an opaque panel. An unavailable library is
-the warning; anything the member may not see is the standard 404.
+the warning; anything the member may not see is the standard 404. When the library supplies a synopsis (R2-C, R3-A AVR-748), it sits
+last under an "About" eyebrow (`h3`, Stone), after a 1px `--line` divider, as plain autoescaped text in the Body role
+(Stone, 1.55 line height, 62ch measure, `dir="auto"` for right-to-left text). It wraps, is never clamped and adds no
+motion; with no synopsis there is no About block.
 
 ### Search
 

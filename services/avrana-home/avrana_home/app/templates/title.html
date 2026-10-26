@@ -33,10 +33,10 @@
       <p class="hint">Opens in {{ page.library }}. If it does not open there, see <a class="inline" href="/help/trouble">If something doesn&#x27;t open</a>.</p>
     </div>
 {% if page.summary %}
-    <section class="title-about" aria-labelledby="h-about">
+    <div class="title-about">
       <h3 class="kicker" id="h-about">About</h3>
-      <p class="summary">{{ page.summary }}</p>
-    </section>
+      <p class="summary" dir="auto">{{ page.summary }}</p>
+    </div>
 {% endif %}
   </section>
 {% else %}
