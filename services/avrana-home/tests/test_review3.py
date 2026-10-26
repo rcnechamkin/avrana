@@ -10,7 +10,7 @@ import unittest
 
 from avrana_home.adapters.jellyfin import JellyfinAdapter
 from avrana_home.aggregate import gather, health_summary
-from avrana_home.contract import SectionState
+from avrana_home.contract import SectionState, run_in_page
 from avrana_home.principal import principal_from_headers
 from avrana_home.resilience import CircuitBreaker, FakeClock, TransportResponse
 from tests.fake_jellyfin import FakeJellyfin, FakeTransport
@@ -189,6 +189,48 @@ class LateSiblingSection(unittest.TestCase):
         self.assertEqual(2, self.adapter.health().consecutive_failures)
         self.late_sibling_page()
         self.assertEqual("cooling_off", self.adapter.health().state)      # threshold unchanged: 3 pages
+
+    def test_a_different_page_never_follows_a_retained_unexpired_failure(self):
+        page1, page2 = object(), object()
+        run_in_page(page1, self.adapter.continue_items, self.a)
+        retained = self.adapter._flights[self.a.username]
+        self.assertTrue(retained.closed)
+        self.assertIs(page1, retained.page)
+        out = run_in_page(page2, self.adapter.recent_items, self.a)            # same instant: not expired
+        self.assertIs(SectionState.UNAVAILABLE, out.state)
+        self.assertEqual(2, self.fake.paths().count("/Users"))
+        self.assertEqual(2, self.adapter.health().consecutive_failures)
+        self.assertIs(page2, self.adapter._flights[self.a.username].page)
+
+    def test_another_member_is_untouched_by_a_retained_failure_of_the_same_page(self):
+        page = object()
+        run_in_page(page, self.adapter.continue_items, self.a)
+        retained = self.adapter._flights[self.a.username]
+        del self.fake.overrides["/Users"]                                       # the upstream recovers
+        b = make_principal("member-b", GROUPS)
+        out = run_in_page(page, self.adapter.continue_items, b)
+        self.assertIs(SectionState.OK, out.state)                               # its own flight and call
+        self.assertEqual(2, self.fake.paths().count("/Users"))
+        self.assertIs(retained, self.adapter._flights[self.a.username])         # member-a's flight unchanged
+        self.assertNotIn(b.username, self.adapter._flights)                     # a success is not retained
+
+    def test_a_retained_failure_older_than_the_request_timeout_is_ignored(self):
+        page = object()
+        run_in_page(page, self.adapter.continue_items, self.a)
+        self.clock.advance(self.adapter.request_timeout + 0.01)
+        out = run_in_page(page, self.adapter.recent_items, self.a)              # same page, but stale
+        self.assertIs(SectionState.UNAVAILABLE, out.state)
+        self.assertEqual(2, self.fake.paths().count("/Users"))
+        self.assertEqual(2, self.adapter.health().consecutive_failures)
+
+    def test_at_most_one_flight_per_member_is_retained_across_failing_pages(self):
+        seen = []
+        for _ in range(2):                                   # a third page would open the circuit
+            self.late_sibling_page()
+            self.assertEqual([self.a.username], list(self.adapter._flights))
+            seen.append(self.adapter._flights[self.a.username])
+        self.assertIsNot(seen[0], seen[1])                   # the later page replaced the earlier flight
+        self.assertTrue(all(f.closed and f.exc.__traceback__ is None for f in seen))
 
     def test_calls_outside_a_page_still_lead_afresh_after_a_failed_flight(self):
         self.adapter.continue_items(self.a)
