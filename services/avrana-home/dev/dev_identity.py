@@ -9,7 +9,9 @@ it would be an identity-forging hole, so it is built to be impossible to enable 
   2. It needs an explicit opt-in (`--dev-identity` or HOME_DEV_IDENTITY=on on run_dev.py) AND
      `check_startup` must pass: the bind address is a loopback literal (127.0.0.1 or ::1), the
      upstream mode is mock, the upstream URL is loopback and the upstream key is the fixed fake.
-     Any failure raises `DevIdentityRefused` and nothing starts.
+     Any failure raises `DevIdentityRefused` and nothing starts. The ONE exception to the loopback
+     bind is `check_lan_startup`, used only by run_lan_preview.py (temporary, TLS, fixture-only,
+     one RFC 1918 address, passphrase gate in front, self-expiring; AVR-585 B1).
   3. The middleware refuses to be constructed without the sealed token `check_startup` returns.
   4. Headers are stripped, then set, in ONE place (`_rewrite_headers`): every client-supplied
      header that looks like an outpost identity header (any case, `_` or `-`, any `x-authentik*`
@@ -22,6 +24,7 @@ it would be an identity-forging hole, so it is built to be impossible to enable 
 from __future__ import annotations
 
 import html
+import ipaddress
 from typing import Mapping, Optional
 
 from avrana_home.app.middleware import with_hygiene
@@ -79,6 +82,48 @@ def check_startup(*, enabled: bool, host: str, settings) -> _Checked:
         raise DevIdentityRefused("the development identity is not enabled (pass --dev-identity)")
     if host not in LOOPBACK_LITERALS:
         raise DevIdentityRefused("the development identity needs a loopback bind (127.0.0.1 or ::1)")
+    return _check_mock_upstreams(settings)
+
+
+# RFC 1918 only: no CGNAT (100.64/10), no link-local, no loopback (unless a test asks), no public address.
+LAN_NETWORKS = tuple(ipaddress.ip_network(n) for n in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"))
+
+
+def check_lan_bind(host: str, *, allow_loopback: bool = False) -> None:
+    """ONE explicit private IPv4 literal (RFC 1918). Refused: names, IPv6 (so `::`), 0.0.0.0, link-local, public,
+    CGNAT, multicast, and loopback unless `allow_loopback` (the tests' flag; then 127.0.0.1 only)."""
+    try:
+        addr = ipaddress.ip_address(host)
+    except ValueError:
+        raise DevIdentityRefused("the LAN preview binds ONE private IPv4 address literal, not a name") from None
+    if addr.version != 4 or str(addr) != host:
+        raise DevIdentityRefused("the LAN preview binds ONE private IPv4 address literal (no IPv6, no ::)")
+    if addr.is_unspecified:
+        raise DevIdentityRefused("the LAN preview never binds 0.0.0.0 (every interface)")
+    if addr.is_loopback:
+        if allow_loopback and host == "127.0.0.1":
+            return
+        raise DevIdentityRefused("the LAN preview binds a LAN address; loopback is for tests only")
+    if addr.is_link_local:
+        raise DevIdentityRefused("the LAN preview refuses a link-local address")
+    if not any(addr in net for net in LAN_NETWORKS):
+        raise DevIdentityRefused("the LAN preview binds only a private RFC 1918 address (10/8, 172.16/12, 192.168/16)")
+
+
+def check_lan_startup(*, enabled: bool, acknowledged: bool, host: str, settings,
+                      allow_loopback: bool = False) -> _Checked:
+    """For dev/run_lan_preview.py ONLY (a test pins the one importer): the same mock-only checks as
+    `check_startup`, with the loopback bind replaced by ONE private LAN IPv4 address and an explicit
+    acknowledgement. The caller must put dev/lan_gate.py's passphrase gate in front of the shim."""
+    if enabled is not True:
+        raise DevIdentityRefused("the development identity is not enabled")
+    if acknowledged is not True:
+        raise DevIdentityRefused("the LAN preview needs the explicit --i-understand-lan flag")
+    check_lan_bind(host, allow_loopback=allow_loopback)
+    return _check_mock_upstreams(settings)
+
+
+def _check_mock_upstreams(settings) -> _Checked:
     if getattr(settings, "uses_real_upstream", True):
         raise DevIdentityRefused("the development identity refuses a real upstream configuration")
     if getattr(settings, "identity_mode", None) != "headers":

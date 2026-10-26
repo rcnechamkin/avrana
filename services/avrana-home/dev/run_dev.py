@@ -29,9 +29,10 @@ if str(HOME) not in sys.path:
 def build_stack(host: str, app_port: int, mock_port: int, enabled: bool, mode: str = "ok",
                 slow_seconds: float = 5.0, start_mock: bool = True, sections: str = "on",
                 abs_mock_port: int = 0, komga_mock_port: int = 0,
-                calibre_mock_port: int = 0):
+                calibre_mock_port: int = 0, check=None):
     """Return (mock, asgi_app, settings). Raises DevIdentityRefused BEFORE anything is started.
-    `abs_mock_port` > 0 also builds the mock Audiobookshelf (`mock.abs`); off by default."""
+    `abs_mock_port` > 0 also builds the mock Audiobookshelf (`mock.abs`); off by default.
+    `check(settings)` replaces the loopback `check_startup` (run_lan_preview.py passes its LAN check)."""
     from avrana_home.app.main import create_app
     from avrana_home.app.settings import Settings
     from dev.dev_identity import DevIdentityMiddleware, check_startup
@@ -51,7 +52,10 @@ def build_stack(host: str, app_port: int, mock_port: int, enabled: bool, mode: s
     if calibre_mock_port:
         env["CALIBRE_WEB_BASE_URL"] = f"http://127.0.0.1:{calibre_mock_port}"
     settings = Settings.from_mapping(env)
-    checked = check_startup(enabled=enabled, host=host, settings=settings)   # refuse first
+    if check is None:
+        checked = check_startup(enabled=enabled, host=host, settings=settings)   # refuse first
+    else:
+        checked = check(settings)                                                # refuse first
     mock = MockJellyfin("127.0.0.1", mock_port, mode, slow_seconds)
     mock.abs = None
     if abs_mock_port:
