@@ -36,6 +36,9 @@ A lane that needs a change in a file another lane owns makes the smallest change
 - Monochrome editorial design (DESIGN.md). No new design system, no heavy rounded cards, no imitation of a
   streaming service. Artwork keeps its natural shape and colour.
 - No script on member pages; CSP stays as strict as today unless a reviewed, narrow exception is needed.
+- *Superseded on Home shell pages after this sprint (2026-10-25/26, DECISIONS.md): Concept K replaces the
+  monochrome editorial design there (O2), and one first-party script and a service worker are allowed there (O1,
+  MK-3). Pages without the shell keep both rules above.*
 - Verified sizes: 360px, 390px, desktop, and 200% text. Screenshots use synthetic data and are not committed.
 - Before committing: `python scripts/review_git_content.py --staged`. Tests: `tests/run_web_tests.py` in
   `services/avrana-home` and `python -B tests/run_offline.py` at the repository root.

@@ -7,8 +7,8 @@ host: books.avrana.net
 ### Browser
 store: none
 url: none
-1. Open Avrana from your Home Screen, or open https://avrana.net, and sign in. [UNVERIFIED on a real device]
-2. On the Avrana home page, find the title under Recently added, or use Search. [UNVERIFIED on a real device]
+1. Open Avrana Media from your Home Screen, or open https://avrana.net, and sign in. [UNVERIFIED on a real device]
+2. Find the title under Recently added on Home, in Library, or with Search (the tabs at the bottom). [UNVERIFIED on a real device]
 3. Choose the title. Open takes you to its page, where you can read it or download it. [UNVERIFIED on a real device]
 4. The page for that title opens on books.avrana.net. If a sign-in screen appears, sign in to Read there. It has its own sign-in for now. [UNVERIFIED on a real device]
 5. To come back, use the Back button. If Avrana was opened from its Home Screen icon, the title may open in a separate browser view: close it to return to Avrana. [UNVERIFIED on a real device]
@@ -28,5 +28,5 @@ url: none
 store: none
 url: none
 1. Open https://avrana.net and sign in. [UNVERIFIED on a real device]
-2. Find the title under Recently added, or use Search, and choose it. [UNVERIFIED on a real device]
+2. Find the title under Recently added on Home, in Library, or with Search (the tabs at the bottom), and choose it. [UNVERIFIED on a real device]
 3. The page for that title opens in the same tab on books.avrana.net. Use the browser's Back button to return to Avrana. [UNVERIFIED on a real device]

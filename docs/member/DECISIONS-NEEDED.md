@@ -278,6 +278,6 @@ These files were not edited. `file:line` is the statement; the contradiction fol
 | `docs/services/tracearr.md:65` not in backups | `services/backups/README.md:14-16`, `required-artifacts.txt` (`tracearr.pgdump.zst`), `avrana-backup.sh:267-279` |
 | `docs/services/calibre-web-automated.md:9` (Gmail), `:35-44` (Postmark), `:112-114` (SMTP2GO, sender address) | Three different mail stories; `services/avrana-kindle-connector/kindle.py:48` and the blueprints use the SMTP2GO sender |
 | `docs/services/sso-architecture.md:73-80` | Lists individual members' names in a tracked document; against the no-personal-data rule (`docs/SECURITY.md:13`). Also describes a user divergence measured 2026-08-28 |
-| `services/avrana-portal/portal.py:733` first name in copy; `:682` em dash | `docs/design/DESIGN.md:314`; audit P3 |
+| `services/avrana-portal/portal.py:733` first name in copy; `:682` em dash | `docs/design/DESIGN.md:336` (copy rule: second person or neutral, no dashes); audit P3 |
 | `docs/services/avrana-portal.md` go-live status of 2026-08-16 ("only remaining: restart") | Superseded by later operation; kept as history |
 | `docs/services/authentik.md:170-174` click-through of the verification e-mail never verified | Open owner item before invites (AVR-363) |
