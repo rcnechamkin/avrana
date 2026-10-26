@@ -82,9 +82,16 @@ async function staticFile(request, path) {
   return response;
 }
 
+/* The sign-out hop and the outpost's own paths are left to the browser: a real navigation applies the hop's
+   Clear-Site-Data and follows its redirect, with no worker in between. */
+function sessionPath(pathname) {
+  return pathname.replace(/\/+$/, '') === '/signout' || pathname.indexOf('/outpost.goauthentik.io/') === 0;
+}
+
 self.addEventListener('fetch', function (event) {
   const request = event.request;
   if (request.mode === 'navigate') {
+    if (sessionPath(new URL(request.url).pathname)) return;
     event.respondWith(fetch(request).catch(function (error) {
       if (error instanceof TypeError) return offlinePage();
       throw error;

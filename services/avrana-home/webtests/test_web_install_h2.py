@@ -28,7 +28,8 @@ SHELL_ROUTES = ("/", "/account", "/help", "/help/movies", "/help/trouble", "/sea
                 "/request")   # Watch and Request wear the shell since #59; Read is 404 for this member
 OTHER_ROUTES = ("/read", "/nope", "/healthz", "/home.json", "/manifest.webmanifest",
                 "/icons/avrana-192.png", "/brand/geist.woff2", "/brand/avrana-media-l3.svg", "/art/jellyfin/primary/aaaa0000000000000000000000000001",
-                "/help/comics", "/outpost.goauthentik.io/sign_out", pwa.script_path(), "/signout")
+                "/help/comics", "/outpost.goauthentik.io/sign_out")
+OTHER_ROUTES += (pwa.script_path(), "/signout")        # MK-3: the page script and the sign-out hop keep the base CSP
 # The two non-page responses that add one source each (middleware.ROUTE_SOURCES): see test_web_pwa.py.
 
 

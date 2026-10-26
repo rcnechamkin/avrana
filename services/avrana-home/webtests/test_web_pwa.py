@@ -19,6 +19,9 @@ from .support import GROUPS, USER, StubAdapter, make_client, make_settings, requ
 
 require_framework()
 
+# Font and brand paths come from brand.py, never typed here, so this file does not care which font the brand ships.
+FONTS = [r for r in brand.ROUTES if r.endswith(".woff2")]
+FONT = FONTS[0]
 NAME = "X-authentik-name"
 FILM_A = "aaaa0000000000000000000000000001"
 FILM_B = "bbbb0000000000000000000000000002"
@@ -91,17 +94,27 @@ class PageScript(Base):
         self.assertIn("pageshow", source)
         self.assertIn("event.persisted", source)
         self.assertIn("location.reload", source)
-        self.assertIn("{ scope: '/', updateViaCache: 'none' }", source)
+        self.assertRegex(source, r"scope:[ \t]*'/'[ \t]*,[ \t]*updateViaCache:[ \t]*'none'")   # whatever the spacing
+        self.assertIn("pagehide", source)
         self.assertIn("'/sw.js'", source)
         self.assertIn("data-sw", source)
+
+    def test_the_banner_is_a_live_region_that_is_announced_and_text_is_never_html(self):
+        """Review LOW: the status element goes into the page empty and gets its words after it is in the document."""
+        source = pwa.script_bytes().decode("utf-8")
+        for needle in ("'update-banner'", "'update-banner-text'", "'update-banner-button'", "setAttribute('role', 'status')"):
+            self.assertIn(needle, source)
+        self.assertLess(source.index("document.body.appendChild(box)"), source.index("text.textContent ="))
+        self.assertEqual(1, source.count("text.textContent ="))
+        self.assertEqual(1, source.count("setTimeout("))
 
     def test_only_the_script_and_the_worker_answer_with_a_script_type(self):
         """Threat 1, 7 and 8: nosniff everywhere, and no other route can be executed as script or as a worker."""
         c = self.client()
         paths = ["/", "/account", "/help", "/help/movies", "/help/trouble", "/search", "/search?q=x", "/watch", "/read",
                  "/request", "/nope", "/healthz", "/home.json", "/manifest.webmanifest", "/offline", "/signout",
-                 "/art/jellyfin/primary/" + FILM_A, "/title/jellyfin/" + FILM_A, "/brand/geist.woff2",
-                 "/brand/avrana-media-l3.svg", "/brand/favicon.svg"] + list(install.ICON_PATHS)
+                 "/art/jellyfin/primary/" + FILM_A, "/title/jellyfin/" + FILM_A, FONT,
+                 brand.LOCKUP, brand.FAVICON] + list(install.ICON_PATHS)
         for path in paths:
             for headers in (A, B, []):
                 r = c.get(path, headers=headers)
@@ -157,6 +170,31 @@ class ScriptTagAndCsp(Base):
         bad = c.get("/title/jellyfin/" + "z" * 64, headers=A)
         self.assertNotIn("<script", bad.text.lower())
 
+    def test_a_500_from_a_shell_route_gets_the_base_csp_and_no_script(self):
+        """N-1: a render failure after the route marked itself a shell page (or /search) must not leave script-src,
+        worker-src, manifest-src, font-src or form-action 'self' on the generic 500 page, which has no script."""
+        from unittest import mock
+        c = self.client()
+        env = c.fastapi_app.state.env
+        real = env.get_template
+
+        for path, template, before in (("/account", "account.html", SHELL), ("/", "home.html", SHELL),
+                                       ("/search", "search.html", SHELL.replace("form-action 'none'", "form-action 'self'"))):
+            def boom(name, *args, **kwargs):
+                if name == template:
+                    raise RuntimeError("synthetic render failure")
+                return real(name, *args, **kwargs)
+
+            with self.subTest(path=path):
+                self.assertEqual(before, c.get(path, headers=A).headers["content-security-policy"])
+                with mock.patch.object(env, "get_template", boom):
+                    r = c.get(path, headers=A)
+                self.assertEqual(500, r.status_code)
+                self.assertEqual(BASE, r.headers["content-security-policy"])
+                self.assertNotIn("<script", r.text.lower())
+                self.assertNotIn("Synthetic Film", r.text)
+                self.assertEqual("no-store", r.headers["cache-control"])
+
     def test_csp_never_allows_inline_script_eval_or_another_host(self):
         c = self.client()
         for path in self.ROUTES:
@@ -193,7 +231,7 @@ class Worker(Base):
     def test_connect_src_is_on_the_worker_response_alone(self):
         c = self.client()
         for path in ("/", "/account", "/help", "/search", "/watch", "/nope", "/healthz", "/offline", "/signout",
-                     "/manifest.webmanifest", pwa.script_path(), "/brand/geist.woff2", "/icons/avrana-192.png"):
+                     "/manifest.webmanifest", pwa.script_path(), FONT, "/icons/avrana-192.png"):
             self.assertNotIn("connect-src", c.get(path, headers=A).headers["content-security-policy"], path)
         self.assertIn("connect-src 'self'", c.get("/sw.js", headers=A).headers["content-security-policy"])
 
@@ -236,6 +274,11 @@ class Worker(Base):
         self.assertEqual(1, src.count("skipWaiting()"))                             # only in the message handler
         self.assertLess(src.index("addEventListener('message'"), src.index("skipWaiting()"))
         self.assertLess(src.index("skipWaiting()"), src.index("async function offlinePage"))
+        # SF-1: a navigation to the sign-out hop or the outpost is left to the browser (no respondWith, no fetch here)
+        branch = src[src.index("request.mode === 'navigate'"):src.index("event.respondWith(fetch(request)")]
+        self.assertIn("sessionPath(new URL(request.url).pathname)) return;", branch)
+        self.assertIn("=== '/signout'", src)
+        self.assertIn("indexOf('/outpost.goauthentik.io/') === 0", src)
         self.assertNotIn("__BUILD__", src)
         self.assertNotIn("__ALLOW__", src)
         self.assertNotIn("__OFFLINE__", src)
@@ -303,8 +346,10 @@ class OfflinePage(Base):
         text = self.client().get("/offline").text
         self.assertNotIn("<script", text.lower())
         self.assertNotIn('rel="manifest"', text)
-        self.assertIn('font-family:"Geist"', text)                                  # home.css is inlined: shell-styled
-        self.assertIn('src="/brand/avrana-media-l3.svg"', text)                     # a file the worker stores
+        self.assertIn("@font-face", text)                                           # home.css is inlined: shell-styled
+        for font in FONTS:
+            self.assertIn('url("%s")' % font, text)                                 # the brand font, a file the worker stores
+        self.assertIn('src="%s"' % brand.LOCKUP, text)                              # a file the worker stores
 
 
 class Signout(Base):

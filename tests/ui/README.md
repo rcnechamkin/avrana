@@ -48,6 +48,30 @@ focused. Home runs as served by the dev shim (its identity banner puts a "Switch
 skip link; development only) and with the banner removed (production-equivalent). This is automated
 checking, not screen-reader testing. `--tree PATH --axe-only` gives an axe baseline on another checkout.
 
+### Script and service worker checks (MK-3, AVR-717)
+
+```sh
+python -B tests/ui/harness/pwa_run.py [--tree PATH] [--no-browser]   # use the interpreter with the pinned requirements
+```
+
+Home's shell pages load one first-party script and register one service worker (DECISIONS.md, 2026-10-26). The Python
+web tests can only read their source; this runs them. It needs Node 18+ and, for the second part, the browser tooling below.
+
+1. `pwa_sw_check.mjs` (no browser, no server): runs the worker Home serves at `/sw.js`, and the kill-switch worker,
+   in a Node `vm` with fake `caches`, `fetch`, `Request` and `Response`, and drives every handler: install is all or
+   nothing and refuses redirected, non-200, opaque, wrongly typed, `Vary: *`, empty and oversize responses; navigations
+   go to the network with the original request and any response (302, 401, 403, 404, 5xx) comes back untouched; the
+   offline page is served only for a network `TypeError`; `/signout` and `/outpost.goauthentik.io/` navigations are not
+   handled at all; only the exact allow-list is stored; activate and message behave as documented.
+2. `pwa_check.mjs` (Chromium, the dev stack on loopback, started and stopped by the script; localhost is a secure
+   context so the worker runs): registration and what the cache holds, the lens with 4 and 2 tabs (`data-at`, never
+   `preventDefault`, ctrl-click, current tab, reduced motion read at the click, `pagehide` restore), `pageshow` reload
+   only when `persisted`, a 404 is not the offline page, the offline page with the server stopped, the update banner
+   (a second stack from a temporary copy with a changed worker), sign-out from a controlled page clearing the worker
+   and caches (`Clear-Site-Data` on the 303), the kill switch (page script and worker alone), JavaScript off.
+
+Not part of `run_offline.py`, like the other layer 2 tools. Chromium only: Safari, Firefox and a real phone are not covered.
+
 ### Browser tooling (kept outside the repository)
 
 Playwright and axe-core are **not vendored**. `run_ui.py` looks at `$PLAYWRIGHT_FROM`, then at

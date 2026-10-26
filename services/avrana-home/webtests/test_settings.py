@@ -23,6 +23,20 @@ class SettingsTests(unittest.TestCase):
         with self.assertRaises(SettingsError):
             Settings.from_mapping({"HOME_SECTIONS": "maybe"})
 
+    def test_pwa_kill_switch(self):
+        """MK-3 (AVR-717): the service worker is on unless HOME_PWA_SW says off; anything else refuses to start.
+        An empty value is 'not set' (the default, on) like every other flag here."""
+        self.assertTrue(Settings.from_mapping({}).pwa_sw)
+        for raw in ("on", "TRUE", "1", "yes", ""):
+            self.assertTrue(Settings.from_mapping({"HOME_PWA_SW": raw}).pwa_sw, raw)
+        for raw in ("off", "OFF", "0", "false", "no"):
+            self.assertFalse(Settings.from_mapping({"HOME_PWA_SW": raw}).pwa_sw, raw)
+        for raw in ("maybe", "disabled", "2"):
+            with self.subTest(raw=raw), self.assertRaises(SettingsError) as cm:
+                Settings.from_mapping({"HOME_PWA_SW": raw})
+            self.assertIn("HOME_PWA_SW", str(cm.exception))
+        self.assertFalse(Settings.from_mapping({"HOME_SECTIONS": "on", "HOME_PWA_SW": "off"}).pwa_sw)
+
     def test_invalid_values_refuse_start_and_name_the_variable(self):
         bad = [{"HOME_UPSTREAM_MODE": "live"}, {"HOME_HEALTH_DETAIL": "all"}, {"LOG_LEVEL": "LOUD"},
                {"HOME_TIMEOUT": "fast"}, {"HOME_TIMEOUT": "0"}, {"HOME_TIMEOUT": "99"},

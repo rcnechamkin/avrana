@@ -14,12 +14,19 @@
   function noop() {}
 
   /* 1. Lens. Contract: <nav class="tabbar" data-at="N"> holds <a class="tab"> links in order. The stylesheet moves
-     the lens from data-at; motion is the stylesheet's business, so with reduced motion nothing is touched. */
+     the lens from data-at; motion is the stylesheet's business, so with reduced motion nothing is touched (the
+     preference is read at each click, so a change while the page is open counts). When the page is left, data-at
+     goes back to the value the server printed, so the page kept in the back/forward cache shows the right tab. */
   function lens() {
     var nav = document.querySelector('nav.tabbar');
     if (!nav) return;
-    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    var printed = nav.getAttribute('data-at');
+    window.addEventListener('pagehide', function () {
+      if (printed === null) nav.removeAttribute('data-at');
+      else nav.setAttribute('data-at', printed);
+    });
     nav.addEventListener('click', function (event) {
+      if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
       if (event.defaultPrevented || event.button !== 0 ||
           event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
       var from = event.target;
@@ -47,11 +54,13 @@
     if (document.querySelector('.update-banner')) return;
     var box = document.createElement('div');
     box.className = 'update-banner';
-    box.setAttribute('role', 'status');
+    /* The live region goes into the page empty and gets its words a moment later, so screen readers announce it. */
     var text = document.createElement('span');
-    text.textContent = 'A new version of Avrana Media is ready.';
+    text.className = 'update-banner-text';
+    text.setAttribute('role', 'status');
     var button = document.createElement('button');
     button.type = 'button';
+    button.className = 'update-banner-button';
     button.textContent = 'Reload';
     var asked = false;
     navigator.serviceWorker.addEventListener('controllerchange', function () {
@@ -65,6 +74,9 @@
     box.appendChild(text);
     box.appendChild(button);
     document.body.appendChild(box);
+    window.setTimeout(function () {
+      text.textContent = 'A new version of Avrana Media is ready.';
+    }, 100);
   }
 
   function watch(registration) {

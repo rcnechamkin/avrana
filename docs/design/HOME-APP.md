@@ -357,7 +357,7 @@ variables (never the values).
 | `HOME_TIMEOUT` | `2.0` | Per-call seconds, 0.1 to 10. |
 | `HOME_SECTION_LIMIT` | `12` | Items per section, 1 to 50. |
 | `HOME_HEALTH_DETAIL` | `loopback` | `loopback` or `off`. |
-| `HOME_PWA_SW` | `on` | `off` is the kill switch for the service worker (MK-3): `/sw.js` serves a worker that removes itself and its caches, and the page script stops registering one. |
+| `HOME_PWA_SW` | `on` | `off` is the kill switch for the service worker (MK-3): `/sw.js` serves a worker that removes itself and its caches, and the page script stops registering one. It only reaches a device that can fetch `/sw.js` or load a shell page, so rollback needs `off` with `HOME_SECTIONS` still on, held long enough for active devices to come back (section 9). |
 | `HOME_CATALOGUE_PATH` | the portal's `portal.py` | Must be a file; the tables are loaded from it. |
 | `HOME_HOST`, `HOME_PORT` | `127.0.0.1`, `8096` | Bind address for `serve.py`. A container must set `HOME_HOST=0.0.0.0` deliberately. |
 | `LOG_LEVEL` | `INFO` | DEBUG, INFO, WARNING, ERROR. |
@@ -409,6 +409,19 @@ back up; its env file joins the completeness gate when it exists.
 container stays deployed and unused for at least two weeks. Each of these is an owner-approved
 change with a rehearsed rollback, and none is prepared by this change. The beta hostname (AVR-373,
 decision D-5) must exist first, gated on `authentik Admins` plus named testers.
+
+**Rolling back the service worker (MK-3, AVR-717).** The kill switch is `HOME_PWA_SW=off` **with `HOME_SECTIONS`
+still on**. Then `/sw.js` answers 200 with a worker that deletes its `avrana-*` caches and unregisters itself, and
+shell pages load a script that removes any registration and cache it finds. Keep it that way long enough for active
+devices to reach it (a browser checks for a new worker on a navigation, at least once a day, and only while the
+member is signed in). The switch cannot reach an installed worker once the server stops serving the new worker:
+turning sections off makes `/sw.js` a 404 (the worker stays installed on devices that already have it, and a
+browser may or may not unregister it), and a device whose Authentik session has ended gets a redirect to sign-in
+instead of `/sw.js`, so it keeps its old worker until it signs in again. Rolling back by reverting the image or by
+turning sections off therefore does not remove workers already installed; it only stops new ones. The worker
+stores only static files and sends every page navigation to the network, so a worker that is left behind does not
+show member data, but it does keep serving its stored script and offline page. Do not change the portal for this.
+`/signout` clears this site's cache and storage on the device, which also removes the worker for that member.
 
 **Before real adapters may be enabled** (all must be true and recorded):
 1. G1 applied and verified (private network per backend, so only the outpost can reach the app and

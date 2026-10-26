@@ -94,10 +94,13 @@ class HygieneMiddleware:
             if message["type"] == "http.response.start":
                 state["status"] = message["status"]
                 state["started"] = True
-                message = dict(message, headers=with_hygiene(message.get("headers", ()),
-                                                             scope.get("avrana_route") == "/search",
-                                                             scope.get("avrana_shell") is True,
-                                                             scope.get("avrana_route") or ""))
+                if state.get("error_page"):        # the generic 500 page: base CSP, whatever the failed route marked
+                    message = dict(message, headers=with_hygiene(message.get("headers", ())))
+                else:
+                    message = dict(message, headers=with_hygiene(message.get("headers", ()),
+                                                                 scope.get("avrana_route") == "/search",
+                                                                 scope.get("avrana_shell") is True,
+                                                                 scope.get("avrana_route") or ""))
             await send(message)
 
         try:
@@ -110,6 +113,9 @@ class HygieneMiddleware:
             log_event(app_log, logging.ERROR, "unhandled_error", error_class=type(exc).__name__,
                       route=scope.get("avrana_route", "unmatched"))
             if not state["started"]:
+                # The generic 500 page is not a shell page, not /search and not the worker or offline page: whatever the
+                # failed route had marked, it gets the base CSP (no script, no form-action 'self', no extra sources).
+                state["error_page"] = True
                 await self._plain(wrapped_send, 500, self._render_error(), head=(method == "HEAD"))
         finally:
             log_event(access_log, logging.INFO, "request",

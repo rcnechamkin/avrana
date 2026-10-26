@@ -403,8 +403,10 @@ minimum so the product name inside it stays legible, and scaling with text size)
 The owner approved the size, with the branded UI, after the real-device review on 2026-10-18. The wordmark is never retyped. The favicon is the
 package's 16 px micro cut (`/brand/favicon.svg`); the install icons and manifest colours are the package's.
 
-**CSP.** Shell pages, and only they, add `font-src 'self'` beside `manifest-src 'self'`. No script source, no
-other origin. Every other response keeps the CSP unchanged.
+**CSP.** Shell pages, and only they, add `font-src 'self'` beside `manifest-src 'self'`, and since MK-3 (AVR-717,
+DECISIONS.md 2026-10-26) `script-src 'self'; worker-src 'self'` for the one first-party script and the service worker. No inline script, no
+other origin. Every other response keeps the CSP unchanged, except `/sw.js` (adds `connect-src 'self'`) and `/offline`
+(adds `font-src 'self'`).
 
 **Files and provenance.** `avrana_home/app/brand/` (README and `SOURCES.json`: package path, byte count and SHA-256
 per file; the server refuses a file that does not match). Refreshed only by `tools/sync_brand_assets.py`.

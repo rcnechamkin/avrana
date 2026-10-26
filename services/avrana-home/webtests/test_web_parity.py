@@ -11,6 +11,8 @@ portal changes, the templates in avrana_home/app/templates must be updated to ma
 """
 import unittest
 
+from avrana_home.app import brand
+
 from .support import (IDENTITIES, ident_headers, make_client, normalise, portal_request,
                       require_framework, valid_principal_identity)
 
@@ -25,7 +27,7 @@ UNKNOWN = ["/nope", "/admin", "/ops/x", "/help/nope", "/help/movies/extra", "/in
            "/docs", "/openapi.json", "/redoc",
            # MK-3 (AVR-717): with sections off these are unknown paths, exactly like the manifest and the icons
            "/sw.js", "/offline", "/signout", "/static/home.0123456789ab.js", "/manifest.webmanifest",
-           "/icons/avrana-192.png", "/brand/geist.woff2"]
+           "/icons/avrana-192.png", *brand.ROUTES]
 ROUTES = (["/", "/account", "/help", "/healthz"] + [f"/help/{s}" for s in HELP_SLUGS]
           + ["/read", "/request"] + [f"/{p}" for p in SERVICE_PATHS] + UNKNOWN)
 VARIANTS = ["/watch/", "/watch?q=1", "/watch/?q=1", "/watch//", "/?q=1", "//", "/help/",
