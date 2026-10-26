@@ -52,8 +52,10 @@ const gone = async () => { for (let i = 0; i < 40; i++) { try { await fetch(BASE
 const lensDoc = (script, tabs, at = 0) => `<!doctype html><html><head><meta charset="utf-8"><script src="${script}" defer></script></head><body>
   <nav class="tabbar" aria-label="Sections" data-at="${at}">${tabs.map((t, i) => `<a class="tab" href="${t}"${i === at ? ' aria-current="page"' : ''}>Tab ${i}</a>`).join('')}<span class="lens" aria-hidden="true"></span></nav></body></html>`;
 
-const profile = fs.mkdtempSync(path.join(os.tmpdir(), 'avr-pwa-'));
-const copyRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'avr-pwa-copy-'));
+const tmpDirs = [];
+const tmpDir = (prefix) => { const d = fs.mkdtempSync(path.join(os.tmpdir(), prefix)); tmpDirs.push(d); return d; };
+const profile = tmpDir('avr-pwa-');
+const copyRoot = tmpDir('avr-pwa-copy-');
 let ctx = null; let ctx2 = null; let lb = null; let jb = null;
 try {
   await start(TREE);
@@ -81,10 +83,12 @@ try {
   let d = await dump();
   const names = Object.keys(d);
   ok('one cache, named avrana-shell-*, holding exactly the allow-list', names.length === 1 && /^avrana-shell-[0-9a-f]{12}$/.test(names[0]) && JSON.stringify([...d[names[0]]].sort()) === JSON.stringify([...allow].sort()), JSON.stringify(d));
+  const artSeen = [];                                                  // member artwork the page asked for: it must never end up in the store
+  page.on('request', (r) => { if (new URL(r.url()).pathname.startsWith('/art/')) artSeen.push(r.url()); });
   for (const p of ['/account', '/search?q=Film', '/help', '/watch', '/home.json', '/']) await page.goto(BASE + p);
   await page.reload();
   d = await dump();
-  ok('browsing member pages stores nothing new', Object.keys(d).length === 1 && d[names[0]].length === allow.length, JSON.stringify(d));
+  ok('browsing member pages (with their artwork) stores nothing new; no artwork or page is in the store', artSeen.length > 0 && Object.keys(d).length === 1 && d[names[0]].length === allow.length && Object.values(d).flat().every((p) => !p.startsWith('/art')), `art requests: ${artSeen.length} ${JSON.stringify(d)}`);
   const offlineCached = await page.evaluate(async () => (await (await caches.open((await caches.keys())[0])).match('/offline')).text());
   ok('stored offline page has the approved words and no member places or account menu',
     offlineCached.includes('This phone has no connection. Avrana Media needs one to show your libraries.') && !offlineCached.includes('class="places"') && !offlineCached.includes('<details') && !offlineCached.includes('DEVELOPMENT IDENTITY'));
@@ -101,6 +105,9 @@ try {
   const lc = await lb.newContext({ serviceWorkers: 'block', viewport: { width: 390, height: 800 } });
   await lc.addCookies([COOKIE]);
   const lp = await lc.newPage();
+  const lensErrors = [];                  // anything the script throws or logs as an error on these pages
+  lp.on('console', (m) => { if (m.type() === 'error') lensErrors.push(m.text()); });
+  lp.on('pageerror', (e) => lensErrors.push(String(e)));
   const tabs4 = ['/', '/watch', '/search', '/account'];
   const tabs2 = ['/', '/search'];
   let doc = lensDoc(scriptSrc[0], tabs4);
@@ -136,11 +143,27 @@ try {
   await lp.emulateMedia({ reducedMotion: 'no-preference' });
   await lp.click('a.tab >> nth=2');
   ok('lens: and back to no-preference works without a reload', (await at()) === '2');
+  // A tab whose URL differs from the document's only by the hash (MK-2's Library tab is "/#h-new" until MK-5) is a
+  // same-document jump: the page stays, aria-current stays on Home, so the lens must stay on the printed tab.
+  const homeTabs = ['/', '/#h-new', '/?x=1', '/search'];
+  await lp.route(BASE + '/', (route) => route.fulfill({ contentType: 'text/html', body: lensDoc(scriptSrc[0], homeTabs) }));
+  await lp.goto(BASE + '/');
+  await lp.evaluate(() => { window.__m = 1; });
+  await lp.click('a.tab >> nth=1');
+  ok('lens: a hash-only tab on the same page ("/#h-new" on "/") leaves data-at on the printed tab', (await at()) === '0' && lp.url() === BASE + '/#h-new' && (await lp.evaluate(() => window.__m)) === 1, `${await at()} ${lp.url()}`);
+  await observe();
+  await lp.click('a.tab >> nth=2');
+  ok('lens: the same path with a different query ("/?x=1") does move the lens', (await at()) === '2');
+  await lp.click('a.tab >> nth=3');
+  ok('lens: and a different path still moves it', (await at()) === '3');
+  await lp.unroute(BASE + '/');
   await lp.goto(BASE + '/lens-test');
   await Promise.all([lp.waitForURL(BASE + '/account'), lp.click('a.tab >> nth=3')]);
   ok('lens: a real click still navigates (never prevented)', lp.url() === BASE + '/account');
-  await lp.goto(BASE + '/nope');
-  ok('a page with no tab bar runs the script without errors', true);
+  await lp.goto(BASE + '/account');                                    // a real shell page: the script is there, the tab bar is not (MK-2)
+  await sleep(500);
+  ok('a shell page with no tab bar loads the script and nothing throws or logs an error',
+    (await lp.evaluate(() => [document.scripts.length, document.querySelector('nav.tabbar')])).join() === '1,' && lensErrors.length === 0, lensErrors.join(' | '));
   await lb.close(); lb = null;
 
   // ---- pageshow reload only when persisted --------------------------------------------------------------------------
@@ -166,11 +189,19 @@ try {
   const off = await page.innerText('body');
   ok('server down: a navigation shows the offline page', off.includes('This phone has no connection. Avrana Media needs one to show your libraries.'), off.slice(0, 160));
   ok('offline page: Try again links to / and nothing is member-specific', await page.evaluate(() => !![...document.querySelectorAll('a')].find((a) => a.textContent.trim() === 'Try again' && a.getAttribute('href') === '/')) && !/Member A|Account|Continue/.test(off), off);
-  ok('offline page is shell-styled (the brand font stack)', /\w/.test(await page.evaluate(() => getComputedStyle(document.querySelector('p.note')).fontFamily)));
+  // shell-styled: the page's text uses the family its own inlined @font-face declares (whichever font the brand ships),
+  // and that font file loaded from the store while the server is down
+  const font = await page.evaluate(async () => {
+    const face = [...document.styleSheets].flatMap((s) => [...s.cssRules]).find((r) => r instanceof CSSFontFaceRule);
+    const declared = face ? face.style.fontFamily.replace(/["']/g, '').trim() : null;
+    const used = getComputedStyle(document.querySelector('p.note')).fontFamily.split(',')[0].replace(/["']/g, '').trim();
+    await document.fonts.ready;
+    return { declared, used, loaded: [...document.fonts].some((f) => f.status === 'loaded' && f.family.replace(/["']/g, '') === declared) };
+  });
+  ok('offline page is shell-styled: text in the declared brand font, loaded with the server down', !!font.declared && font.used === font.declared && font.loaded, JSON.stringify(font));
   // (the offline page's CSP has no connect-src, so test with images, which img-src 'self' allows)
   const loads = (src) => page.evaluate((s) => new Promise((resolve) => { const i = new Image(); i.onload = () => resolve('loaded ' + i.naturalWidth); i.onerror = () => resolve('error'); i.src = s; }), src);
   ok('offline: an allow-listed icon still loads from the store', (await loads('/icons/avrana-192.png')) === 'loaded 192');
-  ok('offline: member artwork does not load', (await loads('/art/jellyfin/primary/aaaa0000000000000000000000000001')) === 'error');
 
   // ---- UPDATE: a changed worker waits, the banner offers it, Reload swaps it ------------------------------------------------
   fs.cpSync(path.join(TREE, 'services/avrana-home'), path.join(copyRoot, 'services/avrana-home'), { recursive: true, filter: (s) => !/__pycache__|\.pyc$/.test(s) });
@@ -204,7 +235,7 @@ try {
 
   // ---- KILL SWITCH --------------------------------------------------------------------------------------------------------------
   await start(TREE);
-  ctx2 = await chromium.launchPersistentContext(fs.mkdtempSync(path.join(os.tmpdir(), 'avr-pwa-k-')), { headless: true });
+  ctx2 = await chromium.launchPersistentContext(tmpDir('avr-pwa-k-'), { headless: true });
   await ctx2.addCookies([COOKIE]);
   const kp = ctx2.pages()[0] || await ctx2.newPage();
   await kp.goto(BASE + '/');
@@ -221,7 +252,7 @@ try {
   stop();
   // the worker alone, on a page that has no script, removes itself
   await start(TREE);
-  ctx2 = await chromium.launchPersistentContext(fs.mkdtempSync(path.join(os.tmpdir(), 'avr-pwa-k2-')), { headless: true });
+  ctx2 = await chromium.launchPersistentContext(tmpDir('avr-pwa-k2-'), { headless: true });
   await ctx2.addCookies([COOKIE]);
   const kp2 = ctx2.pages()[0] || await ctx2.newPage();
   await kp2.goto(BASE + '/');
@@ -261,7 +292,7 @@ try {
 } finally {
   for (const c of [ctx, ctx2, lb, jb]) { try { if (c) await c.close(); } catch { /* */ } }
   stop();
-  for (const dir of [profile, copyRoot]) { try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* */ } }
+  for (const dir of tmpDirs) { try { fs.rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); } catch { /* */ } }
   const failed = results.filter((r) => !r).length;
   console.log(`\nbrowser checks: ${results.length - failed} passed, ${failed} failed`);
   process.exit(failed ? 1 : 0);

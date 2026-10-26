@@ -35,6 +35,9 @@
       if (tab.getAttribute('aria-current') === 'page' || tab.hasAttribute('download')) return;
       var target = tab.getAttribute('target');
       if (target && target !== '_self') return;
+      /* A link to another place on this same page (the URL differs only by its hash) does not load a page: the browser
+         just scrolls, aria-current stays where it is and no pagehide comes, so the lens stays on the printed tab. */
+      if (tab.origin + tab.pathname + tab.search === window.location.origin + window.location.pathname + window.location.search) return;
       var tabs = nav.querySelectorAll('a.tab');
       var at = Array.prototype.indexOf.call(tabs, tab);
       if (at >= 0) nav.setAttribute('data-at', String(at));
@@ -80,6 +83,7 @@
   }
 
   function watch(registration) {
+    if (!registration) return;
     function waiting() {
       if (registration.waiting && navigator.serviceWorker.controller) banner(registration);
     }

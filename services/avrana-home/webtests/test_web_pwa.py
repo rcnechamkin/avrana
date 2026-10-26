@@ -91,6 +91,9 @@ class PageScript(Base):
         for needle in ("nav.tabbar", "a.tab", "data-at", "aria-current", "prefers-reduced-motion"):
             self.assertIn(needle, source)
         self.assertNotIn("preventDefault", source)                                 # the browser always navigates
+        # a tab whose URL differs from this page's only by the hash is a same-document jump: the lens is left alone
+        self.assertIn("tab.origin + tab.pathname + tab.search === window.location.origin + window.location.pathname"
+                      " + window.location.search", source)
         self.assertIn("pageshow", source)
         self.assertIn("event.persisted", source)
         self.assertIn("location.reload", source)
@@ -278,6 +281,8 @@ class Worker(Base):
         branch = src[src.index("request.mode === 'navigate'"):src.index("event.respondWith(fetch(request)")]
         self.assertIn("sessionPath(new URL(request.url).pathname)) return;", branch)
         self.assertIn("=== '/signout'", src)
+        self.assertIn("pathname.replace(/^\\/+/, '')", src)                         # "//signout" is the hop too
+        self.assertIn("credentials: 'same-origin'", src)
         self.assertIn("indexOf('/outpost.goauthentik.io/') === 0", src)
         self.assertNotIn("__BUILD__", src)
         self.assertNotIn("__ALLOW__", src)

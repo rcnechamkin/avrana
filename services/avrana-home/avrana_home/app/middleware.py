@@ -36,7 +36,7 @@ HYGIENE = (
 # /search is the one page with a form (a plain GET to itself), so it alone may submit to its own origin.
 CSP_SEARCH = CSP.replace(b"form-action 'none'", b"form-action 'self'")
 # Shell pages (Home with sections, Search, Account, Help) link the web app manifest (install.py), load the brand
-# font, Geist (brand.py, home.css; AVR-584) and load the one first-party page script (pwa.py; MK-3, AVR-717, owner
+# font, the interface font (brand.py, home.css; AVR-584) and load the one first-party page script (pwa.py; MK-3, AVR-717, owner
 # decision O1); they alone may load those from their own origin, and register the worker from it. Nothing else
 # changes: no inline script, no other source. Every other route keeps CSP, except the two below.
 SHELL_SOURCES = b"; manifest-src 'self'; font-src 'self'; script-src 'self'; worker-src 'self'"

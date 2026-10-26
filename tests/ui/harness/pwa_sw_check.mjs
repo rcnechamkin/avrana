@@ -97,7 +97,7 @@ ok('cache name is avrana-shell-<12 hex>', /^avrana-shell-[0-9a-f]{12}$/.test(CAC
   env.fetchImpl = async (req) => goodFor(new URL(req.url).pathname);
   const err = await runInstall(env);
   ok('install stores every allow-listed file', err === null && env.stores.get(CACHE)?.size === paths.length, String(err));
-  ok('install requests use redirect "error" and cache "reload"', env.log.fetched.length === paths.length && env.log.fetched.every((r) => r.redirect === 'error' && r.cache === 'reload' && r.method === 'GET'));
+  ok('install requests use redirect "error", cache "reload" and credentials "same-origin"', env.log.fetched.length === paths.length && env.log.fetched.every((r) => r.redirect === 'error' && r.cache === 'reload' && r.credentials === 'same-origin' && r.method === 'GET'));
   ok('install does not skipWaiting or claim', env.log.skipWaiting === 0 && env.log.claimed === 0);
 }
 const badResponses = {
@@ -180,7 +180,7 @@ for (const [label, make] of Object.entries(badResponses)) {
 }
 {
   const env = makeEnv(workerSrc);
-  for (const p of ['/signout', '/signout/', '/outpost.goauthentik.io/sign_out', '/outpost.goauthentik.io/start', '/outpost.goauthentik.io/']) {
+  for (const p of ['/signout', '/signout/', '//signout', '///signout/', '/outpost.goauthentik.io/sign_out', '//outpost.goauthentik.io/x', '/outpost.goauthentik.io/start', '/outpost.goauthentik.io/']) {
     const ev = runFetch(env, nav(p));
     ok(`navigation to ${p} is left to the browser (no respondWith, no fetch)`, !ev.responded && env.log.fetched.length === 0);
   }

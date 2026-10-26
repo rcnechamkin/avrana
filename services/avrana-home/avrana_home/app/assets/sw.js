@@ -85,7 +85,9 @@ async function staticFile(request, path) {
 /* The sign-out hop and the outpost's own paths are left to the browser: a real navigation applies the hop's
    Clear-Site-Data and follows its redirect, with no worker in between. */
 function sessionPath(pathname) {
-  return pathname.replace(/\/+$/, '') === '/signout' || pathname.indexOf('/outpost.goauthentik.io/') === 0;
+  /* The server collapses leading slashes and ignores trailing ones, so "//signout" and "/signout/" are the hop too. */
+  const path = '/' + pathname.replace(/^\/+/, '');
+  return path.replace(/\/+$/, '') === '/signout' || path.indexOf('/outpost.goauthentik.io/') === 0;
 }
 
 self.addEventListener('fetch', function (event) {
