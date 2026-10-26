@@ -146,7 +146,7 @@ try {
   await lp.emulateMedia({ reducedMotion: 'no-preference' });
   await lp.click('a.tab >> nth=2');
   ok('lens: and back to no-preference works without a reload', (await at()) === '2');
-  // A tab whose URL differs from the document's only by the hash (MK-2's Library tab is "/#h-new" until MK-5) is a
+  // A tab whose URL differs from the document's only by the hash (MK-2's Library tab was "/#h-new" before MK-5) is a
   // same-document jump: the page stays, aria-current stays on Home, so the lens must stay on the printed tab.
   const homeTabs = ['/', '/#h-new', '/?x=1', '/search'];
   await lp.route(BASE + '/', (route) => route.fulfill({ contentType: 'text/html', body: lensDoc(scriptSrc[0], homeTabs) }));
@@ -163,10 +163,11 @@ try {
   await lp.goto(BASE + '/lens-test');
   await Promise.all([lp.waitForURL(BASE + '/account'), lp.click('a.tab >> nth=3')]);
   ok('lens: a real click still navigates (never prevented)', lp.url() === BASE + '/account');
-  await lp.goto(BASE + '/account');                                    // a real shell page: the script is there, the tab bar is not (MK-2)
+  await lp.goto(BASE + '/account');                                    // a real shell page: one script, the server-printed tab bar
   await sleep(500);
-  ok('a shell page with no tab bar loads the script and nothing throws or logs an error',
-    (await lp.evaluate(() => [document.scripts.length, document.querySelector('nav.tabbar')])).join() === '1,' && lensErrors.length === 0, lensErrors.join(' | '));
+  const real = await lp.evaluate(() => { const n = document.querySelector('nav.tabbar'); return [document.scripts.length, n ? n.dataset.at : null]; });
+  ok('a real shell page loads the one script, keeps the tab bar the server printed (Me), and nothing throws or logs an error',
+    real[0] === 1 && real[1] === '3' && lensErrors.length === 0, `${JSON.stringify(real)} ${lensErrors.join(' | ')}`);
   await lb.close(); lb = null;
 
   // ---- pageshow reload only when persisted --------------------------------------------------------------------------
