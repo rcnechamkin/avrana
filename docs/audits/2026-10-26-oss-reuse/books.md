@@ -191,7 +191,7 @@ Practical linking: ABS isbn/asin joined to Calibre `identifiers` (isbn, amazon) 
 |---|---|---|
 | Audiobookshelf | **KEEP / RUN + INTEGRATE** | Rich per-user API. Unauthenticated covers make cards easy. Admins mint per-member API keys. Hand off to `/item/:id` (no autoplay). Use in-repo `docs/openapi.json`, not the stale api.audiobookshelf.org |
 | Komga | **KEEP / RUN + INTEGRATE** | Best API: self-service per-user `X-API-Key`, on-deck, IN_PROGRESS, ISBN. Proxy thumbnails (auth required). Deep link `/book/:id/read` or `/read-epub`. MIT |
-| Calibre-Web-Automated (fork v4.0.6) | **KEEP / RUN, ADAPT integration** | No JSON API. Use OPDS (basic auth, per-member creds) for lists/read state, plus a read-only `metadata.db` read for ISBN. Hand off to `/read/<id>/epub`. GPL-3.0: don't copy code into Avrana unless Avrana goes GPL. Note it's 2 patch releases behind v4.0.8 |
+| Calibre-Web-Automated (fork v4.0.6) | **KEEP / RUN, ADAPT integration** | No JSON API. Use OPDS (basic auth, per-member creds) for lists/read state. (A read-only `metadata.db` read for ISBN was considered and is NOT recommended: AGENTS.md forbids upstream DB reads; see the audit ledger.) Hand off to `/read/<id>/epub`. GPL-3.0: don't copy code into Avrana unless Avrana goes GPL. Note it's 2 patch releases behind v4.0.8 |
 | Calibre-Web (upstream) | **STUDY** | Reference only. CWA supersedes it in this deployment |
 | Readium ts-toolkit / Thorium Web | **STUDY** (possible later ADAPT) | BSD-3 and capable. Komga already serves RWPM, positions, and progression. In-PWA reading costs a same-origin proxy and a JS reader. Hand-off is cheaper now |
 | Readium go-toolkit | **STUDY** | Needed only if Calibre books are read in-PWA |

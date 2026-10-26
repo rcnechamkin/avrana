@@ -8,6 +8,11 @@ Strategy this audit serves: Linear document *Avrana Media · Media-first OSS reu
 upstreams preserved and unmodified, one small custom application, no frames, proxy injection, upstream patches,
 custom players or dedicated search engine; request filing through Avrana is out of M3).
 
+Scope of "no upstream patches" (owner, 2026-10-26): it binds **M3**. It is not a permanent product strategy.
+A future UX-led, licence-compliant fork of a device client (for example Wholphin or another Jellyfin TV client)
+remains an option to evaluate, honouring GPL/AGPL obligations, upstream notices, trademarks and assets, and the
+update burden; TV experience outranks codebase unification. No such fork is an active task.
+
 Evidence appendices (upstream source read with `gh api` at the pinned commits; every claim labelled
 CONFIRMED or HYPOTHESIS):
 
@@ -25,13 +30,13 @@ Labels used below: **KEEP** (Avrana code already adequate), **RUN** (keep the up
 (call a documented upstream API), **ADAPT** (reuse compatible source with provenance), **STUDY** (patterns only),
 **BUILD**, **REJECT**.
 
-## 1. Headline decisions
+## 1. Headline recommendations (proposed, for owner review)
 
 1. **Avrana Home stays the one custom application, and it is already the right shape.** The adapter contract,
    per-member cache, authorized search, title pages and hand-off allow-list on `main` match or exceed what the
    upstream clients do for a multi-service hub. No upstream client, SDK or framework would replace it more
    cheaply. KEEP.
-2. **No upstream source code is copied into Avrana.** Every serious candidate client is GPL-2.0, GPL-3.0 or
+2. **For M3, no upstream source code is copied into Avrana.** Every serious candidate client is GPL-2.0, GPL-3.0 or
    AGPL-3.0 (ledger, section 5). The reuse is RUN + INTEGRATE over HTTP, plus STUDY of interaction patterns.
    The only permissively licensed candidates with real fit are Komga (MIT), Seerr (MIT) and Readium (BSD-3), and
    none of their code is needed now.
@@ -151,7 +156,7 @@ artwork shipped in the repo.
 | Audiobookshelf | v2.37.2 `edb1f7ef` | GPL-3.0 | no separate asset license found | RUN, HTTP API |
 | Komga | 1.29.1 `023ec905` | MIT | no separate asset license found | RUN, HTTP API; code reusable with notice if ever needed |
 | Calibre-Web | 0.6.27 `6e840acb` | GPL-3.0 | | RUN (via CWA), OPDS |
-| Calibre-Web-Automated | v4.0.6 `1b80f9a7` (deployed fork); latest v4.0.8 | GPL-3.0 | | RUN; never read `metadata.db` (AGENTS.md, no upstream DB reads) |
+| Calibre-Web-Automated | v4.0.6 `1b80f9a7` (deployed fork); latest v4.0.8 | GPL-3.0 | | RUN; never read `metadata.db` (AGENTS.md, no upstream DB reads; `books.md`'s ISBN-read idea is superseded by this) |
 | Readium ts-toolkit / Thorium Web / go-toolkit | navigator 2.14.0 `03ce8bbf` / v1.7.0 `8d49c2b1` / `28dc69c0` | BSD-3-Clause | | STUDY; ADAPT possible later with notice |
 | Omnibus | v1.4.4 `6c63779c` (deployed); latest v1.4.9 | GPL-3.0 | | RUN as is |
 | CompleteSeries | `59b200ed` | **no license** (all rights reserved) | | REJECT code reuse |
