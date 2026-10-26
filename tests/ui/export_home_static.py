@@ -8,7 +8,8 @@ loopback mock services (Jellyfin, Audiobookshelf, Komga, Calibre-Web), for synth
 these states: normal, one library unavailable, one section unavailable (the library still answers in part),
 all unavailable, a library not set up for the member, no library, signed out, and the New tabs. Besides Home
 it follows the shell's own links: Search, title pages (at most one per library per member and state),
-Account, Help and its topics, "If something doesn't open", Read, Request and the Watch interstitial. Titles are lengthened by the invented long-title overlay (dev/mock_long_titles.py) so narrow cards
+Account, Help and its topics, "If something doesn't open", Read, Request, the Watch interstitial and Library
+with its chips (MK-5a). Titles are lengthened by the invented long-title overlay (dev/mock_long_titles.py) so narrow cards
 show real-world wrapping; `--short-titles` serves the fixtures' own short titles. It then writes plain files: HTML, one shared stylesheet per page kind, and generated SVG
 placeholders for the artwork. Serve the folder from the PC's LAN address:
 
@@ -63,6 +64,7 @@ SEARCH_SEEDS = {"/search": "search", "/search?q=Synthetic": "search-results",
 TITLE_SEEDS = ("/title/jellyfin/aaaa0000000000000000000000000001",)
 TITLE = re.compile(r"^/title/([a-z-]+)/[A-Za-z0-9_-]+(?:\?q=[A-Za-z0-9%]+)?$")
 CRAWL = re.compile(r"^/(?:\?new=[a-z-]+)?$|^/(?:account|help|read|request|watch)$|^/help/[a-z0-9-]+$"
+                   r"|^/library(?:\?lib=[a-z-]+)?$"
                    r"|^/search(?:\?q=[A-Za-z0-9%]+)?$|" + TITLE.pattern[1:])
 ACTION = re.compile(r'(<form [^>]*action=")(/search)(")')
 HREF = re.compile(r'(\bhref=")([^"]*)(")')
@@ -100,7 +102,7 @@ def slug_of(key: str) -> str:
     name = "home" if path == "/" else path.strip("/").replace("/", "-")
     if path.startswith("/title/"):                 # title pages: one file per item, the search term dropped
         return re.sub(r"[^A-Za-z0-9-]", "-", name)
-    return f"{name}-{query.replace('new=', 'new-')}" if query else name
+    return f"{name}-{query.replace('new=', 'new-').replace('lib=', 'lib-')}" if query else name
 
 
 def placeholder(ref: str, shape: str, title: str) -> str:

@@ -385,7 +385,7 @@ page 28px, shelf 20px, button 17px Medium, body 15px, secondary 14px, eyebrow 12
 Big type is Light; small type Medium or SemiBold.
 
 **Shape, glass, motion.** Radii: preview 20, panel 16, button 14, control 12, chip 8. One `.glass` class (28px
-blur, inset highlights, masked `::before` rim; the element clips itself) worn by the three shell controls only (tab bar, Home button; the top-right utility comes with Library, MK-5),
+blur, inset highlights, masked `::before` rim; the element clips itself) worn by the three shell controls only (tab bar, Home button; the top-right utility on Library, MK-5a),
 with solid fallbacks for no `backdrop-filter`, reduced transparency, more contrast and forced colours. Motion tiers
 150, 300 and 200 ms (tier 3 capped at 200 ms; 600 ms only as a labelled Proposal behind a default-off flag); Reduce
 Motion stops all animation.
@@ -400,7 +400,7 @@ the yellow lens, placed by `data-at` (the tab's index), which the server prints,
 the page script (MK-3) only moves `data-at` on a plain click. `aria-current="page"` marks the tab that is this page,
 `"true"` the section a deeper page belongs to (Help and its topics under Me; places and titles under Home). Icons
 are inline SVG in `currentColor`; Me shows the member's initial and its name says who is signed in. Library opens
-Home's "Recently added" until MK-5 gives it a page. The page scrolls clear of the bar by 1rem.
+its own page, `/library` (MK-5a, below). The page scrolls clear of the bar by 1rem.
 
 Home keeps the L3 lockup as its heading, top left, and under it the places bar (Watch, Listen, Read, Request, Help)
 as opaque chips: one row at 390px, whole chips wrapping at 320px or large text; a down library stays struck through.
@@ -424,6 +424,34 @@ library in member language; it never claims playback. "Details" opens the title 
 carry 180px art (`--art-h`) in one 11.25rem card width on phones (`--card-min`, 9.5rem from 45rem), preview
 radius, and on Continue a 3px Cream progress rule along the foot of the art, beside the words and hidden from
 assistive technology; its length is a 5% step class (`pc0` to `pc100`), so no inline style is needed.
+
+**Library (MK-5a, AVR-719; D1, memo sections 2 and 6).** `/library` is a tab page (its tab carries
+`aria-current="page"`). Its title, "Library", sits top left in the page role, where other pages have the Home button,
+and beside it the top-right glass utility, the third glass control, holds one Search link (a magnifier named
+"Search"), shown only to a member who can search. The frames' filter and sort control is not built: there is no
+honest order without new data. Under the title, opaque filter chips are plain links: All, then one chip per library
+this member's sections hold, in Home's order and member language. `?lib=<library>` chooses one, checked against the
+member's own libraries exactly as `?new=` is on Home (bounded, never echoed; anything else is All). The chosen chip
+has the yellow tint, rim and a check glyph, and `aria-current="true"`; chips wrap as whole chips, and a label never
+breaks inside a word. All shows one shelf per library: the newest items Home already has for it (at most four) on
+the MK-4 rail, with a quiet "Open <app>" link to the member's own place route (`/watch`, `/listen`, `/comics`,
+`/books`), only where the catalogue opens it for this member. One chosen library shows them as a grid on the 180px
+baseline and ends with "Browse everything in <app>". A library that is down is a warning, not a shelf: a rectangle
+with a glyph, Home's own sentence ("... are unavailable right now.") and Try again, an amber `--warn` edge, never
+yellow, and no items, not even cached ones; its chip stays, struck through. Not set up says so, with "What to do
+next"; nothing anywhere is one panel, "Nothing recently added."; a member with no library reads Home's "No library
+yet" and a Help link. The page ends with a Requests group linking the existing Request (and Contribute) place pages,
+only when the member's catalogue holds them. Without a member, or with sections off, `/library` is the standard
+404; its CSP and Cache-Control are those of the other shell pages.
+
+**Title page (MK-5a; frames 19:1748, 19:1846).** Restyled only: behaviour, permission checks and copy are unchanged.
+The art is the item's own `/art` image twice, as in Home's hero (crisp at its natural shape over a blurred, dimmed
+copy; without art, the letter frame and no backdrop); from 360px it rises beside the glass Home button. The kicker is
+a Stone eyebrow and the title the 48px Light display role (it wraps and clamps visually at four lines). Progress stays
+in words, with the 3px Cream rule under them (`pc0` to `pc100`, hidden from assistive technology), then the one Cream
+action across the column and the "Opens in" note in an opaque panel. An unavailable library is the same warning as
+on Library. The frames' "Continue" eyebrow, "Resume in Jellyfin" label and detail panel are not built: they change
+the page's copy, which this slice keeps.
 
 ## Brand v1.0.0 on Home shell pages (AVR-584)
 

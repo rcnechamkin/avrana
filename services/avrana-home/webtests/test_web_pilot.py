@@ -22,7 +22,7 @@ CRED = "viewer:mock-api-key-not-real"
 A = [(USER, "member-a"), (GROUPS, "avrana-users|avrana-videos|avrana-books")]     # Movies and TV + Books
 B = [(USER, "member-b"), (GROUPS, "avrana-users|avrana-videos")]                  # Movies and TV only
 NOTHING = [(USER, "member-x"), (GROUPS, "avrana-users")]
-SHELL_ROUTES = ["/", "/search", "/account", "/help", "/help/movies"]
+SHELL_ROUTES = ["/", "/library", "/search", "/account", "/help", "/help/movies"]
 
 
 def mains(text):
@@ -103,14 +103,14 @@ class NavigationTests(Mocks):
         c = self.client()
         # "page" marks the tab (and on Home the lockup) that is this page; "true" marks the section a deeper page
         # belongs to: Help and its topics are reached from Me.
-        want = {"/": [("/", "page"), ("/", "page")], "/search": [("/search", "page")],
+        want = {"/": [("/", "page"), ("/", "page")], "/library": [("/library", "page")], "/search": [("/search", "page")],
                 "/account": [("/account", "page")], "/help": [("/account", "true")],
                 "/help/movies": [("/account", "true")]}
         for route, expected in want.items():
             with self.subTest(route=route):
                 self.assertEqual(sorted(expected), sorted(aria_current(c.get(route, headers=A).text)))
         # the lens follows the same section, printed by the server so it is right without JavaScript
-        at = {"/": "0", "/search": "2", "/account": "3", "/help": "3", "/help/movies": "3"}
+        at = {"/": "0", "/library": "1", "/search": "2", "/account": "3", "/help": "3", "/help/movies": "3"}
         for route, index in at.items():
             self.assertIn(f'data-tabs="4" data-at="{index}"', tabbar(c.get(route, headers=A).text), route)
 

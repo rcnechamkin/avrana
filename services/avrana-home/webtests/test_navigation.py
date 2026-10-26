@@ -17,7 +17,7 @@ VIDEO = [(USER, "member-a"), (GROUPS, "avrana-users|avrana-videos")]
 COMICS = [(USER, "member-c"), (GROUPS, "avrana-users|avrana-comics")]
 NOLIB = [(USER, "member-n"), (GROUPS, "avrana-users")]
 OTHER_LIBRARIES = ("Audiobooks", "audiobook", "Comics", "comics", "Books", "books", "Listen", "/listen", "/read")
-SHELL_PAGES = ["/", "/search", "/account", "/help", "/help/movies", "/help/trouble", "/read", "/request", "/watch"]
+SHELL_PAGES = ["/", "/library", "/search", "/account", "/help", "/help/movies", "/help/trouble", "/read", "/request", "/watch"]
 
 
 def footer(text):
@@ -63,7 +63,7 @@ class ReturnNavigationTests(Fixture):
                     self.assertNotRegex(r.text, r'<img class="lockup"')
                     self.assertIn('<a class="link" href="/">Back to home</a>', footer(r.text))
                     # pages that are not tabs carry the glass Home button (D5); tab pages show their own title
-                    if path in ("/search", "/account", "/help"):
+                    if path in ("/library", "/search", "/account", "/help"):
                         self.assertNotIn('class="homebtn', r.text)
                     else:
                         self.assertIn(home_button, r.text)

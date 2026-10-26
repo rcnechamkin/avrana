@@ -43,6 +43,9 @@ class StaticExportTests(unittest.TestCase):
                      "member-a/normal/title-jellyfin-aaaa0000000000000000000000000001.html",
                      "member-b/normal/read.html", "member-a/normal/request.html", "member-a/normal/watch.html",
                      "member-a/normal/help-trouble.html", "member-a/normal/account.html",
+                     # Library and its chips (MK-5a), and Library with a library down:
+                     "member-a/normal/library.html", "member-a/normal/library-lib-jellyfin.html",
+                     "member-b/normal/library-lib-komga.html", "member-a/one-down/library.html",
                      # ...and the degraded states: a library not set up, one section down, a title unavailable.
                      "member-c/not-linked/home.html", "member-c/not-linked/search-results.html",
                      "member-c/not-linked/title-jellyfin-aaaa0000000000000000000000000001.html",
@@ -69,6 +72,8 @@ class StaticExportTests(unittest.TestCase):
                       read("member-c/not-linked/title-jellyfin-aaaa0000000000000000000000000001.html"))
         self.assertIn('href="title-jellyfin-aaaa0000000000000000000000000001.html"',
                       read("member-a/normal/search-results.html"))       # search links reach the exported title
+        self.assertIn("<p>Movies and TV are unavailable right now.</p>", read("member-a/one-down/library.html"))
+        self.assertIn('href="library-lib-jellyfin.html" aria-current="true"', read("member-a/normal/library-lib-jellyfin.html"))
 
     def test_search_pages_are_there_for_every_state_and_say_what_they_should(self):
         read = lambda r: (self.out / r).read_text(encoding="utf-8")

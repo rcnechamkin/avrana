@@ -297,7 +297,7 @@ class ShellVM:
     initial: str
     places: Tuple[PlaceVM, ...]
     can_search: bool                      # only a member with a library is offered Library and Search
-    current: str                          # home | search | account | help | help-topic | place | title
+    current: str                          # home | library | search | account | help | help-topic | place | title
 
 
 @dataclass(frozen=True)
@@ -547,6 +547,111 @@ def build_home(view: dict, tiles, *, new_tab: Optional[str] = None, limit: int =
                   retry_href=retry_href, setup_href=setup_href, hero=hero)
 
 
+# ---- The Library page (Concept K MK-5a, AVR-719): chips, one shelf per library, the Request group ------------
+# Pure functions over the same `member_view()` Home renders (Continue and Recently added, this member only) plus the
+# catalogue's tile list. Nothing here calls an adapter or builds a URL from upstream data: shelf items are Home's own
+# Recently added cards, the "Open <app>" links are the member's own place routes (the catalogue's group-gated paths,
+# passed in by the caller), and the Request group links the existing place pages.
+LIBRARY_ALL = "all"
+# Each library's own place route (the catalogue path Home's places bar and Account already use for it). The caller
+# keeps only those this member's groups open, so a link is never offered that would be the standard 404.
+LIBRARY_PLACE = {s: p for p, s in ACCOUNT_LIBRARY.items()}
+LIBRARY_ASKS = ("request", "contribute")         # the catalogue's request-side places, in Home's order
+
+
+@dataclass(frozen=True)
+class LibraryChipVM:
+    key: str                      # "all" or a service value; never anything from the address
+    label: str                    # "All", or the library in member language
+    href: str
+    current: bool
+    down: bool = False            # the library said unavailable: struck, ", unavailable" for screen readers
+
+
+@dataclass(frozen=True)
+class ShelfVM:
+    service: str
+    label: str                    # member language ("Movies and TV")
+    state: str                    # ok | empty | not_linked (a down library is a warning, never a shelf)
+    items: Tuple[CardVM, ...] = ()
+    message: Optional[str] = None
+    open_href: Optional[str] = None   # the member's own place route for this library, or None (no link)
+    open_app: Optional[str] = None    # "Jellyfin": the app that place opens (HERO_APP)
+
+
+@dataclass(frozen=True)
+class LibraryVM:
+    no_library: bool
+    chips: Tuple[LibraryChipVM, ...] = ()
+    chosen: str = "all"
+    chosen_label: Optional[str] = None     # the chosen library in member language (None for All)
+    warnings: Tuple[str, ...] = ()         # Home's own unavailable sentences, one per down library (or one combined)
+    retry_href: Optional[str] = None       # "Try again": this same page, the chosen chip kept
+    shelves: Tuple[ShelfVM, ...] = ()
+    said: Optional[str] = None             # the honest empty state ("Nothing recently added.")
+    setup_href: Optional[str] = None       # "What to do next": a library is not set up for this member
+    asks: Tuple[Tuple[str, object, object], ...] = ()   # (href, label, description): catalogue text (Trusted)
+
+
+def library_href(key: str) -> str:
+    return "/library" + ("" if key == LIBRARY_ALL else f"?lib={key}")
+
+
+def build_library(view: dict, tiles, *, chip: Optional[str] = None, limit: int = RAIL_MOST,
+                  open_paths=None) -> LibraryVM:
+    """The Library page as display data. `chip` is the bounded `?lib=` text (identity.library_chip_from_scope): it is
+    matched against THIS member's own libraries only and is never echoed; anything else is All. `open_paths`:
+    service -> the member's own place route (already group-filtered by the caller). A library is named only when
+    this member's sections hold it (`member_view()` omits a library the member cannot use)."""
+    limit = max(1, min(int(limit), RAIL_MOST))
+    asks = tuple(("/" + path, label, desc) for path, label, desc in tiles if path in LIBRARY_ASKS)
+    if not has_library(tiles):
+        return LibraryVM(no_library=True, asks=asks)
+    held = _sections_by_service(view)
+    mine = [s for s in SERVICE_ORDER if s in held]
+    down = {s for s in mine if library_down(held[s])}
+    chosen = chip if isinstance(chip, str) and chip in mine else LIBRARY_ALL
+    chips = (LibraryChipVM(LIBRARY_ALL, "All", library_href(LIBRARY_ALL), chosen == LIBRARY_ALL),) + tuple(
+        LibraryChipVM(s, SERVICE_LABEL[s], library_href(s), chosen == s, s in down) for s in mine)
+    shown = mine if chosen == LIBRARY_ALL else [chosen]
+    paths = open_paths or {}
+
+    def recent_of(service: str):
+        out = []
+        for sec in held.get(service, ()):
+            if sec["section"] == "recent" and sec["state"] == "ok":
+                out.extend(vm for vm in (_item_vm(it) for it in sec.get("items", ())) if vm is not None)
+        return out
+
+    warnings, shelves, unset = [], [], False
+    for s in shown:
+        label = SERVICE_LABEL[s]
+        if s in down:                          # Home's own sentence; no items, not even ones still in the cache
+            warnings.append(service_notice(s, "unavailable"))
+            continue
+        open_href = paths.get(s) if paths.get(s) == "/" + LIBRARY_PLACE[s] else None
+        if any(sec["state"] == "not_linked" for sec in held[s]):
+            unset = True
+            shelves.append(ShelfVM(s, label, "not_linked", message=service_notice(s, "not_linked")))
+            continue
+        cards = _cards(recent_of(s)[:limit], lambda it: it.detail or KIND_LABEL.get(it.kind))
+        app = HERO_APP[s] if open_href else None
+        if cards:
+            shelves.append(ShelfVM(s, label, "ok", cards, open_href=open_href, open_app=app))
+        else:
+            shelves.append(ShelfVM(s, label, "empty", message=f"Nothing recently added in {label}.",
+                                   open_href=open_href, open_app=app))
+    if chosen == LIBRARY_ALL and len(warnings) > 1 and len(warnings) == len(mine):
+        warnings = ["None of your libraries is answering right now."]   # Home's combined line (all down)
+    said = None
+    if chosen == LIBRARY_ALL and shelves and all(sh.state == "empty" for sh in shelves) and not warnings:
+        said = NOTHING_NEW                     # nothing anywhere: one honest line, not a column of empty shelves
+    return LibraryVM(no_library=False, chips=chips, chosen=chosen,
+                     chosen_label=None if chosen == LIBRARY_ALL else SERVICE_LABEL[chosen],
+                     warnings=tuple(warnings), retry_href=library_href(chosen) if warnings else None,
+                     shelves=tuple(shelves), said=said, setup_href=SETUP_HELP if unset else None, asks=asks)
+
+
 # ---- search page (AVR-383) --------------------------------------------------------------------------------
 SEARCH_MAX_SHOWN = 100          # characters of the typed term put back in the box
 # Plain guidance only. Its one promise, the minimum length, is contract.MIN_QUERY. The wildcard and escape
@@ -788,6 +893,7 @@ class TitleVM:
     image: Optional[str] = None
     kicker: str = ""                   # "Episode · Movies and TV"; the medium only when the library name lacks it
     progress: Optional[str] = None     # in words, whenever the upstream gave this member progress (not finished)
+    bar: Optional[int] = None          # the 3px Cream rule beside the progress words, in 5% steps (as on Continue)
     action: Optional[str] = None       # Resume | Open | Watch | Listen | Read: opens the item, never "playing"
     action_href: Optional[str] = None
     action_label: Optional[str] = None
@@ -839,6 +945,8 @@ def build_title(section: dict, service: str, upstream_id: str, raw_term: Optiona
     # "Open", exactly as Continue shows it; with no progress at all the verb says what the item is for.
     finished, resume = continue_state(it.get("progress"))
     progress = None if finished else progress_words(kind, it.get("progress"))
+    fraction = progress_fraction(it.get("progress")) if progress else None
+    bar = max(0, min(100, int(round(fraction * 20)) * 5)) if fraction is not None else None
     if resume:
         action = "Resume"
     elif progress:
@@ -848,5 +956,5 @@ def build_title(section: dict, service: str, upstream_id: str, raw_term: Optiona
     return TitleVM("ok", label, title=title, medium=medium, kicker=kicker_of(medium, label),
                    line=" · ".join(x for x in (creator, str(year) if year else None) if x) or None,
                    detail=_detail_of(it, creator, year), shape=SHAPE.get(kind, "poster"),
-                   image=_image(it.get("artwork")), progress=progress, action=action, action_href=href,
+                   image=_image(it.get("artwork")), progress=progress, bar=bar, action=action, action_href=href,
                    action_label=f"{action} {title} in {label}", back_href=back)

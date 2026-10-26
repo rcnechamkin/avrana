@@ -66,6 +66,13 @@ def search_decision(page) -> Decision:
     return Decision("/search", 200, "search.html", {"page": page})
 
 
+def library_decision(page) -> Decision:
+    """The decision for GET /library (Concept K MK-5a, AVR-719) once the route layer has a verified member and the
+    shell is on (main.py); otherwise the path is unknown and `decide` answers 404. Always 200: a library that is down
+    is said on the page, never an error status, as on Home."""
+    return Decision("/library", 200, "library.html", {"page": page})
+
+
 TITLE_LABEL = "/title/{service}/{id}"
 _TITLE = re.compile(r"/title/([a-z][a-z-]{1,23})/([A-Za-z0-9_-]{1,64})")
 

@@ -73,7 +73,7 @@ class Markup(unittest.TestCase):
     def test_four_tabs_in_order_with_one_lens_and_inline_decorative_icons(self):
         _text, (n, _, at, body) = self.bar("/")
         self.assertEqual(("4", "0"), (n, at))
-        self.assertEqual(["/", "/#h-new", "/search", "/account"], re.findall(r'<a class="tab" href="([^"]*)"', body))
+        self.assertEqual(["/", "/library", "/search", "/account"], re.findall(r'<a class="tab" href="([^"]*)"', body))
         self.assertEqual(["Home", "Library", "Search", "Me"], re.findall(r'<span class="tl">([A-Za-z]+)', body))
         self.assertEqual(1, body.count('<span class="lens" aria-hidden="true"></span>'))
         self.assertEqual(3, body.count('aria-hidden="true" focusable="false"'))
@@ -93,7 +93,7 @@ class Markup(unittest.TestCase):
                       '<span class="tl">Me<span class="sr">, signed in as member-a</span></span></a>', body)
 
     def test_every_section_page_prints_its_lens_and_a_page_outside_the_tabs_prints_none(self):
-        for path in ("/", "/search", "/account", "/help", "/help/movies", "/request", "/watch"):
+        for path in ("/", "/library", "/search", "/account", "/help", "/help/movies", "/request", "/watch"):
             _text, (_n, has_at, _at, _body) = self.bar(path)
             self.assertTrue(has_at, path)
         # two tabs: Me is index 1
@@ -104,7 +104,8 @@ class Markup(unittest.TestCase):
         self.assertEqual(("2", ""), (n, has_at))
 
     def test_tab_pages_show_their_own_title(self):
-        for path, title in (("/search", '<h2 id="h-search">Search</h2>'), ("/account", '<h2 class="topic">Account</h2>'),
+        for path, title in (("/library", '<h2 class="topic" id="h-library">Library</h2>'),
+                            ("/search", '<h2 id="h-search">Search</h2>'), ("/account", '<h2 class="topic">Account</h2>'),
                             ("/help", '<h2 class="topic">Help</h2>')):
             main = self.on.get(path, headers=ALL).text.split("<main", 1)[1]
             self.assertIn(title, main.split("</h2>", 1)[0] + "</h2>", path)       # the first heading in main
@@ -121,11 +122,11 @@ class Markup(unittest.TestCase):
     def test_the_glass_home_button_is_on_pages_that_are_not_tabs_only(self):
         for path in ("/request", "/watch", "/help/movies", "/help/trouble"):
             self.assertIn('<a class="homebtn glass" href="/">', self.on.get(path, headers=ALL).text, path)
-        for path in ("/", "/search", "/account", "/help"):
+        for path in ("/", "/library", "/search", "/account", "/help"):
             self.assertNotIn('class="homebtn', self.on.get(path, headers=ALL).text, path)
 
     def test_one_h1_on_every_shell_page(self):
-        for path in ("/", "/search", "/account", "/help", "/help/movies", "/request"):
+        for path in ("/", "/library", "/search", "/account", "/help", "/help/movies", "/request"):
             self.assertEqual(1, len(re.findall(r"<h1[\s>]", self.on.get(path, headers=ALL).text)), path)
 
 

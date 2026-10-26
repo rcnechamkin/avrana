@@ -404,3 +404,121 @@
   .bar .pc0{width:0%;}.bar .pc5{width:5%;}.bar .pc10{width:10%;}.bar .pc15{width:15%;}.bar .pc20{width:20%;}.bar .pc25{width:25%;}.bar .pc30{width:30%;}.bar .pc35{width:35%;}.bar .pc40{width:40%;}.bar .pc45{width:45%;}.bar .pc50{width:50%;}.bar .pc55{width:55%;}.bar .pc60{width:60%;}.bar .pc65{width:65%;}.bar .pc70{width:70%;}.bar .pc75{width:75%;}.bar .pc80{width:80%;}.bar .pc85{width:85%;}.bar .pc90{width:90%;}.bar .pc95{width:95%;}.bar .pc100{width:100%;}
   @media (forced-colors:active){.frame .bar{forced-color-adjust:none;background:Canvas;box-shadow:0 0 0 1px CanvasText;}
     .frame .bar .fill{background:CanvasText;}}
+  /* ---- MK-5a Library and title (AVR-719) ---- */
+  /* Concept K Library page and title page (memo sections 2, 3, 5 and 6; frames 17:1851, 17:1996, 17:2103, 22:2680,
+     19:1748, 19:1846). One block, appended last, overriding earlier rules rather than editing them. This stylesheet
+     ships on every shell page, so these comments name no section, library or member word. */
+  /* The page title in the page role, top left, where a page that is not a tab has its Home button; the top-right glass
+     utility beside it (one of the three glass controls) holds one 44px Search link, focus drawn inside the glass. */
+  body:has(.lib-head) main{gap:1.5rem;}
+  .lib-head{display:flex;align-items:center;justify-content:space-between;gap:0.75rem;min-width:0;}
+  .lib-head h2.topic{font-size:var(--text-page);font-weight:400;line-height:1.2;letter-spacing:-0.01em;color:var(--cream);}
+  .utility{flex:none;display:flex;border-radius:999px;}
+  .util{display:inline-flex;align-items:center;justify-content:center;min-width:2.75rem;min-height:2.75rem;
+    padding:0 0.625rem;border-radius:inherit;color:var(--cream);text-decoration:none;}
+  .util .ic{width:1.5rem;height:1.5rem;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;}
+  .util:focus-visible{outline:2px solid var(--focus);outline-offset:-3px;box-shadow:none;}
+  /* Section headings on these pages take the shelf role (20px, regular, Cream), as on the first page. */
+  body:has(.lib-head) .shelf h2,body:has(.title-page) .shelf h2,body:has(.title-down) .shelf h2{font-size:var(--text-shelf);
+    font-weight:400;line-height:1.25;letter-spacing:-0.01em;text-transform:none;color:var(--cream);}
+  /* Filter chips: plain links, opaque. Whole chips wrap to a new row (no chip is hidden off screen, so the chosen one
+     is always in view); a label wraps only between words, never inside one, and text never shrinks. The chosen chip
+     is the Media yellow's selection: tint, rim and a check glyph (geometry as well as colour). A chip whose library is
+     not answering stays, struck through, and says so to screen readers. */
+  .chips{display:flex;flex-wrap:wrap;gap:0.5rem;margin-top:-0.5rem;min-width:0;}
+  .chip{display:inline-flex;align-items:center;justify-content:center;gap:0.375rem;min-height:2.75rem;min-width:2.75rem;
+    max-width:100%;padding:0.375rem 1rem;border:1px solid var(--line-strong);border-radius:999px;background:var(--raised);
+    color:var(--cream);font-size:var(--text-body);font-weight:500;line-height:1.25;text-align:center;text-decoration:none;
+    overflow-wrap:normal;word-break:normal;}
+  .chip:hover{border-color:var(--control);}
+  .chip:focus-visible{outline:2px solid var(--focus);outline-offset:2px;box-shadow:none;}
+  .chip[aria-current]{background:var(--accent-selected);border-color:var(--accent);padding-left:0.75rem;}
+  .chip .ck{flex:none;width:1rem;height:1rem;color:var(--accent);fill:none;stroke:currentColor;stroke-width:2;
+    stroke-linecap:round;stroke-linejoin:round;}
+  .chip.off{color:var(--stone);background:transparent;}
+  .chip.off s{text-decoration-color:var(--ash);}
+  .chip.off[aria-current]{background:var(--accent-selected);}
+  @media (forced-colors:active){.chip{border-color:CanvasText;}.chip[aria-current]{border:2px solid Highlight;}
+    .chip .ck{color:CanvasText;}}
+  /* A warning: a rectangle with a glyph, words and the amber edge. Never the yellow, never a bare colour. */
+  .k-warn{display:flex;flex-wrap:wrap;align-items:flex-start;gap:0.5rem 0.75rem;margin:0;padding:0.875rem 1rem;
+    border:1px solid var(--warn);border-radius:var(--radius-panel);background:var(--surface);color:var(--cream);}
+  .k-warn-ic{flex:none;width:1.5rem;height:1.5rem;margin-top:0.0625rem;color:var(--warn);fill:none;stroke:currentColor;
+    stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;}
+  .k-warn-text{flex:1 1 11rem;min-width:0;display:flex;flex-direction:column;gap:0.25rem;}
+  .k-warn-text p{margin:0;font-size:var(--text-body);line-height:1.45;}
+  .k-warn-act{flex:none;align-self:center;display:inline-flex;align-items:center;justify-content:center;min-height:2.75rem;
+    min-width:2.75rem;padding:0 0.25rem;margin-left:auto;color:var(--cream);font-size:var(--text-body);font-weight:600;
+    text-decoration:underline;text-decoration-color:var(--ash);text-underline-offset:0.2em;}
+  .k-warn-act:hover{text-decoration-color:var(--cream);}
+  @media (forced-colors:active){.k-warn{border-color:CanvasText;}.k-warn-ic{color:CanvasText;}}
+  /* A shelf per library: the heading, and a quiet link to that library's own place, right-aligned; it drops under
+     the heading when they do not fit side by side. */
+  .shelf-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:0 1rem;min-width:0;}
+  .shelf-open{display:inline-flex;align-items:center;gap:0.25rem;min-height:2.75rem;color:var(--stone);
+    font-size:var(--text-body);text-decoration:none;}
+  .shelf-open:hover{color:var(--cream);}
+  .chev{flex:none;width:1rem;height:1rem;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;}
+  /* One library chosen: a grid instead of a rail. Art stands on one 180px baseline at its natural shape, never
+     cropped; a shape wider than the column is held to the column and stands shorter, bottom-aligned, so the titles
+     still line up (container units; without them the frame keeps its shape at the column's width). */
+  .lib-grid{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(min(9.5rem,100%),1fr));
+    gap:1.5rem 1rem;}
+  .lib-grid>li{min-width:0;container-type:inline-size;}
+  .lib-grid .frame{--fw:min(100cqw,calc(180px * var(--r)));width:var(--fw);height:calc(var(--fw) / var(--r));aspect-ratio:auto;
+    margin-top:calc(180px - var(--fw) / var(--r));border-radius:var(--radius-preview);border-color:var(--line);background:var(--raised);}
+  /* Opaque rows: the hand-off to a library's own place, and the request places at the end. */
+  .lib-browse{margin:0.25rem 0 0;}
+  .lib-browse a,.lib-rows a{display:flex;align-items:center;gap:0.75rem;min-height:3.5rem;padding:0.75rem 1rem;
+    color:var(--cream);text-decoration:none;}
+  .lib-browse a{justify-content:space-between;border:1px solid var(--line-strong);border-radius:var(--radius-panel);
+    background:var(--surface);font-size:var(--text-body);font-weight:500;}
+  .lib-browse a:hover,.lib-rows a:hover{background:var(--raised);}
+  .lib-rows{list-style:none;margin:0;padding:0;border:1px solid var(--line-strong);border-radius:var(--radius-panel);
+    background:var(--surface);overflow:hidden;}
+  .lib-rows li+li{border-top:1px solid var(--line);}
+  .lib-rows a{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"t c" "d c";gap:0.125rem 0.75rem;}
+  .lib-row-t{grid-area:t;font-size:var(--text-body);font-weight:500;}
+  .lib-row-d{grid-area:d;font-size:var(--text-secondary);color:var(--stone);}
+  .lib-rows .chev{grid-area:c;color:var(--stone);}
+  .lib-browse a:focus-visible,.lib-rows a:focus-visible{outline:2px solid var(--focus);outline-offset:-3px;box-shadow:none;}
+  /* Nothing to show anywhere: one honest panel, with the way to each library's own place. */
+  .lib-empty{padding:1.25rem 1rem 0.75rem;border:1px solid var(--line-strong);border-radius:var(--radius-panel);background:var(--surface);}
+  @media (forced-colors:active){.lib-browse a,.lib-rows,.lib-empty{border-color:CanvasText;}}
+  /* The title page: the art is the item's own image twice, as in the hero (crisp at its natural shape over a
+     blurred, dimmed copy that fades before the text); the masthead's glass Home button stays above it. From 360px the
+     stage rises beside the Home button, as in the frames; narrower, it stays below so the two never overlap, and the
+     art is shorter so the title still shows on the first screen. */
+  body:has(.title-page) .mast{position:relative;z-index:2;}
+  .title-page{--hero-h:225px;position:relative;gap:0.5rem;}
+  .title-stage{position:relative;display:flex;justify-content:center;align-items:flex-end;padding:0 0 1.25rem;}
+  @media (min-width:360px){.title-stage{margin-top:-3.25rem;}}
+  @media (max-width:359px){.title-page{--hero-h:160px;}}
+  .title-page .frame{position:relative;z-index:1;flex:none;width:min(100%,calc(var(--hero-h) * var(--r)));
+    border-radius:var(--radius-preview);border-color:var(--line-strong);background:var(--raised);box-shadow:0 18px 40px rgb(0 0 0 / 0.45);}
+  .title-page.no-art .ph{font-size:5rem;font-weight:300;color:var(--stone);}
+  .title-page .kicker{position:relative;z-index:1;font-size:var(--text-eyebrow);font-weight:500;letter-spacing:0.16em;
+    line-height:1.2;text-transform:uppercase;color:var(--stone);}
+  .title-page .title-meta{position:relative;z-index:1;flex:none;gap:0.375rem;}
+  /* The title in the display role: it wraps and clamps visually at four lines (the full text stays in the heading),
+     grows with text size no faster than the screen allows, and breaks only a single word wider than the column. */
+  .title-page .title-meta h2.t{font-size:min(var(--text-display),calc(0.5rem + 12.5vw));font-weight:300;line-height:1.08;
+    letter-spacing:-0.02em;padding-bottom:0.06em;color:var(--cream);overflow-wrap:break-word;-webkit-line-clamp:4;line-clamp:4;}
+  .title-page .title-meta .d{white-space:normal;overflow:visible;font-size:var(--text-body);line-height:1.45;color:var(--stone);}
+  .title-page .title-meta .p{color:var(--cream);font-variant-numeric:tabular-nums;}
+  .title-bar{display:block;width:min(100%,12rem);height:3px;margin-top:0.125rem;border-radius:2px;overflow:hidden;
+    background:var(--raised);box-shadow:0 0 0 1px var(--line);}
+  .title-bar .fill{display:block;height:100%;border-radius:inherit;background:var(--cream);}
+  /* One Cream action across the column, then the quiet note on where it opens, in an opaque panel. */
+  .title-page .act{margin-top:1.25rem;}
+  .title-page a.open{display:flex;justify-content:center;width:100%;min-height:3.25rem;padding:0.625rem 1.25rem;
+    border:1px solid var(--cream);border-radius:var(--radius-button);background:var(--cream);color:var(--ink);
+    font-size:var(--text-button);font-weight:600;line-height:1.25;text-align:center;}
+  .title-page a.open:hover{background:var(--cream);color:var(--ink);box-shadow:inset 0 0 0 2px var(--ink);}
+  .title-page a.open:focus-visible{background:var(--cream);color:var(--ink);outline:2px solid transparent;
+    box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--focus);}
+  .title-page .hint{margin-top:0.75rem;padding:0.875rem 1rem;border:1px solid var(--line-strong);border-radius:var(--radius-panel);
+    background:var(--surface);color:var(--stone);font-size:var(--text-secondary);overflow-wrap:normal;}
+  @media (forced-colors:active){.title-page .frame{box-shadow:none;}.title-page a.open{border-color:ButtonText;}
+    .title-bar{forced-color-adjust:none;background:Canvas;box-shadow:0 0 0 1px CanvasText;}.title-bar .fill{background:CanvasText;}
+    .title-page .hint{border-color:CanvasText;}}

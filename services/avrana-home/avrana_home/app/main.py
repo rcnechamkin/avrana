@@ -36,16 +36,17 @@ from . import catalogue as catalogue_mod
 from .catalogue import Trusted
 from . import artwork as artwork_mod
 from . import install as install_mod
-from .identity import (IdentityResolver, Viewer, get_viewer, has_identity_headers,
+from .identity import (IdentityResolver, Viewer, get_viewer, has_identity_headers, library_chip_from_scope,
                        new_tab_from_scope, search_term_from_scope)
 from .logsafe import app_log, log_event, silence_uvicorn_access
 from .middleware import HygieneMiddleware
 from . import recovery
-from .routing import (AccountFacts, Decision, chooser_intro, decide, normalise_target, not_found, parse_title_route,
-                      search_decision, title_decision, trouble_decision)
+from .routing import (AccountFacts, Decision, chooser_intro, decide, library_decision, normalise_target, not_found,
+                      parse_title_route, search_decision, title_decision, trouble_decision)
 from .settings import Settings, is_sealed_preview
-from .viewmodel import (ACCOUNT_LIBRARY, INTERSTITIAL_SHELL, NO_LIBRARY, REQUEST_FOR, SERVICE_LABEL,
-                        account_access, build_home, build_search, build_shell, build_title)
+from .viewmodel import (ACCOUNT_LIBRARY, INTERSTITIAL_SHELL, LIBRARY_PLACE, NO_LIBRARY, REQUEST_FOR, SERVICE_LABEL,
+                        account_access, build_home, build_library, build_search, build_shell, build_title,
+                        has_library)
 
 TEMPLATES = Path(__file__).resolve().parent / "templates"
 HTML = "text/html; charset=utf-8"
@@ -225,6 +226,21 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
             scope["avrana_route"] = decision.label
             return respond(decision, scope, shell=shell_for(viewer, "search"))
 
+        if route == "/library" and settings.home_sections and adapter_list:
+            # The Library page (Concept K MK-5a, AVR-719): a shell page like /search, only with the shell on and for a
+            # verified member; otherwise the standard 404, exactly as an unknown route (portal parity). It shows the
+            # same sections Home gathers for this member; `?lib=` only chooses a chip among the member's own libraries.
+            if viewer.principal is None:
+                scope["avrana_route"] = "not_found"
+                return respond(not_found())
+            tiles = decide("/", viewer.groups, cat).context["tiles"]
+            view = await _gather(viewer) if has_library(tiles) else {"sections": []}
+            page = build_library(view, tiles, chip=library_chip_from_scope(scope), limit=settings.section_limit,
+                                 open_paths=place_paths(viewer))
+            decision = library_decision(page)
+            scope["avrana_route"] = decision.label
+            return respond(decision, scope, shell=shell_for(viewer, "library"))
+
         if route.startswith("/title/") and settings.home_sections and adapter_list:
             # A title page (AVR-384). Unknown service, malformed id, no principal, no group, unknown or hidden
             # item: the one standard 404, exactly as an unknown route (portal parity, never 403).
@@ -316,6 +332,17 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
             svc = cat.service(path)
             if svc is not None and svc.allows(viewer.groups):
                 out[path] = svc.host
+        return out
+
+    def place_paths(viewer: Viewer) -> dict:
+        """service -> the member's own place route for that library ("/watch"), only where this member's groups open
+        it in the catalogue (the same check as the route itself), for Library's "Open <app>" links. Static catalogue
+        data only; nothing from the request."""
+        out = {}
+        for service, path in LIBRARY_PLACE.items():
+            svc = cat.service(path)
+            if svc is not None and svc.allows(viewer.groups):
+                out[service] = "/" + path
         return out
 
     def shell_for(viewer: Viewer, current: str, places=None):

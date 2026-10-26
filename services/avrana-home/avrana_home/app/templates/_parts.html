@@ -22,7 +22,7 @@
       <h1><a href="/" aria-current="page"><img class="lockup" src="/brand/avrana-media-l3.svg" alt="Avrana Media" width="1384" height="650"><span class="lockup-text" aria-hidden="true">Avrana Media</span></a></h1>
 {% else %}
       <h1 class="sr">Avrana Media</h1>
-{% if shell.current not in ("search", "account", "help") %}
+{% if shell.current not in ("library", "search", "account", "help") %}
       <a class="homebtn glass" href="/"><img class="spire" src="/brand/spire-a-24.svg" alt="Home" width="24" height="24"><span class="homebtn-text" aria-hidden="true">Home</span></a>
 {% endif %}
 {% endif %}
@@ -45,16 +45,16 @@
    right with JavaScript off. MK-3's script only moves data-at on a plain click; it never stops the navigation.
    aria-current="page" marks the tab that is this page; "true" marks the section a deeper page belongs to (a help
    topic under Me, a place or a title under Home).
-   Library has no page of its own until MK-5; until then it opens Home's "Recently added" shelf.
+   Library opens its own page, /library (MK-5a, AVR-719); Home keeps its "Recently added" shelf (id h-new).
    Icons are inline SVG, decorative (aria-hidden), stroked in currentColor so they follow the label and forced
    colours. Me shows the member's initial (Authentik gives Home no avatar); its name says who is signed in. #}
 {% macro tabbar(shell) -%}
-{%- set section = {"home": "home", "place": "home", "title": "home", "search": "search", "account": "me", "help": "me", "help-topic": "me"}.get(shell.current) -%}
-{%- set page = {"home": "home", "search": "search", "account": "me"}.get(shell.current) -%}
+{%- set section = {"home": "home", "place": "home", "title": "home", "library": "library", "search": "search", "account": "me", "help": "me", "help-topic": "me"}.get(shell.current) -%}
+{%- set page = {"home": "home", "library": "library", "search": "search", "account": "me"}.get(shell.current) -%}
 {%- set tabs = ["home", "library", "search", "me"] if shell.can_search else ["home", "me"] -%}
 <nav class="tabbar glass" aria-label="Sections" data-tabs="{{ tabs|length }}"{% if section in tabs %} data-at="{{ tabs.index(section) }}"{% endif %}>
 {% for t in tabs %}
-  <a class="tab" href="{{ {"home": "/", "library": "/#h-new", "search": "/search", "me": "/account"}[t] }}"{% if t == page %} aria-current="page"{% elif t == section %} aria-current="true"{% endif %}>
+  <a class="tab" href="{{ {"home": "/", "library": "/library", "search": "/search", "me": "/account"}[t] }}"{% if t == page %} aria-current="page"{% elif t == section %} aria-current="true"{% endif %}>
 {%- if t == "home" %}<svg class="ic" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false"><path d="M4 10.5 12 4l8 6.5V20h-5.5v-5.5h-5V20H4z"/></svg><span class="tl">Home</span>
 {%- elif t == "library" %}<svg class="ic" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false"><path d="M5 4v16M9 4v16M13.5 4.5l5.5 15"/></svg><span class="tl">Library</span>
 {%- elif t == "search" %}<svg class="ic" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false"><circle cx="10.5" cy="10.5" r="6"/><path d="m15 15 5 5"/></svg><span class="tl">Search</span>

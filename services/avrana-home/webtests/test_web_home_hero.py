@@ -143,7 +143,8 @@ class Stylesheet(unittest.TestCase):
         css = (TEMPLATES / "home.css").read_text(encoding="utf-8")
         marker = "  /* ---- MK-4 Home (AVR-718) ---- */\n"
         self.assertEqual(1, css.count(marker))
-        self.block = css.split(marker, 1)[1]
+        # The MK-4 block only: it runs to the next slice's block marker (MK-5a appends its own after it).
+        self.block = css.split(marker, 1)[1].split("  /* ---- MK-", 1)[0]
         self.rules = re.sub(r"/\*.*?\*/", "", self.block, flags=re.S)
 
     def test_yellow_marks_only_the_members_own_state_and_progress_is_cream(self):
@@ -285,9 +286,10 @@ class TwoMembers(unittest.TestCase):
         self.assertNotIn("Synthetic Film Two", a_text)
         self.assertNotIn("Synthetic Film One", b_text)
 
-    def test_the_library_tab_still_lands_on_recently_added(self):
+    def test_the_library_tab_opens_the_library_page_and_home_keeps_recently_added(self):
+        # MK-5a (AVR-719) gave Library its own page; Home keeps its shelf and its id.
         text, _hero = self.hero(A)
-        self.assertIn('<a class="tab" href="/#h-new">', text)
+        self.assertIn('<a class="tab" href="/library">', text)
         self.assertIn('<h2 id="h-new">Recently added</h2>', text)
 
 
