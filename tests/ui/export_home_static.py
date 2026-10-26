@@ -260,7 +260,8 @@ class Exporter:
             '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" '
             'content="width=device-width, initial-scale=1"><meta name="color-scheme" content="dark">'
             '<title>Avrana Home review</title>' + PLAIN + '<style>body{margin:0;padding:16px}'
-            'li{margin:0 0 16px}a{display:inline-block;min-height:44px;line-height:44px;margin-right:12px}'
+            'li{margin:0 0 16px}a{display:inline-flex;align-items:center;min-height:44px;max-width:100%;'
+            'overflow-wrap:anywhere;margin-right:12px}'
             '</style></head><body><main><h1>Avrana Home: device review</h1>'
             '<p>Static export. Synthetic data only. Start with <em>home</em> in each row.</p><ul>'
             + "\n".join(rows) + '</ul></main></body></html>\n').encode())
