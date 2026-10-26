@@ -486,13 +486,14 @@
   .lib-empty{padding:1.25rem 1rem 0.75rem;border:1px solid var(--line-strong);border-radius:var(--radius-panel);background:var(--surface);}
   @media (forced-colors:active){.lib-browse a,.lib-rows,.lib-empty{border-color:CanvasText;}}
   /* The title page: the art is the item's own image twice, as in the hero (crisp at its natural shape over a
-     blurred, dimmed copy that fades before the text); the masthead's glass Home button stays above it. From 360px the
-     stage rises beside the Home button, as in the frames; narrower, it stays below so the two never overlap, and the
-     art is shorter so the title still shows on the first screen. */
+     blurred, dimmed copy that fades before the text); the masthead's glass Home button stays above it. From 360px a
+     tall cover rises beside the Home button, as in the frames; wide and square art (and every cover under 360px) stays
+     below it, so art never sits under the button. Under 360px the art is shorter, so the title shows on the first
+     screen. */
   body:has(.title-page) .mast{position:relative;z-index:2;}
   .title-page{--hero-h:225px;position:relative;gap:0.5rem;}
   .title-stage{position:relative;display:flex;justify-content:center;align-items:flex-end;padding:0 0 1.25rem;}
-  @media (min-width:360px){.title-stage{margin-top:-3.25rem;}}
+  @media (min-width:360px){.title-page:is(.w-poster,.w-book,.w-comic) .title-stage{margin-top:-3.25rem;}}
   @media (max-width:359px){.title-page{--hero-h:160px;}}
   .title-page .frame{position:relative;z-index:1;flex:none;width:min(100%,calc(var(--hero-h) * var(--r)));
     border-radius:var(--radius-preview);border-color:var(--line-strong);background:var(--raised);box-shadow:0 18px 40px rgb(0 0 0 / 0.45);}

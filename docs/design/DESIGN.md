@@ -436,18 +436,22 @@ has the yellow tint, rim and a check glyph, and `aria-current="true"`; chips wra
 breaks inside a word. All shows one shelf per library: the newest items Home already has for it (at most four) on
 the MK-4 rail, with a quiet "Open <app>" link to the member's own place route (`/watch`, `/listen`, `/comics`,
 `/books`), only where the catalogue opens it for this member. One chosen library shows them as a grid on the 180px
-baseline and ends with "Browse everything in <app>". A library that is down is a warning, not a shelf: a rectangle
-with a glyph, Home's own sentence ("... are unavailable right now.") and Try again, an amber `--warn` edge, never
-yellow, and no items, not even cached ones; its chip stays, struck through. Not set up says so, with "What to do
-next"; nothing anywhere is one panel, "Nothing recently added."; a member with no library reads Home's "No library
-yet" and a Help link. The page ends with a Requests group linking the existing Request (and Contribute) place pages,
-only when the member's catalogue holds them. Without a member, or with sections off, `/library` is the standard
-404; its CSP and Cache-Control are those of the other shell pages.
+baseline and ends with "Browse everything in <app>". A library that is down (one of its sections reports
+unavailable, Home's `library_down` rule) is a warning, not a shelf: a rectangle with a glyph, Home's own sentence
+("... are unavailable right now.") and Try again, an amber `--warn` edge, never yellow, and none of its items, even
+those another of its sections still serves from the cache; its chip stays, struck through. As on Home, a library
+answered wholly from the cache during an outage reports nothing unavailable, so its cached items still show until
+their cache time ends. Not set up says so, with "What to do next"; nothing anywhere is one panel, "Nothing recently
+added."; a member with no library reads Home's "No library yet" and a Help link. The page ends with a group linking
+the existing Request and Contribute place pages ("Requests", or "Request or contribute" when both are there), only
+when the member's catalogue holds them. Without a member, or with sections off, `/library` is the standard 404; its
+CSP and Cache-Control are those of the other shell pages.
 
 **Title page (MK-5a; frames 19:1748, 19:1846).** Restyled only: behaviour, permission checks and copy are unchanged.
 The art is the item's own `/art` image twice, as in Home's hero (crisp at its natural shape over a blurred, dimmed
-copy; without art, the letter frame and no backdrop); from 360px it rises beside the glass Home button. The kicker is
-a Stone eyebrow and the title the 48px Light display role (it wraps and clamps visually at four lines). Progress stays
+copy; without art, the letter frame and no backdrop). From 360px a tall cover (poster, book, comic) rises beside the
+glass Home button; a wide still or a square stays below it, so art never sits under the button. The kicker is a
+Stone eyebrow and the title the 48px Light display role (it wraps and clamps visually at four lines). Progress stays
 in words, with the 3px Cream rule under them (`pc0` to `pc100`, hidden from assistive technology), then the one Cream
 action across the column and the "Opens in" note in an opaque panel. An unavailable library is the same warning as
 on Library. The frames' "Continue" eyebrow, "Resume in Jellyfin" label and detail panel are not built: they change

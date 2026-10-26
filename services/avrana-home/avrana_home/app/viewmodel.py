@@ -591,6 +591,14 @@ class LibraryVM:
     said: Optional[str] = None             # the honest empty state ("Nothing recently added.")
     setup_href: Optional[str] = None       # "What to do next": a library is not set up for this member
     asks: Tuple[Tuple[str, object, object], ...] = ()   # (href, label, description): catalogue text (Trusted)
+    asks_heading: str = "Requests"         # "Request or contribute" when both rows are there; contributing is no request
+
+
+def asks_heading_of(asks) -> str:
+    paths = {href for href, _l, _d in asks}
+    if "/contribute" in paths:
+        return "Request or contribute" if "/request" in paths else "Contribute"
+    return "Requests"
 
 
 def library_href(key: str) -> str:
@@ -606,7 +614,7 @@ def build_library(view: dict, tiles, *, chip: Optional[str] = None, limit: int =
     limit = max(1, min(int(limit), RAIL_MOST))
     asks = tuple(("/" + path, label, desc) for path, label, desc in tiles if path in LIBRARY_ASKS)
     if not has_library(tiles):
-        return LibraryVM(no_library=True, asks=asks)
+        return LibraryVM(no_library=True, asks=asks, asks_heading=asks_heading_of(asks))
     held = _sections_by_service(view)
     mine = [s for s in SERVICE_ORDER if s in held]
     down = {s for s in mine if library_down(held[s])}
@@ -626,7 +634,7 @@ def build_library(view: dict, tiles, *, chip: Optional[str] = None, limit: int =
     warnings, shelves, unset = [], [], False
     for s in shown:
         label = SERVICE_LABEL[s]
-        if s in down:                          # Home's own sentence; no items, not even ones still in the cache
+        if s in down:                          # a section said unavailable: Home's sentence, none of its items
             warnings.append(service_notice(s, "unavailable"))
             continue
         open_href = paths.get(s) if paths.get(s) == "/" + LIBRARY_PLACE[s] else None
@@ -649,7 +657,8 @@ def build_library(view: dict, tiles, *, chip: Optional[str] = None, limit: int =
     return LibraryVM(no_library=False, chips=chips, chosen=chosen,
                      chosen_label=None if chosen == LIBRARY_ALL else SERVICE_LABEL[chosen],
                      warnings=tuple(warnings), retry_href=library_href(chosen) if warnings else None,
-                     shelves=tuple(shelves), said=said, setup_href=SETUP_HELP if unset else None, asks=asks)
+                     shelves=tuple(shelves), said=said, setup_href=SETUP_HELP if unset else None, asks=asks,
+                     asks_heading=asks_heading_of(asks))
 
 
 # ---- search page (AVR-383) --------------------------------------------------------------------------------

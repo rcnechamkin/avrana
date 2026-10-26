@@ -86,7 +86,7 @@
 {% endif %}
 {% if page.asks %}
   <section class="shelf lib-asks" aria-labelledby="h-lib-asks">
-    <h2 id="h-lib-asks">Requests</h2>
+    <h2 id="h-lib-asks">{{ page.asks_heading }}</h2>
     <ul class="lib-rows">
 {% for href, label, desc in page.asks %}
       <li><a href="{{ href }}"><span class="lib-row-t">{{ label|trusted }}</span><span class="lib-row-d">{{ desc|trusted }}</span><svg class="chev" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="m6 3.5 4.5 4.5L6 12.5"/></svg></a></li>

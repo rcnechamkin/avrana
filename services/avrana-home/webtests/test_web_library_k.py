@@ -123,6 +123,12 @@ class ViewModel(unittest.TestCase):
         self.assertEqual((True, (), (), ()), (page.no_library, page.chips, page.shelves, page.asks))
         self.assertEqual([("/request", "Request")], [(h, str(l)) for h, l, _d in build_library(av_view(), TILES_AV).asks])
 
+    def test_the_group_heading_says_contribute_only_when_that_row_is_there(self):
+        both = TILES_AV + [("contribute", Trusted("Contribute"), Trusted("Add your own"))]
+        self.assertEqual("Request or contribute", build_library(av_view(), both).asks_heading)
+        self.assertEqual("Requests", build_library(av_view(), TILES_AV).asks_heading)
+        self.assertEqual("Contribute", build_library(av_view(), [t for t in both if t[0] != "request"]).asks_heading)
+
     def test_a_library_the_member_cannot_use_is_never_named(self):
         page = build_library(av_view(), TILES_AV, chip="komga", open_paths=PLACES)
         text = repr(page)
@@ -156,6 +162,11 @@ class Stylesheet(unittest.TestCase):
     def test_glass_only_on_the_utility_and_the_progress_rule_is_cream(self):
         self.assertNotIn(".glass", self.rules)          # the utility wears the shared class from the shell's block
         self.assertIn(".title-bar .fill{display:block;height:100%;border-radius:inherit;background:var(--cream);}", self.rules)
+
+    def test_only_a_tall_cover_rises_beside_the_home_button(self):
+        self.assertIn("@media (min-width:360px){.title-page:is(.w-poster,.w-book,.w-comic) .title-stage{margin-top:-3.25rem;}}",
+                      self.rules)
+        self.assertEqual(1, self.rules.count("margin-top:-3.25rem"))
 
     def test_comments_name_no_library_or_member_word(self):
         words = list(SERVICE_LABEL.values()) + ["Movies", "Audiobook", "Comic", "jellyfin", "Jellyfin", "komga", "Komga",
