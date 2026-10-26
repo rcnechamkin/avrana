@@ -44,7 +44,7 @@ from . import recovery
 from .routing import (AccountFacts, Decision, chooser_intro, decide, normalise_target, not_found, parse_title_route,
                       search_decision, title_decision, trouble_decision)
 from .settings import Settings, is_sealed_preview
-from .viewmodel import (ACCOUNT_LIBRARY, ACCOUNT_MENU, INTERSTITIAL_SHELL, NO_LIBRARY, REQUEST_FOR, SERVICE_LABEL,
+from .viewmodel import (ACCOUNT_LIBRARY, INTERSTITIAL_SHELL, NO_LIBRARY, REQUEST_FOR, SERVICE_LABEL,
                         account_access, build_home, build_search, build_shell, build_title)
 
 TEMPLATES = Path(__file__).resolve().parent / "templates"
@@ -70,7 +70,6 @@ def make_environment() -> Environment:
     # The Home design's rules (home.css) are added to the page ONLY when the home sections render, so every
     # other page, and Home with sections off, stays byte-identical to the portal (the parity test).
     env.globals["home_stylesheet"] = Markup("\n" + (TEMPLATES / "home.css").read_text(encoding="utf-8"))
-    env.globals["account_menu"] = ACCOUNT_MENU
     env.globals["no_library_said"] = NO_LIBRARY
     return env
 

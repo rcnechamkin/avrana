@@ -74,8 +74,8 @@
     .glass{background:var(--raised);-webkit-backdrop-filter:none;backdrop-filter:none;}
     .glass::before{background:var(--line-strong);}}
   /* The selected tab's lens: a yellow tint and rim (purple's role in Party). */
-  .k-lens{background:var(--accent-lens);box-shadow:inset 0 0 0 1px rgb(234 218 110 / 0.55),inset 0 1px 0 rgb(255 255 255 / 0.3);}
-  @media (prefers-reduced-transparency:reduce),(prefers-contrast:more){.k-lens{background:var(--accent-selected);box-shadow:inset 0 0 0 1px var(--accent);}}
+  .k-lens,.tabbar .lens{background:var(--accent-lens);box-shadow:inset 0 0 0 1px rgb(234 218 110 / 0.55),inset 0 1px 0 rgb(255 255 255 / 0.3);}
+  @media (prefers-reduced-transparency:reduce),(prefers-contrast:more){.k-lens,.tabbar .lens{background:var(--accent-selected);box-shadow:inset 0 0 0 1px var(--accent);}}
   /* Reduce Motion: nothing animates. */
   @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;}}
   /* The portal's body centres its one column (justify-content:center); turned into a column here, that would centre
@@ -92,9 +92,10 @@
   .mast,.places,main,footer{width:100%;max-width:45rem;margin-inline:auto;
     padding-left:max(1.25rem,env(safe-area-inset-left));padding-right:max(1.25rem,env(safe-area-inset-right));}
   .mast{padding-top:max(0.5rem,env(safe-area-inset-top));display:flex;flex-direction:column;align-items:center;gap:0.625rem;text-align:center;}
-  /* The Media L3 lockup (brand.py) is the heading: 3.5rem tall (56px, twice the package's 28px minimum, so the
-     product name inside it stays legible); it grows with text size. The h1 drops the serif wordmark's tracking. */
+  /* The Media L3 lockup (brand.py) is Home's heading: 3.5rem tall (56px, twice the package's 28px minimum, so the
+     product name inside it stays legible), at the top left as in the frames; it grows with text size. */
   .mast h1{font-size:1rem;line-height:1;letter-spacing:0;text-indent:0;}
+  .mast.at-home{align-items:flex-start;text-align:left;}
   .mast .lockup{display:block;width:auto;height:3.5rem;max-width:calc(100vw - 2.5rem);object-fit:contain;}
   /* Forced colours (Windows high contrast) leave the cream lockup as it is, so on a light high-contrast ground it
      all but disappears. There the name shows as system-coloured text; the image is hidden visually only, never with
@@ -107,41 +108,59 @@
   /* Forced colours: glass shows as a system-coloured edge (the masked rim and blur mean nothing there). */
   @media (forced-colors:active){.glass{border:1px solid CanvasText;}.glass::before{display:none;}}
   .mast a{text-decoration:none;display:inline-flex;align-items:center;min-height:2.75rem;}
-  .id{align-self:stretch;display:flex;flex-wrap:wrap;justify-content:flex-end;align-items:center;gap:0 0.25rem;min-height:2.75rem;}
-  /* Search and Account keep their size; Geist is set untracked (the package's body tracking). With large text the
-     row wraps to two right-aligned rows of full 44px targets rather than shrinking the labels. */
-  .idlink{display:inline-flex;align-items:center;justify-content:center;min-height:2.75rem;min-width:2.75rem;padding:0 0.25rem;
-    font-size:0.92rem;letter-spacing:0;color:var(--fg);text-decoration:none;}
-  .idlink:hover,.idlink[aria-current]{text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:0.25em;}
-  .idlink:focus-visible{outline:2px solid transparent;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--focus);}
-  .menu a[aria-current]{text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:0.25em;}
-  details.account{position:relative;}
-  .account summary{list-style:none;display:inline-flex;align-items:center;gap:0.5rem;min-height:2.75rem;min-width:2.75rem;
-    padding:0 0.25rem;cursor:pointer;font-size:0.92rem;letter-spacing:0;}
-  .account summary::-webkit-details-marker{display:none;}
-  .account summary:focus-visible,.menu a:focus-visible{outline:2px solid transparent;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--focus);}
-  .mono{display:inline-flex;align-items:center;justify-content:center;width:1.75rem;height:1.75rem;
-    border:1px solid var(--rule-control);font-size:0.95rem;letter-spacing:0;}
-  .account[open] .mono{background:var(--fg);color:var(--bg);border-color:var(--fg);}
-  .menu{position:absolute;right:0;top:100%;z-index:2;text-align:left;background:var(--bg);border:1px solid var(--rule-control);
-    padding:0.25rem 0;width:max-content;min-width:min(14rem,calc(100vw - 2.5rem));max-width:calc(100vw - 2.5rem);}
-  .menu .as{margin:0;padding:0.5rem 1rem;color:var(--dim);font-size:0.92rem;border-bottom:1px solid var(--rule-quiet);overflow-wrap:anywhere;}
-  .menu ul{list-style:none;margin:0;padding:0;}
-  .menu a{display:flex;align-items:center;min-height:2.75rem;padding:0 1rem;text-decoration:none;color:var(--fg);}
-  .menu a:hover{text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:0.25em;}
-  .menu a:focus-visible{box-shadow:inset 0 0 0 2px var(--focus);}
-  /* The places bar: one row at 360px (five places); at large text it wraps to whole words, never mid-word,
-     and never past the screen edge. */
-  .places{display:flex;flex-wrap:wrap;justify-content:space-between;gap:0;margin-top:1rem;max-width:45rem;
-    border-top:1px solid var(--rule-quiet);border-bottom:1px solid var(--rule-quiet);
-    padding-left:max(0.625rem,env(safe-area-inset-left));padding-right:max(0.625rem,env(safe-area-inset-right));}
+  /* The glass Home button (D5): a 44px circle holding the Spire-A micro cut at the 24px it is drawn for. Focus is
+     drawn inside it, because glass clips what lies outside. In forced colours the cream mark gives way to the word
+     "Home" (the image's alt text, so the name and the visible word agree). */
+  .mast:not(.at-home){align-items:flex-start;min-height:0;}
+  .homebtn{width:2.75rem;height:2.75rem;justify-content:center;border-radius:50%;color:var(--cream);}
+  .homebtn .spire{display:block;width:24px;height:24px;}
+  .homebtn-text{display:none;}
+  .homebtn:focus-visible{outline:2px solid var(--focus);outline-offset:-3px;}
+  @media (forced-colors:active){
+    .homebtn{width:auto;min-width:2.75rem;padding:0 0.875rem;border-radius:1.375rem;}
+    .homebtn .spire{position:absolute;width:1px;height:1px;margin:-1px;overflow:hidden;clip-path:inset(50%);}
+    .homebtn-text{display:inline;}
+  }
+  /* The places bar on Home (AVR-452, D16): opaque chips, never glass. Five fit one row at 390px with 44px targets;
+     at 320px or large text they wrap to whole chips, never shrinking the words. A down library stays in its place,
+     struck through, and leads to what to do. */
+  .places{display:flex;flex-wrap:wrap;justify-content:flex-start;gap:0.375rem;margin-top:0.75rem;max-width:45rem;}
   .places>*{display:inline-flex;align-items:center;justify-content:center;min-height:2.75rem;min-width:2.75rem;
-    padding:0 0.5rem;font-size:1.0625rem;letter-spacing:0.03em;text-decoration:none;color:var(--fg);white-space:nowrap;}
-  @media (max-width:24rem){.places>*{padding:0 0.375rem;font-size:1rem;letter-spacing:0.02em;}}
-  .places a:hover,.places a[aria-current]{text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:0.25em;}
-  .places a:focus-visible{box-shadow:inset 0 0 0 2px var(--focus);}
-  .places .off{color:var(--dim);}
-  .places .off s{text-decoration-color:var(--rule-strong);}
+    padding:0 0.5625rem;border:1px solid var(--line-strong);border-radius:999px;background:var(--raised);
+    font-size:var(--text-body);font-weight:500;text-decoration:none;color:var(--cream);white-space:nowrap;}
+  .places a:hover{border-color:var(--control);}
+  .places a:focus-visible{outline:2px solid var(--focus);outline-offset:2px;}
+  .places .off{color:var(--stone);background:transparent;}
+  .places .off s{text-decoration-color:var(--ash);}
+  /* The tab bar (D1): glass, fixed above the bottom edge and its safe area, centred, at most 28rem wide. Each tab
+     is a full-height target. The bar's edges and padding are in px, so at large text the labels get the width
+     instead of the margins; a label never breaks inside a word. The lens sits under the section's tab, placed by
+     data-at alone (server-printed; MK-3's script may move it), and slides on the spring when it moves. Without a
+     section there is no lens. */
+  .tabbar{position:fixed;z-index:20;left:max(16px,env(safe-area-inset-left));right:max(16px,env(safe-area-inset-right));
+    bottom:max(24px,env(safe-area-inset-bottom));max-width:28rem;margin-inline:auto;display:flex;padding:6px;
+    border-radius:2.25rem;--n:4;--at:0;}
+  .tabbar[data-tabs="2"]{--n:2;}
+  .tabbar[data-at="1"]{--at:1;}.tabbar[data-at="2"]{--at:2;}.tabbar[data-at="3"]{--at:3;}
+  .tab{position:relative;z-index:1;flex:1 1 0;min-width:0;display:flex;flex-direction:column;align-items:center;
+    justify-content:center;gap:0.125rem;min-height:3.25rem;padding:0.25rem 2px;border-radius:1.875rem;
+    color:var(--stone);text-decoration:none;font-size:var(--text-eyebrow);font-weight:500;line-height:1.2;text-align:center;}
+  .tab:hover,.tab[aria-current]{color:var(--cream);}
+  .tab:focus-visible{outline:2px solid var(--focus);outline-offset:-3px;}
+  .tab .ic{width:1.5rem;height:1.5rem;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;}
+  .tab .me{display:inline-flex;align-items:center;justify-content:center;width:1.5rem;height:1.5rem;border-radius:50%;
+    background:var(--raised);border:1px solid var(--line-strong);color:var(--cream);font-size:var(--text-eyebrow);font-weight:600;}
+  .tab .tl{overflow-wrap:normal;word-break:normal;}
+  .tabbar .lens{position:absolute;z-index:0;top:6px;bottom:6px;left:6px;width:calc((100% - 12px) / var(--n));
+    border-radius:1.875rem;transform:translateX(calc(var(--at) * 100%));pointer-events:none;
+    transition:transform var(--motion-spring) var(--ease-spring);}
+  .tabbar:not([data-at]) .lens{display:none;}
+  @media (forced-colors:active){.tabbar .lens{border:2px solid Highlight;}
+    .tab[aria-current] .tl{text-decoration:underline;text-underline-offset:0.2em;}}
+  /* Scroll end: the last row clears the bar by 1rem (bar 4rem, its bottom offset, and 1rem). */
+  body:has(.tabbar) .page{padding-bottom:calc(5rem + max(24px, env(safe-area-inset-bottom)));}
+  /* Focus is never hidden under the bar (WCAG 2.4.11): scrolling to a focused control keeps it above the bar. */
+  html:has(.tabbar){scroll-padding-bottom:calc(5rem + max(24px, env(safe-area-inset-bottom)));}
   main{padding-top:1.5rem;padding-bottom:2rem;}
   .shelf{display:flex;flex-direction:column;gap:0.75rem;min-width:0;}
   .shelf h2{margin:0;font-weight:400;font-size:0.9rem;line-height:1.3;letter-spacing:0.22em;text-transform:uppercase;color:var(--dim);}

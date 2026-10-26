@@ -198,9 +198,6 @@ NOTHING_IN_PROGRESS = ("Nothing in progress. Whatever you start in a library app
                        "ready to pick up where you stopped.")
 NOTHING_NEW = "Nothing new this week."
 NO_LIBRARY = "No library is shared with this account yet. Ask the person who invited you, or read Help."
-# The account disclosure links only to pages that exist in this shell. Help is not repeated here: it is the last
-# place in the places bar on every shell page.
-ACCOUNT_MENU = (("Account and security", "/account"),)
 
 
 @dataclass(frozen=True)
@@ -246,13 +243,13 @@ class HomeVM:
 
 @dataclass(frozen=True)
 class ShellVM:
-    """What the masthead needs on every shell page (Home, Search, Account, Help, help topics), so the places
-    bar, Search, Help and the account menu are the same everywhere."""
+    """What the shell needs on every shell page (Home, Search, Account, Help, help topics, places, titles): the
+    places bar on Home, and the tab bar (Home, Library, Search, Me) everywhere."""
     member_name: str
     initial: str
     places: Tuple[PlaceVM, ...]
-    can_search: bool                      # only a member with a searchable library is offered Search
-    current: str                          # home | search | account | help | help-topic
+    can_search: bool                      # only a member with a library is offered Library and Search
+    current: str                          # home | search | account | help | help-topic | place | title
 
 
 @dataclass(frozen=True)

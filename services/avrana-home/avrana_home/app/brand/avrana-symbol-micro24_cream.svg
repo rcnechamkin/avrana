@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd" width="24" height="24" viewBox="0 0 24 24" version="1.1">
+  <title>avrana-symbol-micro24_cream</title>
+  <desc>Spire-A micro cut for 24 px, v1.0 (approved 2026-10-17). Derived drawing; use only at 24 px. The canonical Spire-A is the master for every other size.</desc>
+  <g id="layer-grid" inkscape:groupmode="layer" inkscape:label="90_Pixel_Grid" style="display:none">
+    <path id="grid-x0" inkscape:label="grid x0" d="M0,0 V24" fill="none" stroke="#34c8ff" stroke-width="0.03"/>
+    <path id="grid-y0" inkscape:label="grid y0" d="M0,0 H24" fill="none" stroke="#34c8ff" stroke-width="0.03"/>
+    <path id="grid-x1" inkscape:label="grid x1" d="M1,0 V24" fill="none" stroke="#34c8ff" stroke-width="0.03"/>
+    <path id="grid-y1" inkscape:label="grid y1" d="M0,1 H24" fill="none" stroke="#34c8ff" stroke-width="0.03"/>
+    <path id="grid-x2" inkscape:label="grid x2" d="M2,0 V24" fill="none" stroke="#34c8ff" stroke-width="0.03"/>
+    <path id="grid-y2" inkscape:label="grid y2" d="M0,2 H24" fill="none" stroke="#34c8ff" stroke-width="0.03"/>
+    <path id="grid-x3" inkscape:label="grid x3" d="M3,0 V24" fill="none" stroke="#34c8ff" stroke-width="0.03"/>
+    <path id="grid-y3" inkscape:label="grid y3" d="M0,3 H24" fill="none" stroke="#34c8ff" stroke-width="0.03"/>
+    <path id="grid-x4" inkscape:label="grid x4" d="M4,0 V24" fill="none" stroke="#34c8ff" stroke-width="0.03"/>
+    <path id="grid-y4" inkscape:label="grid y4" d="M0,4 H24" fill="none" stroke="#34c8ff" stroke-width="0.03"/>
+    <path id="grid-x5" inkscape:label="grid x5" d="M5,0 V24" fill="none" stroke="#34c8ff" stroke-width="0.03"/>
+    <path id="grid-y5" inkscape:label="grid y5" d="M0,5 H24" fill="none" stroke="#34c8ff" stroke-width="0.03"/>
+    <path id="grid-x6" inkscape:label="grid x6" d="M6,0 V24" fill="none" stroke="#34c8ff" stroke-width="0.03"/>
+    <path id="grid-y6" inkscape:label="grid y6" d="M0,6 H24" fill="none" stroke="#34c8ff" stroke-width="0.03"/>
+    <path id="grid-x7" inkscape:label="grid x7" d="M7,0 V24" fill="none" stroke="#34c8ff" stroke-width="0.03"/>
+    <path id="grid-y7" inkscape:label="grid y7" d="M0,7 H24" fill="none" stroke="#34c8ff" stroke-width="0.03"/>
+    <path id="grid-x8" inkscape:label="grid x8" d="M8,0 V24" fill="none" stroke="#34c8ff" stroke-width="0.03"/>
+    <path id="grid-y8" inkscape:label="grid y8" d="M0,8 H24" fill="none" stroke="#34c8ff" stroke-width="0.03"/>
+    <path id="grid-x9" inkscape:label="grid x9" d="M9,0 V24" fill="none" stroke="#34c8ff" stroke-width="0.03"/>
+    <path id="grid-y9" inkscape:label="grid y9" d="M0,9 H24" fill="none" stroke="#34c8ff" stroke-width="0.03"/>
+    <path id="grid-x10" inkscape:label="grid x10" d="M10,0 V24" fill="none" stroke="#34c8ff" stroke-width="0.03"/>
+    <path id="grid-y10" inkscape:label="grid y10" d="M0,10 H24" fill="none" stroke="#34c8ff" stroke-width="0.03"/>
+    <path id="grid-x11" inkscape:label="grid x11" d="M11,0 V24" fill="none" stroke="#34c8ff" stroke-width="0.03"/>
+    <path id="grid-y11" inkscape:label="grid y11" d="M0,11 H24" fill="none" stroke="#34c8ff" stroke-width="0.03"/>
+    <path id="grid-x12" inkscape:label="grid x12" d="M12,0 V24" fill="none" stroke="#34c8ff" stroke-width="0.03"/>
+    <path id="grid-y12" inkscape:label="grid y12" d="M0,12 H24" fill="none" stroke="#34c8ff" stroke-width="0.03"/>
+    <path id="grid-x13" inkscape:label="grid x13" d="M13,0 V24" fill="none" stroke="#34c8ff" stroke-width="0.03"/>
+    <path id="grid-y13" inkscape:label="grid y13" d="M0,13 H24" fill="none" stroke="#34c8ff" stroke-width="0.03"/>
+    <path id="grid-x14" inkscape:label="grid x14" d="M14,0 V24" fill="none" stroke="#34c8ff" stroke-width="0.03"/>
+    <path id="grid-y14" inkscape:label="grid y14" d="M0,14 H24" fill="none" stroke="#34c8ff" stroke-width="0.03"/>
+    <path id="grid-x15" inkscape:label="grid x15" d="M15,0 V24" fill="none" stroke="#34c8ff" stroke-width="0.03"/>
+    <path id="grid-y15" inkscape:label="grid y15" d="M0,15 H24" fill="none" stroke="#34c8ff" stroke-width="0.03"/>
+    <path id="grid-x16" inkscape:label="grid x16" d="M16,0 V24" fill="none" stroke="#34c8ff" stroke-width="0.03"/>
+    <path id="grid-y16" inkscape:label="grid y16" d="M0,16 H24" fill="none" stroke="#34c8ff" stroke-width="0.03"/>
+    <path id="grid-x17" inkscape:label="grid x17" d="M17,0 V24" fill="none" stroke="#34c8ff" stroke-width="0.03"/>
+    <path id="grid-y17" inkscape:label="grid y17" d="M0,17 H24" fill="none" stroke="#34c8ff" stroke-width="0.03"/>
+    <path id="grid-x18" inkscape:label="grid x18" d="M18,0 V24" fill="none" stroke="#34c8ff" stroke-width="0.03"/>
+    <path id="grid-y18" inkscape:label="grid y18" d="M0,18 H24" fill="none" stroke="#34c8ff" stroke-width="0.03"/>
+    <path id="grid-x19" inkscape:label="grid x19" d="M19,0 V24" fill="none" stroke="#34c8ff" stroke-width="0.03"/>
+    <path id="grid-y19" inkscape:label="grid y19" d="M0,19 H24" fill="none" stroke="#34c8ff" stroke-width="0.03"/>
+    <path id="grid-x20" inkscape:label="grid x20" d="M20,0 V24" fill="none" stroke="#34c8ff" stroke-width="0.03"/>
+    <path id="grid-y20" inkscape:label="grid y20" d="M0,20 H24" fill="none" stroke="#34c8ff" stroke-width="0.03"/>
+    <path id="grid-x21" inkscape:label="grid x21" d="M21,0 V24" fill="none" stroke="#34c8ff" stroke-width="0.03"/>
+    <path id="grid-y21" inkscape:label="grid y21" d="M0,21 H24" fill="none" stroke="#34c8ff" stroke-width="0.03"/>
+    <path id="grid-x22" inkscape:label="grid x22" d="M22,0 V24" fill="none" stroke="#34c8ff" stroke-width="0.03"/>
+    <path id="grid-y22" inkscape:label="grid y22" d="M0,22 H24" fill="none" stroke="#34c8ff" stroke-width="0.03"/>
+    <path id="grid-x23" inkscape:label="grid x23" d="M23,0 V24" fill="none" stroke="#34c8ff" stroke-width="0.03"/>
+    <path id="grid-y23" inkscape:label="grid y23" d="M0,23 H24" fill="none" stroke="#34c8ff" stroke-width="0.03"/>
+    <path id="grid-x24" inkscape:label="grid x24" d="M24,0 V24" fill="none" stroke="#34c8ff" stroke-width="0.03"/>
+    <path id="grid-y24" inkscape:label="grid y24" d="M0,24 H24" fill="none" stroke="#34c8ff" stroke-width="0.03"/>
+  </g>
+  <g id="layer-mark" inkscape:groupmode="layer" inkscape:label="01_SpireA_Micro_24">
+    <path id="spire-a-micro-24" inkscape:label="spire-a-micro-24" d="M12,0 L13.25,2.4 L13.9,5.6 L14.6,8.4 L15,10.4 L15,24 L9,24 L9,10.4 L9.4,8.4 L10.1,5.6 L10.75,2.4 Z M12,6.2 L13,9.6 L13,14 L11,14 L11,9.6 Z M12,16.4 L13,18.8 L13,24 L11,24 L11,18.8 Z M8,24 L5.4,24 L6.2,18.5 L7.2,14.2 L8,13.2 Z M16,13.2 L16.8,14.2 L17.8,18.5 L18.6,24 L16,24 Z" fill="#edeae4" fill-rule="evenodd"/>
+  </g>
+</svg>

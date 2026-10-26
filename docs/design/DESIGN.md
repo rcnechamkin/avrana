@@ -308,6 +308,8 @@ Cover art in lists is a square crop with no rounding. Media artwork keeps each l
 - Hidden with the clip pattern (not `display:none`), visible on `:focus-visible` as an inverted Paper-on-Ink block, fixed at top left so a sticky header cannot cover it, with the shared two-ring focus ring from `a:focus-visible`. Existing tokens only; no transition, so nothing to gate on reduced motion. Works without JavaScript.
 
 ### Shell masthead (Home, Search, Account, Help)
+> *Superseded on shell pages by the Concept K shell (AVR-716): the top row is gone (Search and Account are tabs),
+> the places bar is on Home only, and `viewport-fit=cover` is set. See "Concept K · Avrana Console" above.*
 - The heading is the brand package's Media L3 lockup, not the typed wordmark (AVR-584; "Brand v1.0.0 on Home
   shell pages" below).
 - Top row, right-aligned: Search (when the member has a searchable library) and the native account
@@ -387,6 +389,24 @@ blur, inset highlights, masked `::before` rim; the element clips itself) worn by
 with solid fallbacks for no `backdrop-filter`, reduced transparency, more contrast and forced colours. Motion tiers
 150, 300 and 200 ms (tier 3 capped at 200 ms; 600 ms only as a labelled Proposal behind a default-off flag); Reduce
 Motion stops all animation.
+
+**Shell (MK-2, AVR-716; D1, D5, D16).** Every shell page ends with the glass tab bar, `nav.tabbar` (aria-label
+"Sections"), after the footer so it is last in reading and focus order, as on screen: Home, Library, Search, Me for a
+member with a library; Home and Me for a member without one (a library a member cannot use is never named). It is
+fixed above the bottom safe area (`viewport-fit=cover`, shell pages only), at most 28rem wide; its edges are in px
+so large text widens the tabs, never the margins, and a label never breaks inside a word. The section's tab carries
+the yellow lens, placed by `data-at` (the tab's index), which the server prints, so it is right without JavaScript;
+the page script (MK-3) only moves `data-at` on a plain click. `aria-current="page"` marks the tab that is this page,
+`"true"` the section a deeper page belongs to (Help and its topics under Me; places and titles under Home). Icons
+are inline SVG in `currentColor`; Me shows the member's initial and its name says who is signed in. Library opens
+Home's "New this week" until MK-5 gives it a page. The page scrolls clear of the bar by 1rem.
+
+Home keeps the L3 lockup as its heading, top left, and under it the places bar (Watch, Listen, Read, Request, Help)
+as opaque chips: one row at 390px, whole chips wrapping at 320px or large text; a down library stays struck through.
+Other shell pages keep "Avrana Media" as a visually hidden `h1` and show their own title first. Pages that are not
+tabs (a place, a help topic, a title) add the glass Home button: the brand's Spire-A micro cut at the 24px it is drawn
+for (`/brand/spire-a-24.svg`), the word "Home" in forced colours. Account links to Help; the old top row (Search
+link, account disclosure) is retired.
 
 ## Brand v1.0.0 on Home shell pages (AVR-584)
 

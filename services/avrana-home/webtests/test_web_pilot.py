@@ -29,9 +29,14 @@ def mains(text):
     return len(re.findall(r"<main[\s>]", text))
 
 
+def tabbar(text):
+    """The tab bar (Concept K, AVR-716): after the footer, last in the page."""
+    return re.search(r'<nav class="tabbar glass" aria-label="Sections".*?</nav>', text, re.S).group(0)
+
+
 def aria_current(text):
-    """(tag text, aria-current value) for everything in the masthead and nav that is marked."""
-    head = text.split("<main", 1)[0]
+    """(href, aria-current value) for everything in the masthead, the places bar and the tab bar that is marked."""
+    head = text.split("<main", 1)[0] + tabbar(text)
     return re.findall(r'<a [^>]*href="([^"]*)"[^>]*aria-current="([^"]*)"', head)
 
 
@@ -64,7 +69,7 @@ class Mocks(unittest.TestCase):
 
 
 class NavigationTests(Mocks):
-    def test_every_shell_page_has_one_main_the_skip_link_and_the_same_masthead(self):
+    def test_every_shell_page_has_one_main_the_skip_link_the_shell_and_a_way_to_help(self):
         c = self.client()
         for who in (A, B):
             for route in SHELL_ROUTES:
@@ -75,35 +80,49 @@ class NavigationTests(Mocks):
                     self.assertEqual(1, mains(t))
                     self.assertIn('<a class="skip-link" href="#main">', t)
                     self.assertIn('<main id="main" tabindex="-1">', t)
-                    self.assertIn('<div class="mast">', t)
-                    self.assertIn('<nav class="places" aria-label="Avrana">', t)
-                    self.assertIn('<h1><a href="/"', t)
-                    # Help is in the places bar and the account menu; the top row does not repeat it
-                    self.assertIn('href="/help"', re.search(r'<nav class="places".*?</nav>', t, re.S).group(0))
-                    self.assertNotIn('class="idlink" href="/help"', t)
-                    self.assertEqual(1, len(re.findall(r'<details class="account">.*?href="/help"', t, re.S)))
-                    self.assertIn('<details class="account">', t)
-                    self.assertIn('class="idlink" href="/search"', t)
+                    self.assertIn('class="mast', t)
+                    self.assertEqual(1, t.count('<nav class="tabbar glass" aria-label="Sections"'))
+                    bar = tabbar(t)
+                    self.assertIn('<a class="tab" href="/"', bar)
+                    self.assertIn('<a class="tab" href="/search"', bar)      # Search is a tab (D1), never a sixth place
+                    self.assertIn('<a class="tab" href="/account"', bar)
+                    # the old top row (Search link, account disclosure) is gone: those are tabs now
+                    self.assertNotIn('class="idlink"', t)
+                    self.assertNotIn('<details class="account">', t)
+                    if route == "/":
+                        self.assertIn('<h1><a href="/"', t)
+                        # Help is the last place in the places bar on Home (AVR-452, D16)
+                        self.assertIn('href="/help"', re.search(r'<nav class="places".*?</nav>', t, re.S).group(0))
+                    else:
+                        self.assertIn('<h1 class="sr">Avrana Media</h1>', t)
+                        self.assertNotIn('<nav class="places"', t)
+        # elsewhere Help is one step away, from Me (Account)
+        self.assertIn('href="/help"', c.get("/account", headers=A).text.split("<main", 1)[1].split("</main>", 1)[0])
 
     def test_the_current_page_is_marked_and_nothing_else_is(self):
         c = self.client()
-        want = {"/": [("/", "page")], "/search": [("/search", "page")],
-                "/account": [("/account", "page")], "/help": [("/help", "page")],   # Help is no longer repeated in the account menu
-                "/help/movies": [("/help", "true")]}
+        # "page" marks the tab (and on Home the lockup) that is this page; "true" marks the section a deeper page
+        # belongs to: Help and its topics are reached from Me.
+        want = {"/": [("/", "page"), ("/", "page")], "/search": [("/search", "page")],
+                "/account": [("/account", "page")], "/help": [("/account", "true")],
+                "/help/movies": [("/account", "true")]}
         for route, expected in want.items():
             with self.subTest(route=route):
                 self.assertEqual(sorted(expected), sorted(aria_current(c.get(route, headers=A).text)))
-        # on Help the places bar carries the mark; the account menu's Help link does not repeat it
-        t = c.get("/help", headers=A).text
-        self.assertIn('aria-current="page"', re.search(r'<nav class="places".*?</nav>', t, re.S).group(0))
-        self.assertNotIn('aria-current', re.search(r'<div class="menu">.*?</div>', t, re.S).group(0))
+        # the lens follows the same section, printed by the server so it is right without JavaScript
+        at = {"/": "0", "/search": "2", "/account": "3", "/help": "3", "/help/movies": "3"}
+        for route, index in at.items():
+            self.assertIn(f'data-tabs="4" data-at="{index}"', tabbar(c.get(route, headers=A).text), route)
 
-    def test_search_is_offered_only_to_a_member_with_a_library(self):
+    def test_search_and_library_are_offered_only_to_a_member_with_a_library(self):
         c = self.client()
         for route in ("/", "/account", "/help"):
             t = c.get(route, headers=NOTHING).text
             self.assertNotIn('href="/search"', t, route)
-            self.assertIn('href="/help"', re.search(r'<nav class="places".*?</nav>', t, re.S).group(0), route)
+            bar = tabbar(t)
+            self.assertIn('data-tabs="2"', bar, route)
+            self.assertEqual(["/", "/account"], re.findall(r'<a class="tab" href="([^"]*)"', bar), route)
+        self.assertIn('href="/help"', re.search(r'<nav class="places".*?</nav>', c.get("/", headers=NOTHING).text, re.S).group(0))
         self.assertEqual(1, mains(c.get("/search", headers=NOTHING).text))
 
     def test_error_and_unknown_pages_stay_plain_and_have_one_main(self):
@@ -119,9 +138,9 @@ class NavigationTests(Mocks):
             self.assertEqual(1, mains(t), route)
             self.assertIn('class="skip-link"', t, route)
 
-    def test_the_masthead_is_the_same_markup_on_every_page_apart_from_what_marks_the_current_page(self):
+    def test_the_tab_bar_is_the_same_markup_on_every_page_apart_from_what_marks_the_current_section(self):
         c = self.client()
-        strip = lambda t: re.sub(r' aria-current="[a-z]+"', "", re.search(r'<div class="mast">.*?</nav>', t, re.S).group(0))
+        strip = lambda t: re.sub(r' (aria-current|data-at)="[a-z0-9]+"', "", tabbar(t))
         pages = [strip(c.get(r, headers=A).text) for r in SHELL_ROUTES]
         self.assertEqual(1, len(set(pages)))
 

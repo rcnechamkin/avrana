@@ -1,8 +1,8 @@
-{% from "_parts.html" import mast %}<!doctype html>
+{% from "_parts.html" import mast, tabbar %}<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1{% if shell %}, viewport-fit=cover{% endif %}">
 <meta name="color-scheme" content="dark">
 <meta name="robots" content="noindex, nofollow">
 <title>{% block title %}Avrana{% endblock %}</title>
@@ -22,7 +22,7 @@
 <a class="skip-link" href="#main">Skip to main content</a>
 <div class="page">
   <header>
-{% block masthead %}{% if shell %}{{ mast(shell, account_menu) }}{% else %}    <h1>{% block heading %}<a href="/">AVRANA</a>{% endblock %}</h1>
+{% block masthead %}{% if shell %}{{ mast(shell) }}{% else %}    <h1>{% block heading %}<a href="/">AVRANA</a>{% endblock %}</h1>
     <div class="rule"></div>{% endif %}{% endblock %}
   </header>
   <main id="main" tabindex="-1">
@@ -34,5 +34,6 @@
     </nav>
   </footer>
 </div>
-</body>
+{% if shell %}{{ tabbar(shell) }}
+{% endif %}</body>
 </html>

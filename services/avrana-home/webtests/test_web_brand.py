@@ -48,7 +48,7 @@ class BrandFiles(unittest.TestCase):
                     brand.asset_for(brand.LOCKUP)
 
     def test_the_svgs_have_no_script_link_text_or_external_reference(self):
-        for name in ("avrana-media-lockup-product_cream_trim.svg", "favicon.svg"):
+        for name in ("avrana-media-lockup-product_cream_trim.svg", "favicon.svg", "avrana-symbol-micro24_cream.svg"):
             text = brand.file_bytes(name).decode("utf-8").lower()
             for bad in ("<script", "<foreignobject", "href", "<text", "@import", "url(", "on" + "load", "<image"):
                 self.assertNotIn(bad, text, (name, bad))
@@ -141,11 +141,15 @@ class BrandRoutes(unittest.TestCase):
             r = off.get(route, headers=MEMBER)
             self.assertEqual((404, nf), (r.status_code, r.text), route)
 
-    def test_shell_pages_show_the_lockup_and_pages_without_the_shell_do_not(self):
+    def test_shell_pages_show_the_brand_and_pages_without_the_shell_do_not(self):
         c = self.client()
-        for path in ("/", "/account", "/help", "/search"):
+        # D5: the L3 lockup on Home; the Spire-A micro cut as the Home button on pages that are not tabs; tab pages
+        # (Search, Account, Help) show their own title. None carries the portal wordmark or its rule.
+        for path, lockup, mark in (("/", True, False), ("/account", False, False), ("/help", False, False),
+                                   ("/search", False, False), ("/request", False, True)):
             text = c.get(path, headers=MEMBER).text
-            self.assertIn(LOCKUP_TAG, text, path)
+            self.assertEqual(lockup, LOCKUP_TAG in text, path)
+            self.assertEqual(mark, '<img class="spire" src="/brand/spire-a-24.svg" alt="Home" width="24" height="24">' in text, path)
             self.assertNotIn(">AVRANA</a>", text, path)
             self.assertNotIn('<div class="rule">', text, path)        # no rule under the lockup (owner, 2026-10-18)
         off = self.client(sections=False)

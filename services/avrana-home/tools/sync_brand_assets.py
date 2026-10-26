@@ -37,6 +37,7 @@ ASSETS = {
     "avrana-media-lockup-product_cream_trim.svg": (
         "02-Logo-Exports/Product-Lockups/RGB/svg-trimmed/avrana-media-lockup-product_cream_trim.svg", False, MARKS),
     "favicon.svg": ("04-Digital-Assets/Website/favicon/favicon.svg", False, MARKS),
+    "avrana-symbol-micro24_cream.svg": ("02-Logo-Exports/RGB/micro/avrana-symbol-micro24_cream.svg", False, MARKS),
     "apple-touch-icon.png": ("04-Digital-Assets/Website/favicon/apple-touch-icon.png", True, MARKS),
     "icon-192.png": ("04-Digital-Assets/Website/favicon/icon-192.png", True, MARKS),
     "icon-512.png": ("04-Digital-Assets/Website/favicon/icon-512.png", True, MARKS),

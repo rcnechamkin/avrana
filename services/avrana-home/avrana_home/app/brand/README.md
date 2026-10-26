@@ -9,6 +9,7 @@ and `avrana_home/app/brand.py` refuses to serve a file that does not match it.
 |---|---|---|---|
 | `/brand/avrana-media-l3.svg` | `avrana-media-lockup-product_cream_trim.svg` | `02-Logo-Exports/Product-Lockups/RGB/svg-trimmed/` (L3, in-product) | AVRANA, all rights reserved |
 | `/brand/favicon.svg` | `favicon.svg` | `04-Digital-Assets/Website/favicon/` (micro cut 16, built by the package) | AVRANA, all rights reserved |
+| `/brand/spire-a-24.svg` | `avrana-symbol-micro24_cream.svg` | `02-Logo-Exports/RGB/micro/` (Spire-A micro cut 24, cream; used only at 24 px: the Home button, AVR-716) | AVRANA, all rights reserved |
 | `/icons/avrana-180.png` | `apple-touch-icon.png.b64` | `04-Digital-Assets/Website/favicon/` | AVRANA, all rights reserved |
 | `/icons/avrana-192.png` | `icon-192.png.b64` | same | AVRANA, all rights reserved |
 | `/icons/avrana-512.png` | `icon-512.png.b64` | same | AVRANA, all rights reserved |

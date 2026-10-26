@@ -36,6 +36,13 @@
    "sha256": "91111af66fcc29f27fb32abc428f5570a4f8dab410db9c4af6bc46bad7e3ea5c",
    "stored_as": "verbatim"
   },
+  "avrana-symbol-micro24_cream.svg": {
+   "bytes": 6816,
+   "licence": "AVRANA, all rights reserved (brand package README, Licences)",
+   "package_path": "02-Logo-Exports/RGB/micro/avrana-symbol-micro24_cream.svg",
+   "sha256": "537f2480a78fbf90d49e3f7b5f3f80bb1302cfe5e8d2c544c353ab9ccf8bceb5",
+   "stored_as": "verbatim"
+  },
   "favicon.svg": {
    "bytes": 389,
    "licence": "AVRANA, all rights reserved (brand package README, Licences)",

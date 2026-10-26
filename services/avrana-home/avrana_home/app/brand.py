@@ -11,6 +11,8 @@ Routes (served only where the shell can render, like the manifest; see install.p
   * `/brand/avrana-media-l3.svg` (image/svg+xml): the Media product lockup, cream, trimmed. Used by the masthead
     through `<img>`, so nothing in it can run; the file has no script, link or text element either.
   * `/brand/favicon.svg` (image/svg+xml): the 16 px micro cut, ink on light browser chrome, cream on dark.
+  * `/brand/spire-a-24.svg` (image/svg+xml): the Spire-A 24 px micro cut, cream (AVR-716, Concept K). The glass Home
+    button on shell pages other than Home, through `<img>` at exactly 24 px, the only size the cut is drawn for.
   * `/brand/plus-jakarta-sans-latin.woff2` and `/brand/plus-jakarta-sans-latin-ext.woff2` (font/woff2): Plus Jakarta
     Sans, variable weight 200 to 800, the Latin and Latin Extended subsets from `@fontsource-variable/plus-jakarta-sans`
     5.3.0, byte for byte the files Avrana Party ships. SIL OFL 1.1 (`OFL-PlusJakartaSans.txt`).
@@ -27,12 +29,14 @@ from typing import Optional, Tuple
 BRAND_DIR = Path(__file__).resolve().parent / "brand"
 LOCKUP = "/brand/avrana-media-l3.svg"
 FAVICON = "/brand/favicon.svg"
+HOME_MARK = "/brand/spire-a-24.svg"
 FONT = "/brand/plus-jakarta-sans-latin.woff2"
 FONT_EXT = "/brand/plus-jakarta-sans-latin-ext.woff2"
 # route -> (file name in SOURCES.json, content type)
 ROUTES = {
     LOCKUP: ("avrana-media-lockup-product_cream_trim.svg", "image/svg+xml"),
     FAVICON: ("favicon.svg", "image/svg+xml"),
+    HOME_MARK: ("avrana-symbol-micro24_cream.svg", "image/svg+xml"),
     FONT: ("PlusJakartaSans-Latin-Variable.woff2", "font/woff2"),
     FONT_EXT: ("PlusJakartaSans-LatinExt-Variable.woff2", "font/woff2"),
 }

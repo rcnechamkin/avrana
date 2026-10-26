@@ -195,8 +195,8 @@ class HomePageTests(unittest.TestCase):
         self.assertNotIn("Synthetic Film One", b)
         self.assertNotIn('href="/read"', places_of(a))
         self.assertIn('href="/read"', places_of(b))
-        self.assertIn("Signed in as member-a", a)
-        self.assertIn("Signed in as member-b", b)
+        self.assertIn("signed in as member-a", a)            # the Me tab names who is signed in
+        self.assertIn("signed in as member-b", b)
         self.assertNotIn("member-b", a)
 
     def test_unknown_tab_values_fall_back_to_all_and_are_never_echoed(self):
