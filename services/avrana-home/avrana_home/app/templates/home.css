@@ -46,10 +46,14 @@
       1.001,0.999,0.997,0.997,0.997,0.998,0.998,1);
   }
   @media (prefers-contrast:more){:root{--stone:#d2cfcb;--ash:#b9b6b3;--line:rgb(255 255 255 / 0.3);
-    --line-strong:rgb(255 255 255 / 0.5);--control:#a5a3a8;}}
+    --line-strong:rgb(255 255 255 / 0.5);--control:#a5a3a8;--rule-quiet:var(--ash);}}
   @media (prefers-reduced-motion:reduce){:root{--motion-2:150ms;--motion-3:150ms;--motion-spring:150ms;--ease-spring:linear;}}
   html{-webkit-text-size-adjust:100%;background:var(--ink);}
   body{font-family:var(--font-sans);-webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent;}
+  /* Every link's focus ring on a shell page is the yellow (the portal's style.css draws it in cream). :where() keeps
+     this at the portal rule's own weight, so controls with their own ring later in this file, and the skip link's
+     inverted block, keep theirs. */
+  :where(body:has(.mast)) a:focus-visible{outline:2px solid transparent;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--focus);}
   /* Type roles. */
   .k-display{font-size:var(--text-display);font-weight:300;line-height:1;letter-spacing:-0.02em;color:var(--cream);}
   .k-page{font-size:var(--text-page);font-weight:400;line-height:1.2;letter-spacing:-0.01em;}

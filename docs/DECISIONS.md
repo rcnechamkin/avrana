@@ -98,8 +98,8 @@ on the iPhone Safari and VoiceOver review, AVR-455), a merge or a deployment.
 
 | Decision | Consequence |
 |---|---|
-| **Brand binaries are stored as base64 text, in `services/avrana-home/avrana_home/app/brand/` only** | The PNG icons and the Geist WOFF2 are `*.b64` copies of the exact package bytes, each pinned by SHA-256 in `brand/SOURCES.json`; `brand.py` refuses to serve a file that does not match, and `brand/.gitattributes` (`* -text`) keeps every byte. The repository's binary policy and `scripts/review_git_content.py` are unchanged: no other folder gains this exception |
-| **Shell pages alone get `font-src 'self'`**, beside their existing `manifest-src 'self'` | Only pages that wear the Home shell load Geist from `/brand/geist.woff2`; every other response (portal, Kindle, errors, sections off) keeps the base CSP. No other source, and still no script |
+| **Brand binaries are stored as base64 text, in `services/avrana-home/avrana_home/app/brand/` only** | The PNG icons and the interface font's WOFF2 files (Geist then; Plus Jakarta Sans since AVR-715, from npm) are `*.b64` copies of the exact source bytes, each pinned by SHA-256 in `brand/SOURCES.json`; `brand.py` refuses to serve a file that does not match, and `brand/.gitattributes` (`* -text`) keeps every byte. The repository's binary policy and `scripts/review_git_content.py` are unchanged: no other folder gains this exception |
+| **Shell pages alone get `font-src 'self'`**, beside their existing `manifest-src 'self'` | Only pages that wear the Home shell load the interface font (Geist from `/brand/geist.woff2` then; *superseded by AVR-715*: Plus Jakarta Sans from `/brand/plus-jakarta-sans-latin.woff2` and `-latin-ext.woff2`); every other response (portal, Kindle, errors, sections off) keeps the base CSP. No other source, and still no script |
 
 ## Owner decisions, 2026-10-25 and 2026-10-26: Concept K · Avrana Console on Home shell pages (AVR-713)
 

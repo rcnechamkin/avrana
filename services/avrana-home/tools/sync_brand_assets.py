@@ -7,7 +7,9 @@ copies each file below byte for byte, and records its package path and SHA-256 i
 
 Plus Jakarta Sans is not in the brand package. Its files come from the npm package
 `@fontsource-variable/plus-jakarta-sans` 5.3.0 (the copy Avrana Party ships in `web/party/fonts/`), read from a
-local folder given with `--fonts`. Their SHA-256 values are pinned below, so the tool refuses any other bytes.
+local folder given with `--fonts`. Their SHA-256 values are pinned below, so the tool refuses any other bytes. The
+tool checks those file hashes only; the npm tarball hash in the recorded source is provenance, checked when the
+pins were taken, not on each run. Files in `brand/` that came from neither source are reported as STRAY.
 
 The repository tracks no binary files (`scripts/review_git_content.py`), so the binary ones (PNG icons, the
 font WOFF2 files) are stored as base64 text (`<name>.b64`); `avrana_home/app/brand.py` decodes them and refuses to
@@ -93,20 +95,29 @@ def build(package: Path, fonts: Path) -> tuple[dict, dict]:
     return files, manifest
 
 
+KEEP = {"README.md", ".gitattributes"}
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("package", type=Path, help="the AVRANA-Brand folder of the brand package")
     ap.add_argument("--fonts", type=Path, required=True,
-                    help="folder with the Plus Jakarta Sans files (Avrana Party's web/party/fonts)")
+                    help="folder with the three Plus Jakarta Sans files, named as in FONTS, from the npm package")
     ap.add_argument("--check", action="store_true", help="report differences, write nothing")
     args = ap.parse_args()
     files, _ = build(args.package, args.fonts)
     differ = [n for n, data in files.items() if not (OUT / n).is_file() or (OUT / n).read_bytes() != data]
+    # Anything else in the folder (a retired font, a stray copy) is not served but should not linger unnoticed.
+    stray = sorted(p.name for p in OUT.iterdir() if p.is_file() and p.name not in KEEP
+                   and p.name not in files and p.name.removesuffix(".b64") not in files) if OUT.is_dir() else []
+    for n in stray:
+        print(f"STRAY {n} (not from the package or the pinned fonts; remove it)")
     if args.check:
         for n in differ:
             print(f"DIFFERS {n}")
-        print("brand assets match the package" if not differ else f"{len(differ)} file(s) differ")
-        return 1 if differ else 0
+        print("brand assets match the package" if not (differ or stray)
+              else f"{len(differ)} file(s) differ, {len(stray)} stray")
+        return 1 if (differ or stray) else 0
     OUT.mkdir(parents=True, exist_ok=True)
     for n in differ:
         (OUT / n).write_bytes(files[n])
