@@ -50,12 +50,14 @@ Route and field names are recalled from Audiobookshelf's public API documentatio
 """
 from __future__ import annotations
 
+import dataclasses
 import re
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 from ..contract import (TRUNCATED, ArtworkRef, ArtworkResult, DEFAULT_LIMIT, Kind, MappingFailed, MediaItem,
-                        SectionResult, SectionState, Service, UpstreamUser, build_handoff_url, clean_text,
-                        valid_upstream_id)
+                        SectionResult, SectionState, Service, UpstreamUser, build_handoff_url, clean_summary,
+                        clean_text, valid_upstream_id)
+from .. import media_ids
 from ..principal import MemberPrincipal
 from ..resilience import (DEFAULT_TIMEOUT, FanOutSpent, ItemGone, RouteMissing, Transport, UpstreamMalformed,
                           UpstreamMisbehaved, UpstreamTimeout, UserGone)
@@ -311,6 +313,9 @@ class AudiobookshelfAdapter(GuardedAdapter):
         mine = next((e for e in self._candidates(record.get("mediaProgress"), uid) if e[1] == item_id), None)
         fraction, position, duration = (mine[2], mine[3], mine[4]) if mine else (None, None, None)
         media, _status = self._visible(raw, item_id, access, fraction, position, duration)
+        if media is not None:                             # the synopsis only after every permission check passed
+            meta = raw["media"]["metadata"]               # shape already checked by _visible
+            media = dataclasses.replace(media, summary=clean_summary(meta.get("description")))
         # A malformed item (a permission field missing or mistyped) is not shown: it fails closed to "hidden",
         # the same as forbidden or unknown, so its existence is not revealed either.
         return SectionResult.of(Service.AUDIOBOOKSHELF, "item", (media,) if media else ())
@@ -463,4 +468,5 @@ class AudiobookshelfAdapter(GuardedAdapter):
                          subtitle=clean_text(meta.get("authorName")), series=clean_text(meta.get("seriesName")),
                          progress_fraction=fraction, position_seconds=position,
                          duration_seconds=duration, artwork=artwork,
-                         creator=clean_text(meta.get("authorName")), year=year_from(meta.get("publishedYear"))), "ok"
+                         creator=clean_text(meta.get("authorName")), year=year_from(meta.get("publishedYear")),
+                         external_ids=media_ids.from_book_metadata(meta)), "ok"

@@ -31,6 +31,9 @@
       <p class="act"><a class="open" href="{{ page.action_href }}" aria-label="{{ page.action_label }}">{{ page.action }}</a></p>
       <p class="hint">Opens in {{ page.library }}. If it does not open there, see <a class="inline" href="/help/trouble">If something doesn&#x27;t open</a>.</p>
     </div>
+{% if page.summary %}    <h3 class="kicker" id="h-about">About</h3>
+    <p class="d summary">{{ page.summary }}</p>
+{% endif %}
   </section>
 {% else %}
   <section class="shelf title-down" aria-labelledby="h-title">

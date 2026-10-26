@@ -4,9 +4,12 @@
   "response": [
     {"Id": "aaaa0000000000000000000000000010", "Name": "Synthetic Film Three", "Type": "Movie",
      "ProductionYear": 2020, "UserData": {"Played": true, "IsFavorite": true, "PlayCount": 3},
-     "ImageTags": {"Primary": "synthtag10"}},
+     "ImageTags": {"Primary": "synthtag10"},
+     "ProviderIds": {"Tmdb": "900001", "Imdb": "tt9000001", "Tvdb": "", "SyntheticPlugin": "x"},
+     "Overview": "A <b>synthetic</b> film &amp; its overview.<br>Second line.<script>alert(1)</script>"},
     {"Id": "aaaa0000000000000000000000000011", "Name": "Synthetic Series Alpha", "Type": "Series",
-     "UserData": {"Played": false}, "ImageTags": {"Primary": "synthtag11"}},
+     "UserData": {"Played": false}, "ImageTags": {"Primary": "synthtag11"},
+     "ProviderIds": {"Tmdb": "900001", "Tvdb": "not-a-number"}},
     {"Id": "cccc0000000000000000000000000001", "Name": "Synthetic Shared Film", "Type": "Movie",
      "ProductionYear": 1999, "UserData": {"Played": false}, "ImageTags": {}},
     {"Id": "aaaa0000000000000000000000000012", "Name": "Synthetic Folder", "Type": "Folder"}

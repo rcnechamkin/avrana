@@ -16,11 +16,15 @@
     "item": {
       "Id": "string", "Name": "string", "Type": "string", "SeriesName": "string",
       "ParentIndexNumber": "integer", "IndexNumber": "integer", "ProductionYear": "integer",
-      "RunTimeTicks": "integer", "UserData": "object", "ImageTags": "object"
+      "RunTimeTicks": "integer", "UserData": "object", "ImageTags": "object", "ProviderIds": "object",
+      "Overview": "string"
     },
     "item.UserData": {
       "PlaybackPositionTicks": "integer", "PlayedPercentage": "number", "Played": "boolean",
       "ItemId": "string", "UserId": "string", "Key": "string"
+    },
+    "item.ProviderIds": {
+      "Imdb": "string", "Tmdb": "string", "Tvdb": "string"
     },
     "item.ImageTags": {
       "Primary": "string"

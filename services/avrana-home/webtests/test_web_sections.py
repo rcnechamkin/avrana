@@ -256,7 +256,8 @@ class JsonViewTests(Fixture):
             self.assertEqual({"service", "section", "state", "items"}, set(s))
             for it in s["items"]:
                 self.assertEqual({"id", "service", "kind", "title", "subtitle", "series", "progress",
-                                  "artwork", "creator", "year", "handoff_url"}, set(it))
+                                  "artwork", "creator", "year", "summary", "handoff_url"}, set(it))
+                self.assertIsNone(it["summary"])       # a synopsis only on the title page (R2-C)
         self.assertNotIn("reason", r.text)
 
     def test_not_permitted_is_omitted_entirely(self):
