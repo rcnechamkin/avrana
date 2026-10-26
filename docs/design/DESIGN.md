@@ -322,13 +322,13 @@ Cover art in lists is a square crop with no rounding. Media artwork keeps each l
 ### Media card (Home rails)
 - One link per card, one action. Order: title (two lines at most), the creator, series or episode line
   (Ash, one line, ellipsis), progress in words, then on Continue cards the action verb ("Resume" or
-  "Open") as small underlined text. New this week cards carry no verb: the whole card opens the item.
+  "Open") as small underlined text. Recently added cards carry no verb: the whole card opens the item.
 - Clamping is visual only; the full title stays in the link text and so in its accessible name. When
   the view-model gives an `action_label`, it replaces the verb for assistive technology only.
-- Every frame in a rail stands on one baseline: the rail's artwork height, each shape's natural width
+- Every frame in a rail stands on one baseline: the rail's artwork height (180px), each shape's natural width
   (posters, books, comics, audiobook squares); a video still is held to a maximum width and stands
   shorter, bottom-aligned. Images are contained, never cropped into another shape.
-- Rails scroll sideways. On phones every card in a rail is one width (8.75rem, about 2.2 to a screen), so
+- Rails scroll sideways. On phones every card in a rail is one width (11.25rem, about 1.75 to a screen), so
   the next card peeks in as a sliver; the rail snaps to card starts (mandatory), and a trailing spacer
   lets the last card snap to the start as well. From 45rem the cards fit the column and snapping is
   proximity only. A thin Quiet Rule scrollbar shows on pointer devices.
@@ -400,7 +400,7 @@ the yellow lens, placed by `data-at` (the tab's index), which the server prints,
 the page script (MK-3) only moves `data-at` on a plain click. `aria-current="page"` marks the tab that is this page,
 `"true"` the section a deeper page belongs to (Help and its topics under Me; places and titles under Home). Icons
 are inline SVG in `currentColor`; Me shows the member's initial and its name says who is signed in. Library opens
-Home's "New this week" until MK-5 gives it a page. The page scrolls clear of the bar by 1rem.
+Home's "Recently added" until MK-5 gives it a page. The page scrolls clear of the bar by 1rem.
 
 Home keeps the L3 lockup as its heading, top left, and under it the places bar (Watch, Listen, Read, Request, Help)
 as opaque chips: one row at 390px, whole chips wrapping at 320px or large text; a down library stays struck through.
@@ -408,6 +408,22 @@ Other shell pages keep "Avrana Media" as a visually hidden `h1` and show their o
 tabs (a place, a help topic, a title) add the glass Home button: the brand's Spire-A micro cut at the 24px it is drawn
 for (`/brand/spire-a-24.svg`), the word "Home" in forced colours. Account links to Help; the old top row (Search
 link, account disclosure) is retired.
+
+**Home (MK-4, AVR-718; D6).** Under the places bar, a hero shows the member's own next thing: the first item in
+Continue, or, with nothing in progress, the first item in Recently added. It is built only from this member's
+sections for this request; a library that is down never supplies it, and a member with no library, resting
+libraries or nothing set up gets no hero. Its eyebrow is part of its `h2` ("Continue: <title>"), yellow with the
+3px signal bar only for Continue (the member's own state), Stone for Recently added. The title is the 48px Light
+display role; it wraps and clamps visually at four lines, never fitted by shrinking. The art is the item's own
+`/art` image twice: crisp at its natural shape over a blurred, dimmed copy that fades out before the text; with no
+art, the letter frame; at 320px no poster (frame 22:2597); the backdrop is off in more contrast and forced colours.
+One Cream hand-off names the app that opens ("Resume in Jellyfin" only for a saved position, otherwise "Open in
+Jellyfin", "Listen in Audiobookshelf", "Read in Komga", "Open in Calibre-Web"), unlike cards, which name the
+library in member language; it never claims playback. "Details" opens the title page only where one exists.
+"New this week" is renamed "Recently added" (`id="h-new"` kept). Shelf headings take the 20px shelf role. Rails
+carry 180px art (`--art-h`) in one 11.25rem card width on phones (`--card-min`, 9.5rem from 45rem), preview
+radius, and on Continue a 3px Cream progress rule along the foot of the art, beside the words and hidden from
+assistive technology; its length is a 5% step class (`pc0` to `pc100`), so no inline style is needed.
 
 ## Brand v1.0.0 on Home shell pages (AVR-584)
 

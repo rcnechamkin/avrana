@@ -43,6 +43,9 @@ library's own host in the same tab (no new window, no app); Resume never starts 
 has its own sign-in (no single sign-on across all of them yet). Continue is not offered for Books and Comics,
 so those topics name New this week and Search only.
 
+Concept K Home (MK-4, AVR-718, 2026-10-26) renamed the shelf "New this week" to "Recently added"; the open-*
+topics follow.
+
 ## For whoever wires these into the shell
 - Convert `none` store and url values to an empty value. The template shows a store button only when both are set.
 - Strip every `[UNVERIFIED on a real device]` and `[OWNER DECISION ...]` marker from step text.

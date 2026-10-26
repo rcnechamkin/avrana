@@ -411,7 +411,8 @@ def action_of(it: ItemVM, in_continue: bool) -> Tuple[str, str]:
     The card is one link whose name is read in order: title, secondary line, progress, then this text in place
     of the visible verb (Lane A's `card` macro). So it is short and verb-first and does not repeat the title or
     the progress already read; it adds where the item opens, in member language ("Movies and TV", never an
-    upstream product). It never claims that playback starts: the library opens at the item."""
+    upstream product). The Home hero is the one exception: its button names the app that opens (HERO_APP), as
+    the approved design shows. It never claims that playback starts: the library opens at the item."""
     verb = "Resume" if (in_continue and it.resumable) else "Open"
     library = SERVICE_LABEL.get(it.service)
     return verb, (f"{verb} in {library}" if library else verb)

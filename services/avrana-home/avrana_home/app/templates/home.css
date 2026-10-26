@@ -348,6 +348,9 @@
   /* 320px wide (frame 22:2597): no poster, by design; the backdrop stays as the stage. A no-art hero shows nothing. */
   @media (max-width:359px){.hero .frame{display:none;}.hero-stage{min-height:7.5rem;padding:0;}
     .hero.no-art .hero-stage{display:none;}}
+  /* Where the backdrop is off (more contrast, forced colours) a posterless stage would only be empty space. */
+  @media (max-width:359px) and (prefers-contrast:more){.hero-stage{display:none;}}
+  @media (max-width:359px) and (forced-colors:active){.hero-stage{display:none;}}
   /* The eyebrow is part of the heading (heading navigation reads it before the title). Yellow, with the 3px signal
      bar, only for the member's own state (.yours: in progress); the newest-items eyebrow stays Stone with no bar.
      This stylesheet ships on every shell page, so its comments name no section, library or member word (the
@@ -357,7 +360,7 @@
      but no faster than the screen allows (0.5rem + 12.5vw: 65px at 200% on a 390px phone), so ordinary words keep
      whole instead of breaking letter by letter. Only a single word wider than the column breaks, rather than
      pushing the page sideways. */
-  .hero-title{margin:0;display:flex;flex-direction:column;align-items:flex-start;gap:0.5rem;min-width:0;font-weight:inherit;}
+  .hero-title{position:relative;z-index:1;margin:0;display:flex;flex-direction:column;align-items:flex-start;gap:0.5rem;min-width:0;font-weight:inherit;}
   .hero-title .k-eyebrow{display:inline-flex;align-items:center;gap:0.5rem;line-height:1.2;}
   .hero-title .k-eyebrow.yours::before{content:"";flex:none;width:3px;height:1.1em;border-radius:1px;background:var(--accent);}
   .hero-title .k-display{max-width:100%;font-size:min(var(--text-display),calc(0.5rem + 12.5vw));line-height:1.08;padding-bottom:0.06em;overflow-wrap:break-word;

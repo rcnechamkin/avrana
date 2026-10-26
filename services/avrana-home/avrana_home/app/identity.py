@@ -142,7 +142,7 @@ async def get_viewer(request: Request) -> Viewer:
 
 
 def new_tab_from_scope(scope) -> Optional[str]:
-    """The one display preference a member may ask for in the address: `?new=<library>` (which New this week
+    """The one display preference a member may ask for in the address: `?new=<library>` (which Recently added
     tab to show). Bounded text only; the view-model checks it against the member's own allowlist and
     never echoes it. It confers no identity and no access."""
     from urllib.parse import parse_qsl
