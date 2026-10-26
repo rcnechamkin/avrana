@@ -319,7 +319,7 @@ class HeaderBudgetTests(Fixture):
     @staticmethod
     def token_of_length(target: int) -> str:
         """A valid fixture token padded with an unused claim to `target` characters (base64 steps: within 3)."""
-        pad = max(0, target - len(mint()) - 16)
+        pad = max(0, (target - len(mint())) * 3 // 4 - 8)     # base64 turns 3 bytes into 4 characters
         token = mint(claims={"x-pad": "p" * pad})
         while len(token) < target - 3:
             pad += 1
@@ -328,6 +328,44 @@ class HeaderBudgetTests(Fixture):
             pad -= 1
             token = mint(claims={"x-pad": "p" * pad})
         return token
+
+    def raw(self, client, headers, path="/"):
+        """Exact header bytes straight into the ASGI app (the test client would add headers of its own)."""
+        import asyncio
+        sent = []
+
+        async def receive():
+            return {"type": "http.request", "body": b"", "more_body": False}
+
+        async def send(message):
+            sent.append(message)
+
+        scope = {"type": "http", "method": "GET", "path": path, "raw_path": path.encode(), "query_string": b"",
+                 "client": ("203.0.113.9", 1), "headers": headers}
+        asyncio.run(client.fastapi_app(scope, receive, send))
+        return sent[0]["status"], b"".join(m.get("body", b"") for m in sent[1:]).decode("utf-8")
+
+    def test_a_request_using_the_whole_budget_is_served_and_one_byte_more_is_not(self):
+        from avrana_home.app.identity import IDENTITY_HEADER_BUDGET, MAX_HEADER_BYTES, header_bytes
+        from avrana_home.outpost_jwt import MAX_TOKEN_LEN
+        token = self.token_of_length(MAX_TOKEN_LEN).encode()
+        full = {JWT: token, USER: b"member-a".ljust(IDENTITY_HEADER_BUDGET[USER], b"a"),
+                GROUPS: b"avrana-users|avrana-videos".ljust(IDENTITY_HEADER_BUDGET[GROUPS], b"g")}
+        for name in IDENTITY_HEADER_BUDGET:
+            full.setdefault(name, b"x" * IDENTITY_HEADER_BUDGET[name])
+        headers = [(name.lower().encode(), value) for name, value in full.items()]
+        headers.append((b"host", b"127.0.0.1"))
+        filler = MAX_HEADER_BYTES - header_bytes(headers) - len(b"cookie") - 4
+        at_limit = headers + [(b"cookie", b"c" * filler)]
+        self.assertEqual(MAX_HEADER_BYTES, header_bytes(at_limit))
+        for client in (self.required, self.log_only, self.headers_app):
+            status, _ = self.raw(client, at_limit, "/account")
+            self.assertNotEqual(431, status)                    # at the budget: decided by identity, not by size
+            over = headers + [(b"cookie", b"c" * (filler + 1))]
+            status, body = self.raw(client, over, "/account")
+            self.assertEqual(431, status)
+            self.assertNotIn("member-a", body)
+        self.assertEqual([], self.mock.paths())
 
     def test_the_budget_adds_up(self):
         from avrana_home.app.identity import IDENTITY_HEADER_BUDGET, MAX_HEADER_BYTES, OTHER_HEADERS_BUDGET
