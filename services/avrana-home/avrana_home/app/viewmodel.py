@@ -761,5 +761,5 @@ def build_title(section: dict, service: str, upstream_id: str, raw_term: Optiona
                    line=" · ".join(x for x in (creator, str(year) if year else None) if x) or None,
                    detail=_detail_of(it, creator, year), shape=SHAPE.get(kind, "poster"),
                    image=_image(it.get("artwork")), progress=progress,
-                   summary=_plain(it.get("summary") or "", MAX_SUMMARY) or None, action=action, action_href=href,
+                   summary=_plain(it.get("summary") or "", MAX_SUMMARY + 1) or None, action=action, action_href=href,
                    action_label=f"{action} {title} in {label}", back_href=back)

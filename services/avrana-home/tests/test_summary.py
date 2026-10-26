@@ -45,6 +45,15 @@ class CleanSummaryTests(unittest.TestCase):
         self.assertLessEqual(len(text), MAX_SUMMARY + 1)
         self.assertTrue(text.endswith("word…"), text[-12:])
 
+    def test_the_ellipsis_survives_the_view_model(self):
+        from avrana_home.app.viewmodel import build_title
+        long = clean_summary("x" * 3000)              # one token, no space to cut at
+        self.assertTrue(long.endswith("…"))
+        section = {"state": "ok", "items": [{"id": "komga:BOOKAAAA0001", "kind": "comic", "title": "T",
+                                             "handoff_url": "https://read.avrana.net/book/BOOKAAAA0001",
+                                             "summary": long}]}
+        self.assertTrue(build_title(section, "komga", "BOOKAAAA0001", None).summary.endswith("…"))
+
     def test_huge_input_is_bounded_before_parsing(self):
         text = clean_summary("<b>" * 200000 + "x")
         self.assertIsNone(text)                     # the text after the cut-off is never reached
