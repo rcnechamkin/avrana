@@ -57,7 +57,7 @@ class SanitiserTests(unittest.TestCase):
     def test_undeclared_fields_are_named_not_kept(self):
         rec = rs.build_recording("resume", copy.deepcopy(RAW_RESUME), "10.11.11", CONTRACT)
         self.assertEqual(rec["_undeclared_fields"], {
-            "(envelope)": ["SomethingNew"], "item": ["Overview", "Path"],
+            "(envelope)": ["SomethingNew"], "item": ["Path"],
             "item.ImageTags": ["Thumb"], "item.UserData": ["LastPlayedDate"]})
         item = rec["response"]["Items"][0]
         self.assertNotIn("Path", item)

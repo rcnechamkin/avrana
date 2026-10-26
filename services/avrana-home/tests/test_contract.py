@@ -86,7 +86,7 @@ class ContractBehaviourTests(unittest.TestCase):
         self.assertEqual(d["state"], "ok")
         item = d["items"][0]
         self.assertEqual(sorted(item), ["artwork", "creator", "handoff_url", "id", "kind", "progress",
-                                        "series", "service", "subtitle", "title", "year"])
+                                        "series", "service", "subtitle", "summary", "title", "year"])
         self.assertEqual(sorted(item["artwork"]), ["alt", "ref"])
 
     def test_artwork_requires_group_and_mapping(self):

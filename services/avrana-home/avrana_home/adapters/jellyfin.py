@@ -17,7 +17,7 @@ import re
 from typing import Any, Mapping, Optional, Tuple
 
 from ..contract import (ArtworkRef, ArtworkResult, Kind, MappingFailed, MediaItem, SectionResult,
-                        SectionState, Service, UpstreamUser, build_handoff_url, clean_text)
+                        SectionState, Service, UpstreamUser, build_handoff_url, clean_summary, clean_text)
 from ..resilience import (DEFAULT_TIMEOUT, ItemGone, RouteMissing, Transport, UpstreamMalformed,
                           UpstreamMisbehaved, UserGone)
 from .. import media_ids
@@ -32,6 +32,7 @@ _BOUND_ID = re.compile(_HEX32)
 MAX_INT = _base.MAX_INT
 _ARTWORK_REF = re.compile(r"jellyfin/primary/(" + _HEX32 + r")")
 _ITEM_FIELDS = "PrimaryImageAspectRatio,ProviderIds"   # ProviderIds: media_ids.from_jellyfin
+_TITLE_FIELDS = _ITEM_FIELDS + ",Overview"    # the title page alone asks for the synopsis (R2-C)
 _int = bounded_int                    # names kept for the tests and for older importers
 _image_magic_ok = image_magic_ok
 
@@ -120,7 +121,8 @@ class JellyfinAdapter(GuardedAdapter):
 
     # -- item parsing --------------------------------------------------------------------
     def _parse_item(self, raw: Any, user_id: str, kinds: Tuple[str, ...],
-                    want_progress: bool, require_progress: bool) -> Tuple[Optional[MediaItem], str]:
+                    want_progress: bool, require_progress: bool,
+                    want_summary: bool = False) -> Tuple[Optional[MediaItem], str]:
         """Returns (item, status). status: "ok", "filtered" (a legitimate drop: another type, not
         in progress) or "bad" (unparsable: wrong shape or invalid id). Only "bad" counts as drift."""
         if not isinstance(raw, dict):
@@ -185,12 +187,13 @@ class JellyfinAdapter(GuardedAdapter):
                          subtitle=subtitle, series=series, progress_fraction=fraction,
                          position_seconds=position, duration_seconds=duration,
                          artwork=artwork, year=year,
-                         external_ids=media_ids.from_jellyfin(raw.get("ProviderIds"))), "ok"
+                         external_ids=media_ids.from_jellyfin(raw.get("ProviderIds")),
+                         summary=clean_summary(raw.get("Overview")) if want_summary else None), "ok"
 
     def _parse_list(self, raws: Any, user_id: str, limit: int, kinds, want_progress,
-                    require_progress) -> Tuple[MediaItem, ...]:
+                    require_progress, want_summary: bool = False) -> Tuple[MediaItem, ...]:
         return self._parse_many(raws, limit, lambda raw: self._parse_item(
-            raw, user_id, kinds, want_progress, require_progress))
+            raw, user_id, kinds, want_progress, require_progress, want_summary))
 
     # -- hooks ---------------------------------------------------------------------------
     def _continue_items(self, user: UpstreamUser, limit: int) -> SectionResult:
@@ -228,20 +231,21 @@ class JellyfinAdapter(GuardedAdapter):
                                  want_progress=False, require_progress=False)
         return SectionResult.of(Service.JELLYFIN, "search", items)
 
-    def _visible_item(self, guard, budget, user: UpstreamUser, item_id: str) -> Optional[MediaItem]:
+    def _visible_item(self, guard, budget, user: UpstreamUser, item_id: str,
+                      fields: str = _ITEM_FIELDS) -> Optional[MediaItem]:
         body = self._get_json(guard, budget, "/Items", {
-            "userId": user.upstream_id, "ids": item_id, "fields": _ITEM_FIELDS,
+            "userId": user.upstream_id, "ids": item_id, "fields": fields,
             "enableUserData": "true", "enableImageTypes": "Primary"})
         if not isinstance(body, dict):
             raise UpstreamMalformed()
         items = self._parse_list(body.get("Items"), user.upstream_id, 1,
                                  ("Movie", "Series", "Episode"), want_progress=True,
-                                 require_progress=False)
+                                 require_progress=False, want_summary=fields == _TITLE_FIELDS)
         return next((i for i in items if i.id == f"jellyfin:{item_id}"), None)
 
     def _item(self, user: UpstreamUser, item_id: str) -> SectionResult:
         guard = self._guard.bind(user.upstream_id)
-        found = self._visible_item(guard, self._budget(), user, item_id)
+        found = self._visible_item(guard, self._budget(), user, item_id, fields=_TITLE_FIELDS)
         return SectionResult.of(Service.JELLYFIN, "item", (found,) if found else ())
 
     def _fetch_artwork(self, user: UpstreamUser, ref: str, cached=None) -> ArtworkResult:

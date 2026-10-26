@@ -183,6 +183,7 @@ Each public method runs these steps, in this order, in the shared base class
 | `series` | string or null | |
 | `progress` | object or null | `fraction` (0 to 1), `percent` (integer), `position_seconds`, `duration_seconds`; any of the four may be null when the upstream did not say (then show the position or no bar, never a guess). Only for in-progress items. |
 | `artwork` | object or null | `ref` (opaque) and `alt` (text alternative) |
+| `summary` | string or null | Synopsis as plain text, at most 1,200 characters (cut at a word with an ellipsis). **Only on title-page lookups** (`item`); always `null` in Continue, Recent and search. Upstream HTML is reduced to its text (`contract.clean_summary`): tags, attributes, scripts, styles and comments dropped, entities decoded; the template escapes the result (R2-C) |
 | `handoff_url` | string | `https://` URL on a fixed Avrana hostname |
 
 `MediaItem.external_ids` (validated TMDB, IMDb, TVDB, ISBN-13 and ASIN values the upstream returned) is internal
@@ -978,5 +979,10 @@ Calibre-Web has no item lookup, so its search results link straight to Calibre-W
 malformed: the standard 404. Komga's 403 for a book the shared account may not open is treated as hidden (404), not
 as an outage, and never counts toward the circuit; an Audiobookshelf item in a library the member may not use is
 hidden before any other field is checked, and a malformed item on the title path fails closed to hidden.
-Unavailable: a calm 503 page with Try again that says nothing about the title. The primary action and every search
+Unavailable: a calm 503 page with Try again that says nothing about the title. **Synopsis (R2-C, 2026-10-26):** the
+title lookup alone asks for it: Jellyfin adds `Overview` to `fields` only on this call; Audiobookshelf reads
+`media.metadata.description` and Komga `metadata.summary` only after the item passed every permission check. Shown
+under an "About" heading when present, never on cards or search results. Field names doc-verified at the R1 audit's
+pinned commits (Jellyfin `BaseItemDto.Overview` and the `Overview` item field in the 10.11.11 and 12.3.0 OpenAPI files);
+not live-verified. The primary action and every search
 result link only to the item's own service host (`HANDOFF_BASE`).
