@@ -188,6 +188,10 @@ class Exporter:
         return written
 
     def rewrite(self, text: str, pages: dict) -> str:
+        # The page script (MK-3, AVR-717) needs the live server and its worker; the static review export has neither,
+        # so every page works as the no-JavaScript page it must always be.
+        text = re.sub(r'<script src="/static/home\.[0-9a-f]+\.js" defer[^>]*></script>\n?', "", text)
+
         def art(m):
             pre, shape, src, post = m.groups()
             title = re.search(r'<span class="t">(.*?)</span>', text[m.end():], re.S)

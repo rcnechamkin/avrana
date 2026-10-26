@@ -32,7 +32,7 @@ Open decisions that these topics wait on: D-1 support contact, D-12 television a
 recovery, D-15 unavailable wording (all in `docs/member/DECISIONS-NEEDED.md` on the AVR-361 branch).
 Installable Home (Home 2.0, Lane D): the shell pages now link a web app manifest (`/manifest.webmanifest`,
 `display: standalone`, black theme, generated monochrome PNG icons at 180, 192 and 512 pixels, an
-`apple-touch-icon`). There is no service worker and no offline mode. None of this has been tried on a phone:
+`apple-touch-icon`). Since MK-3 (AVR-717) the shell pages also load one first-party script and register a service worker whose only offline feature is a static page shown when the network fails; no member page is ever cached. None of this has been tried on a phone:
 whether Chrome offers Install app, whether iOS shows the icon behind Authentik's forward auth (the icon and
 manifest requests may not carry the session), and how links to other Avrana hosts open in standalone mode
 (iOS: a separate in-app browser view; Android: a browser view on top) are all **unverified on a real device**.

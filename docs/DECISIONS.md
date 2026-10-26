@@ -115,3 +115,24 @@ auth.avrana.net still needs the owner's explicit approval for that step, after a
 | **No rule under the wordmark**, on the gate and on Home | Removed from the gate's brand CSS; Home's masthead rule is removed in a separate Home change |
 | The live apply needs explicit approval, a backup and a rollback; push and a draft PR are approved | `brand_css_change.py backup`, `apply`, `rollback`; each live step is approved one at a time, Git-only until then |
 | **The gate uses the system font, not embedded Geist** (owner, 2026-10-18) | The staged stack stays: no font embedded in the brand CSS (16 KB, not 109 KB). Geist can come later from Home's own copy once Home is deployed, which needs CORS on the font |
+
+## Owner decisions, 2026-10-26: Concept K, progressive-enhancement script and service worker (AVR-713, MK-3 AVR-717)
+
+Quoted from the owner. O1 was given on 2026-10-25; the approval is of the Phase 1 design memo (2026-10-26). Neither approves a merge or a deployment, and MK-3 still needs its dedicated security review.
+
+> **O1, 2026-10-25:** "JavaScript: progressive enhancement. Add one small first-party script and one service worker, served from Home's own origin, for the offline shell, the nav lens, inline previews and transitions. Every page must keep working with no JavaScript. This reverses part of HOME-APP.md ("no JavaScript") and changes the CSP (script-src 'self', worker-src 'self' on shell pages only), so the PR that does it needs a dedicated security review and a DECISIONS.md entry quoting this decision."
+
+> **2026-10-26, on the Phase 1 memo:** "Perfect. Proceed working on this using the recommended choices."
+
+| Decision | Consequence |
+|---|---|
+| **Home shell pages may run one first-party script and register one service worker.** This supersedes `install.py`'s "No service worker and no script" and the 2026-10-15 "script only if needed for accessibility" rule, **for Home shell pages only** | `script-src 'self'; worker-src 'self'` on the responses that already get `manifest-src 'self'; font-src 'self'`. No inline script, no `unsafe-inline` or `unsafe-eval` for script, no other host. Portal, Kindle, Audible, error pages without the shell and every non-page route keep their CSP and get no script |
+| Every page keeps working with no JavaScript | The script is added on top: the nav lens slide, worker registration and update banner, and a reload when a page returns from the back/forward cache. Inline previews (MK-4) are not in this change |
+| **D12:** `connect-src 'self'` is on the `/sw.js` response only | The worker takes its CSP from its own response; shell pages get no `connect-src` |
+| **D9:** everything stays behind the Authentik outpost | No exempt paths, no `skip_path_regex` (G1 review F5). A signed-out worker update fails quietly and retries on the next signed-in load |
+| **D11:** no `Cache-Control` relaxation | Every response stays `no-store` (`/art` stays `private, no-store`). The script path carries a content hash; the worker's own store serves the static files |
+| **D13:** no session heartbeat | The script makes no request of its own |
+| **D10:** `GET /signout` sends `Clear-Site-Data: "cache", "storage"` (never `"cookies"`), then redirects (303) to `/outpost.goauthentik.io/sign_out` | Account's Sign out points at it on shell pages. The copy says it signs you out of Avrana Media on this device; it does not claim the Authentik session ended |
+| **D8:** the installed name is "Avrana Media" | Manifest `name` and `short_name`, `apple-mobile-web-app-title`; the manifest gains `id: "/"`, `description`, `lang` |
+| Kill switch `HOME_PWA_SW=off` | `/sw.js` serves a worker that unregisters itself and deletes its caches; the script skips registration and unregisters any worker it finds |
+| The worker caches only static, identical-for-everyone files | The page script, `/offline`, the brand font, lockup and favicon, the install icons. Never member HTML, `/art/*`, `/home.json`, search or any redirected, non-200, cross-origin or wrongly typed response. Navigations always go to the network; the offline page is shown only when the request itself fails |

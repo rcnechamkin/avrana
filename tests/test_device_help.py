@@ -58,6 +58,15 @@ class DeviceHelp(unittest.TestCase):
     def test_exactly_the_expected_files(self):
         self.assertEqual(sorted(list(TOPICS) + ['README.md']), sorted(p.name for p in HELP.iterdir()))
 
+    def test_home_screen_help_uses_the_installed_name_and_describes_the_offline_page(self):
+        """MK-3 (AVR-717, owner decision D8): the installed app is "Avrana Media", and with the offline page the icon no
+        longer opens a browser error page."""
+        text = (HELP / 'home-screen.md').read_text(encoding='utf-8')
+        self.assertIn('Keep the name Avrana Media.', text)
+        self.assertNotIn('Keep the name Avrana.', text)
+        self.assertNotIn('opens an error page', text)
+        self.assertIn('Try again', text)
+
     def test_structure_maps_onto_the_shell_format(self):
         slugs = set()
         for name, (group, host) in TOPICS.items():

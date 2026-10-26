@@ -13,10 +13,11 @@
 <meta name="theme-color" content="#121214">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="Avrana">
+<meta name="apple-mobile-web-app-title" content="Avrana Media">
 <meta name="apple-mobile-web-app-status-bar-style" content="black">
+<script src="{{ page_script }}" defer{% if pwa_sw_off %} data-sw="off"{% endif %}></script>
 {% endif %}
-<style>{{ stylesheet }}{% if shell %}{{ home_stylesheet }}{% endif %}</style>
+<style>{{ stylesheet }}{% if shell or offline %}{{ home_stylesheet }}{% endif %}</style>
 </head>
 <body>
 <a class="skip-link" href="#main">Skip to main content</a>
