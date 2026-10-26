@@ -144,6 +144,59 @@ class SingleFlightMapping(unittest.TestCase):
         self.assertIs(done["r"].state, SectionState.OK)
 
 
+class LateSiblingSection(unittest.TestCase):
+    """AVR-756: the 'recent' job of a page may start only AFTER the 'continue' leader's mapping already failed
+    (pool scheduling). It must follow that failed flight, not lead afresh and count a second failure. Event-ordered,
+    no sleeps: 'recent' is held until 'continue' has returned."""
+
+    def setUp(self):
+        self.clock = FakeClock()
+        self.fake = FakeJellyfin(self.clock)
+        self.fake.overrides["/Users"] = ("status", 500)
+        self.adapter = JellyfinAdapter(FakeTransport(self.fake), clock=self.clock)
+        self.a = make_principal("member-a", GROUPS)
+
+    def late_sibling_page(self):
+        leader_done = threading.Event()
+        cont, recent = self.adapter.continue_items, self.adapter.recent_items
+
+        def continue_items(*args):
+            try:
+                return cont(*args)
+            finally:
+                leader_done.set()
+
+        def recent_items(*args):
+            self.assertTrue(leader_done.wait(5))
+            return recent(*args)
+        self.adapter.continue_items, self.adapter.recent_items = continue_items, recent_items
+        try:
+            return gather(self.a, [self.adapter])
+        finally:
+            del self.adapter.continue_items, self.adapter.recent_items
+
+    def test_a_sibling_starting_after_the_failed_leader_counts_no_second_failure(self):
+        res = self.late_sibling_page()
+        self.assertEqual([SectionState.UNAVAILABLE] * 2, [s.state for s in res.sections])
+        self.assertEqual(1, self.fake.paths().count("/Users"))
+        h = self.adapter.health()
+        self.assertEqual(("failing", 1), (h.state, h.consecutive_failures))
+
+    def test_the_failure_is_not_cached_each_later_page_asks_and_counts_again(self):
+        self.late_sibling_page()
+        self.late_sibling_page()
+        self.assertEqual(2, self.fake.paths().count("/Users"))
+        self.assertEqual(2, self.adapter.health().consecutive_failures)
+        self.late_sibling_page()
+        self.assertEqual("cooling_off", self.adapter.health().state)      # threshold unchanged: 3 pages
+
+    def test_calls_outside_a_page_still_lead_afresh_after_a_failed_flight(self):
+        self.adapter.continue_items(self.a)
+        self.adapter.recent_items(self.a)
+        self.assertEqual(2, self.fake.paths().count("/Users"))
+        self.assertEqual(2, self.adapter.health().consecutive_failures)
+
+
 class DisplayHeaders(unittest.TestCase):
     def build(self, **extra):
         h = {"X-authentik-username": "member-a", "X-authentik-groups": "g"}
