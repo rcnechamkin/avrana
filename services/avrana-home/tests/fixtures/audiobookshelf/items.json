@@ -16,7 +16,9 @@
           "authorName": "Synthetic Author",
           "seriesName": "Synthetic Saga #1",
           "publishedYear": "2011",
-          "explicit": false
+          "explicit": false,
+          "isbn": "0-00-000000-0",
+          "asin": "B0SYNTH001"
         },
         "tags": [],
         "duration": 36000.0,

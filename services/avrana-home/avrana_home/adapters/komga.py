@@ -38,6 +38,7 @@ from typing import Any, Dict, Optional, Tuple
 from ..contract import (ArtworkRef, ArtworkResult, DEFAULT_LIMIT, Kind, MediaItem, SectionResult,
                         SectionState, Service, UpstreamUser, build_handoff_url, clean_text,
                         valid_upstream_id)
+from .. import media_ids
 from ..principal import MemberPrincipal
 from ..resilience import (DEFAULT_TIMEOUT, ItemGone, RouteMissing, Transport, UpstreamAuthError,
                           UpstreamMalformed, UpstreamMisbehaved)
@@ -131,7 +132,8 @@ class KomgaAdapter(GuardedAdapter):
                          id=f"komga:{book_id}", service=Service.KOMGA, kind=Kind.COMIC, title=title,
                          handoff_url=build_handoff_url(Service.KOMGA, book_id),
                          subtitle=f"#{number}" if number else None, series=clean_text(raw.get("seriesTitle")),
-                         artwork=ArtworkRef(f"komga/book/{book_id}", f"Cover of {title}")), "ok"
+                         artwork=ArtworkRef(f"komga/book/{book_id}", f"Cover of {title}"),
+                         external_ids=media_ids.from_book_metadata(info)), "ok"
 
     def _visible_book(self, guard, budget, book_id: str) -> Optional[MediaItem]:
         """The book if the shared account can see it, else None. Komga answers 404 for an unknown book and 403

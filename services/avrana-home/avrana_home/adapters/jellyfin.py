@@ -20,6 +20,7 @@ from ..contract import (ArtworkRef, ArtworkResult, Kind, MappingFailed, MediaIte
                         SectionState, Service, UpstreamUser, build_handoff_url, clean_text)
 from ..resilience import (DEFAULT_TIMEOUT, ItemGone, RouteMissing, Transport, UpstreamMalformed,
                           UpstreamMisbehaved, UserGone)
+from .. import media_ids
 from . import _base
 from ._base import (GuardedAdapter, Route, bounded_int, image_magic_ok, lookup_username, match_exactly_one,
                     member_override)
@@ -30,7 +31,7 @@ _HEX32 = r"[0-9a-f]{32}"
 _BOUND_ID = re.compile(_HEX32)
 MAX_INT = _base.MAX_INT
 _ARTWORK_REF = re.compile(r"jellyfin/primary/(" + _HEX32 + r")")
-_ITEM_FIELDS = "PrimaryImageAspectRatio"
+_ITEM_FIELDS = "PrimaryImageAspectRatio,ProviderIds"   # ProviderIds: media_ids.from_jellyfin
 _int = bounded_int                    # names kept for the tests and for older importers
 _image_magic_ok = image_magic_ok
 
@@ -183,7 +184,8 @@ class JellyfinAdapter(GuardedAdapter):
                          handoff_url=build_handoff_url(Service.JELLYFIN, item_id),
                          subtitle=subtitle, series=series, progress_fraction=fraction,
                          position_seconds=position, duration_seconds=duration,
-                         artwork=artwork, year=year), "ok"
+                         artwork=artwork, year=year,
+                         external_ids=media_ids.from_jellyfin(raw.get("ProviderIds"))), "ok"
 
     def _parse_list(self, raws: Any, user_id: str, limit: int, kinds, want_progress,
                     require_progress) -> Tuple[MediaItem, ...]:
