@@ -640,3 +640,25 @@
     .kask{grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"t go" "d go";}.kask:not(:has(.hint)){grid-template-areas:"t go";}
     .me-av{width:56px;height:56px;font-size:1.5rem;}}
   @media (forced-colors:active){.said.kwarn{border-color:CanvasText;}}
+  /* ---- MK-6 Motion (AVR-720) ---- */
+  /* Page-to-page motion (memo section 10; the motion tiers above). One block, appended last. Everything that moves is
+     inside the no-preference query: with Reduce Motion there is no transition at all, not even a fade, and the
+     names below are never set. A browser without cross-document view transitions (or a cross-origin hop, such as
+     sign-in) simply loads the next page, as before. The fade and the lens need no page script.
+     Tier 3 only: 200 ms (--motion-3) on the meaningful curve, for the page fade, the art and the lens alike. The
+     600 ms token is a Proposal: off by default, and only a server setting adds it (never this file).
+     Names are unique on every page: the lens (one per tab bar), and the art, which only the title page's one frame
+     carries; on the page being left, the page script names the one frame beside the link that was followed, only
+     while the old page is captured. The tab bar itself is not named: it is the same on both pages, so it stays put
+     and readable in the page fade; only its lens travels. Interruptible: a key or the browser's own navigation ends
+     a transition at once, and the page script ends it on the first press, so a tap reaches the new page. */
+  @media (prefers-reduced-motion:no-preference){
+    @view-transition{navigation:auto;}
+    ::view-transition-group(*),::view-transition-old(*),::view-transition-new(*){animation-duration:var(--motion-3);
+      animation-timing-function:var(--ease-meaningful);}
+    .title-page .frame,.frame.k-flight{view-transition-name:k-art;}
+    .tabbar .lens{view-transition-name:k-lens;}
+  }
+  /* Belt and braces: should any transition ever start under Reduce Motion, it ends at once. */
+  @media (prefers-reduced-motion:reduce){::view-transition-group(*),::view-transition-old(*),::view-transition-new(*){
+    animation:none!important;}}
