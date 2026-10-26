@@ -21,6 +21,8 @@ from avrana_home.app.viewmodel import NOTHING_NEW, SERVICE_LABEL, build_library
 
 TEMPLATES = Path(__file__).resolve().parents[1] / "avrana_home" / "app" / "templates"
 MARKER = "  /* ---- MK-5a Library and title (AVR-719) ---- */\n"
+# MK-3 (O1): shell pages carry exactly one first-party script tag in <head>; nothing else may script.
+PAGE_SCRIPT = re.compile(r'<script src="/static/home\.[0-9a-f]{12}\.js" defer(?: data-sw="off")?></script>\n?')
 HANDOFF = {"jellyfin": "https://watch.avrana.net/web/#/details?id=", "audiobookshelf": "https://listen.avrana.net/item/",
            "komga": "https://read.avrana.net/book/", "calibre-web": "https://books.avrana.net/book/"}
 TILES_AV = [("watch", Trusted("Watch"), Trusted("")), ("listen", Trusted("Listen"), Trusted("")),
@@ -310,7 +312,7 @@ class LibraryPage(Fixture):
         self.assertNotIn('class="chips"', main)
         self.assertNotIn('class="utility', main)
         bar = re.search(r'<nav class="tabbar.*?</nav>', r.text, re.S).group(0)
-        self.assertEqual(["/", "/account"], re.findall(r'<a class="tab" href="([^"]*)"', bar))
+        self.assertEqual(["/", "/me"], re.findall(r'<a class="tab" href="([^"]*)"', bar))
         self.assertNotIn("data-at", bar)
         for word in ("Movies", "Audiobook", "Comics", "Books", "/search"):
             self.assertNotIn(word, r.text, word)
@@ -320,7 +322,8 @@ class LibraryPage(Fixture):
         for who in (A, B):
             first, second = c.get("/library", headers=who).text, c.get("/library", headers=who).text
             self.assertEqual(first, second)                           # nothing depends on a script or the client
-            low = first.lower()
+            self.assertEqual(1, len(PAGE_SCRIPT.findall(first)))
+            low = PAGE_SCRIPT.sub("", first).lower()
             for token in ("<script", "<noscript", "<form", "<button", " style=", "javascript:"):
                 self.assertNotIn(token, low, token)
             self.assertNotRegex(first, r"\son[a-z]+=")
@@ -347,7 +350,7 @@ class LibraryPage(Fixture):
         self.assertEqual("no-store", lib.headers["cache-control"])
         self.assertIn("manifest-src 'self'; font-src 'self'", lib.headers["content-security-policy"])
         self.assertIn("form-action 'none'", lib.headers["content-security-policy"])
-        self.assertNotIn("script-src", lib.headers["content-security-policy"])
+        self.assertIn("script-src 'self'; worker-src 'self'", lib.headers["content-security-policy"])   # MK-3, O1
 
     def test_no_member_or_sections_off_is_the_standard_404(self):
         c = self.client()
@@ -417,7 +420,7 @@ class TitlePage(Fixture):
         self.assertIn('aria-label="Resume Synthetic Film One in Movies and TV">Resume</a>', main)
         self.assertEqual(1, main.count('<a class="open"'))
         self.assertIn('<a class="homebtn glass" href="/">', t)               # not a tab page: the Home button stays
-        self.assertNotRegex(t, r"\sstyle=|<script")
+        self.assertNotRegex(PAGE_SCRIPT.sub("", t), r"\sstyle=|<script")
         for word in ("playing", "now playing", "started"):
             self.assertNotIn(word, main.lower())
 

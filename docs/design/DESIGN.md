@@ -474,8 +474,8 @@ cannot use is never named. *Request* groups the member's own request places unde
 catalogue's own wording for that member and "Opens the request website", then "Add to the library" only with
 Contribute. *Me* (`/me`, shell only; otherwise the standard 404) shows the member's initial, name and "Signed in as
 <username>", then Account, Help and "If something doesn't open", Operations (with the yellow, slanted ADMIN role tag)
-only behind the catalogue's own Operations group gate, and Sign out at the catalogue's address (MK-3's `/signout` hop
-replaces it there and on Account). *Account* keeps every fact, list and note; its section headings are the eyebrow
+only behind the catalogue's own Operations group gate, and Sign out through MK-3's `/signout` hop (it
+clears this device, then goes on to the catalogue's sign-out; the same on Account). *Account* keeps every fact, list and note; its section headings are the eyebrow
 role (the old letter-spaced caps pushed a 320px page sideways at 200% text), and Manage account and Sign out are rows
 under the words that explain them. *Help* lists the member's own topics as rows; topic pages set each platform in an
 opaque panel at a readable measure. Not built (no data or no page today): an avatar image, an install row on Me,
@@ -531,8 +531,10 @@ minimum so the product name inside it stays legible, and scaling with text size)
 The owner approved the size, with the branded UI, after the real-device review on 2026-10-18. The wordmark is never retyped. The favicon is the
 package's 16 px micro cut (`/brand/favicon.svg`); the install icons and manifest colours are the package's.
 
-**CSP.** Shell pages, and only they, add `font-src 'self'` beside `manifest-src 'self'`. No script source, no
-other origin. Every other response keeps the CSP unchanged.
+**CSP.** Shell pages, and only they, add `font-src 'self'` beside `manifest-src 'self'`, and since MK-3 (AVR-717,
+DECISIONS.md 2026-10-26) `script-src 'self'; worker-src 'self'` for the one first-party script and the service worker. No inline script, no
+other origin. Every other response keeps the CSP unchanged, except `/sw.js` (adds `connect-src 'self'`) and `/offline`
+(adds `font-src 'self'`).
 
 **Files and provenance.** `avrana_home/app/brand/` (README and `SOURCES.json`: package path, byte count and SHA-256
 per file; the server refuses a file that does not match). Refreshed only by `tools/sync_brand_assets.py`.

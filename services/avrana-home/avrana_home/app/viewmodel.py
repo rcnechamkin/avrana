@@ -360,7 +360,7 @@ class MeVM:
     verified principal and the member's catalogue tiles only; nothing here calls an adapter."""
     username: str                       # "Signed in as <username>"
     operations: Optional[PlaceLinkVM]   # only when the catalogue's Operations gate admits this member
-    signout_href: str                   # the catalogue's fixed sign-out address
+    signout_href: str                   # where Sign out goes: MK-3's /signout hop (D10)
 
     @property
     def admin(self) -> bool:

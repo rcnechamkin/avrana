@@ -52,10 +52,10 @@
   </section>
   <section class="block kgroup">
     <h2>Signing out</h2>
-    <p class="note">Sign out, below, ends your Avrana session in this browser. Apps and libraries you signed in to separately stay signed in until you sign out inside each one. On a shared device, sign out of each.</p>
-{#- The catalogue's sign-out address, unchanged. MK-3 (D10) switches it to its /signout hop. #}
+    <p class="note">Sign out, below, signs you out of Avrana Media on this device and clears what it saved here. Apps and libraries you signed in to separately stay signed in until you sign out inside each one. On a shared device, sign out of each.</p>
+{#- MK-3's /signout hop (D10): it clears this device's caches and storage, then goes on to the sign-out. #}
     <ul class="krows">
-      {{ row(signout_url, "Sign out", None, "signout") }}
+      {{ row(shell_signout, "Sign out", None, "signout") }}
     </ul>
   </section>
   <section class="block kgroup">

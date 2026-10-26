@@ -1,12 +1,13 @@
 """Tier B, Home 2.0 Lane D (AVR-364/386): installable Home. The manifest and icons, the head tags only on shell
-pages, and the narrowest CSP change (`manifest-src 'self'; font-src 'self'` on shell pages only, the second for the
-brand font since AVR-584; every other route unchanged). Synthetic data only (StubAdapter), no upstream."""
+pages, and the narrow CSP change (`manifest-src`, `font-src`, and since MK-3 / AVR-717 `script-src` and `worker-src`, all 'self',
+on shell pages only; every other route unchanged except the two in test_web_pwa.py). Synthetic data only (StubAdapter)."""
 import hashlib
 import json
+import re
 import struct
 import unittest
 
-from avrana_home.app import brand, install
+from avrana_home.app import brand, install, pwa
 from avrana_home.app.middleware import CSP, CSP_SEARCH
 from .support import GROUPS, USER, StubAdapter, make_client, make_settings, require_framework
 
@@ -14,18 +15,22 @@ require_framework()
 
 MEMBER = [(USER, "member-a"), (GROUPS, "avrana-users|avrana-videos")]
 NO_GROUPS_HEADER = [(USER, "member-a")]                     # no principal: the portal's no-group view
-SHELL_SOURCES = "; manifest-src 'self'; font-src 'self'"
+# MK-3 (AVR-717, owner decision O1): shell pages alone also get script-src and worker-src, both 'self'.
+SHELL_SOURCES = "; manifest-src 'self'; font-src 'self'; script-src 'self'; worker-src 'self'"
 MANIFEST_CSP = CSP.decode() + SHELL_SOURCES
 HEAD_TAGS = ('<link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials">',
              '<link rel="icon" href="/brand/favicon.svg" type="image/svg+xml">',
              '<link rel="apple-touch-icon" href="/icons/avrana-180.png">',
              '<meta name="theme-color" content="#121214">',
-             '<meta name="apple-mobile-web-app-capable" content="yes">')
+             '<meta name="apple-mobile-web-app-capable" content="yes">',
+             '<meta name="apple-mobile-web-app-title" content="Avrana Media">')
 SHELL_ROUTES = ("/", "/library", "/me", "/account", "/help", "/help/movies", "/help/trouble", "/search", "/search?q=Film", "/watch",
                 "/request")   # Watch and Request wear the shell since #59; Read is 404 for this member
 OTHER_ROUTES = ("/read", "/nope", "/healthz", "/home.json", "/manifest.webmanifest",
                 "/icons/avrana-192.png", "/brand/plus-jakarta-sans-latin.woff2", "/brand/avrana-media-l3.svg", "/art/jellyfin/primary/aaaa0000000000000000000000000001",
                 "/help/comics", "/outpost.goauthentik.io/sign_out")
+OTHER_ROUTES += (pwa.script_path(), "/signout")        # MK-3: the page script and the sign-out hop keep the base CSP
+# The two non-page responses that add one source each (middleware.ROUTE_SOURCES): see test_web_pwa.py.
 
 
 def png_size(data):
@@ -51,9 +56,11 @@ class ManifestAndIcons(Base):
         self.assertEqual(200, r.status_code)
         self.assertEqual("application/manifest+json", r.headers["content-type"])
         m = json.loads(r.content)
-        self.assertEqual(("Avrana", "Avrana", "standalone", "/", "/", "#121214", "#121214"),
+        self.assertEqual(("Avrana Media", "Avrana Media", "standalone", "/", "/", "#121214", "#121214"),
                          (m["name"], m["short_name"], m["display"], m["start_url"], m["scope"],
                           m["background_color"], m["theme_color"]))
+        self.assertEqual(("/", "en"), (m["id"], m["lang"]))                    # D8, MK-3
+        self.assertTrue(m["description"] and "member" not in m["description"].lower())
         self.assertEqual({"192x192", "512x512"}, {i["sizes"] for i in m["icons"]})
         self.assertEqual({"any", "maskable"}, {i["purpose"] for i in m["icons"]})
         for icon in m["icons"]:
@@ -84,25 +91,40 @@ class ManifestAndIcons(Base):
         c = self.client()
         nf = c.get("/nope", headers=MEMBER).text
         for path in ("/icons/avrana-64.png", "/icons/avrana-512.svg", "/icons/", "/icons/avrana-180.png/x",
-                     "/manifest.json", "/sw.js", "/service-worker.js"):
+                     "/manifest.json", "/service-worker.js", "/sw.js.map", "/static/home.js",
+                     "/static/home." + "0" * 12 + ".js", pwa.script_path() + "/x"):
             r = c.get(path, headers=MEMBER)
             self.assertEqual((404, nf), (r.status_code, r.text), path)
 
     def test_with_sections_off_the_routes_do_not_exist_and_pages_carry_no_tags(self):
         c = self.client(sections=False)
         nf = c.get("/nope", headers=MEMBER).text
-        for path in ["/manifest.webmanifest"] + list(install.ICON_PATHS):
+        for path in (["/manifest.webmanifest", "/sw.js", "/offline", "/signout", pwa.script_path()]
+                     + list(install.ICON_PATHS)):
             r = c.get(path, headers=MEMBER)
             self.assertEqual((404, nf), (r.status_code, r.text), path)
         for path in ("/", "/me", "/account", "/help"):
             page = c.get(path, headers=MEMBER).text
-            for tag in ("manifest", "apple-touch-icon", "theme-color", "apple-mobile-web-app"):
-                self.assertNotIn(tag, page, path)
+            for tag in ("manifest", "apple-touch-icon", "theme-color", "apple-mobile-web-app", "<script"):
+                self.assertNotIn(tag, page.lower(), path)
 
-    def test_there_is_no_script_anywhere(self):
-        c = self.client()
+    def test_sections_off_there_is_no_script_anywhere(self):
+        """With sections off Home is the portal's pages: no script tag, no script source (MK-3 changes shell pages only)."""
+        c = self.client(sections=False)
         for path in SHELL_ROUTES:
-            self.assertNotIn("<script", c.get(path, headers=MEMBER).text.lower(), path)
+            r = c.get(path, headers=MEMBER)
+            self.assertNotIn("<script", r.text.lower(), path)
+            self.assertNotIn("script-src", r.headers["content-security-policy"], path)
+
+    def test_shell_pages_have_exactly_one_first_party_script_and_nothing_inline(self):
+        """MK-3 (AVR-717): this replaces `test_there_is_no_script_anywhere`. One external, deferred script at the
+        versioned path; no inline script, no event-handler attribute, no javascript: URL."""
+        c = self.client()
+        want = '<script src="%s" defer></script>' % pwa.script_path()
+        for path in SHELL_ROUTES:
+            text = c.get(path, headers=MEMBER).text
+            self.assertEqual([want], re.findall(r"<script\b[^>]*>.*?</script>", text, re.S | re.I), path)
+            self.assertNotRegex(text, r"(?i)\son[a-z]+\s*=|javascript:|<iframe|<object|<embed", path)
 
 
 class HeadTagsAndCsp(Base):
@@ -116,7 +138,12 @@ class HeadTagsAndCsp(Base):
                     self.assertIn(tag, r.text)
                 want = (CSP_SEARCH.decode() + SHELL_SOURCES) if path.startswith("/search") else MANIFEST_CSP
                 self.assertEqual(want, r.headers["content-security-policy"])
-                self.assertNotIn("script-src", r.headers["content-security-policy"])
+                csp = r.headers["content-security-policy"]
+                self.assertNotIn("unsafe-eval", csp)
+                self.assertEqual(1, csp.count("unsafe-inline"))                 # style-src only
+                self.assertIn("style-src 'unsafe-inline'", csp)
+                self.assertIn("script-src 'self'; worker-src 'self'", csp)
+                self.assertNotIn("connect-src", csp)                            # D12: the worker's response alone
 
     def test_every_other_route_keeps_the_csp_unchanged(self):
         c = self.client()

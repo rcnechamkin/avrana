@@ -38,7 +38,7 @@
 {% endif %}
   <section class="kgroup" aria-label="Sign out">
     <ul class="krows">
-{#- The catalogue's sign-out address, as on Account today. MK-3 (D10) switches both to its /signout hop. #}
+{#- MK-3's /signout hop (D10): it clears this device's caches and storage, then goes on to the sign-out. #}
       {{ row(me.signout_href, "Sign out", None, "signout") }}
     </ul>
   </section>

@@ -36,6 +36,7 @@ from . import catalogue as catalogue_mod
 from .catalogue import Trusted
 from . import artwork as artwork_mod
 from . import install as install_mod
+from . import pwa as pwa_mod
 from .identity import (IdentityResolver, Viewer, get_viewer, has_identity_headers, library_chip_from_scope,
                        new_tab_from_scope, search_term_from_scope)
 from .logsafe import app_log, log_event, silence_uvicorn_access
@@ -72,6 +73,10 @@ def make_environment() -> Environment:
     # other page, and Home with sections off, stays byte-identical to the portal (the parity test).
     env.globals["home_stylesheet"] = Markup("\n" + (TEMPLATES / "home.css").read_text(encoding="utf-8"))
     env.globals["no_library_said"] = NO_LIBRARY
+    # MK-3 (AVR-717): the page script path (a content hash), the sign-out hop and the kill switch, for shell pages.
+    env.globals["page_script"] = pwa_mod.script_path()
+    env.globals["shell_signout"] = pwa_mod.SIGNOUT_PATH
+    env.globals["pwa_sw_off"] = False
     return env
 
 
@@ -142,6 +147,10 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
     silence_uvicorn_access()      # whoever serves this app, uvicorn must not log raw query strings
     cat = catalogue_mod.load(settings.catalogue_path)
     env = make_environment()
+    env.globals["pwa_sw_off"] = not settings.pwa_sw          # kill switch: the script skips registration
+    # The offline page and the worker are built once: static bytes, the same for every viewer (pwa.py).
+    offline_html = env.get_template("offline.html").render(offline=True).encode("utf-8")
+    worker_js = pwa_mod.worker_bytes(offline_html, enabled=settings.pwa_sw)
     # One disposable cache per process, default in-memory database, closed on shutdown. (Offboarding
     # hook for later: MemberCache.purge_member(principal); wired into nothing yet. A file-backed
     # cache is an owner decision, see HOME-APP.md, and has no setting.)
@@ -174,7 +183,7 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
 
     def respond(decision: Decision, scope=None, **extra) -> Response:
         """The one place a page is rendered. When it wears the shell (which prints the manifest link), the same call
-        tells the middleware to allow `manifest-src 'self'`: the tags and the CSP cannot disagree. A shell page
+        tells the middleware to allow `manifest-src`, `font-src`, `script-src` and `worker-src` ('self'): the tags and the CSP cannot disagree. A shell page
         must pass `scope`; forgetting it is an error, not a silently mismatched CSP."""
         if extra.get("shell") is not None:
             if scope is None:
@@ -280,7 +289,21 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
         # Installable Home and the approved brand files (install.py, brand.py): only where the shell can render, so
         # with sections off these paths stay the portal's 404. Static bytes, the same for every viewer, so no
         # identity is needed to fetch them.
-        asset = install_mod.asset_for(route) if (settings.home_sections and adapter_list) else None
+        shell_on = settings.home_sections and bool(adapter_list)
+        if shell_on and route in (pwa_mod.SW_PATH, pwa_mod.OFFLINE_PATH, pwa_mod.SIGNOUT_PATH):
+            # MK-3 (AVR-717): the worker, its offline page and the sign-out hop. Static, the same for every viewer.
+            scope["avrana_route"] = route
+            if route == pwa_mod.SW_PATH:
+                return Response(worker_js, media_type=pwa_mod.JS_TYPE)       # no Service-Worker-Allowed: scope "/"
+            if route == pwa_mod.OFFLINE_PATH:
+                return Response(offline_html, media_type=HTML)
+            # Clear this site's cache and storage on the device, then on to the outpost's own sign-out (fixed target).
+            return Response(b"", status_code=303, media_type=HTML, headers=pwa_mod.signout_headers(cat.signout_url))
+        script = pwa_mod.asset_for(route) if shell_on else None
+        if script is not None:
+            scope["avrana_route"] = "/static/{file}"
+            return Response(script[0], media_type=script[1])
+        asset = install_mod.asset_for(route) if shell_on else None
         if asset is not None:
             scope["avrana_route"] = ("/manifest.webmanifest" if route == install_mod.MANIFEST_PATH
                                      else "/brand/{file}" if route.startswith("/brand/") else "/icons/{size}")
@@ -296,7 +319,7 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
             return respond(decision, scope, shell=shell_for(viewer, "help-topic"))
         if route == ME_ROUTE and settings.home_sections and p is not None and adapter_list:
             # The Me hub (Concept K, AVR-719) exists only with the shell; otherwise the path stays unknown (parity).
-            decision = me_decision(build_me(tiles_for(viewer), p.username, cat.signout_url))
+            decision = me_decision(build_me(tiles_for(viewer), p.username, pwa_mod.SIGNOUT_PATH))
             scope["avrana_route"] = decision.label
             return respond(decision, scope, shell=shell_for(viewer, "me"))
         decision = decide(route, viewer.groups, cat, facts)
@@ -329,7 +352,7 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
 
     def mark_shell(scope, shell) -> None:
         """Tell the middleware this response is a shell page: only these pages link the manifest and load the brand
-        font, so only these get `manifest-src 'self'; font-src 'self'` in their CSP (middleware.py). Every other
+        font and the page script (base.html), so only these get `SHELL_SOURCES` in their CSP (middleware.py). Every other
         response keeps the CSP unchanged."""
         if shell is not None:
             scope["avrana_shell"] = True

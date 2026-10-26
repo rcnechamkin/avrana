@@ -29,7 +29,7 @@ from .support import GROUPS, USER, StubAdapter, make_client, make_settings, requ
 require_framework()
 
 TEMPLATES = Path(__file__).resolve().parents[1] / "avrana_home" / "app" / "templates"
-SHELL_SOURCES = "; manifest-src 'self'; font-src 'self'"
+SHELL_SOURCES = "; manifest-src 'self'; font-src 'self'; script-src 'self'; worker-src 'self'"   # + MK-3, O1
 KEY = "mock-api-key-not-real"
 CRED = "viewer:mock-api-key-not-real"
 NAME = "X-authentik-name"
@@ -45,6 +45,8 @@ NOLIB = [(USER, "member-n"), (GROUPS, "avrana-users")]
 NO_GROUPS = [(USER, "member-a")]
 PAGES = ("/me", "/account", "/help", "/help/movies", "/help/trouble", "/request", "/read", "/search")
 MARKER = "  /* ---- MK-5b Search, requests and Me (AVR-719) ---- */\n"
+# MK-3 (O1): shell pages carry exactly one first-party script tag in <head>; nothing else may script.
+PAGE_SCRIPT = re.compile(r'<script src="/static/home\.[0-9a-f]{12}\.js" defer(?: data-sw="off")?></script>\n?')
 
 
 def main_of(text):
@@ -101,12 +103,12 @@ class MeHub(Stub):
 
     def test_lists_only_what_the_member_has(self):
         main = main_of(self.page("/me"))
-        self.assertEqual(["/account", "/help", "/help/trouble", self.cat.signout_url], hrefs(main, "krow-a"))
+        self.assertEqual(["/account", "/help", "/help/trouble", "/signout"], hrefs(main, "krow-a"))
         for absent in ("/ops", "Operations", "k-tag", "Admin", "Install", "This phone"):
             self.assertNotIn(absent, main, absent)
         # a member with no library gets the same hub, and still no library word
         nolib = main_of(self.page("/me", NOLIB))
-        self.assertEqual(["/account", "/help", "/help/trouble", self.cat.signout_url], hrefs(nolib, "krow-a"))
+        self.assertEqual(["/account", "/help", "/help/trouble", "/signout"], hrefs(nolib, "krow-a"))
         for word in ("Movies", "Audiobook", "Comic", "Books"):
             self.assertNotIn(word, nolib, word)
 
@@ -122,8 +124,10 @@ class MeHub(Stub):
             self.assertEqual(404, self.on.get("/ops", headers=headers).status_code)
             self.assertNotIn("k-tag", main_of(self.page("/me", headers)))
 
-    def test_sign_out_is_the_catalogues_address_on_me_and_on_account(self):
-        out = f'<a class="krow-a" href="{self.cat.signout_url}">'
+    def test_sign_out_is_the_signout_hop_on_me_and_on_account(self):
+        # MK-3 (D10): the shell's Sign out goes through /signout, which clears this device and then sends the member
+        # on to the catalogue's own sign-out address.
+        out = '<a class="krow-a" href="/signout">'
         self.assertIn(out, main_of(self.page("/me")))
         self.assertIn(out, main_of(self.page("/account")))
 
@@ -176,7 +180,7 @@ class AccountPage(Stub):
         self.assertIn("<dt>Username</dt><dd>member-a</dd>", main)
         self.assertIn('<a class="link" href="/help">Help</a>', main)
         self.assertIn(f'<a class="krow-a" href="{self.cat.account_url}">', main)
-        self.assertIn(f'<a class="krow-a" href="{self.cat.signout_url}">', main)
+        self.assertIn('<a class="krow-a" href="/signout">', main)
         self.assertEqual(['<a class="link" href="/">'], re.findall(r"<a [^>]*>", footer_of(text)))   # rows moved up
         off = footer_of(self.off.get("/account", headers=ALL).text)
         self.assertIn(">Manage account</a>", off)
@@ -212,7 +216,8 @@ class Hygiene(Stub):
                     want = (CSP_SEARCH if path.startswith("/search") else CSP).decode() + SHELL_SOURCES
                     self.assertEqual(want, r.headers["content-security-policy"])
                     self.assertEqual("no-store", r.headers["cache-control"])
-                    t = r.text
+                    self.assertEqual(1, len(PAGE_SCRIPT.findall(r.text)))
+                    t = PAGE_SCRIPT.sub("", r.text)
                     self.assertNotRegex(t, r"(?i)<script|javascript:|\son[a-z]+\s*=|\sstyle\s*=")
                     for svg in re.findall(r"<svg[^>]*>", t):
                         self.assertIn('aria-hidden="true"', svg)

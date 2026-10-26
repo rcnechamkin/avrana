@@ -10,11 +10,11 @@ url: none
 1. Open https://avrana.net in Safari and sign in. [UNVERIFIED on a real device]
 2. Find the Share button, the square with an arrow. On newer iOS it may be inside the three dots menu at the bottom right instead. [UNVERIFIED on a real device]
 3. Tap Add to Home Screen. If you do not see it, scroll down the list, or tap More first. [UNVERIFIED on a real device]
-4. Keep the name Avrana. If you see an Open as Web App switch (iOS 16.4 and later), leave it on to open Avrana as its own window, or turn it off to open it in Safari. [UNVERIFIED on a real device]
+4. Keep the name Avrana Media. If you see an Open as Web App switch (iOS 16.4 and later), leave it on to open Avrana Media as its own window, or turn it off to open it in Safari. [UNVERIFIED on a real device]
 5. Tap Add. [UNVERIFIED on a real device]
 6. Open Avrana from your Home Screen. The icon keeps its own sign-in, separate from Safari, so it may ask you to sign in once. [UNVERIFIED on a real device]
 7. Pages from other parts of Avrana open in a separate browser view with a Done button. Tap Done to come back. [UNVERIFIED on a real device]
-8. Avrana needs a connection. Without one, the icon opens an error page instead of Avrana. [UNVERIFIED on a real device]
+8. Avrana Media needs a connection. Without one, the icon opens a page that says so, with a Try again link. [UNVERIFIED on a real device]
 
 ## Android
 ### Chrome
@@ -26,7 +26,7 @@ url: none
 4. Confirm the name and tap Add. [UNVERIFIED on a real device]
 5. Open Avrana from your Home screen. It opens in its own window without the address bar. [UNVERIFIED on a real device]
 6. Pages from other parts of Avrana open in a browser view on top. Close it, or use Back, to return. [UNVERIFIED on a real device]
-7. Avrana needs a connection. Without one, the icon opens an error page instead of Avrana. [UNVERIFIED on a real device]
+7. Avrana Media needs a connection. Without one, the icon opens a page that says so, with a Try again link. [UNVERIFIED on a real device]
 
 ## Computer
 ### Chrome or Edge

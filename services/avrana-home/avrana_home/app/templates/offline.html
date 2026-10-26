@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}No connection · Avrana Media{% endblock %}
+{% block masthead %}    <div class="mast">
+      <h1><a href="/"><img class="lockup" src="/brand/avrana-media-l3.svg" alt="Avrana Media" width="1384" height="650"><span class="lockup-text" aria-hidden="true">Avrana Media</span></a></h1>
+    </div>{% endblock %}
+{% block body %}
+{# MK-3: the page the service worker shows when the network fails. Static: nothing about any member (no name, no
+   initial, no libraries, no places), the same bytes for everyone. It carries no script and no manifest link. #}
+  <section class="block">
+    <p class="note msg">This phone has no connection. Avrana Media needs one to show your libraries.</p>
+  </section>
+{% endblock %}
+{% block footer %}    <a class="link" href="/">Try again</a>{% endblock %}

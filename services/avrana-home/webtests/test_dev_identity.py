@@ -156,6 +156,15 @@ class HeaderHandlingTests(unittest.TestCase):
         _s, _h, jbody = run(drive(json_app, [(b"x-dev-identity", b"member-a")]))
         self.assertEqual(b'{"a": 1}', jbody)
 
+    def test_the_offline_page_never_gets_the_banner(self):
+        """MK-3: the service worker stores /offline and shows it to every viewer, so no identity name may be baked in."""
+        for path in ("/offline", "/offline/"):
+            _s, _h, body = run(drive(self.mw, [(b"x-dev-identity", b"member-a")], path=path))
+            self.assertNotIn(b"DEVELOPMENT IDENTITY", body)
+            self.assertNotIn(b"member-a", body)
+        _s, _h, other = run(drive(self.mw, [(b"x-dev-identity", b"member-a")], path="/offline-not"))
+        self.assertIn(b"DEVELOPMENT IDENTITY", other)                               # only that exact path
+
     def test_banner_is_present_even_when_no_identity_is_selected(self):
         _s, _h, body = run(drive(self.mw, []))
         self.assertIn(b"DEVELOPMENT IDENTITY: none", body)
