@@ -26,11 +26,11 @@ Cloudflare, DNS, the router, Authentik or host `avrana`. Foreground only: no ser
    certificate authority in `mkcert -CAROOT` and makes this laptop trust it.
 2. Find the laptop's Wi-Fi address: `ipconfig`, "Wireless LAN adapter Wi-Fi", "IPv4 Address" (say `192.168.1.23`).
    Optional name: `hostname` (say `laptop`, used as `laptop.local`; the IP address is the reliable URL).
-3. Make the certificate in a folder OUTSIDE every repository:
+3. Make the certificate in a folder OUTSIDE every repository. Every command in this runbook is **PowerShell**:
 
    ```
-   mkdir %USERPROFILE%\avrana-preview
-   mkcert -cert-file %USERPROFILE%\avrana-preview\preview.pem -key-file %USERPROFILE%\avrana-preview\preview-key.pem 192.168.1.23 laptop.local
+   mkdir "$env:USERPROFILE\avrana-preview"
+   mkcert -cert-file "$env:USERPROFILE\avrana-preview\preview.pem" -key-file "$env:USERPROFILE\avrana-preview\preview-key.pem" 192.168.1.23 laptop.local
    ```
 
 4. iPhone: send `rootCA.pem` from the `mkcert -CAROOT` folder (never `rootCA-key.pem`) by AirDrop or Files. Install
@@ -39,16 +39,19 @@ Cloudflare, DNS, the router, Authentik or host `avrana`. Foreground only: no ser
 
 ## Start
 
-From the repository root, in a shell without the real preview's variables:
+From the repository root (`avrana-homelab\avrana`; the venv is one level up), in a PowerShell window without the
+real preview's variables and without `HTTP_PROXY`/`HTTPS_PROXY`/`ALL_PROXY` (the launcher refuses them):
 
 ```
-.venv-media\Scripts\python services\avrana-home\dev\run_lan_preview.py --i-understand-lan --host 192.168.1.23 --cert %USERPROFILE%\avrana-preview\preview.pem --key %USERPROFILE%\avrana-preview\preview-key.pem --hostname laptop.local --minutes 60
+..\.venv-media\Scripts\python.exe services\avrana-home\dev\run_lan_preview.py --i-understand-lan --host 192.168.1.23 --cert "$env:USERPROFILE\avrana-preview\preview.pem" --key "$env:USERPROFILE\avrana-preview\preview-key.pem" --hostname laptop.local --minutes 60
 ```
 
 Options: `--port` (default 8443), `--minutes` (1..240), `--mode` (mock state at start: ok, slow, down, 500, ...).
 It prints the URL, a one-time passphrase, the stop time and how to stop. The passphrase appears only in this window.
 
-Windows Firewall asks on the first bind: tick **Private networks** only, never Public. On the iPhone (same Wi-Fi)
+Windows Firewall asks on the first bind: tick **Private networks** only, never Public. If this Wi-Fi is set to
+**Public** in Windows, the iPhone cannot connect: stop here and do the review on a trusted home network instead; do
+not change the network profile or the firewall for this. On the iPhone (same Wi-Fi)
 open `https://192.168.1.23:8443/`, enter the passphrase, then pick a member at `/_dev/identity` (use `member-b`).
 The installed Home Screen app keeps its own cookies: enter the passphrase there once too.
 Mock failure modes, from the laptop: `curl -X POST http://127.0.0.1:18096/__mock/mode/down` (then `ok`).
@@ -65,15 +68,17 @@ Mock failure modes, from the laptop: `curl -X POST http://127.0.0.1:18096/__mock
 
 1. iPhone: Settings > General > VPN & Device Management, remove the mkcert profile (this also removes its trust).
    Delete the Home Screen icon; Settings > Apps > Safari > Advanced > Website Data, delete the laptop address.
-2. Laptop: `mkcert -uninstall`, then delete the `mkcert -CAROOT` folder and `%USERPROFILE%\avrana-preview`.
-3. Firewall rule, in an administrator PowerShell (check the listed rules before removing):
+2. Laptop: `mkcert -uninstall`, then delete the `mkcert -CAROOT` folder and `$env:USERPROFILE\avrana-preview`.
+3. Firewall rule, in an administrator PowerShell. Only the rule for this venv's interpreter; other Python rules
+   stay. List first, check it is the one created on the review day, then remove:
 
    ```
-   Get-NetFirewallApplicationFilter | Where-Object Program -like '*python*' | Get-NetFirewallRule | Format-Table DisplayName, Profile, Direction, Action
-   Get-NetFirewallApplicationFilter | Where-Object Program -like '*python*' | Get-NetFirewallRule | Remove-NetFirewallRule
+   Get-NetFirewallApplicationFilter | Where-Object Program -like '*\avrana-homelab\.venv-media\Scripts\python.exe' | Get-NetFirewallRule | Format-Table Name, DisplayName, Profile, Direction, Action
+   Get-NetFirewallApplicationFilter | Where-Object Program -like '*\avrana-homelab\.venv-media\Scripts\python.exe' | Get-NetFirewallRule | Remove-NetFirewallRule
    ```
 
-   Or Windows Security > Firewall & network protection > Allow an app through firewall: remove the Python entries.
+   Or Windows Security > Firewall & network protection > Allow an app through firewall: remove only the entry whose
+   path is `...\avrana-homelab\.venv-media\Scripts\python.exe`.
 4. Optionally `winget uninstall FiloSottile.mkcert`.
 
 ## What this tests, and what it does not

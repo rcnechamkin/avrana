@@ -106,6 +106,13 @@ class RefusalTests(unittest.TestCase):
         rlp.check_environment({"HOME_PWA_SW": "off", "HOME_MOTION_PROPOSAL": "on", "HOMEPATH": "x",
                                "GH_TOKEN": "x", "PATH": "x"})
 
+    def test_a_proxy_in_the_environment_is_refused(self):
+        for name in ("HTTP_PROXY", "https_proxy", "ALL_PROXY"):
+            with self.subTest(name=name), self.assertRaises(DevIdentityRefused) as ctx:
+                rlp.check_environment({name: "http://proxy.example.invalid:3128/secret-value"})
+            self.assertNotIn("secret-value", str(ctx.exception))
+        rlp.check_environment({"NO_PROXY": "127.0.0.1"})
+
     def test_tls_files_missing_unreadable_wrong_kind_in_git_or_mismatched(self):
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "outside"

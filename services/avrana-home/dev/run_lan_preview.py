@@ -48,6 +48,8 @@ DEFAULT_PORT = 8443
 MOCK_PORTS = {"jellyfin": 18096, "abs": 13378, "komga": 25600, "calibre": 18083}
 ALLOWED_HOME_VARS = frozenset({"HOME_PWA_SW", "HOME_MOTION_PROPOSAL"})
 REAL_PREFIXES = ("JELLYFIN_", "AUDIOBOOKSHELF_", "KOMGA_", "CALIBRE_WEB_", "PREVIEW_")
+# The app's HTTP client honours these; the in-process mocks must be reached directly, never through a proxy.
+PROXY_VARS = frozenset({"HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"})
 HOSTNAME = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.local$")
 SHUTDOWN_GRACE = 5
 HARD_STOP_AFTER = 60          # seconds past expiry: if uvicorn has not exited by then, the process is ended
@@ -73,6 +75,9 @@ def check_environment(environ: Mapping[str, str]) -> None:
         if upper.startswith(REAL_PREFIXES) or (upper.startswith("HOME_") and upper not in ALLOWED_HOME_VARS):
             raise LanPreviewRefused(f"refusing: {upper} is set in the environment; the LAN preview is fixture-only "
                                     f"(unset it in this shell)")
+        if upper in PROXY_VARS:
+            raise LanPreviewRefused(f"refusing: {upper} is set in the environment; mock traffic must not go through "
+                                    f"a proxy (unset it in this shell)")
 
 
 def inside_git_tree(path: Path) -> bool:
