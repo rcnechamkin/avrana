@@ -385,7 +385,7 @@ page 28px, shelf 20px, button 17px Medium, body 15px, secondary 14px, eyebrow 12
 Big type is Light; small type Medium or SemiBold.
 
 **Shape, glass, motion.** Radii: preview 20, panel 16, button 14, control 12, chip 8. One `.glass` class (28px
-blur, inset highlights, masked `::before` rim; the element clips itself) worn by the three shell controls only,
+blur, inset highlights, masked `::before` rim; the element clips itself) worn by the three shell controls only (tab bar, Home button; the top-right utility comes with Library, MK-5),
 with solid fallbacks for no `backdrop-filter`, reduced transparency, more contrast and forced colours. Motion tiers
 150, 300 and 200 ms (tier 3 capped at 200 ms; 600 ms only as a labelled Proposal behind a default-off flag); Reduce
 Motion stops all animation.
@@ -393,8 +393,9 @@ Motion stops all animation.
 **Shell (MK-2, AVR-716; D1, D5, D16).** Every shell page ends with the glass tab bar, `nav.tabbar` (aria-label
 "Sections"), after the footer so it is last in reading and focus order, as on screen: Home, Library, Search, Me for a
 member with a library; Home and Me for a member without one (a library a member cannot use is never named). It is
-fixed above the bottom safe area (`viewport-fit=cover`, shell pages only), at most 28rem wide; its edges are in px
-so large text widens the tabs, never the margins, and a label never breaks inside a word. The section's tab carries
+fixed above the bottom safe area (`viewport-fit=cover`, shell pages only), at most 28rem wide; its edges are in px,
+and at very large text (viewport under 18em) it runs edge to edge so whole words still fit; a label never breaks
+inside a word. The section's tab carries
 the yellow lens, placed by `data-at` (the tab's index), which the server prints, so it is right without JavaScript;
 the page script (MK-3) only moves `data-at` on a plain click. `aria-current="page"` marks the tab that is this page,
 `"true"` the section a deeper page belongs to (Help and its topics under Me; places and titles under Home). Icons

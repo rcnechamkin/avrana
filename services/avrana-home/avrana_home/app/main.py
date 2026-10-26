@@ -49,7 +49,7 @@ from .viewmodel import (ACCOUNT_LIBRARY, INTERSTITIAL_SHELL, NO_LIBRARY, REQUEST
 
 TEMPLATES = Path(__file__).resolve().parent / "templates"
 HTML = "text/html; charset=utf-8"
-# Pages that wear the shell (masthead with places, Search, Help and the account menu) when sections are on.
+# Pages that wear the shell (the places bar on Home, the tab bar everywhere) when sections are on.
 SHELL_PAGES = {"/account": "account", "/help": "help", "/help/{slug}": "help-topic",
                "/{chooser}": "place", "/{service}": "place"}
 
@@ -319,7 +319,7 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
         return out
 
     def shell_for(viewer: Viewer, current: str, places=None):
-        """The masthead data (places, Search, Help, account menu) for a shell page, or None where the shell is
+        """The shell data (places, tabs, the member's name) for a shell page, or None where the shell is
         not on (sections off: the pages stay byte-identical to the portal). No upstream call is made here."""
         p = viewer.principal
         if not (settings.home_sections and p is not None and adapter_list):

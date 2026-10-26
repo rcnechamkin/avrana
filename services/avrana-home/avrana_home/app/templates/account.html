@@ -1,6 +1,9 @@
 {% extends "base.html" %}
 {% block title %}Account · Avrana{% endblock %}
 {% block body %}
+{% if shell %}
+  <h2 class="topic">Account</h2>
+{% endif %}
   <section class="block">
     <h2>Signed in as</h2>
     <dl class="facts">

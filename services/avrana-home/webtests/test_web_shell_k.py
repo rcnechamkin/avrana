@@ -41,6 +41,7 @@ class Stylesheet(unittest.TestCase):
         self.assertIn(".tab .tl{overflow-wrap:normal;word-break:normal;}", self.css)
         self.assertNotRegex(re.search(r"\.tab\{[^}]*\}", self.css).group(0), r"font-size:\d+px")   # grows with text
         self.assertIn("@media (forced-colors:active){.tabbar .lens{border:2px solid Highlight;}", self.css)
+        self.assertIn("@media (max-width:18em){", self.css)          # very large text: the bar runs edge to edge
 
     def test_the_old_top_row_is_gone(self):
         rules = re.sub(r"/\*.*?\*/", "", self.css, flags=re.S)
@@ -91,11 +92,22 @@ class Markup(unittest.TestCase):
         self.assertIn('<a class="tab" href="/account" aria-current="page"><span class="me" aria-hidden="true">M</span>'
                       '<span class="tl">Me<span class="sr">, signed in as member-a</span></span></a>', body)
 
-    def test_pages_outside_a_section_print_no_lens(self):
-        # every shell page today belongs to a section; the attribute is absent only when none matches
+    def test_every_section_page_prints_its_lens_and_a_page_outside_the_tabs_prints_none(self):
         for path in ("/", "/search", "/account", "/help", "/help/movies", "/request", "/watch"):
             _text, (_n, has_at, _at, _body) = self.bar(path)
             self.assertTrue(has_at, path)
+        # two tabs: Me is index 1
+        _text, (n, _, at, _body) = self.bar("/account", NOLIB)
+        self.assertEqual(("2", "1"), (n, at))
+        # Search's section has no tab for a member without a library, so no lens is printed at all
+        _text, (n, has_at, _at, _body) = self.bar("/search", NOLIB)
+        self.assertEqual(("2", ""), (n, has_at))
+
+    def test_tab_pages_show_their_own_title(self):
+        for path, title in (("/search", '<h2 id="h-search">Search</h2>'), ("/account", '<h2 class="topic">Account</h2>'),
+                            ("/help", '<h2 class="topic">Help</h2>')):
+            main = self.on.get(path, headers=ALL).text.split("<main", 1)[1]
+            self.assertIn(title, main.split("</h2>", 1)[0] + "</h2>", path)       # the first heading in main
 
     def test_viewport_fit_cover_only_where_the_shell_is(self):
         cover = '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">'
