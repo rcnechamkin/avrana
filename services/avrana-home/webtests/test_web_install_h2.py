@@ -94,7 +94,7 @@ class ManifestAndIcons(Base):
         for path in ["/manifest.webmanifest"] + list(install.ICON_PATHS):
             r = c.get(path, headers=MEMBER)
             self.assertEqual((404, nf), (r.status_code, r.text), path)
-        for path in ("/", "/account", "/help"):
+        for path in ("/", "/me", "/account", "/help"):
             page = c.get(path, headers=MEMBER).text
             for tag in ("manifest", "apple-touch-icon", "theme-color", "apple-mobile-web-app"):
                 self.assertNotIn(tag, page, path)
@@ -129,7 +129,7 @@ class HeadTagsAndCsp(Base):
 
     def test_without_a_principal_no_page_wears_the_shell_or_the_manifest(self):
         c = self.client()
-        for path in ("/", "/account", "/help"):
+        for path in ("/", "/me", "/account", "/help"):
             r = c.get(path, headers=NO_GROUPS_HEADER)
             self.assertEqual(CSP.decode(), r.headers["content-security-policy"], path)
             self.assertNotIn("rel=\"manifest\"", r.text, path)

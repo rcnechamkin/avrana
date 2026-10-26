@@ -172,7 +172,7 @@ class BrandRoutes(unittest.TestCase):
         c = self.client()
         # D5: the L3 lockup on Home; the Spire-A micro cut as the Home button on pages that are not tabs; tab pages
         # (Search, Account, Help) show their own title. None carries the portal wordmark or its rule.
-        for path, lockup, mark in (("/", True, False), ("/account", False, False), ("/help", False, False),
+        for path, lockup, mark in (("/", True, False), ("/me", False, False), ("/account", False, False), ("/help", False, False),
                                    ("/search", False, False), ("/request", False, True)):
             text = c.get(path, headers=MEMBER).text
             self.assertEqual(lockup, LOCKUP_TAG in text, path)
@@ -180,7 +180,7 @@ class BrandRoutes(unittest.TestCase):
             self.assertNotIn(">AVRANA</a>", text, path)
             self.assertNotIn('<div class="rule">', text, path)        # no rule under the lockup (owner, 2026-10-18)
         off = self.client(sections=False)
-        for path in ("/", "/account", "/help"):
+        for path in ("/", "/me", "/account", "/help"):
             text = off.get(path, headers=MEMBER).text
             self.assertNotIn("/brand/", text, path)
             self.assertNotIn("lockup-text", text, path)

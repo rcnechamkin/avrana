@@ -133,7 +133,7 @@ class HygieneTests(unittest.TestCase):
             self.assertEqual([value], r.headers.get_list(name), f"{label}: {name}")
 
     def test_every_matrix_response_including_errors(self):
-        cases = [("GET", "/"), ("GET", "/account"), ("GET", "/help"), ("GET", "/help/movies"),
+        cases = [("GET", "/"), ("GET", "/me"), ("GET", "/account"), ("GET", "/help"), ("GET", "/help/movies"),
                  ("GET", "/watch"), ("GET", "/ops"), ("GET", "/read"), ("GET", "/healthz"),
                  ("GET", "/nope"), ("GET", "/readyz"), ("GET", "/home.json"), ("HEAD", "/"),
                  ("HEAD", "/watch"), ("HEAD", "/nope"), ("POST", "/"), ("PUT", "/watch"), ("DELETE", "/ops"),

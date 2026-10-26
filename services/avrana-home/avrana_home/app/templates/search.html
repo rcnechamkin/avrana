@@ -7,7 +7,9 @@
    suggestions. The typed term is autoescaped and bounded by the view-model; results are grouped by library, only
    libraries the member may use are ever named, and every group says truthfully what happened. A library that could
    not answer is said in words inside the warning style (a rectangle with the triangle glyph and the amber edge,
-   never the yellow). The shell (the tab bar) is the same as on every shell page. #}
+   never the yellow). Every request offer leaves Avrana (the Seerr link directly with the term, the others through our
+   own route's redirect), so every one says so, in words and with the external-link glyph. The shell (the tab bar) is
+   the same as on every shell page. #}
   <section class="shelf" aria-labelledby="h-search">
     <h2 id="h-search">Search</h2>
 {% if page.mode == "no_library" %}
@@ -43,7 +45,7 @@
       <h3 class="kgroup-h" id="h-ask">Ask for it</h3>
       <ul class="asks krows">
 {% for r in page.requests %}
-        <li class="krow kask"><span class="krow-ic">{{ glyph({"requests": "film", "requestabook": "book", "requestacomic": "comic"}.get(r.path, "plus")) }}</span><a class="link" href="{{ r.href }}">{{ r.label }}{% if r.leaves %}<span class="sr">, opens the request website</span>{% endif %}</a>{% if r.leaves %} <span class="hint" aria-hidden="true">Opens the request website</span>{% endif %}{{ glyph("external", "kic krow-go") }}</li>
+        <li class="krow kask"><span class="krow-ic">{{ glyph({"requests": "film", "requestabook": "book", "requestacomic": "comic"}.get(r.path, "plus")) }}</span><a class="link" href="{{ r.href }}">{{ r.label }}<span class="sr">, opens the request website</span></a> <span class="hint" aria-hidden="true">Opens the request website</span>{{ glyph("external", "kic krow-go") }}</li>
 {% endfor %}
 {% if offer_contribute %}
         {{ row(contribute.href, contribute.label|trusted, contribute.desc|trusted, "plus", leaves=True, leaves_said=True) }}

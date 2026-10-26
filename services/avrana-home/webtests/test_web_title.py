@@ -294,9 +294,11 @@ class SearchLinks(Fixture):
         self.assertIn('href="https://request.avrana.net/search?query=nomatch%20here">Ask for a film or show'
                       '<span class="sr">, opens the request website</span></a> '
                       '<span class="hint" aria-hidden="true">Opens the request website</span>', r.text)
-        self.assertIn('href="/requestacomic">Ask for a comic</a>', r.text)
+        # The others leave Avrana too, through our own route's redirect (MK-5b review): each says so as well.
+        self.assertIn('href="/requestacomic">Ask for a comic<span class="sr">, opens the request website</span></a> '
+                      '<span class="hint" aria-hidden="true">Opens the request website</span>', r.text)
         self.assertIn('href="/requestabook">Ask for ', r.text)
-        self.assertEqual(1, r.text.count("Opens the request website</span>"))   # only the link that leaves
+        self.assertEqual(3, r.text.count("Opens the request website</span>"))   # one per offer, each leaves
         self.assertNotIn("Request this title", r.text)
         self.assertNotIn("an ebook", r.text)
         v = c.get("/search", params={"q": "nomatch here"}, headers=A_VIDEO_ONLY).text

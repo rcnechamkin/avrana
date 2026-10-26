@@ -436,7 +436,8 @@ on a narrow screen the icon circles are dropped so the words keep the width.
 *Search* keeps its plain GET form (`form-action 'self'`), its visible label and its Search button (keyboards, no
 script); the field is opaque with a 3:1 Control edge and 17px text. Results are one panel per library, the title link
 covering the row. No results offers "Ask for it": the member's own request routes only (the same view-model as
-before), and Contribute only when the member's catalogue holds it. A library that could not answer is said in words
+before; each row says "Opens the request website", since every one leaves Avrana), and Contribute only when the
+member's catalogue holds it. A library that could not answer is said in words
 inside the warning panel (triangle glyph, words, 1px `--warn` edge, rectangle; never the yellow); a library the member
 cannot use is never named. *Request* groups the member's own request places under "Ask for something", each row the
 catalogue's own wording for that member and "Opens the request website", then "Add to the library" only with

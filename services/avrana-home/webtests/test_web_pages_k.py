@@ -88,6 +88,7 @@ class MeHub(Stub):
                 r = client.get(path, headers=headers)
                 self.assertEqual((404, nope.text), (r.status_code, r.text), (path, headers))
                 self.assertEqual(nope.headers["content-security-policy"], r.headers["content-security-policy"])
+                self.assertEqual(nope.headers["cache-control"], r.headers["cache-control"])
 
     def test_says_who_is_signed_in_from_the_principal_only(self):
         main = main_of(self.page("/me"))
@@ -218,7 +219,8 @@ class Hygiene(Stub):
                         self.assertIn('focusable="false"', svg)
                     # JS-off parity: every control is a real link, or the search form's own submit button
                     self.assertEqual(len(re.findall(r"<button", t)), len(re.findall(r"<form", t)))
-                    self.assertEqual(0, t.count("<form") if path != "/search" else 0)
+                    if path != "/search":
+                        self.assertNotIn("<form", t)
                     for href in re.findall(r'<a [^>]*href="([^"]*)"', t):
                         self.assertTrue(href.startswith(("/", "https://", "#main")), href)
 
@@ -245,7 +247,7 @@ class Stylesheet(unittest.TestCase):
         self.rules = re.sub(r"/\*.*?\*/", "", self.block, flags=re.S)
 
     def test_the_block_names_no_section_library_or_member_word(self):
-        for word in ("Continue", "Resume", "Recently", "Jellyfin", "Audiobook", "audiobook", "Komga", "komga", "Comic",
+        for word in ("Continue", "Resume", "Recently", "New this week", "Jellyfin", "Audiobook", "audiobook", "Komga", "komga", "Comic",
                      "comic", "Calibre", "calibre", "Movies", "movie", "Books", "books", "listen", "manga", "member-"):
             self.assertNotIn(word, self.block, word)
 
@@ -258,6 +260,9 @@ class Stylesheet(unittest.TestCase):
         self.assertIn("color:var(--warn)", re.search(r"\.kwarn-ic\{([^}]*)\}", self.rules).group(1))
         for banned in ("#e8cf8a", "#b9a9e8", "purple", "--accent-selected", "--accent-lens"):
             self.assertNotIn(banned, self.rules.lower())
+        # the yellow only ever through its token: no literal hex or channel values (comments included)
+        for literal in ("eada6e", "234 218 110"):
+            self.assertNotIn(literal, self.block.lower())
 
     def test_everything_here_is_opaque_and_loads_nothing(self):
         for banned in ("url(", "backdrop-filter", ".glass", "@import"):
@@ -315,6 +320,15 @@ class SearchStates(Mocks):
         comics = main_of(c.get("/search", params={"q": "zzqxnothingzz"}, headers=COMICS).text)
         self.assertEqual(['/requestacomic'], re.findall(r'<li class="krow kask">.*?href="([^"]*)"', comics))
         self.assertNotIn("request.avrana.net", comics)
+        # the row leaves Avrana (our route redirects to the request site), so it says so, in words and with the glyph
+        row = re.search(r'<li class="krow kask">(.*?)</li>', comics).group(1)
+        self.assertIn('href="/requestacomic">Ask for a comic<span class="sr">, opens the request website</span></a>', row)
+        self.assertIn('<span class="hint" aria-hidden="true">Opens the request website</span>', row)
+        self.assertIn('class="kic krow-go"', row)
+        # every offer that shows the external-link glyph also says it leaves, for every member
+        for page in (video, comics):
+            for li in re.findall(r'<li class="krow kask">(.*?)</li>', page):
+                self.assertEqual("krow-go" in li, "opens the request website" in li)
 
     def test_contribute_joins_the_offers_only_for_a_member_who_has_it_and_only_with_no_results(self):
         c = self.client()
