@@ -398,7 +398,8 @@ and at very large text (viewport under 18em) it runs edge to edge so whole words
 inside a word. The section's tab carries
 the yellow lens, placed by `data-at` (the tab's index), which the server prints, so it is right without JavaScript;
 the page script (MK-3) only moves `data-at` on a plain click. `aria-current="page"` marks the tab that is this page,
-`"true"` the section a deeper page belongs to (Help and its topics under Me; places and titles under Home). Icons
+`"true"` the section a deeper page belongs to (Account, Help and its topics under Me, whose tab opens the Me hub
+`/me` since MK-5b; places and titles under Home). Icons
 are inline SVG in `currentColor`; Me shows the member's initial and its name says who is signed in. Library opens
 its own page, `/library` (MK-5a, below). The page scrolls clear of the bar by 1rem.
 
@@ -406,8 +407,8 @@ Home keeps the L3 lockup as its heading, top left, and under it the places bar (
 as opaque chips: one row at 390px, whole chips wrapping at 320px or large text; a down library stays struck through.
 Other shell pages keep "Avrana Media" as a visually hidden `h1` and show their own title first. Pages that are not
 tabs (a place, a help topic, a title) add the glass Home button: the brand's Spire-A micro cut at the 24px it is drawn
-for (`/brand/spire-a-24.svg`), the word "Home" in forced colours. Account links to Help; the old top row (Search
-link, account disclosure) is retired.
+for (`/brand/spire-a-24.svg`), the word "Home" in forced colours. The Me hub and Account link to Help; the old top
+row (Search link, account disclosure) is retired.
 
 **Home (MK-4, AVR-718; D6).** Under the places bar, a hero shows the member's own next thing: the first item in
 Continue, or, with nothing in progress, the first item in Recently added. It is built only from this member's
@@ -456,6 +457,29 @@ in words, with the 3px Cream rule under them (`pc0` to `pc100`, hidden from assi
 action across the column and the "Opens in" note in an opaque panel. An unavailable library is the same warning as
 on Library. The frames' "Continue" eyebrow, "Resume in Jellyfin" label and detail panel are not built: they change
 the page's copy, which this slice keeps.
+**Search, Request, Me, Account and Help (MK-5b, AVR-719).** Tab pages (Search, Me, Account, Help) put their title in
+the 28px page role where the Home button would be; place pages (Request, Read) keep the Home button and set the
+chooser's title in the same role. Lists are **grouped rows**: an eyebrow heading (12px Medium caps, 0.16em, wrapping)
+over one opaque panel (`--surface`, 1px `--line`, panel radius); each row is one link at least 44px tall, with a
+decorative inline-SVG icon in a 40px raised circle, the label, an optional Stone line, and a chevron (stays in Avrana)
+or the external-link glyph (leaves Avrana, said in words as well). Focus is drawn inside the row. At very large text
+on a narrow screen the icon circles are dropped so the words keep the width.
+*Search* keeps its plain GET form (`form-action 'self'`), its visible label and its Search button (keyboards, no
+script); the field is opaque with a 3:1 Control edge and 17px text. Results are one panel per library, the title link
+covering the row. No results offers "Ask for it": the member's own request routes only (the same view-model as
+before; each row says "Opens the request website", since every one leaves Avrana), and Contribute only when the
+member's catalogue holds it. A library that could not answer is said in words
+inside the warning panel (triangle glyph, words, 1px `--warn` edge, rectangle; never the yellow); a library the member
+cannot use is never named. *Request* groups the member's own request places under "Ask for something", each row the
+catalogue's own wording for that member and "Opens the request website", then "Add to the library" only with
+Contribute. *Me* (`/me`, shell only; otherwise the standard 404) shows the member's initial, name and "Signed in as
+<username>", then Account, Help and "If something doesn't open", Operations (with the yellow, slanted ADMIN role tag)
+only behind the catalogue's own Operations group gate, and Sign out at the catalogue's address (MK-3's `/signout` hop
+replaces it there and on Account). *Account* keeps every fact, list and note; its section headings are the eyebrow
+role (the old letter-spaced caps pushed a 320px page sideways at 200% text), and Manage account and Sign out are rows
+under the words that explain them. *Help* lists the member's own topics as rows; topic pages set each platform in an
+opaque panel at a readable measure. Not built (no data or no page today): an avatar image, an install row on Me,
+request statuses, and the offline, update and session-ended states (MK-3).
 
 ## Brand v1.0.0 on Home shell pages (AVR-584)
 

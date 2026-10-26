@@ -42,7 +42,7 @@ class StaticExportTests(unittest.TestCase):
                      # The shell beyond Home, so check_home_export.mjs (axe, sideways scroll, focus) covers it too:
                      "member-a/normal/title-jellyfin-aaaa0000000000000000000000000001.html",
                      "member-b/normal/read.html", "member-a/normal/request.html", "member-a/normal/watch.html",
-                     "member-a/normal/help-trouble.html", "member-a/normal/account.html",
+                     "member-a/normal/help-trouble.html", "member-a/normal/me.html", "member-a/normal/account.html",
                      # Library and its chips (MK-5a), and Library with a library down:
                      "member-a/normal/library.html", "member-a/normal/library-lib-jellyfin.html",
                      "member-b/normal/library-lib-komga.html", "member-a/one-down/library.html",

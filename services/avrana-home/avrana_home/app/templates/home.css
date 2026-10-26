@@ -523,3 +523,120 @@
   @media (forced-colors:active){.title-page .frame{box-shadow:none;}.title-page a.open{border-color:ButtonText;}
     .title-bar{forced-color-adjust:none;background:Canvas;box-shadow:0 0 0 1px CanvasText;}.title-bar .fill{background:CanvasText;}
     .title-page .hint{border-color:CanvasText;}}
+  /* ---- MK-5b Search, requests and Me (AVR-719) ---- */
+  /* Concept K on the remaining tab and place pages (frames 19:1943 to 19:2181, 17:619, 17:872, 17:1583, 17:1698): page
+     titles, grouped opaque rows, the search field, the warning panel, the Me hub, and the panels of the account and
+     help pages. One block, appended last, overriding earlier rules rather than editing them (several are test-pinned).
+     Everything here is opaque: glass stays on the three shell controls. Words wrap whole; icons and art are in px so
+     that at large text the words get the room. */
+  /* The page title role (28px, regular), top left. */
+  body:has(.mast) h2.topic,#h-search,main:has(.kplaces)>section.block:first-child>h2{margin:0;font-size:var(--text-page);
+    font-weight:400;line-height:1.2;letter-spacing:-0.01em;text-transform:none;color:var(--cream);overflow-wrap:break-word;}
+  main:has(.kplaces)>section.block:first-child{gap:0.75rem;}
+  /* A group: an eyebrow heading (12px Medium caps tracked 0.16em, wrapping) over one opaque panel. */
+  section.kgroup{display:flex;flex-direction:column;gap:0.625rem;min-width:0;}
+  .kgroup-h,section.kgroup>h2,.found>h3{margin:0;font-size:var(--text-eyebrow);font-weight:500;line-height:1.35;
+    letter-spacing:0.16em;text-transform:uppercase;color:var(--stone);overflow-wrap:break-word;}
+  nav.tiles.kplaces{display:flex;flex-direction:column;gap:1.75rem;}
+  .krows,.kpanel,ul.hits{margin:0;padding:0;list-style:none;background:var(--surface);border:1px solid var(--line);
+    border-radius:var(--radius-panel);overflow:hidden;}
+  .krow+.krow,ul.hits li+li,ul.access.kpanel li+li{border-top:1px solid var(--line);}
+  /* A row: one link, the whole row its target (at least 44px), focus drawn inside it (the panel clips outside). */
+  .krow-a{display:flex;align-items:center;gap:0.75rem;min-height:3.75rem;padding:0.625rem 0.875rem 0.625rem 0.75rem;
+    color:var(--cream);text-decoration:none;}
+  .krow-a:hover,.kask:hover,ul.hits li:hover{background:var(--raised);}
+  .krow-a:focus-visible{outline:2px solid var(--focus);outline-offset:-2px;box-shadow:none;}
+  .krow-ic{flex:none;display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:50%;
+    background:var(--raised);color:var(--cream);}
+  .kic{flex:none;width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;}
+  .krow-text{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:0.125rem;}
+  .krow-t{font-size:1rem;font-weight:500;line-height:1.3;overflow-wrap:break-word;}
+  .krow-d{font-size:var(--text-secondary);line-height:1.35;color:var(--stone);overflow-wrap:break-word;}
+  .krow-go,.hit-go{color:var(--stone);}
+  /* The no-results offers keep their link-and-words markup: a grid row whose link covers the whole row. */
+  .asks.krows{display:block;}
+  .kask{position:relative;display:grid;grid-template-columns:40px minmax(0,1fr) auto;grid-template-areas:"ic t go" "ic d go";
+    column-gap:0.75rem;align-items:center;align-content:center;min-height:3.75rem;padding:0.625rem 0.875rem 0.625rem 0.75rem;}
+  .kask:not(:has(.hint)){grid-template-areas:"ic t go";}
+  .kask .krow-ic{grid-area:ic;}
+  .kask .link{grid-area:t;justify-content:flex-start;min-height:0;min-width:0;font-size:1rem;font-weight:500;line-height:1.3;
+    text-align:left;text-decoration:none;color:var(--cream);overflow-wrap:break-word;}
+  .kask .link::after{content:"";position:absolute;inset:0;}
+  .kask .hint{grid-area:d;font-size:var(--text-secondary);line-height:1.35;}
+  .kask>.krow-go{grid-area:go;}
+  .kask .link:focus-visible{outline:none;box-shadow:none;}
+  .kask:has(.link:focus-visible){outline:2px solid var(--focus);outline-offset:-2px;}
+  /* The search field: opaque (never glass), a 3:1 Control edge, the glyph inside it, 16px+ text (no zoom on focus). The
+     button stays for keyboards and no script; the field keeps its visible label. */
+  .srch label{font-size:var(--text-secondary);font-weight:500;letter-spacing:0;text-transform:none;color:var(--stone);}
+  .srch .ask{gap:0.5rem;}
+  .ask-field{position:relative;flex:1 1 9rem;min-width:0;display:flex;}
+  .ask-ic{position:absolute;left:16px;top:50%;transform:translateY(-50%);color:var(--stone);pointer-events:none;}
+  .srch .ask-field input[type=search]{flex:1 1 auto;width:100%;min-width:0;min-height:3.25rem;padding:0.625rem 1rem 0.625rem 46px;
+    font-size:1.0625rem;color:var(--cream);background:var(--surface);border:1px solid var(--control);border-radius:var(--radius-button);}
+  .srch .ask-field input[aria-invalid=true]{border-color:var(--cream);border-width:2px;}
+  .srch button{min-height:3.25rem;padding:0.5rem 1rem;border:1px solid var(--cream);border-radius:var(--radius-button);
+    background:var(--cream);color:var(--ink);font-weight:600;}
+  .srch .err{border-radius:var(--radius-control);}
+  /* The results heading is a quiet count; each library's results are one panel of rows. A row's title link covers the
+     row; the chevron (a page in Avrana) or the external glyph (it opens the library) says where it goes. */
+  #h-outcome{font-size:var(--text-body);font-weight:500;line-height:1.35;letter-spacing:0;text-transform:none;color:var(--cream);}
+  .found{gap:0.625rem;}
+  ul.hits{gap:0;}
+  ul.hits li{--thumb:40px;position:relative;grid-template-columns:var(--thumb) minmax(0,1fr) auto;grid-template-areas:"art meta go";
+    align-items:center;gap:0 0.75rem;border:0;padding:0.625rem 0.875rem 0.625rem 0.75rem;}
+  ul.hits .frame{border-radius:6px;border-color:var(--line);background:var(--raised);}
+  ul.hits .ph{font-size:1rem;}
+  ul.hits a.t{display:-webkit-box;min-height:0;font-size:1rem;font-weight:500;line-height:1.3;color:var(--cream);text-decoration:none;}
+  ul.hits a.t::after{content:"";position:absolute;inset:0;}
+  ul.hits a.t:focus-visible{outline:none;box-shadow:none;}
+  ul.hits li:has(a.t:focus-visible){outline:2px solid var(--focus);outline-offset:-2px;}
+  ul.hits .d{font-size:var(--text-secondary);color:var(--stone);}
+  .hit-go{grid-area:go;}
+  /* A library that could not answer: words in a rectangle with the triangle glyph and a 1px amber edge. Never the
+     yellow, never colour alone. */
+  .said.kwarn{display:flex;align-items:flex-start;gap:0.75rem;max-width:none;padding:0.875rem 1rem;color:var(--cream);
+    background:var(--surface);border:1px solid var(--warn);border-radius:var(--radius-control);}
+  .kwarn-ic{width:20px;height:20px;margin-top:0.125rem;color:var(--warn);}
+  .kwarn-t{flex:1 1 auto;min-width:0;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:0 1rem;
+    line-height:1.5;overflow-wrap:break-word;}
+  .kwarn .link{flex:none;min-height:2.75rem;font-weight:600;}
+  /* The Me hub: the initial on a raised circle (no avatar is available), the name, who is signed in, and the role tag
+     in the Media yellow, slanted (the tag is a role, so it is the accent; never a large fill). */
+  .me-id{display:flex;flex-wrap:wrap;align-items:center;gap:0.75rem 1rem;min-width:0;}
+  .me-av{flex:none;display:inline-flex;align-items:center;justify-content:center;width:80px;height:80px;border-radius:50%;
+    background:var(--raised);border:1px solid var(--line);font-size:2rem;font-weight:300;line-height:1;color:var(--cream);}
+  /* Beside the circle while the name fits; under it at large text, never breaking the name inside a word. */
+  .me-who{flex:1 1 12rem;min-width:0;display:flex;flex-direction:column;gap:0.25rem;}
+  .me-name{margin:0;font-size:var(--text-page);font-weight:300;line-height:1.2;color:var(--cream);overflow-wrap:break-word;}
+  .me-who .k-meta{margin:0;overflow-wrap:anywhere;}
+  .k-tag{display:inline-block;vertical-align:0.3em;padding:0.1875rem 0.75rem;font-size:var(--text-eyebrow);font-weight:700;
+    line-height:1.2;letter-spacing:0.16em;text-transform:uppercase;color:var(--ink);background:var(--accent);
+    clip-path:polygon(6px 0,100% 0,calc(100% - 6px) 100%,0 100%);}
+  @media (forced-colors:active){.k-tag{clip-path:none;border:1px solid CanvasText;}.me-av{border-color:CanvasText;}}
+  /* Account: the facts and the access lists as panels; notes at a readable measure; sub-headings as quiet labels. */
+  .kgroup p.note{max-width:36rem;color:var(--stone);font-size:var(--text-body);line-height:1.55;}
+  .kgroup h3.sub{margin:0.25rem 0 0;font-size:var(--text-secondary);font-weight:500;letter-spacing:0;color:var(--cream);}
+  dl.facts.kpanel{display:block;padding:0 1rem;}
+  dl.facts.kpanel dt{padding-top:0.75rem;font-size:var(--text-secondary);letter-spacing:0;text-transform:none;color:var(--stone);}
+  dl.facts.kpanel dd{margin:0;padding:0.125rem 0 0.75rem;font-size:1rem;font-weight:500;color:var(--cream);overflow-wrap:anywhere;}
+  dl.facts.kpanel dd:not(:last-child){border-bottom:1px solid var(--line);}
+  ul.access.kpanel{display:block;}
+  ul.access.kpanel li{display:flex;align-items:center;min-height:3rem;padding:0.625rem 1rem;border:0;font-size:1rem;}
+  /* Help topics and the recovery topic: each platform an opaque panel, steps at a readable measure, the Recommended tag
+     in the eyebrow role, any address in a monospace face. */
+  body:has(.mast) .platform{gap:0.875rem;padding:1rem;border:1px solid var(--line);border-radius:var(--radius-panel);background:var(--surface);}
+  body:has(.mast) .platform>h3{font-size:var(--text-shelf);font-weight:400;line-height:1.25;letter-spacing:-0.01em;}
+  body:has(.mast) .platform p.note,body:has(.mast) .platform ul,body:has(.mast) .client ol{max-width:36rem;}
+  body:has(.mast) .platform p.note{color:var(--stone);font-size:var(--text-body);line-height:1.55;}
+  body:has(.mast) .platform ul{margin:0;padding-left:1.25rem;color:var(--stone);line-height:1.55;}
+  body:has(.mast) .client .cname{font-weight:600;}
+  body:has(.mast) .client .tag{font-size:var(--text-eyebrow);font-weight:500;letter-spacing:0.16em;color:var(--stone);}
+  body:has(.mast) .client ol{color:var(--stone);font-size:var(--text-body);}
+  body:has(.mast) .client code{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-size:0.9em;color:var(--cream);
+    border-bottom:0;padding:0 0.25rem;background:var(--raised);border-radius:4px;}
+  /* Very large text on a narrow screen: the decorative icon circles give their width to the words. */
+  @media (max-width:18em){.krow-ic{display:none;}
+    .kask{grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"t go" "d go";}.kask:not(:has(.hint)){grid-template-areas:"t go";}
+    .me-av{width:56px;height:56px;font-size:1.5rem;}}
+  @media (forced-colors:active){.said.kwarn{border-color:CanvasText;}}

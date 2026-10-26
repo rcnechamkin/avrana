@@ -22,7 +22,7 @@ SERVICE_PATHS = ["watch", "listen", "comics", "books", "kindle", "requests", "re
 UNKNOWN = ["/nope", "/admin", "/ops/x", "/help/nope", "/help/movies/extra", "/index.html",
            "/favicon.ico", "/outpost.goauthentik.io/sign_out", "/read/comics", "/static",
            "/help/Movies", "/WATCH", "/Watch", "/Ops", "/readyz", "/home.json", "/metrics",
-           "/docs", "/openapi.json", "/redoc"]
+           "/docs", "/openapi.json", "/redoc", "/me"]   # /me: the Me hub exists only with the shell (AVR-719)
 ROUTES = (["/", "/account", "/help", "/healthz"] + [f"/help/{s}" for s in HELP_SLUGS]
           + ["/read", "/request"] + [f"/{p}" for p in SERVICE_PATHS] + UNKNOWN)
 VARIANTS = ["/watch/", "/watch?q=1", "/watch/?q=1", "/watch//", "/?q=1", "//", "/help/",

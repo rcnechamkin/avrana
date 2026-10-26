@@ -140,12 +140,13 @@ class Stylesheet(unittest.TestCase):
     def setUp(self):
         css = (TEMPLATES / "home.css").read_text(encoding="utf-8")
         self.assertEqual(1, css.count(MARKER))
-        self.block = css.split(MARKER, 1)[1]
+        # this slice's block only: it runs from its marker to the next slice's marker, if any
+        self.block = css.split(MARKER, 1)[1].split("\n  /* ---- MK-", 1)[0]
         self.comments = " ".join(re.findall(r"/\*.*?\*/", MARKER + self.block, flags=re.S))
         self.rules = re.sub(r"/\*.*?\*/", "", self.block, flags=re.S)
 
-    def test_the_block_is_last(self):
-        self.assertNotIn("/* ---- MK-", self.block)
+    def test_the_block_holds_rules(self):
+        self.assertIn(".chip[aria-current]", self.rules)
 
     def test_yellow_is_only_selection_and_focus_and_the_warning_is_amber(self):
         for m in re.finditer(r"([^{}]+)\{([^}]*var\(--accent(?:-selected)?\)[^}]*)\}", self.rules):

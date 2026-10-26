@@ -143,8 +143,8 @@ class Stylesheet(unittest.TestCase):
         css = (TEMPLATES / "home.css").read_text(encoding="utf-8")
         marker = "  /* ---- MK-4 Home (AVR-718) ---- */\n"
         self.assertEqual(1, css.count(marker))
-        # The MK-4 block only: it runs to the next slice's block marker (MK-5a appends its own after it).
-        self.block = css.split(marker, 1)[1].split("  /* ---- MK-", 1)[0]
+        # MK-4's block runs from its marker to the next slice's marker (MK-5 appends its own blocks after it)
+        self.block = re.split(r"\n  /\* ---- MK-(?!4 )", css.split(marker, 1)[1], maxsplit=1)[0]
         self.rules = re.sub(r"/\*.*?\*/", "", self.block, flags=re.S)
 
     def test_yellow_marks_only_the_members_own_state_and_progress_is_cream(self):

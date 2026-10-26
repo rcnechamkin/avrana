@@ -21,7 +21,7 @@ HEAD_TAGS = ('<link rel="manifest" href="/manifest.webmanifest" crossorigin="use
              '<link rel="apple-touch-icon" href="/icons/avrana-180.png">',
              '<meta name="theme-color" content="#121214">',
              '<meta name="apple-mobile-web-app-capable" content="yes">')
-SHELL_ROUTES = ("/", "/library", "/account", "/help", "/help/movies", "/help/trouble", "/search", "/search?q=Film", "/watch",
+SHELL_ROUTES = ("/", "/library", "/me", "/account", "/help", "/help/movies", "/help/trouble", "/search", "/search?q=Film", "/watch",
                 "/request")   # Watch and Request wear the shell since #59; Read is 404 for this member
 OTHER_ROUTES = ("/read", "/nope", "/healthz", "/home.json", "/manifest.webmanifest",
                 "/icons/avrana-192.png", "/brand/plus-jakarta-sans-latin.woff2", "/brand/avrana-media-l3.svg", "/art/jellyfin/primary/aaaa0000000000000000000000000001",
@@ -94,7 +94,7 @@ class ManifestAndIcons(Base):
         for path in ["/manifest.webmanifest"] + list(install.ICON_PATHS):
             r = c.get(path, headers=MEMBER)
             self.assertEqual((404, nf), (r.status_code, r.text), path)
-        for path in ("/", "/account", "/help"):
+        for path in ("/", "/me", "/account", "/help"):
             page = c.get(path, headers=MEMBER).text
             for tag in ("manifest", "apple-touch-icon", "theme-color", "apple-mobile-web-app"):
                 self.assertNotIn(tag, page, path)
@@ -129,7 +129,7 @@ class HeadTagsAndCsp(Base):
 
     def test_without_a_principal_no_page_wears_the_shell_or_the_manifest(self):
         c = self.client()
-        for path in ("/", "/account", "/help"):
+        for path in ("/", "/me", "/account", "/help"):
             r = c.get(path, headers=NO_GROUPS_HEADER)
             self.assertEqual(CSP.decode(), r.headers["content-security-policy"], path)
             self.assertNotIn("rel=\"manifest\"", r.text, path)

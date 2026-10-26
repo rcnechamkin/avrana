@@ -41,12 +41,12 @@ from .identity import (IdentityResolver, Viewer, get_viewer, has_identity_header
 from .logsafe import app_log, log_event, silence_uvicorn_access
 from .middleware import HygieneMiddleware
 from . import recovery
-from .routing import (AccountFacts, Decision, chooser_intro, decide, library_decision, normalise_target, not_found,
-                      parse_title_route, search_decision, title_decision, trouble_decision)
+from .routing import (ME_ROUTE, AccountFacts, Decision, chooser_intro, decide, library_decision, me_decision,
+                      normalise_target, not_found, parse_title_route, search_decision, title_decision, trouble_decision)
 from .settings import Settings, is_sealed_preview
-from .viewmodel import (ACCOUNT_LIBRARY, INTERSTITIAL_SHELL, LIBRARY_PLACE, NO_LIBRARY, REQUEST_FOR, SERVICE_LABEL,
-                        account_access, build_home, build_library, build_search, build_shell, build_title,
-                        has_library)
+from .viewmodel import (ACCOUNT_LIBRARY, CONTRIBUTE_PATH, INTERSTITIAL_SHELL, LIBRARY_PLACE, NO_LIBRARY, REQUEST_FOR,
+                        SERVICE_LABEL, account_access, build_home, build_library, build_me, build_search, build_shell,
+                        build_title, has_library, place_link)
 
 TEMPLATES = Path(__file__).resolve().parent / "templates"
 HTML = "text/html; charset=utf-8"
@@ -224,7 +224,9 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
             decision = search_decision(build_search(result.search_view(), term, title_services=title_services,
                                                     request_hosts=request_hosts(viewer)))
             scope["avrana_route"] = decision.label
-            return respond(decision, scope, shell=shell_for(viewer, "search"))
+            # Search's no-results group may offer Contribute (memo section 2), only from the member's own tiles.
+            return respond(decision, scope, shell=shell_for(viewer, "search"),
+                           contribute=place_link(tiles_for(viewer), CONTRIBUTE_PATH))
 
         if route == "/library" and settings.home_sections and adapter_list:
             # The Library page (Concept K MK-5a, AVR-719): a shell page like /search, only with the shell on and for a
@@ -292,6 +294,11 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
             decision = trouble_decision(viewer.groups)
             scope["avrana_route"] = decision.label
             return respond(decision, scope, shell=shell_for(viewer, "help-topic"))
+        if route == ME_ROUTE and settings.home_sections and p is not None and adapter_list:
+            # The Me hub (Concept K, AVR-719) exists only with the shell; otherwise the path stays unknown (parity).
+            decision = me_decision(build_me(tiles_for(viewer), p.username, cat.signout_url))
+            scope["avrana_route"] = decision.label
+            return respond(decision, scope, shell=shell_for(viewer, "me"))
         decision = decide(route, viewer.groups, cat, facts)
         scope["avrana_route"] = decision.label
         extra = {}
@@ -305,6 +312,9 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
             extra["shell"] = shell_for(viewer, SHELL_PAGES[decision.label])
             if decision.label == "/{chooser}" and extra["shell"] is not None:
                 extra["intro"] = chooser_intro(decision.context["chooser"].path)
+                if decision.context["chooser"].path == "request":
+                    # "Add to the library" (frame 17:619): only when the member's own tiles hold Contribute.
+                    extra["contribute"] = place_link(tiles_for(viewer), CONTRIBUTE_PATH)
             if decision.label == "/account" and extra["shell"] is not None:
                 # Shell only: libraries and requests in Home's language. Sections off keeps the portal's list.
                 extra["shell_access"] = account_access(
@@ -344,6 +354,9 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
             if svc is not None and svc.allows(viewer.groups):
                 out[service] = "/" + path
         return out
+    def tiles_for(viewer: Viewer):
+        """The member's own catalogue tiles (group-filtered, static data; no upstream call)."""
+        return decide("/", viewer.groups, cat).context["tiles"]
 
     def shell_for(viewer: Viewer, current: str, places=None):
         """The shell data (places, tabs, the member's name) for a shell page, or None where the shell is
@@ -351,8 +364,7 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
         p = viewer.principal
         if not (settings.home_sections and p is not None and adapter_list):
             return None
-        tiles = decide("/", viewer.groups, cat).context["tiles"]
-        return build_shell(tiles, current, (p.name or "").strip() or p.username, places=places)
+        return build_shell(tiles_for(viewer), current, (p.name or "").strip() or p.username, places=places)
 
     async def _gather(viewer: Viewer) -> dict:
         """The sections for the verified member, via the adapters' own principal checks and
