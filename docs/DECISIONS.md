@@ -101,6 +101,25 @@ on the iPhone Safari and VoiceOver review, AVR-455), a merge or a deployment.
 | **Brand binaries are stored as base64 text, in `services/avrana-home/avrana_home/app/brand/` only** | The PNG icons and the Geist WOFF2 are `*.b64` copies of the exact package bytes, each pinned by SHA-256 in `brand/SOURCES.json`; `brand.py` refuses to serve a file that does not match, and `brand/.gitattributes` (`* -text`) keeps every byte. The repository's binary policy and `scripts/review_git_content.py` are unchanged: no other folder gains this exception |
 | **Shell pages alone get `font-src 'self'`**, beside their existing `manifest-src 'self'` | Only pages that wear the Home shell load Geist from `/brand/geist.woff2`; every other response (portal, Kindle, errors, sections off) keeps the base CSP. No other source, and still no script |
 
+## Owner decisions, 2026-10-25 and 2026-10-26: Concept K · Avrana Console on Home shell pages (AVR-713)
+
+Recorded from the owner's brief of 2026-10-25 and their approval of the Phase 1 frames and decision memo on
+2026-10-26 ("Perfect. Proceed working on this using the recommended choices."), which makes every recommendation
+D1 to D17 in that memo a decision. Figma: "Avrana Media — Console" (`OggTUO1p24pNYFI6iVlLWL`). None of this approves
+a merge or a deployment; the device review below still applies.
+
+| Decision | Consequence |
+|---|---|
+| **O2: "Full Concept K, with yellow in place of purple."** On shell pages the Title Card is retired: Concept K's type (Plus Jakarta Sans), radii, surfaces, shell and glass replace it; "Atomic Purple's role (selection, chosen option, focus/signal, product tags, the nav lens) goes to a Media yellow. Purple never appears in Media." | Reverses DESIGN.md's No Accent Rule and the 2026-10-15 "interface stays monochrome" line **on shell pages only**. The portal, Kindle, Audible and every page without the shell keep the Title Card, byte-identical (parity) |
+| **Media yellow: Butter-High `#EADA6E`**, Yellow Deep `#776A00` (D2) | The only candidate a deuteranope can tell from a warning amber, and the only one that keeps 3:1 on glass over bright art. Used for selection and "yours" only, never as a large fill or inside a warning |
+| **Shell pages use the console warn `#F59E0B`**, not Media's `#E8CF8A` (D3) | `#E8CF8A` is 1.07:1 against the yellow; status is always said in words as well |
+| **The yellow is a Media-scoped token in `templates/home.css`** (D4) | Not in `avrana-brand` or the mirrored foundation; DESIGN.md says where it is used |
+| **Plus Jakarta Sans replaces Geist on shell pages** (owner's standing rule, as in Party #185 and Games #93) | The Fontsource 5.3.0 files Party ships, base64 in `avrana_home/app/brand/` and SHA-256 pinned like the brand files (the 2026-10-18 folder exception, extended to this font); Geist leaves Home. The Authentik gate keeps the system font |
+| **O1: progressive-enhancement JavaScript** (one first-party script, one service worker, shell pages only, every page works without it) | Recorded with its CSP and security review in the MK-3 change (AVR-717), which is where it takes effect |
+| **Navigation** (D1, D16, D5): tabs Home · Library · Search · Me; the Watch, Listen, Read, Request, Help bar stays on Home; the L3 lockup stays on Home, the Spire-A micro cut is the Home button elsewhere | MK-2 (AVR-716). Keeps AVR-452's composition and the identity tests' bar |
+| **Installed name "Avrana Media"** (D8); everything stays behind the Authentik outpost (D9); `/signout` clears this site's cache and storage (D10); no `Cache-Control` relaxation (D11) | MK-3 (AVR-717) |
+| **The iPhone, Safari and VoiceOver review (AVR-585) runs on the Concept K build** (D17) | No UI change that needs visual approval merges before the owner has seen it on a device |
+
 ## Owner decisions, 2026-10-18: AVRANA Brand v1.0.0 on the Authentik gate
 
 Relayed from the owner's chat on 2026-10-18. None of these approves the live change: applying the brand CSS to

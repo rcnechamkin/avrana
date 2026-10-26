@@ -1,8 +1,9 @@
-"""AVR-584: the approved AVRANA Brand v1.0.0 files on the Home shell. Synthetic data only (StubAdapter), no upstream.
+"""AVR-584: the approved AVRANA Brand v1.0.0 files on the Home shell; AVR-715: Plus Jakarta Sans and the Concept K
+tokens. Synthetic data only (StubAdapter), no upstream.
 
-Tier A (standard library): every served file is the brand package's own bytes (SHA-256 in brand/SOURCES.json), a
+Tier A (standard library): every served file is its source's own bytes (SHA-256 in brand/SOURCES.json), a
 tampered file is refused, the SVGs carry nothing that could run or fetch, and the shell stylesheet uses the brand
-tokens and no Party purple. Tier B (framework): the routes, their types, the 404s and the masthead lockup.
+and Concept K tokens, the Media yellow and no Party purple. Tier B (framework): the routes, their types, the 404s and the masthead lockup.
 """
 import hashlib
 import re
@@ -58,20 +59,48 @@ class BrandFiles(unittest.TestCase):
         self.assertIn('viewBox="0 0 1384.38 650"', text)
         self.assertTrue(re.search(r"#edeae4", text, re.I))
 
-    def test_the_font_is_woff2_and_carries_its_licence(self):
-        self.assertEqual(b"wOF2", brand.file_bytes("Geist-Variable.woff2")[:4])
-        self.assertIn("SIL OPEN FONT LICENSE", brand.file_bytes("OFL.txt").decode("utf-8").upper())
+    def test_the_font_is_plus_jakarta_sans_woff2_and_carries_its_licence(self):
+        files = brand.sources()["files"]
+        for name in ("PlusJakartaSans-Latin-Variable.woff2", "PlusJakartaSans-LatinExt-Variable.woff2"):
+            self.assertEqual(b"wOF2", brand.file_bytes(name)[:4])
+            self.assertIn("@fontsource-variable/plus-jakarta-sans 5.3.0", files[name]["source"])
+        licence = brand.file_bytes("OFL-PlusJakartaSans.txt").decode("utf-8")
+        self.assertIn("SIL OPEN FONT LICENSE", licence.upper())
+        self.assertIn("Plus Jakarta Sans Project Authors", licence)
+        # Geist is retired from the shell (owner: Plus Jakarta Sans everywhere, AVR-715)
+        self.assertFalse(any("geist" in n.lower() for n in files))
+        self.assertFalse(any("geist" in r for r in brand.ROUTES))
 
-    def test_the_shell_stylesheet_uses_the_brand_tokens_and_no_party_purple(self):
+    def test_the_shell_stylesheet_uses_the_concept_k_tokens_the_media_yellow_and_no_party_purple(self):
         css = (TEMPLATES / "home.css").read_text(encoding="utf-8").lower()
-        for token in ("--bg:#121214", "--fg:#edeae4", "--dim:#aeaba7", "--rule-control:#6e6c72", '"geist"',
-                      'url("/brand/geist.woff2")', "font-display:swap"):
+        for token in ("--ink:#121214", "--cream:#edeae4", "--stone:#aeaba7", "--control:#6e6c72", "--graphite:#5e5b57",
+                      "--ash:#8f8c89", "--bg:var(--ink)", "--fg:var(--cream)", "--dim:var(--stone)",
+                      "--accent:#eada6e", "--accent-deep:#776a00", "--warn:#f59e0b", "--focus:var(--accent)",
+                      '"plus jakarta sans"', 'url("/brand/plus-jakarta-sans-latin.woff2")',
+                      'url("/brand/plus-jakarta-sans-latin-ext.woff2")', "font-display:swap",
+                      "--motion-3:200ms", "prefers-reduced-motion:reduce", "prefers-reduced-transparency:reduce"):
             self.assertIn(token, css)
         rules = re.sub(r"/\*.*?\*/", "", css, flags=re.S)          # the comments may name what is not used
-        for purple in ("#b9a9e8", "#5a439d", "--avr-purple", "rgb(185"):
+        for purple in ("#b9a9e8", "#5a439d", "--avr-purple", "rgb(185", "--color-purple"):
             self.assertNotIn(purple, rules)
+        # Media's older warn reads as the same colour as the yellow, so the shell never uses it
+        self.assertNotIn("#e8cf8a", rules)
+        for gone in ("geist", "/brand/geist.woff2"):
+            self.assertNotIn(gone, rules)
         # the portal's stylesheet copy is untouched: parity, and the token-drift gate, stay as they were
-        self.assertNotIn("geist", (TEMPLATES / "style.css").read_text(encoding="utf-8").lower())
+        portal = (TEMPLATES / "style.css").read_text(encoding="utf-8").lower()
+        self.assertNotIn("geist", portal)
+        self.assertNotIn("jakarta", portal)
+        self.assertNotIn("#eada6e", portal)
+
+    def test_glass_clips_itself_and_has_fallbacks(self):
+        css = (TEMPLATES / "home.css").read_text(encoding="utf-8")
+        glass = re.search(r"\.glass\{([^}]*)\}", css).group(1)
+        for decl in ("isolation:isolate", "overflow:hidden", "backdrop-filter:blur(28px)"):
+            self.assertIn(decl, glass)
+        self.assertNotIn("border-image", re.sub(r"/\*.*?\*/", "", css, flags=re.S))
+        self.assertIn("@supports not ((backdrop-filter:blur(1px))", css)
+        self.assertIn("@media (forced-colors:active){.glass", css)
 
 
 class BrandRoutes(unittest.TestCase):
@@ -101,7 +130,8 @@ class BrandRoutes(unittest.TestCase):
         c = self.client()
         nf = c.get("/nope", headers=MEMBER).text
         for path in ("/brand/", "/brand/OFL.txt", "/brand/SOURCES.json", "/brand/README.md",
-                     "/brand/Geist-Variable.woff2.b64", "/brand/avrana-media-l3.svg/x", "/brand/../brand.py",
+                     "/brand/geist.woff2", "/brand/PlusJakartaSans-Latin-Variable.woff2.b64",
+                     "/brand/OFL-PlusJakartaSans.txt", "/brand/avrana-media-l3.svg/x", "/brand/../brand.py",
                      "/brand/avrana-media-lockup-product_cream_trim.svg"):
             r = c.get(path, headers=MEMBER)
             self.assertEqual((404, nf), (r.status_code, r.text), path)

@@ -24,7 +24,7 @@ HEAD_TAGS = ('<link rel="manifest" href="/manifest.webmanifest" crossorigin="use
 SHELL_ROUTES = ("/", "/account", "/help", "/help/movies", "/help/trouble", "/search", "/search?q=Film", "/watch",
                 "/request")   # Watch and Request wear the shell since #59; Read is 404 for this member
 OTHER_ROUTES = ("/read", "/nope", "/healthz", "/home.json", "/manifest.webmanifest",
-                "/icons/avrana-192.png", "/brand/geist.woff2", "/brand/avrana-media-l3.svg", "/art/jellyfin/primary/aaaa0000000000000000000000000001",
+                "/icons/avrana-192.png", "/brand/plus-jakarta-sans-latin.woff2", "/brand/avrana-media-l3.svg", "/art/jellyfin/primary/aaaa0000000000000000000000000001",
                 "/help/comics", "/outpost.goauthentik.io/sign_out")
 
 

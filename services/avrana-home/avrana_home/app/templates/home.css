@@ -1,15 +1,83 @@
   /* Home (AVR-374/452/478): the approved preview's rules (tests/ui/home_preview/static/home.css, PR #26) adapted
      to this shell's tokens (ink=--bg, paper=--fg, ash=--dim). Added to the page ONLY when the home sections render,
      so no other page and no sections-off page changes (portal parity). Search, title and wall rules stay out. */
-  /* Approved AVRANA Brand v1.0.0 (AVR-584), shell pages only: the package tokens (03-Typography-and-Colors/tokens/
-     avrana-tokens.css) mapped onto this shell's variables, so no rule below changes. Spire Ink ground, Cream type,
-     Stone secondary text (8.2:1), Control for interactive edges (3.6:1), Ash strong rules, Graphite quiet rules
-     (decorative). Media is monochrome: no Atomic Purple. The portal and every page without the shell keep style.css
-     unchanged (portal parity); converging them is AVR-362. Geist is served from /brand/ (brand.py, SIL OFL 1.1). */
-  @font-face{font-family:"Geist";src:url("/brand/geist.woff2") format("woff2");font-weight:100 900;font-display:swap;}
-  :root{--bg:#121214;--fg:#edeae4;--dim:#aeaba7;--rule-quiet:#5e5b57;--rule-control:#6e6c72;--rule-strong:#8f8c89;
-    --dim-on-fg:#5e5b57;}
-  body{font-family:"Geist",system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;}
+  /* Concept K · Avrana Console (AVR-713/715), shell pages only. Owner decisions O2 (2026-10-25) and the Phase 1
+     approval (2026-10-26): Concept K's type, colours, radii, glass and motion replace the Title Card here; a Media
+     yellow (Butter-High) takes Atomic Purple's role (selection, chosen option, focus, product tags, the nav lens);
+     purple never appears in Media. The portal and every page without the shell keep style.css unchanged (portal
+     parity; AVR-362). Base colours stay the approved Brand v1.0.0 tokens: Spire Ink ground, Cream type, Stone
+     secondary text (8.2:1), Control for interactive edges (3.6:1), Ash strong rules, Graphite quiet rules.
+     The older names (--bg, --fg, --dim, --rule-*) stay as aliases, so the rules below keep working.
+     Plus Jakarta Sans (variable 200 to 800, SIL OFL 1.1) is served from /brand/ (brand.py), the same Fontsource
+     5.3.0 files Avrana Party ships; the system font shows until it arrives, and stays if it never does. */
+  @font-face{font-family:"Plus Jakarta Sans";src:url("/brand/plus-jakarta-sans-latin.woff2") format("woff2");
+    font-weight:200 800;font-display:swap;unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,
+    U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;}
+  @font-face{font-family:"Plus Jakarta Sans";src:url("/brand/plus-jakarta-sans-latin-ext.woff2") format("woff2");
+    font-weight:200 800;font-display:swap;unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,
+    U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;}
+  :root{
+    /* Colour. Graphite is decorative only (2.7:1); text uses Stone or Cream. */
+    --depth:#0d0d0f;--ink:#121214;--surface:#161618;--raised:#1e1e21;--graphite:#5e5b57;--ash:#8f8c89;
+    --stone:#aeaba7;--cream:#edeae4;--control:#6e6c72;
+    --line:rgb(255 255 255 / 0.09);--line-strong:rgb(255 255 255 / 0.18);
+    /* Media yellow (Butter-High, OKLCH 0.88 0.13 101): 13.1:1 on ink. Yellow Deep only for 14px+ semibold text on
+       cream (4.55:1). Tints for the chosen chip and the lens. Never a large fill; never inside a warning. */
+    --accent:#eada6e;--accent-deep:#776a00;--accent-selected:rgb(234 218 110 / 0.22);--accent-lens:rgb(234 218 110 / 0.24);
+    /* Status: the console's colours. Media's older warn (#e8cf8a) reads as the same colour as the yellow, so shell
+       pages use the console amber; status is always said in words as well. */
+    --ready:#34d399;--warn:#f59e0b;--danger:#ef4444;
+    --focus:var(--accent);
+    /* Older names, now aliases. */
+    --bg:var(--ink);--fg:var(--cream);--dim:var(--stone);--rule-quiet:var(--graphite);--rule-control:var(--control);
+    --rule-strong:var(--ash);--dim-on-fg:var(--graphite);
+    /* Type. Big type is Light, small type Medium or SemiBold. */
+    --font-sans:"Plus Jakarta Sans",system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+    --text-display:3rem;--text-display-fallback:2.75rem;--text-page:1.75rem;--text-shelf:1.25rem;--text-button:1.0625rem;
+    --text-body:0.9375rem;--text-secondary:0.875rem;--text-eyebrow:0.75rem;
+    /* Shape and space. */
+    --radius-preview:1.25rem;--radius-panel:1rem;--radius-button:0.875rem;--radius-control:0.75rem;--radius-chip:0.5rem;
+    --gutter:1rem;--gutter-hero:1.25rem;
+    /* Motion: tier 1 everyday (a press answers), tier 2 an in-place answer, tier 3 a scene change. Tier 3 is 200 ms
+       (Party's shipped cap); anything longer is a Proposal behind a default-off flag. */
+    --motion-1:150ms;--motion-2:300ms;--motion-3:200ms;--motion-3-proposal:600ms;--motion-spring:480ms;
+    --ease-standard:ease;--ease-responsive:cubic-bezier(0.2,0,0,1);--ease-meaningful:cubic-bezier(0.16,1,0.3,1);
+    --ease-spring:linear(0,0.076,0.246,0.445,0.632,0.786,0.902,0.979,1.025,1.047,1.053,1.049,1.04,1.029,1.019,1.011,1.005,
+      1.001,0.999,0.997,0.997,0.997,0.998,0.998,1);
+  }
+  @media (prefers-contrast:more){:root{--stone:#d2cfcb;--ash:#b9b6b3;--line:rgb(255 255 255 / 0.3);
+    --line-strong:rgb(255 255 255 / 0.5);--control:#a5a3a8;}}
+  @media (prefers-reduced-motion:reduce){:root{--motion-2:150ms;--motion-3:150ms;--motion-spring:150ms;--ease-spring:linear;}}
+  html{-webkit-text-size-adjust:100%;background:var(--ink);}
+  body{font-family:var(--font-sans);-webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent;}
+  /* Type roles. */
+  .k-display{font-size:var(--text-display);font-weight:300;line-height:1;letter-spacing:-0.02em;color:var(--cream);}
+  .k-page{font-size:var(--text-page);font-weight:400;line-height:1.2;letter-spacing:-0.01em;}
+  .k-shelf{font-size:var(--text-shelf);font-weight:400;line-height:1.25;letter-spacing:-0.01em;}
+  .k-eyebrow{font-size:var(--text-eyebrow);font-weight:500;letter-spacing:0.16em;text-transform:uppercase;color:var(--stone);}
+  .k-eyebrow.yours{color:var(--accent);}
+  .k-meta{font-size:var(--text-secondary);color:var(--stone);font-variant-numeric:tabular-nums;}
+  /* Liquid glass: only the three shell controls wear it (bottom bar, top-right utility, top-left Home button).
+     The element clips itself (radius set per control, overflow hidden, isolation), or Safari paints a square of
+     blur around a round control. The rim is a masked ::before, never border-image. Blur is never animated. Controls
+     inside a glass host draw focus inside it (outline-offset:-3px), because overflow:hidden clips anything outside. */
+  .glass{position:relative;isolation:isolate;overflow:hidden;background:rgb(18 18 20 / 0.58);
+    -webkit-backdrop-filter:blur(28px) saturate(1.2);backdrop-filter:blur(28px) saturate(1.2);
+    box-shadow:0 16px 40px rgb(0 0 0 / 0.45),inset 0 1px 0 rgb(255 255 255 / 0.28),inset 0 -8px 16px rgb(255 255 255 / 0.07);}
+  .glass::before{content:"";position:absolute;inset:0;z-index:-1;border-radius:inherit;padding:1px;pointer-events:none;
+    background:linear-gradient(to bottom,rgb(255 255 255 / 0.4),rgb(255 255 255 / 0.06));
+    -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;
+    mask:linear-gradient(#000 0 0) content-box exclude,linear-gradient(#000 0 0);}
+  @supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){
+    .glass{background:var(--raised);}.glass::before{background:var(--line-strong);}}
+  @media (prefers-reduced-transparency:reduce),(prefers-contrast:more){
+    .glass{background:var(--raised);-webkit-backdrop-filter:none;backdrop-filter:none;}
+    .glass::before{background:var(--line-strong);}}
+  /* The selected tab's lens: a yellow tint and rim (purple's role in Party). */
+  .k-lens{background:var(--accent-lens);box-shadow:inset 0 0 0 1px rgb(234 218 110 / 0.55),inset 0 1px 0 rgb(255 255 255 / 0.3);}
+  @media (prefers-reduced-transparency:reduce),(prefers-contrast:more){.k-lens{background:var(--accent-selected);box-shadow:inset 0 0 0 1px var(--accent);}}
+  /* Reduce Motion: nothing animates. */
+  @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;}}
   /* The portal's body centres its one column (justify-content:center); turned into a column here, that would centre
      a short shell page vertically. The masthead stays at the top on every shell page. */
   body:has(.mast){flex-direction:column;align-items:center;justify-content:flex-start;}
@@ -36,6 +104,8 @@
     .mast .lockup{position:absolute;width:1px;height:1px;margin:-1px;overflow:hidden;clip-path:inset(50%);}
     .mast .lockup-text{display:inline;font-size:1.75rem;font-weight:300;line-height:1.2;}
   }
+  /* Forced colours: glass shows as a system-coloured edge (the masked rim and blur mean nothing there). */
+  @media (forced-colors:active){.glass{border:1px solid CanvasText;}.glass::before{display:none;}}
   .mast a{text-decoration:none;display:inline-flex;align-items:center;min-height:2.75rem;}
   .id{align-self:stretch;display:flex;flex-wrap:wrap;justify-content:flex-end;align-items:center;gap:0 0.25rem;min-height:2.75rem;}
   /* Search and Account keep their size; Geist is set untracked (the package's body tracking). With large text the
@@ -43,13 +113,13 @@
   .idlink{display:inline-flex;align-items:center;justify-content:center;min-height:2.75rem;min-width:2.75rem;padding:0 0.25rem;
     font-size:0.92rem;letter-spacing:0;color:var(--fg);text-decoration:none;}
   .idlink:hover,.idlink[aria-current]{text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:0.25em;}
-  .idlink:focus-visible{outline:2px solid transparent;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--fg);}
+  .idlink:focus-visible{outline:2px solid transparent;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--focus);}
   .menu a[aria-current]{text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:0.25em;}
   details.account{position:relative;}
   .account summary{list-style:none;display:inline-flex;align-items:center;gap:0.5rem;min-height:2.75rem;min-width:2.75rem;
     padding:0 0.25rem;cursor:pointer;font-size:0.92rem;letter-spacing:0;}
   .account summary::-webkit-details-marker{display:none;}
-  .account summary:focus-visible,.menu a:focus-visible{outline:2px solid transparent;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--fg);}
+  .account summary:focus-visible,.menu a:focus-visible{outline:2px solid transparent;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--focus);}
   .mono{display:inline-flex;align-items:center;justify-content:center;width:1.75rem;height:1.75rem;
     border:1px solid var(--rule-control);font-size:0.95rem;letter-spacing:0;}
   .account[open] .mono{background:var(--fg);color:var(--bg);border-color:var(--fg);}
@@ -59,7 +129,7 @@
   .menu ul{list-style:none;margin:0;padding:0;}
   .menu a{display:flex;align-items:center;min-height:2.75rem;padding:0 1rem;text-decoration:none;color:var(--fg);}
   .menu a:hover{text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:0.25em;}
-  .menu a:focus-visible{box-shadow:inset 0 0 0 2px var(--fg);}
+  .menu a:focus-visible{box-shadow:inset 0 0 0 2px var(--focus);}
   /* The places bar: one row at 360px (five places); at large text it wraps to whole words, never mid-word,
      and never past the screen edge. */
   .places{display:flex;flex-wrap:wrap;justify-content:space-between;gap:0;margin-top:1rem;max-width:45rem;
@@ -69,7 +139,7 @@
     padding:0 0.5rem;font-size:1.0625rem;letter-spacing:0.03em;text-decoration:none;color:var(--fg);white-space:nowrap;}
   @media (max-width:24rem){.places>*{padding:0 0.375rem;font-size:1rem;letter-spacing:0.02em;}}
   .places a:hover,.places a[aria-current]{text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:0.25em;}
-  .places a:focus-visible{box-shadow:inset 0 0 0 2px var(--fg);}
+  .places a:focus-visible{box-shadow:inset 0 0 0 2px var(--focus);}
   .places .off{color:var(--dim);}
   .places .off s{text-decoration-color:var(--rule-strong);}
   main{padding-top:1.5rem;padding-bottom:2rem;}
@@ -79,7 +149,7 @@
     text-underline-offset:0.2em;font-size:0.92rem;display:inline-flex;align-items:center;justify-content:center;
     min-height:2.75rem;min-width:2.75rem;}
   .link:hover{text-decoration-color:var(--fg);}
-  .link:focus-visible{outline:2px solid transparent;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--fg);}
+  .link:focus-visible{outline:2px solid transparent;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--focus);}
   .said{margin:0;color:var(--dim);max-width:34rem;line-height:1.55;}
   .banner{margin:0;padding:0.75rem 1rem;border:1px solid var(--rule-strong);color:var(--fg);}
   .tabs{display:flex;gap:0.25rem;margin:-0.25rem -1.25rem 0;padding:0 1.25rem;overflow-x:auto;scrollbar-width:none;
@@ -90,7 +160,7 @@
   .tabs a:first-child{margin-left:-0.5rem;}
   .tabs a:hover,.tabs a[aria-current]{color:var(--fg);}
   .tabs a[aria-current]::after{content:"";position:absolute;left:0.5rem;right:0.5rem;bottom:0;height:1px;background:var(--fg);}
-  .tabs a:focus-visible{box-shadow:inset 0 0 0 2px var(--fg);}
+  .tabs a:focus-visible{box-shadow:inset 0 0 0 2px var(--focus);}
   /* Artwork keeps its natural shape (owner decision 2026-10-15): --r is the shape's width/height ratio. Outside
      a rail (Search) the frame takes its width and the ratio sets the height. Images are contained, never
      cropped into another shape. */
@@ -117,7 +187,8 @@
   .p{font-size:0.875rem;line-height:1.35;color:var(--fg);}
   .go{align-self:flex-start;margin-top:0.25rem;font-size:0.875rem;line-height:1.35;letter-spacing:0.03em;color:var(--fg);
     text-decoration:underline;text-decoration-color:var(--rule-strong);text-decoration-thickness:1px;text-underline-offset:0.25em;}
-  .card:hover .frame,.card:focus-visible .frame{border-color:var(--fg);}
+  .card:hover .frame{border-color:var(--fg);}
+  .card:focus-visible .frame{border-color:var(--focus);}
   .card:hover .t{text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:0.2em;}
   .card:hover .go,.card:focus-visible .go{text-decoration-color:var(--fg);}
   /* Rails scroll sideways whenever the column cannot hold them. Every frame in a rail stands on the same
@@ -158,7 +229,7 @@
     color:var(--fg);background:var(--bg);border:1px solid var(--rule-control);border-radius:0;}
   .srch input[aria-invalid=true]{border-color:var(--fg);border-width:2px;}
   .srch button{min-height:2.75rem;padding:0.5rem 1.25rem;font:inherit;color:var(--bg);background:var(--fg);border:1px solid var(--fg);cursor:pointer;}
-  .srch input:focus-visible,.srch button:focus-visible{outline:2px solid transparent;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--fg);}
+  .srch input:focus-visible,.srch button:focus-visible{outline:2px solid transparent;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--focus);}
   .hint,.err{margin:0;font-size:0.92rem;line-height:1.5;overflow-wrap:anywhere;}
   .hint{color:var(--dim);}
   .err{color:var(--fg);padding:0.5rem 0.75rem;border:1px solid var(--rule-strong);}
@@ -176,12 +247,12 @@
   a.open{flex:none;display:inline-flex;align-items:center;min-height:2.75rem;padding:0 1rem;color:var(--fg);
     border:1px solid var(--rule-strong);text-decoration:none;}
   a.open:hover,a.open:focus-visible{background:var(--fg);color:var(--bg);}
-  a.open:focus-visible{outline:2px solid transparent;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--fg);}
+  a.open:focus-visible{outline:2px solid transparent;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--focus);}
   /* Lane C (AVR-383/384): search result titles are the one link; the title page. Minimal, owned by Lane C. */
   ul.hits a.t{color:var(--fg);text-decoration:underline;text-decoration-color:var(--rule-strong);text-decoration-thickness:1px;
     text-underline-offset:0.2em;display:inline-flex;align-items:center;min-height:2.75rem;}
   ul.hits a.t:hover{text-decoration-color:var(--fg);}
-  ul.hits a.t:focus-visible{outline:2px solid transparent;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--fg);}
+  ul.hits a.t:focus-visible{outline:2px solid transparent;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--focus);}
   .asks{margin:0;padding:0;list-style:none;display:flex;flex-wrap:wrap;gap:0 1.25rem;}
   .kicker{margin:0;color:var(--dim);font-size:0.9rem;letter-spacing:0.08em;text-transform:uppercase;}
   .title-body{display:flex;flex-wrap:wrap;gap:1rem 1.25rem;align-items:flex-start;}
@@ -195,7 +266,7 @@
   a.inline{color:var(--fg);text-decoration:underline;text-decoration-color:var(--rule-strong);text-decoration-thickness:1px;
     text-underline-offset:0.2em;}
   a.inline:hover{text-decoration-color:var(--fg);}
-  a.inline:focus-visible{outline:2px solid transparent;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--fg);}
+  a.inline:focus-visible{outline:2px solid transparent;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--focus);}
   /* Account (shell): "Your access" split into Libraries and Requests. */
   h3.sub{margin:0;font-weight:400;font-size:0.98rem;letter-spacing:0.04em;color:var(--fg);}
   /* Help topics in the shell: the client name and its Recommended tag wrap as whole words at 200% text on a phone,

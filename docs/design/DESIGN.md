@@ -355,6 +355,39 @@ Cover art in lists is a square crop with no rounding. Media artwork keeps each l
 - Each platform is a section with a Subtitle heading, the recommended app first, store link as an
   inline text link (not full width), then numbered steps. Server addresses are in Copyable Mono.
 
+## Concept K · Avrana Console on Home shell pages (AVR-713)
+
+> **Status: in progress on fixture-only draft branches; not merged, not deployed, not phone-verified.** Owner
+> decisions O2 (2026-10-25) and the Phase 1 approval (2026-10-26) are in DECISIONS.md. On **shell pages only**,
+> Concept K replaces the Title Card and the monochrome rules below (the No Accent Rule, square corners, no glass,
+> no decorative icons); the portal, Kindle, Audible and every page without the shell keep them, byte-identical.
+> The reference is the Figma file "Avrana Media — Console" and the Concept K style kit. This section grows with
+> each slice (MK-1 foundations, MK-2 shell, MK-4 Home, MK-5 pages, MK-6 motion) and is rewritten in MK-7.
+
+**Foundations (MK-1, `templates/home.css`).** Colours keep the Brand v1.0.0 values under Concept K names
+(`--ink #121214`, `--surface #161618`, `--raised #1E1E21`, `--cream #EDEAE4`, `--stone #AEABA7`, `--ash #8F8C89`,
+`--graphite #5E5B57` decorative only, `--control #6E6C72`, `--line`, `--line-strong`); the older `--bg`, `--fg`,
+`--dim` and `--rule-*` names are aliases. Status uses the console colours (`--ready #34D399`, `--warn #F59E0B`,
+`--danger #EF4444`), always with words.
+
+**Media yellow.** `--accent #EADA6E` (Butter-High, 13.1:1 on ink) and `--accent-deep #776A00` (14px+ semibold on
+cream only, 4.55:1), with tints `--accent-selected` (22%) and `--accent-lens` (24%). It carries Atomic Purple's role
+in Party: the nav lens, the chosen filter chip (tint, rim and a check glyph), the "yours" eyebrow and signal bar,
+the role tag, and every focus ring (`--focus`). Never on lists that are not the member's state, never on progress
+bars (cream), never inside a warning, never a large fill. Selection is told by geometry as well as colour (lens,
+check, bar, tag shape); a warning is a rectangle with a glyph, words and an amber edge.
+
+**Type.** Plus Jakarta Sans (variable 200 to 800, SIL OFL 1.1; `/brand/plus-jakarta-sans-latin.woff2` and
+`-latin-ext.woff2`, `font-display: swap`, system fallback). Roles: display 48px Light, display fallback 44px Light,
+page 28px, shelf 20px, button 17px Medium, body 15px, secondary 14px, eyebrow 12px Medium caps tracked 0.16em.
+Big type is Light; small type Medium or SemiBold.
+
+**Shape, glass, motion.** Radii: preview 20, panel 16, button 14, control 12, chip 8. One `.glass` class (28px
+blur, inset highlights, masked `::before` rim; the element clips itself) worn by the three shell controls only,
+with solid fallbacks for no `backdrop-filter`, reduced transparency, more contrast and forced colours. Motion tiers
+150, 300 and 200 ms (tier 3 capped at 200 ms; 600 ms only as a labelled Proposal behind a default-off flag); Reduce
+Motion stops all animation.
+
 ## Brand v1.0.0 on Home shell pages (AVR-584)
 
 > **Status: implemented on a fixture-only draft branch. The branded UI is not approved, merged or deployed.** The
@@ -393,8 +426,9 @@ existing variables, so no rule below them changes:
 Atomic Purple and Purple Deep are Party only and are not used. Media stays monochrome; library artwork keeps its
 original colour and natural shape.
 
-**Type.** Geist (variable, 100 to 900, SIL OFL 1.1) replaces the serif on shell pages, served from
-`/brand/geist.woff2` with `font-display: swap` and the package's system fallback stack. Sizes and the existing
+**Type.** *(Superseded on shell pages by Plus Jakarta Sans, AVR-715; see the Concept K section above.)* Geist
+(variable, 100 to 900, SIL OFL 1.1) replaced the serif on shell pages, served from `/brand/geist.woff2` with
+`font-display: swap` and the package's system fallback stack. Sizes and the existing
 hierarchy are unchanged; section labels keep Regular caps tracked 0.22em, which is the package's Media heading.
 
 **Mark.** The masthead shows the package's **L3 Media product lockup** (`/brand/avrana-media-l3.svg`, cream,

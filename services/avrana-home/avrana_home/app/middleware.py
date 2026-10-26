@@ -34,7 +34,7 @@ HYGIENE = (
 # /search is the one page with a form (a plain GET to itself), so it alone may submit to its own origin.
 CSP_SEARCH = CSP.replace(b"form-action 'none'", b"form-action 'self'")
 # Shell pages (Home with sections, Search, Account, Help) link the web app manifest (install.py) and load the brand
-# font, Geist (brand.py, home.css; AVR-584); they alone may load those two from their own origin. Nothing else
+# font, Plus Jakarta Sans (brand.py, home.css; AVR-584, AVR-715); they alone may load those two from their own origin. Nothing else
 # changes: no script, no other source. Every other route keeps CSP.
 SHELL_SOURCES = b"; manifest-src 'self'; font-src 'self'"
 _HYGIENE_NAMES = frozenset(name for name, _ in HYGIENE)

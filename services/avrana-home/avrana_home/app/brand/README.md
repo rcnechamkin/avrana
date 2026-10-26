@@ -1,4 +1,4 @@
-# Approved brand files for Home (AVR-584)
+# Approved brand files and the interface font for Home (AVR-584, AVR-715)
 
 Copied from the **AVRANA brand package v1.0.0** (`AVRANA-Brand/`, approved 2026-10-17) by
 `tools/sync_brand_assets.py`. Do not edit, redraw, recolour or re-encode them here; change the brand package and
@@ -13,20 +13,21 @@ and `avrana_home/app/brand.py` refuses to serve a file that does not match it.
 | `/icons/avrana-192.png` | `icon-192.png.b64` | same | AVRANA, all rights reserved |
 | `/icons/avrana-512.png` | `icon-512.png.b64` | same | AVRANA, all rights reserved |
 | `/icons/avrana-maskable-512.png` | `icon-maskable-512.png.b64` | same | AVRANA, all rights reserved |
-| `/brand/geist.woff2` | `Geist-Variable.woff2.b64` | `03-Typography-and-Colors/fonts/` (Geist 1.800, variable 100 to 900) | SIL OFL 1.1, `OFL.txt` |
+| `/brand/plus-jakarta-sans-latin.woff2` | `PlusJakartaSans-Latin-Variable.woff2.b64` | not in the brand package: npm `@fontsource-variable/plus-jakarta-sans` 5.3.0, `files/plus-jakarta-sans-latin-wght-normal.woff2` (the copy Avrana Party ships), SHA-256 pinned in the sync tool | SIL OFL 1.1, `OFL-PlusJakartaSans.txt` |
+| `/brand/plus-jakarta-sans-latin-ext.woff2` | `PlusJakartaSans-LatinExt-Variable.woff2.b64` | same package, `files/plus-jakarta-sans-latin-ext-wght-normal.woff2` | SIL OFL 1.1, `OFL-PlusJakartaSans.txt` |
 
 **Why base64.** This repository tracks no binary files, and `scripts/review_git_content.py` refuses PNG and NUL
-bytes. The PNG icons and the WOFF2 are therefore stored as base64 text of the exact package bytes (`*.b64`); the
+bytes. The PNG icons and the WOFF2 fonts are therefore stored as base64 text of the exact package bytes (`*.b64`); the
 SVGs and `OFL.txt` are verbatim. The owner accepted this packaging for brand v1.0 on 2026-10-18, for this folder
 only, because every file is hash-verified and self-contained; it does not broaden the repository's binary policy.
 
 **Colours and type** are not copied from the package as a file: the Home shell maps the package tokens
 (`03-Typography-and-Colors/tokens/avrana-tokens.css`: Spire Ink `#121214`, Cream `#EDEAE4`, Stone, Ash, Graphite,
-Control and the Geist stack) onto its existing variables in `templates/home.css`. Atomic Purple is Party only and is
-not used. See DESIGN.md, "Brand v1.0.0 on Home shell pages".
+Control) onto its variables in `templates/home.css`. Atomic Purple is Party only and is not used; the Media yellow
+(Concept K, AVR-715) is a Media-scoped token there, not a brand file. See DESIGN.md, "Brand v1.0.0 on Home shell pages".
 
 Check against a local copy of the package (run from the repository root):
 
 ```sh
-python services/avrana-home/tools/sync_brand_assets.py PATH/TO/AVRANA-Brand --check
+python services/avrana-home/tools/sync_brand_assets.py PATH/TO/AVRANA-Brand --fonts PATH/TO/avrana-party/web/party/fonts --check
 ```
