@@ -3,12 +3,11 @@
 Every startup refusal, the expiry bound, the passphrase gate, an end-to-end run of the gated fixture stack on
 127.0.0.1 (TLS file checks patched out, plain HTTP), and auto-expiry. Nothing binds anything but loopback.
 
-The real TLS handshake smoke test needs a throwaway certificate, made with the `cryptography` package. That package
-is NOT in requirements.lock and is not added for this: when it is absent the smoke-test class is not defined at all
-(rather than skipped, because AVRANA_REQUIRE_DEPS=1 fails any skip), and this note is the recorded reason.
+The TLS test runs the real launcher as a process on 127.0.0.1 with a throwaway self-signed certificate made by
+the openssl CLI (PATH, or Git for Windows' copy) in a temp dir outside the Git tree. It always runs: no openssl
+is a failure, never a skip. No Python dependency is added.
 """
 import asyncio
-import importlib.util
 import logging
 import os
 import re
@@ -27,7 +26,6 @@ require_framework()
 from dev import lan_gate, run_lan_preview as rlp  # noqa: E402
 from dev.dev_identity import DevIdentityRefused, check_lan_bind, check_lan_startup  # noqa: E402
 
-HAVE_CRYPTOGRAPHY = importlib.util.find_spec("cryptography") is not None
 PASS = "correct-horse-battery-staple-1"
 
 
@@ -465,53 +463,140 @@ class AutoExpiryTests(unittest.TestCase):
         self.assertTrue(re.search(r"ssl_certfile", source))
 
 
-if HAVE_CRYPTOGRAPHY:                    # see the module docstring: defined only when the package is present
-    class TlsSmokeTests(unittest.TestCase):
-        def test_https_on_loopback_with_a_throwaway_certificate(self):
-            import datetime
-            import ipaddress
-            import ssl
-            from cryptography import x509
-            from cryptography.hazmat.primitives import hashes, serialization
-            from cryptography.hazmat.primitives.asymmetric import ec
-            from cryptography.x509.oid import NameOID
-            key = ec.generate_private_key(ec.SECP256R1())
-            name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "127.0.0.1")])
-            now = datetime.datetime.now(datetime.timezone.utc)
-            cert = (x509.CertificateBuilder().subject_name(name).issuer_name(name).public_key(key.public_key())
-                    .serial_number(x509.random_serial_number()).not_valid_before(now)
-                    .not_valid_after(now + datetime.timedelta(hours=1))
-                    .add_extension(x509.SubjectAlternativeName([x509.IPAddress(ipaddress.ip_address("127.0.0.1"))]),
-                                   critical=False).sign(key, hashes.SHA256()))
-            with tempfile.TemporaryDirectory() as tmp:
-                cpath, kpath = Path(tmp) / "c.pem", Path(tmp) / "k.pem"
-                cpath.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
-                kpath.write_bytes(key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
-                                                    serialization.NoEncryption()))
-                rlp.check_tls_files(str(cpath), str(kpath))
-                port = free_port()
-                gate = lan_gate.LanGate(Inner(), passphrase=PASS, allowed_hosts=[f"127.0.0.1:{port}"],
-                                        expires_at=time.monotonic() + 60)
-                t = threading.Thread(target=rlp.run_server, args=(gate, "127.0.0.1", port, 3),
-                                     kwargs={"cert": str(cpath), "key": str(kpath), "hard_stop": False}, daemon=True)
-                t.start()
-                ctx = ssl.create_default_context(cafile=str(cpath))
-                deadline = time.time() + 10
+def find_openssl():
+    """The openssl CLI: PATH first, then Git for Windows' copy. None when absent (the test then FAILS)."""
+    import shutil
+    found = shutil.which("openssl")
+    if found:
+        return found
+    for candidate in (r"C:\Program Files\Git\usr\bin\openssl.exe", r"C:\Program Files\Git\mingw64\bin\openssl.exe"):
+        if Path(candidate).is_file():
+            return candidate
+    return None
+
+
+OPENSSL_CONFIG = """[req]
+prompt = no
+distinguished_name = dn
+x509_extensions = ext
+[dn]
+CN = 127.0.0.1
+[ext]
+subjectAltName = IP:127.0.0.1
+basicConstraints = critical, CA:TRUE
+keyUsage = critical, digitalSignature, keyCertSign
+extendedKeyUsage = serverAuth
+"""
+
+
+def read_all(sock) -> bytes:
+    data = b""
+    try:
+        while True:
+            chunk = sock.recv(65536)
+            if not chunk:
+                break
+            data += chunk
+    except OSError:
+        pass
+    return data
+
+
+class TlsLauncherTests(unittest.TestCase):
+    """The real launcher (`run_lan_preview.py` as a process) with TLS on 127.0.0.1, ALWAYS run: a throwaway
+    self-signed certificate made by the openssl CLI in a temp dir outside the Git tree. No openssl = FAIL."""
+
+    def test_launcher_serves_tls_gate_only_refuses_plain_http_and_exits_by_itself(self):
+        import ssl
+        import subprocess
+        import sys
+        openssl = find_openssl()
+        self.assertIsNotNone(openssl, "openssl CLI not found (PATH or C:\\Program Files\\Git\\usr\\bin\\openssl.exe);"
+                                      " it is required for the TLS launcher test")
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            self.assertFalse(rlp.inside_git_tree(tmp), "the temp dir must be outside every Git tree")
+            (tmp / "req.cnf").write_text(OPENSSL_CONFIG)
+            cert, key = tmp / "cert.pem", tmp / "key.pem"
+            made = subprocess.run([openssl, "req", "-x509", "-newkey", "ec", "-pkeyopt",
+                                   "ec_paramgen_curve:prime256v1", "-nodes", "-days", "1", "-config",
+                                   str(tmp / "req.cnf"), "-keyout", str(key), "-out", str(cert)],
+                                  capture_output=True, text=True, timeout=60)
+            self.assertEqual(0, made.returncode, made.stderr[-500:])
+            port, lifetime = free_port(), 8
+            env = {k: v for k, v in os.environ.items() if not k.upper().startswith(rlp.REAL_PREFIXES + ("HOME_",))}
+            started = time.monotonic()
+            proc = subprocess.Popen(
+                [sys.executable, "-B", str(HOME / "dev" / "run_lan_preview.py"), "--i-understand-lan",
+                 "--allow-loopback-for-tests", "--host", "127.0.0.1", "--port", str(port), "--cert", str(cert),
+                 "--key", str(key), "--free-mock-ports-for-tests", "--seconds-for-tests", str(lifetime)],
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, cwd=str(HOME))
+            try:
+                deadline = time.time() + 20
                 while True:
                     try:
-                        raw = socket.create_connection(("127.0.0.1", port), timeout=5)
+                        socket.create_connection(("127.0.0.1", port), timeout=2).close()
                         break
                     except OSError:
-                        if time.time() > deadline:
-                            raise
-                        time.sleep(0.05)
-                with ctx.wrap_socket(raw, server_hostname="127.0.0.1") as s:
-                    s.sendall(f"GET / HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n".encode())
-                    data = b""
-                    while chunk := s.recv(65536):
-                        data += chunk
-                self.assertEqual(403, parse_http(data).status)
-                t.join(15)
+                        self.assertIsNone(proc.poll(), "the launcher exited early")
+                        self.assertLess(time.time(), deadline, "the launcher did not start listening")
+                        time.sleep(0.1)
+                ctx = ssl.create_default_context(cafile=str(cert))
+                with ctx.wrap_socket(socket.create_connection(("127.0.0.1", port), timeout=10),
+                                     server_hostname="127.0.0.1") as s:
+                    self.assertIn(s.version(), ("TLSv1.2", "TLSv1.3"))
+                    s.sendall(f"GET / HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n"
+                              "Cookie: avrana_dev_identity=member-b\r\nConnection: close\r\n\r\n".encode())
+                    resp = parse_http(read_all(s))
+                self.assertEqual(403, resp.status)
+                self.assertIn("Passphrase", resp.text)
+                for word in ("DEVELOPMENT IDENTITY", "member-b", "Continue", "FIXTURE"):
+                    self.assertNotIn(word, resp.text)
+                self.assertEqual("no-store", resp.header("cache-control"))
+                self.assertEqual("no-referrer", resp.header("referrer-policy"))
+                self.assertEqual("nosniff", resp.header("x-content-type-options"))
+                self.assertIn("default-src 'none'", resp.header("content-security-policy"))
+                with socket.create_connection(("127.0.0.1", port), timeout=10) as raw:   # plain HTTP to the TLS port
+                    raw.sendall(f"GET / HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n\r\n".encode())
+                    plain = read_all(raw)
+                self.assertFalse(plain.startswith(b"HTTP/"), plain[:80])
+                self.assertNotIn(b"Passphrase", plain)
+                proc.wait(timeout=lifetime + 30)                    # exits by itself, no signal sent
+            finally:
+                if proc.poll() is None:
+                    proc.kill()
+                    proc.wait(10)
+                out = proc.stdout.read().decode(errors="replace")
+                err = proc.stderr.read().decode(errors="replace")
+                proc.stdout.close()
+                proc.stderr.close()
+            self.assertEqual(0, proc.returncode, err[-800:])
+            self.assertLess(time.monotonic() - started, lifetime + 30)
+            self.assertIn("LAN preview expired; stopping.", out)
+            self.assertIn("Nothing is left running.", out)
+
+    def test_test_only_options_are_refused_without_the_loopback_test_flag(self):
+        for argv in (["--i-understand-lan", "--host", "192.168.1.23", "--seconds-for-tests", "5", "--cert", "c",
+                      "--key", "k"],
+                     ["--i-understand-lan", "--host", "192.168.1.23", "--free-mock-ports-for-tests", "--cert", "c",
+                      "--key", "k"],
+                     ["--i-understand-lan", "--allow-loopback-for-tests", "--host", "127.0.0.1",
+                      "--seconds-for-tests", "0", "--cert", "c", "--key", "k"]):
+            with self.subTest(argv=argv):
+                self.assertEqual(2, rlp.main(argv))
+
+
+class EnvironmentNameTests(unittest.TestCase):
+    def test_every_upstream_variable_the_application_reads_is_refused(self):
+        source = (HOME / "avrana_home" / "app" / "settings.py").read_text(encoding="utf-8")
+        names = sorted(set(re.findall(r'"((?:JELLYFIN|AUDIOBOOKSHELF|KOMGA|CALIBRE_WEB|HOME)_[A-Z0-9_]+)"', source)))
+        upstream = [n for n in names if not n.startswith("HOME_")]
+        self.assertGreaterEqual(len(upstream), 8, names)
+        for name in names + [n + "_FILE" for n in upstream]:
+            if name in rlp.ALLOWED_HOME_VARS:
+                continue
+            with self.subTest(name=name), self.assertRaises(DevIdentityRefused):
+                rlp.check_environment({name: "x"})
 
 
 if __name__ == "__main__":

@@ -201,6 +201,17 @@ def run_server(app, host: str, port: int, seconds: float, *, cert: Optional[str]
     return server
 
 
+def _free_loopback_ports() -> dict:
+    """Tests only: OS-chosen free loopback ports for the four mocks."""
+    import socket
+    out = {}
+    for name in MOCK_PORTS:
+        with socket.socket() as s:
+            s.bind(("127.0.0.1", 0))
+            out[name] = s.getsockname()[1]
+    return out
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--i-understand-lan", dest="ack", action="store_true",
@@ -212,12 +223,22 @@ def main(argv=None) -> int:
     ap.add_argument("--hostname", help="optional <name>.local also named in the certificate")
     ap.add_argument("--minutes", type=int, default=DEFAULT_MINUTES, help=f"auto-stop after (1..{MAX_MINUTES})")
     ap.add_argument("--mode", default="ok", help="mock failure mode at start (ok, slow, down, 500, ...)")
+    # Test-only, hidden, and honoured only together with the loopback test flag (so never on a LAN bind):
     ap.add_argument("--allow-loopback-for-tests", dest="loopback", action="store_true", help=argparse.SUPPRESS)
+    ap.add_argument("--seconds-for-tests", dest="test_seconds", type=int, help=argparse.SUPPRESS)
+    ap.add_argument("--free-mock-ports-for-tests", dest="free_ports", action="store_true", help=argparse.SUPPRESS)
     args = ap.parse_args(argv)
     try:
+        if (args.test_seconds is not None or args.free_ports) and not (args.loopback and args.host == "127.0.0.1"):
+            raise LanPreviewRefused("the test-only options need the loopback test flag and --host 127.0.0.1")
+        if args.test_seconds is not None and not 1 <= args.test_seconds <= MAX_MINUTES * 60:
+            raise LanPreviewRefused("--seconds-for-tests is out of range")
         mock, app, _settings, passphrase, seconds = build(
             args.host, args.port, cert=args.cert, key=args.key, acknowledged=args.ack, minutes=args.minutes,
-            hostname=args.hostname, allow_loopback=args.loopback, mode=args.mode, start_mock=False)
+            hostname=args.hostname, allow_loopback=args.loopback, mode=args.mode, start_mock=False,
+            ports=_free_loopback_ports() if args.free_ports else None)
+        if args.test_seconds is not None:
+            seconds = args.test_seconds
     except DevIdentityRefused as exc:
         print(f"refusing to start: {exc}", file=sys.stderr)
         return 2
