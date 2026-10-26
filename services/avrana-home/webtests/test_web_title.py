@@ -81,6 +81,7 @@ class TitlePage(Fixture):
         r = c.get("/title/jellyfin/" + FILM_A3, headers=A)
         self.assertEqual(r.status_code, 200)
         self.assertIn('<h3 class="kicker" id="h-about">About</h3>', r.text)
+        self.assertIn('<section class="title-about" aria-labelledby="h-about">', r.text)    # R3-A, Concept K
         self.assertIn("A synthetic film &amp; its overview. Second line.", r.text)
         for leak in ("<b>synthetic", "alert(1)", "<br>Second"):
             self.assertNotIn(leak, r.text)

@@ -8,7 +8,8 @@
    Concept K (MK-5a, AVR-719; frames 19:1748, 19:1846): the art is the item's own /art image twice, as in Home's hero,
    crisp at its natural shape over a blurred, dimmed copy (CSS only); with no art, the letter frame and no backdrop.
    The title takes the display role; progress stays in words, with the 3px Cream rule beside them (decoration, hidden
-   from assistive technology, never the yellow). One Cream action. #}
+   from assistive technology, never the yellow). One Cream action. The synopsis (R2-C, R3-A AVR-748), when the library
+   has one, sits last under "About" as plain, autoescaped text at a reading measure. #}
 {% if page.state == "ok" %}
   <section class="shelf title-page w-{{ page.shape }}{% if not page.image %} no-art{% endif %}" aria-labelledby="h-title">
     <div class="title-stage">
@@ -31,8 +32,11 @@
       <p class="act"><a class="open" href="{{ page.action_href }}" aria-label="{{ page.action_label }}">{{ page.action }}</a></p>
       <p class="hint">Opens in {{ page.library }}. If it does not open there, see <a class="inline" href="/help/trouble">If something doesn&#x27;t open</a>.</p>
     </div>
-{% if page.summary %}    <h3 class="kicker" id="h-about">About</h3>
-    <p class="d summary">{{ page.summary }}</p>
+{% if page.summary %}
+    <section class="title-about" aria-labelledby="h-about">
+      <h3 class="kicker" id="h-about">About</h3>
+      <p class="summary">{{ page.summary }}</p>
+    </section>
 {% endif %}
   </section>
 {% else %}

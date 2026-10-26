@@ -520,9 +520,15 @@
     box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--focus);}
   .title-page .hint{margin-top:0.75rem;padding:0.875rem 1rem;border:1px solid var(--line-strong);border-radius:var(--radius-panel);
     background:var(--surface);color:var(--stone);font-size:var(--text-secondary);overflow-wrap:normal;}
+  /* The synopsis (R3-A, AVR-748): after the action and its note, a hairline, then body text at a reading measure in
+     Stone (never the yellow). Plain text only; it wraps, it is never clamped, and it adds no motion. */
+  .title-about{position:relative;z-index:1;margin-top:1.75rem;padding-top:1.25rem;border-top:1px solid var(--line);}
+  .title-about .kicker{margin:0 0 0.5rem;}
+  .title-about .summary{margin:0;max-width:62ch;font-size:var(--text-body);line-height:1.55;color:var(--stone);
+    overflow-wrap:break-word;}
   @media (forced-colors:active){.title-page .frame{box-shadow:none;}.title-page a.open{border-color:ButtonText;}
     .title-bar{forced-color-adjust:none;background:Canvas;box-shadow:0 0 0 1px CanvasText;}.title-bar .fill{background:CanvasText;}
-    .title-page .hint{border-color:CanvasText;}}
+    .title-page .hint{border-color:CanvasText;}.title-about{border-top-color:CanvasText;}}
   /* ---- MK-5b Search, requests and Me (AVR-719) ---- */
   /* Concept K on the remaining tab and place pages (frames 19:1943 to 19:2181, 17:619, 17:872, 17:1583, 17:1698): page
      titles, grouped opaque rows, the search field, the warning panel, the Me hub, and the panels of the account and
