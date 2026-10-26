@@ -134,8 +134,9 @@ components:
 >   Card**, the next section, unchanged and byte-identical to the portal (the parity test). AVR-362 owns converging them.
 >
 > Concept K is built on fixture-only draft branches (the integration branch `feat/avr-713-concept-k-integration`):
-> not merged to `main`, not deployed, not phone-verified. Every change to a running service needs the owner's approval
-> for that change, per `AGENTS.md`.
+> not merged to `main`, not deployed, not phone-verified. No UI change that needs visual approval merges before the
+> owner has seen it on a device (D17: the AVR-585 iPhone, Safari and VoiceOver review runs on the Concept K build).
+> Every change to a running service needs the owner's approval for that change, per `AGENTS.md`.
 
 ## Scope
 
@@ -444,10 +445,12 @@ words stay whole; a single word wider than the column may still break rather tha
   current tab carries its own capsule, which does not slide.
 - **Home's heading** (D5) is the L3 Media lockup (`/brand/avrana-media-l3.svg`, `alt="Avrana Media"`, 56px tall and
   scaling with text; never retyped or recoloured), top left. In forced colours the name shows as system text.
-- **The places bar stays on Home** (D16, AVR-452): Watch, Listen, Read, Request, Help, in that order, under the
-  lockup and above the hero, as opaque chips. One row at 390px with 44px targets; at 320px or large text whole
-  chips wrap. A library the member cannot use has no chip; a library that is down keeps its chip, struck through,
-  linking to `/help/trouble#unavailable` ("Watch, unavailable: what to do"). Search is a tab, never a sixth place.
+- **The places bar stays on Home** (D16, AVR-452), under the lockup and above the hero, as opaque chips. It is
+  catalogue-driven: every Home tile the member holds is a chip, in the catalogue's order (Watch, Listen, Read,
+  Request, Contribute, Operations, Help), so Contribute and Operations appear only for members who have them. With
+  the five usual places, one row at 390px with 44px targets; with more, at 320px or at large text, whole chips wrap.
+  A library the member cannot use has no chip; a library that is down keeps its chip, struck through, linking to
+  `/help/trouble#unavailable` ("Watch, unavailable: what to do"). Search is a tab, never a place.
 - **Other shell pages** keep "Avrana Media" as a visually hidden `h1`. Tab pages (Library, Search, Me, Account, Help)
   show their own title in the page role, top left. Pages that are not tabs (a place, a help topic, a title,
   "If something doesn't open") add the **glass Home button**: a 44px circle holding the brand's Spire-A micro cut at
@@ -472,15 +475,16 @@ words stay whole; a single word wider than the column may still break rather tha
   Recently added. The title is the display role.
 - **Hero art.** The item's own `/art` image twice: crisp at its natural shape (contained, never cropped) over a
   blurred, dimmed copy that fades out before the text, blur in CSS only. With no art, the letter frame and no
-  backdrop; at 320px no poster; no backdrop in more contrast or forced colours. No backdrop image type is used
+  backdrop; below 360px no poster; no backdrop in more contrast or forced colours. No backdrop image type is used
   (that is follow-up F-1).
 - **One hand-off.** One Cream action names the app that opens: "Resume in Jellyfin" only for a saved position,
   otherwise "Open in Jellyfin", "Listen in Audiobookshelf", "Read in Komga", "Open in Calibre-Web". It never claims
   playback. "Details" opens the title page only where one exists. Cards and the title page name the library in
-  member language instead (owner question Q1).
+  member language instead (see "Copy" for every surface that names the app; owner question Q1).
 - **Shelves.** Continue (Jellyfin and Audiobookshelf merged, at most four, progress in words) and Recently added
   (`id="h-new"`; "New this week" was renamed because the lists are not date-bounded), with per-library tabs that
-  are plain links. Shelf headings take the shelf role.
+  are plain links. A tab exists only for a library of the member's own that is answering; a member with one such
+  library gets no "All" tab. Shelf headings take the shelf role.
 
 ### Media cards and rails
 
@@ -491,7 +495,8 @@ words stay whole; a single word wider than the column may still break rather tha
   the verb for assistive technology only. A card never takes an `aria-label`, a second control, a menu or an icon.
 - **Artwork keeps each library's shape** (owner decision, 2026-10-15): 2:3 posters and books, 13:20 comics, square
   audiobooks, 16:9 stills. Art is 180px high in rails (`--art-h`), each shape at its natural width, contained and
-  never cropped, with the preview radius; a still is held to the card width and stands shorter, bottom-aligned.
+  never cropped, with the preview radius. On phones a still is held to the card width and stands shorter,
+  bottom-aligned; from 45rem it may be up to 12.5rem wide (`--wide-max`), wider than the 9.5rem cards.
   Covers are decoration (`alt=""`); the title is always beside them in words. Artwork keeps its original colour.
 - **Progress** is words plus a 3px Cream rule along the foot of the art, hidden from assistive technology, its
   length a 5 % step class (`pc0` to `pc100`) because the CSP forbids inline style. Never yellow.
@@ -505,6 +510,8 @@ words stay whole; a single word wider than the column may still break rather tha
   resting card-aligned, which is why phone rails snap mandatorily and carry the trailing spacer. No script.
   `tests/ui/check_home_export.mjs` checks it in Chromium with real key presses at 360, 390 and 390 at 200 % text;
   Safari and VoiceOver are part of the device review (AVR-585).
+- **Residual:** from 45rem a still may be wider than the other cards; if the four cards ever overflow the column there
+  (large text on a desktop), a still that straddles the column edge can stay partly clipped when focused.
 - **Known, not fixed:** when a cover's bytes arrive but cannot be decoded, the browser draws its broken-image icon
   over the letter behind the frame. Hiding it needs an `onerror` handler (the strict CSP forbids inline handlers) or
   a server-side image decode on every artwork request; the artwork route already refuses a declared type that is
@@ -540,8 +547,10 @@ author", the Search button (keyboards, no script) and the hint ("Searches the li
 characters."), linked by `aria-describedby`; the field is opaque with a 3:1 Control edge and 17px text. The query is
 cleaned (`contract.clean_query`: at most 256 characters in, 100 out), escaped and shown back. No
 suggestions while typing (a second way to leak a title, and it needs script). Only the member's own libraries are
-searched; "No results" reads the same whether a title is in a library the member cannot use or nowhere. Results are
-one opaque panel per library under an eyebrow heading, the title link covering the row, with a chevron (title page)
+searched; "No results" reads the same whether a title is in a library the member cannot use or nowhere. Matching is
+each library's own search: Home sends the cleaned term, so how case and accents are handled is the library's
+(unverified against the real services). With results, a count line ("8 found.") comes first, announced as a status;
+results are one opaque panel per library under an eyebrow heading, the title link covering the row, with a chevron (title page)
 or the external-link glyph (opens the library, said in words too). No results offers "Ask for it": the member's own
 request routes only, each saying "Opens the request website", and Contribute only when the member has it (owner
 questions Q4, Q5). A library that could not answer is the warning, inside the page; when no library answers, the page
@@ -565,9 +574,9 @@ circles drop so the words keep the width.
 ### Me
 
 `/me` (MK-5b) is the Me tab's hub, shell only (otherwise the standard 404). It shows the member's initial on a
-raised circle (Authentik gives Home no avatar), name and "Signed in as <username>", then Account, Help and "If
-something doesn't open", Operations with the yellow, slanted ADMIN tag only behind the catalogue's own Operations
-gate (owner question Q3), and Sign out. Sign out goes through `/signout` (D10): it clears this site's cache and
+raised circle (Authentik gives Home no avatar), name and "Signed in as <username>"; beside the name, the yellow,
+slanted ADMIN tag only for a member behind the catalogue's own Operations gate (owner question Q3). Then Account,
+Help and "If something doesn't open", Operations for those members, and Sign out. Sign out goes through `/signout` (D10): it clears this site's cache and
 storage on this device, then goes on to the outpost sign-out; Me's row makes no claim about what it ends (U-19). Not
 built: an avatar image, and the install row (follow-ups F-7, F-10).
 
@@ -599,7 +608,7 @@ host, service or software name ever reaches the page, and nothing names a librar
 | Every library down | Home | "Your libraries are resting", one combined line, "This usually passes within a minute. Your account and Help are still here.", Try again |
 | Not set up | Home, Library | "Not set up yet" (or the library's line), "There is nothing to change on your side…", "What to do next" (`/help/trouble#not-set-up`) |
 | No library | Home, Library | "No library yet": "No library is shared with this account yet. Ask the person who invited you, or read Help." Tabs Home and Me only |
-| Nothing to show | Home, Library | "Nothing recently added." or "Nothing recently added in Comics."; an empty Continue renders nothing |
+| Nothing to show | Home, Library | "Nothing recently added." or "Nothing recently added in Comics."; an empty Continue keeps its heading and says "Nothing in progress. Whatever you start in a library appears here, ready to pick up where you stopped." Only a member with no Continue section at all (Comics or Books only) gets no Continue shelf |
 | No connection | `/offline`, shown by the worker only when the request itself fails | "This phone has no connection. Avrana Media needs one to show your libraries." and Try again. The same bytes for everyone |
 | New version waiting | Any shell page with the script | "A new version of Avrana Media is ready." and a Reload button, in an opaque panel above the tab bar (`role="status"`) |
 | Signed out | `/signout` | Clears this site's cache and storage, then the outpost sign-out. No "session ended" screen exists (D13, follow-up F-6) |
@@ -622,7 +631,9 @@ host, service or software name ever reaches the page, and nothing names a librar
 
 Functional labels only: no narration, counts as numbers, reasons in one line beside the blocked thing, ellipsis
 only for in-progress states. Second person or neutral, no "we", no em or en dashes. Libraries are named in member
-language ("Movies and TV", never "Watch" or "Movies & TV"); only the Home hero's hand-off names the upstream app.
+language ("Movies and TV", never "Watch" or "Movies & TV"). The upstream app is named only where the member is sent
+into it: the Home hero's hand-off, Library's "Open <app>" and "Browse everything in <app>", and the Watch
+interstitial's app advice. Cards, the title page and all other copy use member language (owner question Q1).
 Nothing ever claims playback ("Opening Jellyfin" must never imply it started), and no copy may say "verified on
 iPhone". The installed app is "Avrana Media" (D8).
 

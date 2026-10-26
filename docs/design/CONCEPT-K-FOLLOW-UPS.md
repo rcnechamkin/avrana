@@ -52,7 +52,7 @@ built until its data exists.
 |---|---|---|---|
 | Requests `17:619` | Actual | Built (as a place page) | MK-5b #71 `/request`: "Ask for something" rows, "Add to the library" with Contribute. Under tab option B (D1) it is a place page with the Home button, not a tab |
 | Your requests `17:741` | Proposal | Not built | No adapter reads request status. Follow-up F-5 |
-| Me `17:872` | Actual | Partly built | MK-5b #71 `/me`: initial, name, "Signed in as", Account, Help, "If something doesn't open", Operations with the ADMIN tag for admins, Sign out through `/signout`. Not built: the avatar image (Authentik gives Home none) and the "This phone · Install" row. Follow-ups F-7, F-10; owner question Q3 |
+| Me `17:872` | Actual | Partly built | MK-5b #71 `/me`: initial, name with the ADMIN tag beside it for admins, "Signed in as", Account, Help, "If something doesn't open", Operations for admins, Sign out through `/signout`. Not built: the avatar image (Authentik gives Home none) and the "This phone · Install" row. Follow-ups F-7, F-10; owner question Q3 |
 | Install hint `17:1404` | Mixed | Not built | No install help is served by Home yet (the draft is `docs/member/help/home-screen.md`, not wired). Follow-up F-10 |
 | Account `17:1583` | Actual | Built | MK-5b #71 (grouped panels, eyebrow headings, Manage account and Sign out rows) |
 | Help `17:1698` | Actual | Built | MK-5b #71 (topic rows, platform panels) |
@@ -71,8 +71,8 @@ built until its data exists.
 | Home in each yellow mode, swatch cards | Decided | D2 picked Butter-High `#EADA6E`; MK-1 #67 applies it |
 | Warn-shift card `20:2416` | Not applied | D3 chose the console warn `#F59E0B` instead of shifting warn to `#EA7A12` |
 | Tab option B `20:2460` | Built | MK-2 #68 (Home · Library · Search · Me) |
-| Docs-aligned proposal `45:2962` | Built | MK-2 #68 (places bar, L3 lockup, tab option B) with the MK-4 #69 hero |
-| Home 320 × 568 `22:2597` | Built | MK-4 #69 (no poster at 320 px; the backdrop stays as the stage) |
+| Docs-aligned proposal `45:2962` | Built | MK-2 #68 (places bar, L3 lockup, tab option B) with the MK-4 #69 hero. The bar is catalogue-driven: members with Contribute or Operations get those chips too, so the one-row-at-390px result holds for the five-place case |
+| Home 320 × 568 `22:2597` | Built | MK-4 #69 (no poster below 360 px; the backdrop stays as the stage) |
 | Library 320 × 568 `22:2680` | Built | MK-5a #70 |
 | Home 430 × 932 `22:2782`, Library 430 × 932 `22:2893` | Built | MK-4 #69, MK-5a #70 |
 | Home at 130 % text `22:3017` | Built | Checked in Chromium up to 200 % text (MK-2 tab labels, MK-4 hero, MK-5 pages); not on a phone |
@@ -131,6 +131,9 @@ Each names what it needs before it can start. None of these is approved work.
   that read the banner and the tabs unchanged.
 - **F-14 The hero repeats the first Continue card.** MK-4 kept the Continue rail whole so the rail's accessibility
   contract and its tests stay as they are. Owner to say whether the rail should start from the second item.
+- **F-16 Check the house rules' "stores nothing" wording.** `docs/member/house-rules-and-privacy.md` says the home
+  page "stores nothing about you and writes no per-visit log". That predates MK-7 and was written for the portal;
+  check it against Home's logging (HOME-APP.md section 6) and its short per-member cache before it is published.
 - **F-15 "Getting back to Avrana" help text.** `recovery.py` tells members to "choose AVRANA at the top of any Avrana
   page"; shell pages now show the Avrana Media lockup on Home and the Home button or Home tab elsewhere.
 
@@ -138,9 +141,12 @@ Each names what it needs before it can start. None of these is approved work.
 
 These are open. Nothing in the build answers them; each build choice above is the conservative one.
 
-- **Q1 The title button naming the app.** Should the title page's action name the upstream app ("Resume in
-  Jellyfin"), as the Home hero does, or keep its short verb ("Resume") with the library in member language in its
-  accessible name ("Resume <title> in Movies and TV"), as today? (F-9)
+- **Q1 The title button naming the app, and which surfaces name the upstream app.** Should the title page's action
+  name the upstream app ("Resume in Jellyfin"), as the Home hero does, or keep its short verb ("Resume") with the
+  library in member language in its accessible name ("Resume <title> in Movies and TV"), as today? More broadly:
+  today the app is named by the Home hero's hand-off, Library's "Open <app>" and "Browse everything in <app>", and
+  the Watch interstitial's advice; cards, the title page and all other copy use member language. Is that the rule
+  you want? (F-9)
 - **Q2 Library showing in-progress items.** Should `/library` include the member's in-progress items, or stay
   "recently added" only? (F-8)
 - **Q3 The ADMIN tag.** The tag on Me is derived from the catalogue's Operations gate (`authentik Admins`), the only
@@ -149,3 +155,7 @@ These are open. Nothing in the build answers them; each build choice above is th
   product is Seerr; cards name libraries in member language). Keep?
 - **Q5 Contribute in Search's no-results group.** Search's "Ask for it" group offers Contribute (adding your own
   Audible books) when the member has it, following memo section 2. Keep it there, or offer only requests?
+- **Q6 The sign-out hop (D10) as built.** It shipped as a 303 redirect carrying `Clear-Site-Data: "cache",
+  "storage"`, verified in Chromium only (Safari and Firefox unverified; plain http ignores the header), instead of
+  the memo's 200 "Signing you out" page with a refresh. Accept the 303, or ask for the 200 page now rather than only
+  if a device test shows the header ignored?

@@ -148,14 +148,18 @@ merged to `main` or deployed):
 Not decisions. Each build choice is the conservative one until the owner answers; details in
 `docs/design/CONCEPT-K-FOLLOW-UPS.md` section 3.
 
-- **The title page's button naming the app:** "Resume in Jellyfin", as on the Home hero, or today's short verb
-  ("Resume") with the library in member language in its accessible name?
+- **The title page's button naming the app, and which surfaces name the upstream app:** "Resume in Jellyfin", as
+  on the Home hero, or today's short verb ("Resume") with the library in member language in its accessible name?
+  Today the hero, Library's "Open <app>" and "Browse everything in <app>", and the Watch interstitial name the app;
+  everything else uses member language.
 - **Library showing in-progress items:** should `/library` include the member's Continue items, or stay "recently
   added" only?
 - **The ADMIN tag on Me:** it comes from the catalogue's Operations gate (`authentik Admins`), the only role signal
   Home has. Keep it, or no tag?
 - **Request rows saying "Opens the request website"** rather than naming the product. Keep?
 - **Contribute in Search's no-results group** (memo section 2). Keep it there, or offer only requests?
+- **The sign-out hop as built (D10):** a 303 redirect carrying `Clear-Site-Data`, verified in Chromium only, instead
+  of the memo's 200 page with a refresh. Accept it, or ask for the 200 page now?
 
 ## Owner decisions, 2026-10-18: AVRANA Brand v1.0.0 on the Authentik gate
 

@@ -34,8 +34,8 @@ and it opens the parts of Avrana that have been set up for you.
 1. Go to the Avrana home page: [OWNER DECISION D-11: which address members are told to use for the home page].
 2. Sign in with your Avrana username and password. If you added a passkey, such as Face ID, you can use
    that instead of typing the password.
-3. Your home page shows tiles for the things you can use. Nothing else is listed. Bookmark it, or add it
-   to your phone's home screen.
+3. Your home page shows only the things you can use: as tiles, or on the newer Avrana Media home as a row of
+   places at the top. Nothing else is listed. Bookmark it, or add it to your phone's home screen.
 
 Staying signed in: a normal sign-in lasts 30 days. Choose the option to stay signed in when it is
 offered and it lasts 180 days.
@@ -54,8 +54,8 @@ stay signed in until you sign out inside each one.
 
 ## What you can use
 
-The tiles on your home page are your list. If something is not there, it has not been set up for your
-account. That is normal and is not an error.
+The tiles or places on your home page are your list. If something is not there, it has not been set up for
+your account. That is normal and is not an error.
 
 <!-- if: avrana-videos -->
 ### Movies and TV

@@ -27,5 +27,5 @@ url: none
 ### Signing out
 store: none
 url: none
-1. Open Account and choose Sign out. It signs you out of Avrana Media on this device and clears what Avrana Media saved here. [UNVERIFIED on a real device]
+1. Open the tab with your initial and choose Sign out (Sign out on Account works too). It signs you out of Avrana Media on this device and clears what it saved here. [UNVERIFIED on a real device]
 2. Apps and websites you signed in to separately stay signed in. Sign out inside each one. [UNVERIFIED on a real device]

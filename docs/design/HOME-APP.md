@@ -414,7 +414,8 @@ bytes for those APIs. Inline previews and transitions were part of O1's purpose 
 
 It may not: answer a navigation from cache, store or read any member page, `/art/*`, `/home.json`, search results or
 the manifest, store a `Request`, read credentials or request headers, use any storage but its own cache, call
-`importScripts`, or follow a cross-origin redirect. Every request outside the allow-list gets no `respondWith`.
+`importScripts`, or follow a cross-origin redirect. Every non-navigation request outside the allow-list gets no
+`respondWith` (navigations always get `respondWith(fetch(request))`, apart from the sign-out paths above).
 
 **Sign-out hop (D10).** `GET /signout` answers 303 to the catalogue's fixed outpost target
 (`/outpost.goauthentik.io/sign_out`) with `Clear-Site-Data: "cache", "storage"`, never `"cookies"` (that would sign
