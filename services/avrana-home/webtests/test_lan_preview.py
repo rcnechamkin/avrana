@@ -531,7 +531,9 @@ class TlsLauncherTests(unittest.TestCase):
                                   capture_output=True, text=True, timeout=60)
             self.assertEqual(0, made.returncode, made.stderr[-500:])
             port, lifetime = free_port(), 8
-            env = {k: v for k, v in os.environ.items() if not k.upper().startswith(rlp.REAL_PREFIXES + ("HOME_",))}
+            # the launcher refuses real-upstream variables and proxies (both tested above); a CI runner may set a proxy
+            env = {k: v for k, v in os.environ.items()
+                   if not k.upper().startswith(rlp.REAL_PREFIXES + ("HOME_",)) and k.upper() not in rlp.PROXY_VARS}
             started = time.monotonic()
             proc = subprocess.Popen(
                 [sys.executable, "-B", str(HOME / "dev" / "run_lan_preview.py"), "--i-understand-lan",
