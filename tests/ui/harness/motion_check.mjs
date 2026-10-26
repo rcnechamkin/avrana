@@ -154,7 +154,7 @@ try {
   ok('no page errors or console errors with motion on', errors.length === 0, errors.join(' | '));
   await ctx.close();
 
-  // ---- interruptible: with the transition held mid-way, a tap and a key still reach the new page at once ---------
+  // ---- interruptible: with the transition held mid-way, a touch tap ends it (page script); a key still navigates --
   // A phone (touch). The page script ends the transition on the first press, so the tap's click lands on the tab.
   // (A mouse click that starts during a transition is not delivered: its press lands on the pictures; the next works.)
   ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, reducedMotion: 'no-preference', serviceWorkers: 'block' });
@@ -179,7 +179,9 @@ try {
       await page.evaluate(() => document.querySelectorAll('a.tab')[2].focus());
       await Promise.all([page.waitForURL(BASE + '/search', { timeout: 5000 }).catch(() => null), page.keyboard.press('Enter')]);
     }
-    ok(`interruptible (${how}): during a transition that is still running, the Search tab is reached at once (${Date.now() - t0} ms)`, held && page.url() === BASE + '/search', `held=${held} url=${page.url()}`);
+    const what = how === 'tap' ? 'a touch tap ends the exposed transition (first press) and reaches the Search tab'
+      : 'a key still navigates to the Search tab (keys are not hit-tested, so this does not exercise the page script)';
+    ok(`interruptible (${how}): during a transition that is still running, ${what} (${Date.now() - t0} ms)`, held && page.url() === BASE + '/search', `held=${held} url=${page.url()}`);
     await page.evaluate(() => sessionStorage.removeItem('mk6-hold'));
   }
   ok('no page errors during the interruption checks', errors.length === 0, errors.join(' | '));

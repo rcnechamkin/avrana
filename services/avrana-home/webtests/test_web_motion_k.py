@@ -10,9 +10,11 @@ the art flight and the interruption, through a class the stylesheet owns (no sty
 Tier B (framework, loopback mocks): no view-transition-name value is carried by two elements on any shell page that
 can be fetched (Home, Library, every title page reachable from Home's Details and from search results, Search, Me,
 Account, Help), for every identity the mocks know, with JavaScript off (the server's HTML; the script's one flight
-class is never in it). The Proposal setting adds its rule to shell pages only and changes no header.
+class is never in it). The Proposal setting adds its rule to the pages that carry the shell stylesheet (shell pages and the offline page)
+and changes no header.
 
-The browser half (a transition really starts with no-preference and never with reduce, art moves, taps interrupt) is
+The browser half (a transition really starts with no-preference and never with reduce, art moves, a touch tap ends an
+exposed transition) is
 tests/ui/harness/motion_run.py.
 """
 import re
@@ -171,7 +173,7 @@ class PageScript(unittest.TestCase):
         self.assertIn("to.origin !== window.location.origin || to.pathname.indexOf('/title/') !== 0", self.js)
         self.assertIn("document.querySelector('.title-page .frame')", self.js)
 
-    def test_interruption_skips_the_transition_on_the_first_press_and_never_stops_the_event(self):
+    def test_interruption_skips_an_exposed_transition_on_the_first_press_and_never_stops_the_event(self):
         self.assertIn("document.addEventListener('pointerdown'", self.js)
         self.assertIn("skipTransition()", self.js)
         self.assertIn("passive: true", self.js)
@@ -196,7 +198,8 @@ class Proposal(unittest.TestCase):
 
 
 # ---- Tier B -----------------------------------------------------------------------------------------------------
-from . import FRAMEWORK_MISSING  # noqa: E402
+from . import FRAMEWORK_MISSING, SKIP_REASON  # noqa: E402
+from .support import GROUPS, USER, make_client, make_settings, require_framework  # noqa: E402  (stdlib at import)
 
 if not FRAMEWORK_MISSING:
     from avrana_home.app.main import MOTION_PROPOSAL_CSS
@@ -204,7 +207,6 @@ if not FRAMEWORK_MISSING:
     from dev.mock_calibre_web import MockCalibreWeb
     from dev.mock_jellyfin import MockJellyfin
     from dev.mock_komga import MockKomga
-    from .support import GROUPS, USER, make_client, make_settings, require_framework
 
 KEY = "mock-api-key-not-real"
 CRED = "viewer:mock-api-key-not-real"
@@ -265,6 +267,7 @@ def name_counts(html):
     return counts
 
 
+@unittest.skipIf(FRAMEWORK_MISSING, SKIP_REASON)
 class RenderedPages(unittest.TestCase):
     timeout = 1.5
 
@@ -321,7 +324,7 @@ class RenderedPages(unittest.TestCase):
         self.assertGreater(seen_title, 2)                     # title pages were really reached (Details and results)
         self.assertGreater(seen_lens, 10)
 
-    def test_the_proposal_is_off_by_default_and_on_adds_one_labelled_rule_to_shell_pages_only(self):
+    def test_the_proposal_is_off_by_default_and_on_adds_one_labelled_rule_where_the_shell_stylesheet_is(self):
         headers = IDENTITIES["member-a"]
         off = self.client()
         on = self.client(motion_proposal=True)
@@ -335,5 +338,8 @@ class RenderedPages(unittest.TestCase):
             self.assertEqual(a.text.replace(MOTION_PROPOSAL_CSS, ""), b.text.replace(MOTION_PROPOSAL_CSS, ""), path)
             for h in ("content-security-policy", "cache-control"):
                 self.assertEqual(a.headers[h], b.headers[h], (path, h))
-        for path in ("/nope", "/healthz"):                       # pages without the shell never get it
+        for path in ("/nope", "/healthz"):                       # pages without the shell stylesheet never get it
             self.assertNotIn("motion-3-proposal", on.get(path, headers=headers).text, path)
+        # the offline page carries the shell stylesheet (base.html: shell or offline), so it carries the rule too
+        self.assertEqual(1, on.get("/offline").text.count(MOTION_PROPOSAL_CSS))
+        self.assertNotIn("var(--motion-3-proposal)", off.get("/offline").text)

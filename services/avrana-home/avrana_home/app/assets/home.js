@@ -3,8 +3,8 @@
      1. the navigation lens slide (sets data-at on the tab bar; the browser still navigates normally),
      2. registration of the service worker (/sw.js) and an update banner,
      3. a reload when a page comes back from the back/forward cache, so it goes through sign-in again,
-     4. the art flight into a title page during a page-to-page transition, and 5. ending that transition on the
-        first press, so a tap is never lost (MK-6, AVR-720).
+     4. the art flight into a title page during a page-to-page transition, and 5. where the browser exposes the
+        active transition, ending it on the first press, so a touch tap then reaches the page (MK-6, AVR-720).
    It reads no member data, uses no browser storage, builds no HTML from text and does nothing when its elements
    are absent. Inline preview behaviour (MK-4) is not here yet. */
 (function () {
@@ -136,7 +136,8 @@
      changes the navigation; a browser without these events never runs any of it. */
   function visible(element) {
     var box = element.getBoundingClientRect();
-    return box.width > 0 && box.height > 0 && box.bottom > 0 && box.top < window.innerHeight;
+    return box.width > 0 && box.height > 0 && box.bottom > 0 && box.top < window.innerHeight &&
+      box.right > 0 && box.left < window.innerWidth;
   }
 
   function tag(art, transition) {
@@ -164,9 +165,11 @@
   }
 
   /* 5. Interruptible (MK-6). While a page-to-page transition runs, the browser shows pictures of the two pages, so a
-     tap would land on nothing. The first press ends the transition at once (the new page is already there, and that
-     is what shows), so a tap goes to what is under the finger. Keys and the browser's own back and forward already
-     end it. The transition comes from the document, or from pagereveal when this script runs early enough. */
+     press lands on nothing. Where the browser exposes the active transition (document.activeViewTransition, or the
+     pagereveal event when this deferred script happens to run before it), the first press ends it at once (the new
+     page is already there, and that is what shows); a touch tap then reaches what is under the finger. A mouse or pen
+     click during the 200 ms may still be lost, and so may a tap where the transition is not exposed. Keys and the
+     browser's own back and forward navigate regardless. */
   function interrupt() {
     var revealed = null;
     window.addEventListener('pagereveal', function (event) {

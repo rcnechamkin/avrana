@@ -358,7 +358,7 @@ variables (never the values).
 | `HOME_SECTION_LIMIT` | `12` | Items per section, 1 to 50. |
 | `HOME_HEALTH_DETAIL` | `loopback` | `loopback` or `off`. |
 | `HOME_PWA_SW` | `on` | `off` is the kill switch for the service worker (MK-3): `/sw.js` serves a worker that removes itself and its caches, and the page script stops registering one. It only reaches a device that can fetch `/sw.js` or load a shell page, so rollback needs `off` with `HOME_SECTIONS` still on, held long enough for active devices to come back (section 9). |
-| `HOME_MOTION_PROPOSAL` | `off` | `on` turns on the motion Proposal (MK-6, AVR-720): page-to-page transitions on shell pages run at the 600 ms Proposal token instead of tier 3 (200 ms). For the owner to compare only; never with Reduce Motion. |
+| `HOME_MOTION_PROPOSAL` | `off` | `on` turns on the motion Proposal (MK-6, AVR-720): page-to-page transitions run at the 600 ms Proposal token instead of tier 3 (200 ms), on every page that carries the shell stylesheet (shell pages and the offline page). During a transition, where the browser exposes it, the first press ends it and a touch tap then reaches the page; a mouse click during the transition may be lost, for longer than at 200 ms. For the owner to compare only; never with Reduce Motion. |
 | `HOME_CATALOGUE_PATH` | the portal's `portal.py` | Must be a file; the tables are loaded from it. |
 | `HOME_HOST`, `HOME_PORT` | `127.0.0.1`, `8096` | Bind address for `serve.py`. A container must set `HOME_HOST=0.0.0.0` deliberately. |
 | `LOG_LEVEL` | `INFO` | DEBUG, INFO, WARNING, ERROR. |

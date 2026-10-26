@@ -491,8 +491,9 @@ lens (`k-lens`, sliding to the new tab; the bar itself is not named, so it stays
 frame beside the followed link (the hero's Details, or a search result) only while the old page is captured, so the
 art flies into the title page. Nothing flies back to Home (its hero may be another item). Every animation is tier 3,
 200 ms (`--motion-3`, `--ease-meaningful`); the 600 ms token is a Proposal behind `HOME_MOTION_PROPOSAL=on` (default
-off). Interruptible: a key or the browser's back ends a transition at once, and the script ends it on the first
-press, so a tap during it reaches the new page (a mouse click that starts during the 200 ms is not delivered). No
+off). Interruptible: a key or the browser's back still navigates during a transition; where the browser exposes the
+active transition, the script ends it on the first press, so a touch tap then reaches the page; a mouse click during
+the 200 ms may be lost. No
 inline script, no storage, no `preventDefault`; everything still works with JavaScript off (the page fade and the lens
 still run; only the art flight needs the script). Not built: a flight back to the list, and same-document transitions
 (cards hand off to the libraries, so there is no in-page detail to morph into).

@@ -650,8 +650,9 @@
      Names are unique on every page: the lens (one per tab bar), and the art, which only the title page's one frame
      carries; on the page being left, the page script names the one frame beside the link that was followed, only
      while the old page is captured. The tab bar itself is not named: it is the same on both pages, so it stays put
-     and readable in the page fade; only its lens travels. Interruptible: a key or the browser's own navigation ends
-     a transition at once, and the page script ends it on the first press, so a tap reaches the new page. */
+     and readable in the page fade; only its lens travels. Interruptible: keys and the browser's own navigation still
+     navigate; where the browser exposes the active transition, the page script ends it on the first press, so a
+     touch tap then reaches the page (a mouse click during the 200 ms may be lost). */
   @media (prefers-reduced-motion:no-preference){
     @view-transition{navigation:auto;}
     ::view-transition-group(*),::view-transition-old(*),::view-transition-new(*){animation-duration:var(--motion-3);

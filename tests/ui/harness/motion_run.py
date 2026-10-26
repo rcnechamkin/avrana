@@ -7,8 +7,8 @@ motion_check.mjs drives Chromium against the avrana-home dev stack (started and 
 synthetic identities): with reduced motion = no-preference, Home -> title page through the hero's Details starts a
 cross-document view transition (seen through the browser's `pageswap` and `pagereveal` events), the art carries one
 unique name and moves, the lens has its own group, every animation is at most 200 ms, nothing flies back to Home,
-a search result's art flies into its title page, and a tap or a key during a held transition reaches the new page at
-once; with reduced motion = reduce, no transition runs and nothing is named; HOME_MOTION_PROPOSAL=on gives 600 ms.
+a search result's art flies into its title page, a touch tap during a held transition reaches the new page at once
+where the browser exposes the active transition, and a key still navigates; with reduced motion = reduce, no transition runs and nothing is named; HOME_MOTION_PROPOSAL=on gives 600 ms.
 
 Uses the interpreter running this script for the dev stack (it needs the pinned requirements: fastapi, uvicorn, jinja2)
 and PLAYWRIGHT_FROM for the browser tooling (see README.md).

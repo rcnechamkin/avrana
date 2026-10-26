@@ -82,8 +82,8 @@ python -B tests/ui/harness/motion_run.py [--tree PATH]   # use the interpreter w
 `pageswap` and `pagereveal` events through a test init script: with reduced motion `no-preference`, Home to a title page
 through the hero's Details starts a cross-document view transition that becomes ready (no duplicate name) and
 finishes, the art and the lens are the only named elements at capture, every animation is at most 200 ms, nothing
-flies back to Home, a search result's art flies into its title page, and a touch tap or a key during a held transition
-reaches the new page at once; with `reduce` no transition runs and nothing is named; `HOME_MOTION_PROPOSAL=on` gives
+flies back to Home, a search result's art flies into its title page, a touch tap during a held transition reaches the
+new page at once where the browser exposes the active transition (Chromium does), and a key still navigates; with `reduce` no transition runs and nothing is named; `HOME_MOTION_PROPOSAL=on` gives
 600 ms. Not part of `run_offline.py`. Chromium only.
 
 ### Browser tooling (kept outside the repository)
