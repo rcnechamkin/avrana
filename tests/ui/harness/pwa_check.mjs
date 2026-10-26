@@ -30,6 +30,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 let server = null;
 async function start(tree, env = {}) {
+  // On POSIX stop() only sends SIGTERM and returns; if the old server still answers /healthz, the loop below would
+  // return at once and the next page load would hit a closed port. Wait for it to go first (Windows kills synchronously).
+  await gone();
   server = spawn(PYTHON, ['-B', 'services/avrana-home/dev/run_dev.py', '--dev-identity', '--port', String(PORT), '--mock-port', String(MOCK)],
     { cwd: tree, env: { ...process.env, ...env }, stdio: 'ignore' });
   for (let i = 0; i < 120; i++) {
