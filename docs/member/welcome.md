@@ -47,6 +47,11 @@ the account settings page, opened with Manage account, for signing out of Avrana
 [UNVERIFIED U-19: what the Sign out link on the Account page actually ends]
 <!-- src: docs/services/sso-architecture.md:142-150 (sign out at the Authentik settings page); services/avrana-portal/portal.py:398-399, :751-754 (Manage account links to Authentik; Sign out is an outpost endpoint, not shown to end the Authentik session) -->
 
+On the Avrana Media pages, Sign out (on the Account page, and on the page behind the tab with your initial) first
+clears what Avrana Media saved on this device, then goes on to the same sign-out. Apps you signed in to separately
+stay signed in until you sign out inside each one.
+<!-- src: services/avrana-home/avrana_home/app/pwa.py:55-58 (the sign-out hop: Clear-Site-Data, then the outpost sign-out); services/avrana-home/avrana_home/app/templates/account.html:55 (shell Account copy); docs/design/HOME-APP.md section 5a -->
+
 ## What you can use
 
 The tiles on your home page are your list. If something is not there, it has not been set up for your

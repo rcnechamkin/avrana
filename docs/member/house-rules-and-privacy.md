@@ -91,6 +91,12 @@ the answer, and the entry says what will be checked.
 
 The home page reads which groups you belong to in order to show your tiles. It stores nothing about you
 and writes no per-visit log.
+
+When you use the Avrana Media pages, your browser keeps a few of their own files (the program, the letters
+they use, the icons and a page that says there is no connection). These files are the same for everyone and hold
+nothing about you: no page you opened, no title, no picture. Sign out asks the browser to clear them from that
+device.
+<!-- src: services/avrana-home/avrana_home/app/pwa.py:14-15 (only the listed static files are stored), :55-58 (sign-out clears the site's cache and storage); services/avrana-home/avrana_home/app/assets/sw.js:3-11 -->
 <!-- src: services/avrana-portal/portal.py:1-8, :986-987 -->
 
 ### Backups

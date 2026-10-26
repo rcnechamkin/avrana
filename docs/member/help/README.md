@@ -30,21 +30,25 @@ The marker text in steps is for reviewers and must be removed (by the wiring cha
 
 Open decisions that these topics wait on: D-1 support contact, D-12 television app, D-13 password
 recovery, D-15 unavailable wording (all in `docs/member/DECISIONS-NEEDED.md` on the AVR-361 branch).
-Installable Home (Home 2.0, Lane D): the shell pages now link a web app manifest (`/manifest.webmanifest`,
-`display: standalone`, black theme, generated monochrome PNG icons at 180, 192 and 512 pixels, an
-`apple-touch-icon`). Since MK-3 (AVR-717) the shell pages also load one first-party script and register a service worker whose only offline feature is a static page shown when the network fails; no member page is ever cached. None of this has been tried on a phone:
-whether Chrome offers Install app, whether iOS shows the icon behind Authentik's forward auth (the icon and
-manifest requests may not carry the session), and how links to other Avrana hosts open in standalone mode
-(iOS: a separate in-app browser view; Android: a browser view on top) are all **unverified on a real device**.
+Installable Home (Home 2.0 Lane D, then Concept K MK-3, AVR-717): the shell pages link a web app manifest
+(`/manifest.webmanifest`, `display: standalone`, installed name "Avrana Media" (owner decision D8), the brand
+package's Spire Ink colours and icons at 180, 192 and 512 pixels, an `apple-touch-icon`). They also load one
+first-party script and register a service worker whose only offline feature is a static page shown when the network
+fails; no member page is ever cached. None of this has been tried on a phone: whether Chrome offers Install app,
+whether iOS shows the icon behind the Authentik outpost (everything stays behind it, D9, so the icon and manifest
+requests may not carry the session), and how links to other Avrana hosts open in standalone mode (iOS: a separate
+in-app browser view; Android: a browser view on top) are all **unverified on a real device**. The install steps say
+"Keep the name Avrana Media".
 
-Accuracy review (2026-10-16, against `feat/home-2.0`): the open-* topics now describe what Home does. Titles
-are found under Continue or New this week, or with Search; Resume and Open both open the title's page on the
-library's own host in the same tab (no new window, no app); Resume never starts playback; each library still
-has its own sign-in (no single sign-on across all of them yet). Continue is not offered for Books and Comics,
-so those topics name New this week and Search only.
-
-Concept K Home (MK-4, AVR-718, 2026-10-26) renamed the shelf "New this week" to "Recently added"; the open-*
-topics follow.
+Accuracy review (2026-10-16, against `feat/home-2.0`, updated 2026-10-26 for Concept K, MK-7): the open-* topics
+describe what Home does. Titles are found under Continue or Recently added on Home ("New this week" was renamed in
+MK-4, AVR-718), in Library (its own tab and page since MK-5a), or with the Search tab; Resume and Open both open the
+title's page on the library's own host in the same tab (no new window, no app); Resume never starts playback; each
+library still has its own sign-in (no single sign-on across all of them yet). Continue is not offered for Books and
+Comics, so those topics name Recently added, Library and Search only. The old top row (a Search link and an account
+menu) is gone: Search, Library and the member's own hub (Account, Help, Sign out) are tabs. Sign out on the shell's
+Account page now first clears what Avrana Media saved on this device (`/signout`, D10), then goes on to the sign-out;
+`sign-in.md` says so and claims nothing more (U-19 is still open).
 
 ## For whoever wires these into the shell
 - Convert `none` store and url values to an empty value. The template shows a store button only when both are set.
