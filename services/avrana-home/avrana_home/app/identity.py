@@ -176,6 +176,24 @@ def search_term_from_scope(scope) -> Optional[str]:
     return None
 
 
+# h11's default (max_incomplete_event_size): the same limit, now independent of how the bytes were read. Counted as
+# name + value + ": " and CRLF per header line, close to the wire size. Header identity is at most ~4.3 KiB
+# (principal.py: username 150, groups header 4096). outpost_jwt.MAX_TOKEN_LEN (16384) is larger than this whole
+# budget, as it already was against h11 whenever a request arrived in more than one read: in JWT mode the real
+# ceiling for a token is 16 KiB minus the other headers (AVR-732).
+MAX_HEADER_BYTES = 16 * 1024
+
+
+def header_bytes(headers) -> int:
+    return sum(len(k) + len(v) + 4 for k, v in headers)
+
+
+def header_block_too_large(scope) -> bool:
+    """AVR-732: the request's whole header block is over MAX_HEADER_BYTES (the middleware answers 431 before
+    routing or identity). Sizes only: no header is decoded or interpreted."""
+    return header_bytes(scope.get("headers", ())) > MAX_HEADER_BYTES
+
+
 def has_identity_headers(scope) -> bool:
     """True when ANY header looks like an outpost identity header (used only to refuse the
     operator detail view; it grants nothing)."""
