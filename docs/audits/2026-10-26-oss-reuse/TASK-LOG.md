@@ -18,3 +18,24 @@ last. Local test runs are labelled local; GitHub Actions is not counted as passi
   - Home adapter suite with FastAPI/Jinja available (`.venv-media`): see the R2 entry for the full counts.
 - Output: `docs/audits/2026-10-26-oss-reuse-audit.md` (matrix, inventory, ranked backlog, ledger, owner
   questions). Documentation only.
+
+## 2026-10-26 R2 (AVR-747) and R2-C (AVR-384)
+
+- R2-A `feat/avr-747-r2a-openapi-subset` (#76): Jellyfin allow-list vs official OpenAPI 10.11.11 and 12.3.0. Adapter
+  suite 742 OK (baseline 730). Found the dead `UserData.UserId` tripwire.
+- R2-B `feat/avr-747-r2b-media-identity` (#77): `media_ids.py`, `MEDIA-IDENTITY.md`. Independent review: 0 HIGH,
+  0 MEDIUM, 6 LOW fixed. Adapter suite 751 OK; webtests 487, 1 failure (Windows strict-skip runner, also on main).
+- R2-C `feat/avr-384-r2c-synopsis` (#78, stacked on #77): title-page synopsis. Independent security review: 0 HIGH,
+  1 MEDIUM (stale JSON key-set test) and 1 LOW fixed. Adapter suite 763 OK; `test_web_sections` + `test_web_title`
+  50 OK; axe: no new finding.
+
+## 2026-10-26 R3 (AVR-748)
+
+- R3-A `feat/avr-748-r3a-title-about`, based on the Concept K integration branch (#74) with R2-B/R2-C merged in:
+  the synopsis as a Concept K "About" block. Screenshots 390/1280/JS-off before and after; axe no new finding.
+
+## 2026-10-26 R4 (AVR-749)
+
+- `docs/design/SOCIAL-FEASIBILITY.md`: NeoDB no-go as the social layer, thin native module modelled on its data
+  model as a go for a fixture-only prototype **on owner approval**, federation deferred with a boundary and threat
+  model. No prototype written (owner decision Q6a).
