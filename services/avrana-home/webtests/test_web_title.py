@@ -75,6 +75,40 @@ class Fixture(unittest.TestCase):
 
 
 class TitlePage(Fixture):
+    def test_the_synopsis_is_plain_escaped_text_under_about(self):
+        # R2-C: the fixture's Overview carries <b>, &amp;, <br> and a <script>; only its text reaches the page
+        c = self.client()
+        r = c.get("/title/jellyfin/" + FILM_A3, headers=A)
+        self.assertEqual(r.status_code, 200)
+        self.assertIn('<h3 class="kicker" id="h-about">About</h3>', r.text)
+        self.assertIn('<div class="title-about">', r.text)                     # R3-A, Concept K
+        self.assertIn('<p class="summary" dir="auto">', r.text)
+        # order: title, then the action's note, then About
+        self.assertLess(r.text.index('id="h-title"'), r.text.index('class="hint"'))
+        self.assertLess(r.text.index('class="hint"'), r.text.index('id="h-about"'))
+        self.assertIn("A synthetic film &amp; its overview. Second line.", r.text)
+        for leak in ("<b>synthetic", "alert(1)", "<br>Second"):
+            self.assertNotIn(leak, r.text)
+        self.assertNotIn("its overview", c.get("/search?q=synthetic", headers=A).text)   # title page only
+
+    def test_the_about_block_css_keeps_its_tokens(self):
+        from avrana_home.app.main import TEMPLATES
+        css = (TEMPLATES / "home.css").read_text(encoding="utf-8")
+        rules = re.findall(r"\.title-about[^{]*\{[^}]*\}", css)
+        self.assertTrue(rules)
+        block = "".join(rules)
+        self.assertIn("var(--line)", block)
+        self.assertIn("var(--stone)", block)
+        self.assertNotIn("--accent", block)                 # never the Media yellow
+        self.assertNotIn("line-clamp", block)
+        self.assertIn(".title-about{border-top-color:CanvasText;}", css)
+
+    def test_no_synopsis_no_about(self):
+        c = self.client()
+        r = c.get("/title/jellyfin/" + FILM_A, headers=A)
+        self.assertEqual(r.status_code, 200)
+        self.assertNotIn("h-about", r.text)
+
     def test_a_members_own_title_with_resume_and_safe_links(self):
         c = self.client()
         r = c.get("/title/jellyfin/" + FILM_A, headers=A)
@@ -98,8 +132,8 @@ class TitlePage(Fixture):
         self.assertTrue(all(h.startswith(("https://watch.avrana.net/", "/", "#main")) for h in hrefs), hrefs)
         for src in re.findall(r'<img class="art"[^>]*src="([^"]*)"', r.text):
             self.assertTrue(src.startswith("/art/jellyfin/primary/"), src)
-        # the only other image is the masthead's brand lockup, a fixed same-origin file (AVR-584)
-        self.assertEqual(["/brand/avrana-media-l3.svg"], re.findall(r'<img class="(?!art")[^"]*"[^>]*src="([^"]*)"', r.text))
+        # the only other image is the glass Home button's Spire-A mark, a fixed same-origin brand file (AVR-584, D5)
+        self.assertEqual(["/brand/spire-a-24.svg"], re.findall(r'<img class="(?!art")[^"]*"[^>]*src="([^"]*)"', r.text))
         w = c.get("/title/jellyfin/" + FILM_A3, headers=A)
         self.assertIn(">Watch</a>", w.text)
         self.assertIn("2020", w.text)
@@ -294,9 +328,11 @@ class SearchLinks(Fixture):
         self.assertIn('href="https://request.avrana.net/search?query=nomatch%20here">Ask for a film or show'
                       '<span class="sr">, opens the request website</span></a> '
                       '<span class="hint" aria-hidden="true">Opens the request website</span>', r.text)
-        self.assertIn('href="/requestacomic">Ask for a comic</a>', r.text)
+        # The others leave Avrana too, through our own route's redirect (MK-5b review): each says so as well.
+        self.assertIn('href="/requestacomic">Ask for a comic<span class="sr">, opens the request website</span></a> '
+                      '<span class="hint" aria-hidden="true">Opens the request website</span>', r.text)
         self.assertIn('href="/requestabook">Ask for ', r.text)
-        self.assertEqual(1, r.text.count("Opens the request website</span>"))   # only the link that leaves
+        self.assertEqual(3, r.text.count("Opens the request website</span>"))   # one per offer, each leaves
         self.assertNotIn("Request this title", r.text)
         self.assertNotIn("an ebook", r.text)
         v = c.get("/search", params={"q": "nomatch here"}, headers=A_VIDEO_ONLY).text

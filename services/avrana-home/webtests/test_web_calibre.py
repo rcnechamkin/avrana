@@ -47,7 +47,7 @@ class RecentBooksTests(Fixture):
         c = self.client()
         r = c.get("/", headers=BOOKS)
         self.assertEqual(200, r.status_code)
-        self.assertIn("New this week", r.text)
+        self.assertIn('<h2 id="h-new">Recently added</h2>', r.text)     # memo section 4: not date-bounded
         for title in TITLES:
             self.assertIn(title, r.text)
         view = c.get("/home.json", headers=BOOKS).json()

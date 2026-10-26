@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_parts.html" import tile %}
+{% from "_rows.html" import row %}
 {% block title %}{{ chooser.label|trusted }} · Avrana{% endblock %}
 {% block body %}
 {% if shell and intro %}
@@ -10,10 +11,43 @@
 {% endfor %}
   </section>
 {% endif %}
+{% if shell %}
+{#- Concept K (AVR-719; frame 17:619): the member's own places as grouped opaque rows, every one leaving Avrana (the
+   external-link glyph, and the words). Only the tiles the catalogue gives this member; a place they cannot open
+   is absent. Request: "Ask for something" (each row's own wording, already per member, AVR-430), then "Add to the
+   library" only when the member's tiles hold Contribute. Read: one group, the library and what it holds. #}
+  <nav class="tiles kplaces" aria-label="{{ chooser.label|trusted }}">
+{% if chooser.path == "request" %}
+    <section class="kgroup" aria-labelledby="g-ask">
+      <h3 class="kgroup-h" id="g-ask">Ask for something</h3>
+      <ul class="krows">
+{% for path, label, desc in tiles %}
+        {{ row("/" ~ path, desc|trusted, "Opens the request website", {"requests": "film", "requestabook": "book", "requestacomic": "comic"}.get(path, "plus"), leaves=True) }}
+{% endfor %}
+      </ul>
+    </section>
+{% if contribute %}
+    <section class="kgroup" aria-labelledby="g-add">
+      <h3 class="kgroup-h" id="g-add">Add to the library</h3>
+      <ul class="krows">
+        {{ row(contribute.href, contribute.label|trusted, contribute.desc|trusted, "plus", leaves=True, leaves_said=True) }}
+      </ul>
+    </section>
+{% endif %}
+{% else %}
+    <ul class="krows">
+{% for path, label, desc in tiles %}
+      {{ row("/" ~ path, label|trusted, desc|trusted, {"comics": "comic"}.get(path, "book"), leaves=True, leaves_said=True) }}
+{% endfor %}
+    </ul>
+{% endif %}
+  </nav>
+{% else %}
   <nav class="tiles" aria-label="{{ chooser.label|trusted }}">
 {% for path, label, desc in tiles %}{{ tile(path, label, desc) }}
 {% endfor %}
   </nav>
+{% endif %}
 {% endblock %}
 {% block footer %}{% if shell %}    <a class="link" href="/help/trouble">If something doesn&#x27;t open</a>
     <a class="link" href="/">Back to home</a>{% else %}    <a class="account" href="/">Back</a>{% endif %}{% endblock %}

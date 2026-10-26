@@ -133,7 +133,7 @@ class HygieneTests(unittest.TestCase):
             self.assertEqual([value], r.headers.get_list(name), f"{label}: {name}")
 
     def test_every_matrix_response_including_errors(self):
-        cases = [("GET", "/"), ("GET", "/account"), ("GET", "/help"), ("GET", "/help/movies"),
+        cases = [("GET", "/"), ("GET", "/me"), ("GET", "/account"), ("GET", "/help"), ("GET", "/help/movies"),
                  ("GET", "/watch"), ("GET", "/ops"), ("GET", "/read"), ("GET", "/healthz"),
                  ("GET", "/nope"), ("GET", "/readyz"), ("GET", "/home.json"), ("HEAD", "/"),
                  ("HEAD", "/watch"), ("HEAD", "/nope"), ("POST", "/"), ("PUT", "/watch"), ("DELETE", "/ops"),
@@ -178,7 +178,7 @@ class HygieneTests(unittest.TestCase):
                 continue
             self.assertNotIn(bad, csp)
         for ident in IDENTITIES:
-            for path in ("/", "/account", "/help", "/help/movies", "/help/audiobooks", "/read", "/request",
+            for path in ("/", "/me", "/account", "/help", "/help/movies", "/help/audiobooks", "/read", "/request",
                          "/watch", "/nope"):
                 text = self.client.get(path, headers=ident_headers(ident, "member-a")).text
                 self.assertNotRegex(text, r"(?i)<script|javascript:|\son[a-z]+\s*=|<iframe|<object|<embed|<form")
@@ -254,7 +254,7 @@ class LogContractTests(unittest.TestCase):
                       [(USER, "member-c"), (GROUPS, "avrana-users|avrana-videos")],
                       [(USER, "member-d"), (GROUPS, "avrana-users|avrana-videos")],
                       [(USER, "member-a"), (USER, "member-a"), (GROUPS, "avrana-users|avrana-videos")]]
-            paths = ["/", "/home.json", "/account", "/help", "/help/movies", "/watch?token=SECRETQ", "/read",
+            paths = ["/", "/home.json", "/me", "/account", "/help", "/help/movies", "/watch?token=SECRETQ", "/read",
                      "/request", "/ops", "/nope?SECRETQ=1", "/SECRETPATHID", "/healthz", "/readyz",
                      "/__boom", "/__t422?n=SECRETQ", "/comics?userId=SECRETQ"]
             for mode in ("ok", "500", "malformed", "down", "slow", "wrong-user"):

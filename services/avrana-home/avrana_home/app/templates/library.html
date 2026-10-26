@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% from "_parts.html" import card %}
+{% block title %}{% if page.chosen_label %}{{ page.chosen_label }} · {% endif %}Library · Avrana{% endblock %}
+{% block body %}
+{# The Library page (Concept K MK-5a, AVR-719; memo sections 2, 3 and 6). Server-rendered, no script, no form (the
+   default strict CSP). Everything comes from the view-model (`page`), built from the same sections Home gathers for
+   THIS member: a library the member cannot use is never named. The chips are plain links; the chosen one carries
+   the yellow tint, rim and a check glyph, and aria-current="true" (the tab bar's Library tab is the page). A library
+   that is down is a warning (rectangle, glyph, words, amber edge) with Home's own sentence and no items. The
+   top-right glass utility holds Search only: sorting is not built (no honest order without new data). #}
+  <div class="lib-head">
+    <h2 class="topic" id="h-library">Library</h2>
+{% if shell and shell.can_search %}
+    <div class="utility glass"><a class="util" href="/search"><svg class="ic" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false"><circle cx="10.5" cy="10.5" r="6"/><path d="m15 15 5 5"/></svg><span class="sr">Search</span></a></div>
+{% endif %}
+  </div>
+{% if page.no_library %}
+  <section class="shelf" aria-labelledby="h-none">
+    <h2 id="h-none">No library yet</h2>
+    <p class="said">{{ no_library_said }}</p>
+    <p class="said"><a class="link" href="/help">Help</a></p>
+  </section>
+{% else %}
+  <nav class="chips" aria-label="Libraries">
+{% for chip in page.chips %}
+    <a class="chip{% if chip.down %} off{% endif %}" href="{{ chip.href }}"{% if chip.current %} aria-current="true"{% endif %}>{% if chip.current %}<svg class="ck" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="m3.5 8.5 3 3 6-7"/></svg>{% endif %}{% if chip.down %}<s>{{ chip.label }}</s><span class="sr">, unavailable</span>{% else %}{{ chip.label }}{% endif %}</a>
+{% endfor %}
+  </nav>
+{% if page.warnings %}
+  <div class="k-warn" role="status">
+    <svg class="k-warn-ic" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false"><path d="M12 4.5 2.75 19.5h18.5z"/><path d="M12 10v4.25M12 16.9v.1"/></svg>
+    <div class="k-warn-text">
+{% for line in page.warnings %}
+      <p>{{ line }}</p>
+{% endfor %}
+    </div>
+{% if page.retry_href %}
+    <a class="k-warn-act" href="{{ page.retry_href }}">Try again<span class="sr"> to load your libraries</span></a>
+{% endif %}
+  </div>
+{% endif %}
+{% if page.said %}
+  <section class="shelf lib-empty" aria-labelledby="h-lib-empty">
+    <h2 id="h-lib-empty">{{ page.said }}</h2>
+{% for sh in page.shelves if sh.open_href %}
+    <p class="said"><a class="shelf-open" href="{{ sh.open_href }}">Open {{ sh.open_app }}<span class="sr">: {{ sh.label }}</span><svg class="chev" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="m6 3.5 4.5 4.5L6 12.5"/></svg></a></p>
+{% endfor %}
+  </section>
+{% elif page.chosen == "all" %}
+{% for sh in page.shelves %}
+  <section class="shelf lib-shelf" aria-labelledby="l-{{ loop.index }}">
+    <div class="shelf-head">
+      <h2 id="l-{{ loop.index }}">{{ sh.label }}</h2>
+{% if sh.open_href %}
+      <a class="shelf-open" href="{{ sh.open_href }}">Open {{ sh.open_app }}<span class="sr">: {{ sh.label }}</span><svg class="chev" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="m6 3.5 4.5 4.5L6 12.5"/></svg></a>
+{% endif %}
+    </div>
+{% if sh.items %}
+    <ul class="rail">
+{% for c in sh.items %}{{ card(c) }}
+{% endfor %}
+    </ul>
+{% else %}
+    <p class="said">{{ sh.message }}{% if sh.state == "not_linked" and page.setup_href %} <a class="link" href="{{ page.setup_href }}">What to do next<span class="sr"> about {{ sh.label }}</span></a>{% endif %}</p>
+{% endif %}
+  </section>
+{% endfor %}
+{% else %}
+{% for sh in page.shelves %}
+  <section class="shelf lib-shelf lib-one" aria-labelledby="l-{{ loop.index }}">
+    <h2 class="sr" id="l-{{ loop.index }}">{{ sh.label }}</h2>
+{% if sh.items %}
+    <ul class="lib-grid">
+{% for c in sh.items %}{{ card(c) }}
+{% endfor %}
+    </ul>
+{% else %}
+    <p class="said">{{ sh.message }}{% if sh.state == "not_linked" and page.setup_href %} <a class="link" href="{{ page.setup_href }}">What to do next<span class="sr"> about {{ sh.label }}</span></a>{% endif %}</p>
+{% endif %}
+{% if sh.open_href %}
+    <p class="lib-browse"><a href="{{ sh.open_href }}"><span class="lib-browse-t">Browse everything in {{ sh.open_app }}</span><svg class="chev" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="m6 3.5 4.5 4.5L6 12.5"/></svg></a></p>
+{% endif %}
+  </section>
+{% endfor %}
+{% endif %}
+{% endif %}
+{% if page.asks %}
+  <section class="shelf lib-asks" aria-labelledby="h-lib-asks">
+    <h2 id="h-lib-asks">{{ page.asks_heading }}</h2>
+    <ul class="lib-rows">
+{% for href, label, desc in page.asks %}
+      <li><a href="{{ href }}"><span class="lib-row-t">{{ label|trusted }}</span><span class="lib-row-d">{{ desc|trusted }}</span><svg class="chev" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="m6 3.5 4.5 4.5L6 12.5"/></svg></a></li>
+{% endfor %}
+    </ul>
+  </section>
+{% endif %}
+{% endblock %}
+{% block footer %}    <a class="link" href="/">Back to home</a>{% endblock %}

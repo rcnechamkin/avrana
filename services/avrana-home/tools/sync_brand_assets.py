@@ -1,15 +1,22 @@
 #!/usr/bin/env python3
-"""Copy the approved AVRANA Brand v1.0.0 files that Home serves into avrana_home/app/brand/ (AVR-584).
+"""Copy the approved AVRANA Brand v1.0.0 files that Home serves into avrana_home/app/brand/ (AVR-584), and the
+Plus Jakarta Sans font files (AVR-715).
 
 Standard library only. Reads a local copy of the brand package (the `AVRANA-Brand/` folder, never the network),
 copies each file below byte for byte, and records its package path and SHA-256 in `brand/SOURCES.json`.
 
+Plus Jakarta Sans is not in the brand package. Its files come from the npm package
+`@fontsource-variable/plus-jakarta-sans` 5.3.0 (the copy Avrana Party ships in `web/party/fonts/`), read from a
+local folder given with `--fonts`. Their SHA-256 values are pinned below, so the tool refuses any other bytes. The
+tool checks those file hashes only; the npm tarball hash in the recorded source is provenance, checked when the
+pins were taken, not on each run. Files in `brand/` that came from neither source are reported as STRAY.
+
 The repository tracks no binary files (`scripts/review_git_content.py`), so the binary ones (PNG icons, the
-Geist WOFF2) are stored as base64 text (`<name>.b64`); `avrana_home/app/brand.py` decodes them and refuses to
+font WOFF2 files) are stored as base64 text (`<name>.b64`); `avrana_home/app/brand.py` decodes them and refuses to
 serve bytes whose SHA-256 differs from SOURCES.json. SVG and licence files are copied as they are.
 
-    python services/avrana-home/tools/sync_brand_assets.py PATH/TO/AVRANA-Brand           # write
-    python services/avrana-home/tools/sync_brand_assets.py PATH/TO/AVRANA-Brand --check   # compare only
+    python services/avrana-home/tools/sync_brand_assets.py PATH/TO/AVRANA-Brand --fonts PATH/TO/fonts           # write
+    python services/avrana-home/tools/sync_brand_assets.py PATH/TO/AVRANA-Brand --fonts PATH/TO/fonts --check   # compare
 
 Nothing here redraws, recolours or re-encodes artwork. To take a new brand version, point this at the new
 package, review the diff, and update the version below.
@@ -32,12 +39,24 @@ ASSETS = {
     "avrana-media-lockup-product_cream_trim.svg": (
         "02-Logo-Exports/Product-Lockups/RGB/svg-trimmed/avrana-media-lockup-product_cream_trim.svg", False, MARKS),
     "favicon.svg": ("04-Digital-Assets/Website/favicon/favicon.svg", False, MARKS),
+    "avrana-symbol-micro24_cream.svg": ("02-Logo-Exports/RGB/micro/avrana-symbol-micro24_cream.svg", False, MARKS),
     "apple-touch-icon.png": ("04-Digital-Assets/Website/favicon/apple-touch-icon.png", True, MARKS),
     "icon-192.png": ("04-Digital-Assets/Website/favicon/icon-192.png", True, MARKS),
     "icon-512.png": ("04-Digital-Assets/Website/favicon/icon-512.png", True, MARKS),
     "icon-maskable-512.png": ("04-Digital-Assets/Website/favicon/icon-maskable-512.png", True, MARKS),
-    "Geist-Variable.woff2": ("03-Typography-and-Colors/fonts/Geist-Variable.woff2", True, OFL),
-    "OFL.txt": ("03-Typography-and-Colors/fonts/OFL.txt", False, OFL),
+}
+FONTSOURCE = "npm @fontsource-variable/plus-jakarta-sans 5.3.0 (tarball sha256 271d7863880f0de211d9d44534e16907fba50cf6d47245de1938ff392ab5a30a)"
+PJS_OFL = "SIL Open Font License 1.1 (OFL-PlusJakartaSans.txt, kept beside it)"
+# served name -> (file name in the --fonts folder, path inside the npm package, pinned sha256, stored as base64?)
+FONTS = {
+    "PlusJakartaSans-Latin-Variable.woff2": (
+        "PlusJakartaSans-Latin-Variable.woff2", "files/plus-jakarta-sans-latin-wght-normal.woff2",
+        "153fc85b70298beeb1d61a5f723331649e7f23bb77302a66e61cb3e2fbdb5e79", True),
+    "PlusJakartaSans-LatinExt-Variable.woff2": (
+        "PlusJakartaSans-LatinExt-Variable.woff2", "files/plus-jakarta-sans-latin-ext-wght-normal.woff2",
+        "38e3b8fd8045048eb311d90170a4429ed2c8f405852dc3d91b5af8452758703f", True),
+    "OFL-PlusJakartaSans.txt": (
+        "OFL.txt", "LICENSE", "e07fd1167c2aaaa6fb965dd66e1e73b13c9c95b76b2d648b6e938780f30b37af", False),
 }
 
 
@@ -52,7 +71,7 @@ def encode(data: bytes, b64: bool) -> bytes:
     return ("\n".join(text[i:i + 76] for i in range(0, len(text), 76)) + "\n").encode("ascii")
 
 
-def build(package: Path) -> tuple[dict, dict]:
+def build(package: Path, fonts: Path) -> tuple[dict, dict]:
     readme = (package / "README.md").read_text(encoding="utf-8")
     if f"v{VERSION}" not in readme.splitlines()[0]:
         raise SystemExit(f"{package}/README.md does not name brand package v{VERSION}")
@@ -62,6 +81,14 @@ def build(package: Path) -> tuple[dict, dict]:
         files[stored_name(name, b64)] = encode(data, b64)
         sources[name] = {"package_path": rel, "sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data),
                          "stored_as": "base64" if b64 else "verbatim", "licence": licence}
+    for name, (src, rel, pinned, b64) in FONTS.items():
+        data = (fonts / src).read_bytes()
+        digest = hashlib.sha256(data).hexdigest()
+        if digest != pinned:
+            raise SystemExit(f"{fonts / src}: sha256 {digest}, expected {pinned} ({FONTSOURCE}, {rel})")
+        files[stored_name(name, b64)] = encode(data, b64)
+        sources[name] = {"source": f"{FONTSOURCE}: {rel}", "sha256": digest, "bytes": len(data),
+                         "stored_as": "base64" if b64 else "verbatim", "licence": PJS_OFL}
     manifest = {"_comment": "Written by tools/sync_brand_assets.py; do not edit by hand. sha256 is of the ORIGINAL "
                             "package file; brand.py refuses to serve bytes that do not match.",
                 "package": "AVRANA-Brand", "version": VERSION, "files": sources}
@@ -69,18 +96,29 @@ def build(package: Path) -> tuple[dict, dict]:
     return files, manifest
 
 
+KEEP = {"README.md", ".gitattributes"}
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("package", type=Path, help="the AVRANA-Brand folder of the brand package")
+    ap.add_argument("--fonts", type=Path, required=True,
+                    help="folder with the three Plus Jakarta Sans files, named as in FONTS, from the npm package")
     ap.add_argument("--check", action="store_true", help="report differences, write nothing")
     args = ap.parse_args()
-    files, _ = build(args.package)
+    files, _ = build(args.package, args.fonts)
     differ = [n for n, data in files.items() if not (OUT / n).is_file() or (OUT / n).read_bytes() != data]
+    # Anything else in the folder (a retired font, a stray copy) is not served but should not linger unnoticed.
+    stray = sorted(p.name for p in OUT.iterdir() if p.is_file() and p.name not in KEEP
+                   and p.name not in files and p.name.removesuffix(".b64") not in files) if OUT.is_dir() else []
+    for n in stray:
+        print(f"STRAY {n} (not from the package or the pinned fonts; remove it)")
     if args.check:
         for n in differ:
             print(f"DIFFERS {n}")
-        print("brand assets match the package" if not differ else f"{len(differ)} file(s) differ")
-        return 1 if differ else 0
+        print("brand assets match the package" if not (differ or stray)
+              else f"{len(differ)} file(s) differ, {len(stray)} stray")
+        return 1 if (differ or stray) else 0
     OUT.mkdir(parents=True, exist_ok=True)
     for n in differ:
         (OUT / n).write_bytes(files[n])

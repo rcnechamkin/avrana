@@ -1,19 +1,26 @@
 {
  "_comment": "Written by tools/sync_brand_assets.py; do not edit by hand. sha256 is of the ORIGINAL package file; brand.py refuses to serve bytes that do not match.",
  "files": {
-  "Geist-Variable.woff2": {
-   "bytes": 69652,
-   "licence": "SIL Open Font License 1.1 (OFL.txt, kept beside it)",
-   "package_path": "03-Typography-and-Colors/fonts/Geist-Variable.woff2",
-   "sha256": "a369fcf5628ea2aa4e1b9e2ec6a5b3624e365bda588e1f0f2f12b564f728fbb8",
+  "OFL-PlusJakartaSans.txt": {
+   "bytes": 4534,
+   "licence": "SIL Open Font License 1.1 (OFL-PlusJakartaSans.txt, kept beside it)",
+   "sha256": "e07fd1167c2aaaa6fb965dd66e1e73b13c9c95b76b2d648b6e938780f30b37af",
+   "source": "npm @fontsource-variable/plus-jakarta-sans 5.3.0 (tarball sha256 271d7863880f0de211d9d44534e16907fba50cf6d47245de1938ff392ab5a30a): LICENSE",
+   "stored_as": "verbatim"
+  },
+  "PlusJakartaSans-Latin-Variable.woff2": {
+   "bytes": 27348,
+   "licence": "SIL Open Font License 1.1 (OFL-PlusJakartaSans.txt, kept beside it)",
+   "sha256": "153fc85b70298beeb1d61a5f723331649e7f23bb77302a66e61cb3e2fbdb5e79",
+   "source": "npm @fontsource-variable/plus-jakarta-sans 5.3.0 (tarball sha256 271d7863880f0de211d9d44534e16907fba50cf6d47245de1938ff392ab5a30a): files/plus-jakarta-sans-latin-wght-normal.woff2",
    "stored_as": "base64"
   },
-  "OFL.txt": {
-   "bytes": 4368,
-   "licence": "SIL Open Font License 1.1 (OFL.txt, kept beside it)",
-   "package_path": "03-Typography-and-Colors/fonts/OFL.txt",
-   "sha256": "930853ee1daa68554d9e35c8a9175affb74f699fad9a5da6ee5ebe76379d9137",
-   "stored_as": "verbatim"
+  "PlusJakartaSans-LatinExt-Variable.woff2": {
+   "bytes": 21728,
+   "licence": "SIL Open Font License 1.1 (OFL-PlusJakartaSans.txt, kept beside it)",
+   "sha256": "38e3b8fd8045048eb311d90170a4429ed2c8f405852dc3d91b5af8452758703f",
+   "source": "npm @fontsource-variable/plus-jakarta-sans 5.3.0 (tarball sha256 271d7863880f0de211d9d44534e16907fba50cf6d47245de1938ff392ab5a30a): files/plus-jakarta-sans-latin-ext-wght-normal.woff2",
+   "stored_as": "base64"
   },
   "apple-touch-icon.png": {
    "bytes": 4214,
@@ -27,6 +34,13 @@
    "licence": "AVRANA, all rights reserved (brand package README, Licences)",
    "package_path": "02-Logo-Exports/Product-Lockups/RGB/svg-trimmed/avrana-media-lockup-product_cream_trim.svg",
    "sha256": "91111af66fcc29f27fb32abc428f5570a4f8dab410db9c4af6bc46bad7e3ea5c",
+   "stored_as": "verbatim"
+  },
+  "avrana-symbol-micro24_cream.svg": {
+   "bytes": 6816,
+   "licence": "AVRANA, all rights reserved (brand package README, Licences)",
+   "package_path": "02-Logo-Exports/RGB/micro/avrana-symbol-micro24_cream.svg",
+   "sha256": "537f2480a78fbf90d49e3f7b5f3f80bb1302cfe5e8d2c544c353ab9ccf8bceb5",
    "stored_as": "verbatim"
   },
   "favicon.svg": {

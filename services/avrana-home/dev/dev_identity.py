@@ -171,6 +171,10 @@ class DevIdentityMiddleware:
         if path == "/_dev/identity" or path.startswith("/_dev/identity/"):
             return await self._switcher(scope, send, path, pick)
         scope = dict(scope, headers=_rewrite_headers(scope.get("headers", ()), pick))
+        if path.rstrip("/") == "/offline":
+            # The offline page is stored by the service worker and shown to every viewer: a banner naming the
+            # development identity must never be baked into it, so it is served as the application sends it (MK-3).
+            return await self.app(scope, receive, send)
         await self.app(scope, receive, self._with_banner(send, pick, scope.get("method") == "HEAD"))
 
     def _with_banner(self, send, pick, head):

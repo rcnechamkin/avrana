@@ -88,6 +88,8 @@ class Settings:
     timeout: float = 2.0
     section_limit: int = 12
     health_detail: str = "loopback"              # "loopback" | "off"
+    pwa_sw: bool = True                          # HOME_PWA_SW=off: kill switch, /sw.js serves a self-destruct worker
+    motion_proposal: bool = False                # HOME_MOTION_PROPOSAL=on: the 600 ms Proposal for page transitions (MK-6)
     catalogue_path: Path = DEFAULT_CATALOGUE
     log_level: str = "INFO"
     host: str = "127.0.0.1"
@@ -163,6 +165,8 @@ class Settings:
             return value
 
         sections = boolean("HOME_SECTIONS", False)
+        pwa_sw = boolean("HOME_PWA_SW", True)
+        motion_proposal = boolean("HOME_MOTION_PROPOSAL", False)
         mode = get("HOME_UPSTREAM_MODE", "mock").lower()
         if mode not in ("mock", "real"):
             problems.append("HOME_UPSTREAM_MODE must be mock or real")
@@ -338,7 +342,7 @@ class Settings:
                    komga_token=komga_token, komga_owner_confirms=komga_confirms,
                    calibre_web_base_url=cw_url,
                    calibre_web_credential=cw_cred, calibre_web_owner_confirms=cw_confirms, timeout=timeout, section_limit=limit,
-                   health_detail=detail, catalogue_path=catalogue, log_level=level,
+                   health_detail=detail, pwa_sw=pwa_sw, motion_proposal=motion_proposal, catalogue_path=catalogue, log_level=level,
                    host=host, port=port, owner_preview=owner_preview, owner_preview_username=owner_name,
                    jellyfin_member_username=jf_member, audiobookshelf_member_username=abs_member,
                    preview_seal=_OWNER_PREVIEW_SEAL if owner_preview else None,

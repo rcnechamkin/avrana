@@ -36,20 +36,22 @@ from . import catalogue as catalogue_mod
 from .catalogue import Trusted
 from . import artwork as artwork_mod
 from . import install as install_mod
-from .identity import (IdentityResolver, Viewer, get_viewer, has_identity_headers,
+from . import pwa as pwa_mod
+from .identity import (IdentityResolver, Viewer, get_viewer, has_identity_headers, library_chip_from_scope,
                        new_tab_from_scope, search_term_from_scope)
 from .logsafe import app_log, log_event, silence_uvicorn_access
 from .middleware import HygieneMiddleware
 from . import recovery
-from .routing import (AccountFacts, Decision, chooser_intro, decide, normalise_target, not_found, parse_title_route,
-                      search_decision, title_decision, trouble_decision)
+from .routing import (ME_ROUTE, AccountFacts, Decision, chooser_intro, decide, library_decision, me_decision,
+                      normalise_target, not_found, parse_title_route, search_decision, title_decision, trouble_decision)
 from .settings import Settings, is_sealed_preview
-from .viewmodel import (ACCOUNT_LIBRARY, ACCOUNT_MENU, INTERSTITIAL_SHELL, NO_LIBRARY, REQUEST_FOR, SERVICE_LABEL,
-                        account_access, build_home, build_search, build_shell, build_title)
+from .viewmodel import (ACCOUNT_LIBRARY, CONTRIBUTE_PATH, INTERSTITIAL_SHELL, LIBRARY_PLACE, NO_LIBRARY, REQUEST_FOR,
+                        SERVICE_LABEL, account_access, build_home, build_library, build_me, build_search, build_shell,
+                        build_title, has_library, place_link)
 
 TEMPLATES = Path(__file__).resolve().parent / "templates"
 HTML = "text/html; charset=utf-8"
-# Pages that wear the shell (masthead with places, Search, Help and the account menu) when sections are on.
+# Pages that wear the shell (the places bar on Home, the tab bar everywhere) when sections are on.
 SHELL_PAGES = {"/account": "account", "/help": "help", "/help/{slug}": "help-topic",
                "/{chooser}": "place", "/{service}": "place"}
 
@@ -58,6 +60,14 @@ def _trusted(value):
     if not isinstance(value, Trusted):
         raise TypeError("only catalogue text may be rendered unescaped")
     return Markup(value)
+
+
+# MK-6 (AVR-720): the motion Proposal, off by default. Tier 3 page transitions are 200 ms (home.css); with
+# HOME_MOTION_PROPOSAL=on this rule is appended to the shell stylesheet (so to shell pages and the offline page, which
+# carries it) and they take the 600 ms Proposal token instead, so the owner can compare. Still nothing at all with Reduce Motion. Off, the stylesheet is unchanged.
+MOTION_PROPOSAL_CSS = ("  /* Proposal (HOME_MOTION_PROPOSAL=on, default off): page transitions at the 600 ms token. */\n"
+                       "  @media (prefers-reduced-motion:no-preference){::view-transition-group(*),::view-transition-old(*),"
+                       "::view-transition-new(*){animation-duration:var(--motion-3-proposal);}}\n")
 
 
 def make_environment() -> Environment:
@@ -70,8 +80,11 @@ def make_environment() -> Environment:
     # The Home design's rules (home.css) are added to the page ONLY when the home sections render, so every
     # other page, and Home with sections off, stays byte-identical to the portal (the parity test).
     env.globals["home_stylesheet"] = Markup("\n" + (TEMPLATES / "home.css").read_text(encoding="utf-8"))
-    env.globals["account_menu"] = ACCOUNT_MENU
     env.globals["no_library_said"] = NO_LIBRARY
+    # MK-3 (AVR-717): the page script path (a content hash), the sign-out hop and the kill switch, for shell pages.
+    env.globals["page_script"] = pwa_mod.script_path()
+    env.globals["shell_signout"] = pwa_mod.SIGNOUT_PATH
+    env.globals["pwa_sw_off"] = False
     return env
 
 
@@ -142,6 +155,12 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
     silence_uvicorn_access()      # whoever serves this app, uvicorn must not log raw query strings
     cat = catalogue_mod.load(settings.catalogue_path)
     env = make_environment()
+    env.globals["pwa_sw_off"] = not settings.pwa_sw          # kill switch: the script skips registration
+    if settings.motion_proposal:
+        env.globals["home_stylesheet"] = env.globals["home_stylesheet"] + Markup(MOTION_PROPOSAL_CSS)
+    # The offline page and the worker are built once: static bytes, the same for every viewer (pwa.py).
+    offline_html = env.get_template("offline.html").render(offline=True).encode("utf-8")
+    worker_js = pwa_mod.worker_bytes(offline_html, enabled=settings.pwa_sw)
     # One disposable cache per process, default in-memory database, closed on shutdown. (Offboarding
     # hook for later: MemberCache.purge_member(principal); wired into nothing yet. A file-backed
     # cache is an owner decision, see HOME-APP.md, and has no setting.)
@@ -174,7 +193,7 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
 
     def respond(decision: Decision, scope=None, **extra) -> Response:
         """The one place a page is rendered. When it wears the shell (which prints the manifest link), the same call
-        tells the middleware to allow `manifest-src 'self'`: the tags and the CSP cannot disagree. A shell page
+        tells the middleware to allow `manifest-src`, `font-src`, `script-src` and `worker-src` ('self'): the tags and the CSP cannot disagree. A shell page
         must pass `scope`; forgetting it is an error, not a silently mismatched CSP."""
         if extra.get("shell") is not None:
             if scope is None:
@@ -224,7 +243,24 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
             decision = search_decision(build_search(result.search_view(), term, title_services=title_services,
                                                     request_hosts=request_hosts(viewer)))
             scope["avrana_route"] = decision.label
-            return respond(decision, scope, shell=shell_for(viewer, "search"))
+            # Search's no-results group may offer Contribute (memo section 2), only from the member's own tiles.
+            return respond(decision, scope, shell=shell_for(viewer, "search"),
+                           contribute=place_link(tiles_for(viewer), CONTRIBUTE_PATH))
+
+        if route == "/library" and settings.home_sections and adapter_list:
+            # The Library page (Concept K MK-5a, AVR-719): a shell page like /search, only with the shell on and for a
+            # verified member; otherwise the standard 404, exactly as an unknown route (portal parity). It shows the
+            # same sections Home gathers for this member; `?lib=` only chooses a chip among the member's own libraries.
+            if viewer.principal is None:
+                scope["avrana_route"] = "not_found"
+                return respond(not_found())
+            tiles = decide("/", viewer.groups, cat).context["tiles"]
+            view = await _gather(viewer) if has_library(tiles) else {"sections": []}
+            page = build_library(view, tiles, chip=library_chip_from_scope(scope), limit=settings.section_limit,
+                                 open_paths=place_paths(viewer))
+            decision = library_decision(page)
+            scope["avrana_route"] = decision.label
+            return respond(decision, scope, shell=shell_for(viewer, "library"))
 
         if route.startswith("/title/") and settings.home_sections and adapter_list:
             # A title page (AVR-384). Unknown service, malformed id, no principal, no group, unknown or hidden
@@ -263,7 +299,21 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
         # Installable Home and the approved brand files (install.py, brand.py): only where the shell can render, so
         # with sections off these paths stay the portal's 404. Static bytes, the same for every viewer, so no
         # identity is needed to fetch them.
-        asset = install_mod.asset_for(route) if (settings.home_sections and adapter_list) else None
+        shell_on = settings.home_sections and bool(adapter_list)
+        if shell_on and route in (pwa_mod.SW_PATH, pwa_mod.OFFLINE_PATH, pwa_mod.SIGNOUT_PATH):
+            # MK-3 (AVR-717): the worker, its offline page and the sign-out hop. Static, the same for every viewer.
+            scope["avrana_route"] = route
+            if route == pwa_mod.SW_PATH:
+                return Response(worker_js, media_type=pwa_mod.JS_TYPE)       # no Service-Worker-Allowed: scope "/"
+            if route == pwa_mod.OFFLINE_PATH:
+                return Response(offline_html, media_type=HTML)
+            # Clear this site's cache and storage on the device, then on to the outpost's own sign-out (fixed target).
+            return Response(b"", status_code=303, media_type=HTML, headers=pwa_mod.signout_headers(cat.signout_url))
+        script = pwa_mod.asset_for(route) if shell_on else None
+        if script is not None:
+            scope["avrana_route"] = "/static/{file}"
+            return Response(script[0], media_type=script[1])
+        asset = install_mod.asset_for(route) if shell_on else None
         if asset is not None:
             scope["avrana_route"] = ("/manifest.webmanifest" if route == install_mod.MANIFEST_PATH
                                      else "/brand/{file}" if route.startswith("/brand/") else "/icons/{size}")
@@ -277,19 +327,27 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
             decision = trouble_decision(viewer.groups)
             scope["avrana_route"] = decision.label
             return respond(decision, scope, shell=shell_for(viewer, "help-topic"))
+        if route == ME_ROUTE and settings.home_sections and p is not None and adapter_list:
+            # The Me hub (Concept K, AVR-719) exists only with the shell; otherwise the path stays unknown (parity).
+            decision = me_decision(build_me(tiles_for(viewer), p.username, pwa_mod.SIGNOUT_PATH))
+            scope["avrana_route"] = decision.label
+            return respond(decision, scope, shell=shell_for(viewer, "me"))
         decision = decide(route, viewer.groups, cat, facts)
         scope["avrana_route"] = decision.label
         extra = {}
         if decision.label == "/" and settings.home_sections and p is not None and adapter_list:
             home = build_home(await _gather(viewer), decision.context["tiles"],
                               new_tab=new_tab_from_scope(scope), limit=settings.section_limit,
-                              member_name=(facts.name or facts.username))
+                              member_name=(facts.name or facts.username), title_services=title_services)
             extra["home"] = home
             extra["shell"] = shell_for(viewer, "home", places=home.places)
         elif decision.status == 200 and decision.label in SHELL_PAGES:
             extra["shell"] = shell_for(viewer, SHELL_PAGES[decision.label])
             if decision.label == "/{chooser}" and extra["shell"] is not None:
                 extra["intro"] = chooser_intro(decision.context["chooser"].path)
+                if decision.context["chooser"].path == "request":
+                    # "Add to the library" (frame 17:619): only when the member's own tiles hold Contribute.
+                    extra["contribute"] = place_link(tiles_for(viewer), CONTRIBUTE_PATH)
             if decision.label == "/account" and extra["shell"] is not None:
                 # Shell only: libraries and requests in Home's language. Sections off keeps the portal's list.
                 extra["shell_access"] = account_access(
@@ -304,7 +362,7 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
 
     def mark_shell(scope, shell) -> None:
         """Tell the middleware this response is a shell page: only these pages link the manifest and load the brand
-        font, so only these get `manifest-src 'self'; font-src 'self'` in their CSP (middleware.py). Every other
+        font and the page script (base.html), so only these get `SHELL_SOURCES` in their CSP (middleware.py). Every other
         response keeps the CSP unchanged."""
         if shell is not None:
             scope["avrana_shell"] = True
@@ -319,14 +377,27 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
                 out[path] = svc.host
         return out
 
+    def place_paths(viewer: Viewer) -> dict:
+        """service -> the member's own place route for that library ("/watch"), only where this member's groups open
+        it in the catalogue (the same check as the route itself), for Library's "Open <app>" links. Static catalogue
+        data only; nothing from the request."""
+        out = {}
+        for service, path in LIBRARY_PLACE.items():
+            svc = cat.service(path)
+            if svc is not None and svc.allows(viewer.groups):
+                out[service] = "/" + path
+        return out
+    def tiles_for(viewer: Viewer):
+        """The member's own catalogue tiles (group-filtered, static data; no upstream call)."""
+        return decide("/", viewer.groups, cat).context["tiles"]
+
     def shell_for(viewer: Viewer, current: str, places=None):
-        """The masthead data (places, Search, Help, account menu) for a shell page, or None where the shell is
+        """The shell data (places, tabs, the member's name) for a shell page, or None where the shell is
         not on (sections off: the pages stay byte-identical to the portal). No upstream call is made here."""
         p = viewer.principal
         if not (settings.home_sections and p is not None and adapter_list):
             return None
-        tiles = decide("/", viewer.groups, cat).context["tiles"]
-        return build_shell(tiles, current, (p.name or "").strip() or p.username, places=places)
+        return build_shell(tiles_for(viewer), current, (p.name or "").strip() or p.username, places=places)
 
     async def _gather(viewer: Viewer) -> dict:
         """The sections for the verified member, via the adapters' own principal checks and

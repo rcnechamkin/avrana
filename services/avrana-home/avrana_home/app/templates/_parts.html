@@ -5,59 +5,88 @@
     </a>
 {%- endmacro %}
 
-{# ---- The shell masthead (AVR-374/452/478/383): the same on Home, Search, Account, Help and help topics -------
-   Help is in the places bar only (always: every member has the Help place); the account menu holds "Account and
-   security". The top row carries only Search and the account, so it fits at 360px and at 200% text.
-   The heading is the approved Media L3 product lockup (AVR-584, brand.py), an image of the brand's own SVG, never
-   retyped; its alt text is the product name. The cream lockup cannot follow forced colours (Windows high
-   contrast), so there home.css shows the name as text instead: that span is aria-hidden, and the image stays in
-   the accessibility tree, so the link is named once, by the alt text. No rule beneath it (owner, 2026-10-18): the
-   portal keeps its wordmark rule until AVR-362 converges them. #}
-{% macro mast(shell, account_menu) -%}
-    <div class="mast">
-      <div class="id">
-{% if shell.can_search %}
-        <a class="idlink" href="/search"{% if shell.current == "search" %} aria-current="page"{% endif %}>Search</a>
+{# ---- The shell (AVR-374/452/478/383; Concept K, AVR-716): the same on Home, Search, Account, Help, help topics,
+   place pages and title pages.
+   Home: the approved Media L3 product lockup is the heading (AVR-584, brand.py), an image of the brand's own SVG,
+   never retyped, its alt text the product name; under it the places bar, Watch, Listen, Read, Request, Help (owner,
+   AVR-452; kept by D16). The cream lockup cannot follow forced colours (Windows high contrast), so there home.css
+   shows the name as text instead: that span is aria-hidden, and the image stays in the accessibility tree, so the
+   link is named once, by the alt text.
+   Every other shell page: the heading "Avrana Media" stays first for screen readers (visually hidden), and the
+   page's own title is the first thing seen. Pages that are not tabs (a place, a help topic, a title) also get the
+   glass Home button: the brand's Spire-A micro cut, drawn for exactly 24 px; in forced colours it shows the word.
+   The account menu and the Search link of the old top row are now tabs (D1: Home, Library, Search, Me). #}
+{% macro mast(shell) -%}
+    <div class="mast{% if shell.current == "home" %} at-home{% endif %}">
+{% if shell.current == "home" %}
+      <h1><a href="/" aria-current="page"><img class="lockup" src="/brand/avrana-media-l3.svg" alt="Avrana Media" width="1384" height="650"><span class="lockup-text" aria-hidden="true">Avrana Media</span></a></h1>
+{% else %}
+      <h1 class="sr">Avrana Media</h1>
+{% if shell.current not in ("library", "search", "me", "account", "help") %}
+      <a class="homebtn glass" href="/"><img class="spire" src="/brand/spire-a-24.svg" alt="Home" width="24" height="24"><span class="homebtn-text" aria-hidden="true">Home</span></a>
 {% endif %}
-        <details class="account">
-          <summary><span class="mono" aria-hidden="true">{{ shell.initial }}</span>Account<span class="sr">, signed in as {{ shell.member_name }}</span></summary>
-          <div class="menu">
-            <p class="as">Signed in as {{ shell.member_name }}</p>
-            <ul>
-{% for label, to in account_menu %}
-              <li><a href="{{ to }}"{% if (to == "/account" and shell.current == "account") %} aria-current="page"{% endif %}>{{ label }}</a></li>
-{% endfor %}
-            </ul>
-          </div>
-        </details>
-      </div>
-      <h1><a href="/"{% if shell.current == "home" %} aria-current="page"{% endif %}><img class="lockup" src="/brand/avrana-media-l3.svg" alt="Avrana Media" width="1384" height="650"><span class="lockup-text" aria-hidden="true">Avrana Media</span></a></h1>
+{% endif %}
     </div>
+{% if shell.current == "home" %}
     <nav class="places" aria-label="Avrana">
 {% for p in shell.places %}
-{% if p.up %}      <a href="{{ p.href }}"{% if p.href == "/help" and shell.current == "help" %} aria-current="page"{% elif p.href == "/help" and shell.current == "help-topic" %} aria-current="true"{% endif %}>{{ p.label|trusted }}</a>
+{% if p.up %}      <a href="{{ p.href }}">{{ p.label|trusted }}</a>
 {% else %}      <a class="off" href="/help/trouble#unavailable"><s>{{ p.label|trusted }}</s><span class="sr">, unavailable: what to do</span></a>
 {% endif %}
 {% endfor %}
     </nav>
+{% endif %}
+{%- endmacro %}
+
+{# ---- The tab bar (Concept K, AVR-716; D1). Glass, fixed to the bottom, after the footer so it is last in reading
+   and focus order, as it is on screen. Four tabs for a member with a library (Home, Library, Search, Me); a member
+   with none sees Home and Me only, because a library a member cannot use is never named (the places-bar rule).
+   The section the page belongs to carries the lens: data-at is its index, printed by the server, so the capsule is
+   right with JavaScript off. MK-3's script only moves data-at on a plain click; it never stops the navigation.
+   aria-current="page" marks the tab that is this page; "true" marks the section a deeper page belongs to (a help
+   topic under Me, a place or a title under Home).
+   Library opens its own page, /library (MK-5a, AVR-719); Home keeps its "Recently added" shelf (id h-new).
+   MK-5b (AVR-719): Me opens the Me hub (/me); Account, Help and the help topics are deeper pages under it ("true").
+   Icons are inline SVG, decorative (aria-hidden), stroked in currentColor so they follow the label and forced
+   colours. Me shows the member's initial (Authentik gives Home no avatar); its name says who is signed in. #}
+{% macro tabbar(shell) -%}
+{%- set section = {"home": "home", "place": "home", "title": "home", "library": "library", "search": "search", "me": "me", "account": "me", "help": "me", "help-topic": "me"}.get(shell.current) -%}
+{%- set page = {"home": "home", "library": "library", "search": "search", "me": "me"}.get(shell.current) -%}
+{%- set tabs = ["home", "library", "search", "me"] if shell.can_search else ["home", "me"] -%}
+<nav class="tabbar glass" aria-label="Sections" data-tabs="{{ tabs|length }}"{% if section in tabs %} data-at="{{ tabs.index(section) }}"{% endif %}>
+{% for t in tabs %}
+  <a class="tab" href="{{ {"home": "/", "library": "/library", "search": "/search", "me": "/me"}[t] }}"{% if t == page %} aria-current="page"{% elif t == section %} aria-current="true"{% endif %}>
+{%- if t == "home" %}<svg class="ic" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false"><path d="M4 10.5 12 4l8 6.5V20h-5.5v-5.5h-5V20H4z"/></svg><span class="tl">Home</span>
+{%- elif t == "library" %}<svg class="ic" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false"><path d="M5 4v16M9 4v16M13.5 4.5l5.5 15"/></svg><span class="tl">Library</span>
+{%- elif t == "search" %}<svg class="ic" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false"><circle cx="10.5" cy="10.5" r="6"/><path d="m15 15 5 5"/></svg><span class="tl">Search</span>
+{%- else %}<span class="me" aria-hidden="true">{{ shell.initial }}</span><span class="tl">Me<span class="sr">, signed in as {{ shell.member_name }}</span></span>
+{%- endif %}</a>
+{% endfor %}
+  <span class="lens" aria-hidden="true"></span>
+</nav>
 {%- endmacro %}
 
 {# One piece of art: a frame with the item's natural shape (set by the w-<shape> class around it) and a quiet
    letter behind the image. If there is no art, the letter shows. If an image is served but cannot be decoded,
    browsers may draw their broken-image icon over the letter (known, DESIGN.md).
-   In a rail every frame has the rail's height, so titles start on one line whatever the shapes. #}
-{% macro frame(image, title) -%}
-<span class="frame"><span class="ph" aria-hidden="true">{{ (title[:1] or "A")|upper }}</span>{% if image %}<img class="art" src="{{ image }}" alt="" width="160" height="240" loading="lazy">{% endif %}</span>
+   In a rail every frame has the rail's height, so titles start on one line whatever the shapes.
+   `bar` (Continue cards only, AVR-718): the 3px Cream progress rule along the foot of the art, its length in 5%
+   steps as a class (no inline style: the CSP and the markup tests forbid it). It is decoration beside the progress
+   words, never instead of them, so it is hidden from assistive technology. Never the Media yellow. #}
+{% macro frame(image, title, bar=None) -%}
+<span class="frame"><span class="ph" aria-hidden="true">{{ (title[:1] or "A")|upper }}</span>{% if image %}<img class="art" src="{{ image }}" alt="" width="160" height="240" loading="lazy">{% endif %}{% if bar is not none %}<span class="bar" aria-hidden="true"><span class="fill pc{{ bar }}"></span></span>{% endif %}</span>
 {%- endmacro %}
 
 {# One card, one link, one action. Order: title (two lines at most), the creator, series or episode line
    (dim, one line), progress in words, then the action verb (Continue cards only: `verb=True`). Clamping is
    visual only: the full title and line stay in the link's text, so its accessible name carries them in full,
    with a spoken comma between the parts. The link never takes an aria-label (it would hide line and progress).
-   When `action_label` is set it stands in for the verb for assistive technology. #}
+   When `action_label` is set it stands in for the verb for assistive technology.
+   Without script the card stays a plain link to where the item opens; an in-place preview is MK-3's script
+   territory (progressive enhancement over this link, never a replacement for it). #}
 {% macro card(c, verb=False) -%}
 <li class="w-{{ c.shape }}"><a class="card" href="{{ c.href }}">
-  {{ frame(c.image, c.title) }}
+  {{ frame(c.image, c.title, c.bar) }}
   <span class="t">{{ c.title }}</span>
   {% if c.line or (not verb and c.kind_label) %}<span class="d"><span class="sr">, </span>{{ c.line or c.kind_label }}</span>{% endif +%}
   {% if c.progress %}<span class="p"><span class="sr">, </span>{{ c.progress }}</span>{% endif +%}

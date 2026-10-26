@@ -226,7 +226,7 @@ class HelpIndexAndTopics(StubFixture):
 
 class ShellLayout(StubFixture):
     def test_masthead_at_the_top_and_footer_links_on_one_line_in_the_shell_only(self):
-        for path in ("/", "/account", "/help"):
+        for path in ("/", "/me", "/account", "/help"):
             on = self.on.get(path, headers=ALL).text
             self.assertIn("body:has(.mast){flex-direction:column;align-items:center;justify-content:flex-start;}", on)
             self.assertIn("body:has(.mast) footer a.account{display:inline-flex;", on)

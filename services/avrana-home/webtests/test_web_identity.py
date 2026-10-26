@@ -124,6 +124,20 @@ class FailClosedTests(unittest.TestCase):
                 self.assertEqual(base_home, self.client.get("/", headers=headers).content)
                 self.assertEqual(base_404, self.client.get("/watch", headers=headers).content)
 
+    def test_denied_identity_library_equals_a_request_with_no_headers(self):
+        """MK-5a (AVR-719): /library for a denied identity is the standard 404, byte for byte the no-header answer,
+        and no adapter is called."""
+        base_404 = self.client.get("/watch").content
+        self.assertEqual(base_404, self.client.get("/library").content)
+        for name, headers in CASES.items():
+            with self.subTest(case=name):
+                self.mock.reset()
+                for route in ("/library", "/library?lib=jellyfin"):
+                    r = self.client.get(route, headers=headers)
+                    self.assertEqual((404, base_404), (r.status_code, r.content), route)
+                self.assertEqual([], self.mock.paths(), "adapter reached the upstream")
+        self.assertEqual(200, self.client.get("/library", headers=OK).status_code)     # control: good headers do
+
     def test_extra_trusted_headers_cannot_rescue_a_bad_principal(self):
         r = self.client.get("/", headers=[(GROUPS, GOOD_GROUPS), ("X-authentik-email", "a@example.test"),
                                           ("X-authentik-name", "Member A")])

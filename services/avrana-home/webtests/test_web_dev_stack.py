@@ -77,7 +77,7 @@ class DevStackTests(unittest.TestCase):
 
     def test_every_page_carries_the_development_banner(self):
         for who in list(DEV_IDENTITIES) + [None]:
-            for path in ("/", "/account", "/help", "/watch", "/nope", "/_dev/identity"):
+            for path in ("/", "/me", "/account", "/help", "/watch", "/nope", "/_dev/identity"):
                 r = self.page(who, path)
                 if r.status in (307,):
                     continue

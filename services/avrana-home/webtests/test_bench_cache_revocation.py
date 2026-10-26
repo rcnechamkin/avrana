@@ -63,6 +63,32 @@ class WarmCacheIsolation(unittest.TestCase):
             status, _body, _ms, calls, _u = self.b.get(ref, only_books)
             self.assertEqual((404, 0), (status, calls), ref)
 
+    def test_library_after_revocation_shows_nothing_cached_and_names_no_lost_library(self):
+        """MK-5a (AVR-719): /library reads the same warm per-member sections as Home. After every library group is
+        lost: no title, no cover, no chip, no library named, no upstream call. After one is lost: that library is
+        gone from the chips, the shelves and the covers at once."""
+        for path in ("/library", "/library?lib=jellyfin"):         # warm the victim's Library too
+            self.assertEqual(200, self.b.get(path, self.a.headers())[0], path)
+        labels = ("Movies and TV", "Audiobooks", "Comics", "Books")
+        revoked = self.a.headers(groups=("avrana-users",))
+        for path in ("/library", "/library?lib=jellyfin"):
+            status, html, _ms, calls, _u = self.b.get(path, revoked)
+            self.assertEqual((200, 0), (status, calls), path)
+            self.assertEqual(set(), set(TITLE.findall(html)), path)
+            self.assertNotIn("/art/", html, path)
+            self.assertNotIn('class="chip', html, path)
+            self.assertIn("No library yet", html, path)
+            for label in labels + ("jellyfin", "Jellyfin", "komga", "Komga", "calibre", "audiobookshelf"):
+                self.assertNotIn(label, html, (path, label))
+        only_books = self.a.headers(groups=("avrana-users", "avrana-audiobooks"))
+        for path in ("/library", "/library?lib=jellyfin"):
+            status, html, *_ = self.b.get(path, only_books)
+            self.assertEqual(200, status, path)
+            self.assertEqual(["/library", "/library?lib=audiobookshelf"],
+                             re.findall(r'<a class="chip[^"]*" href="([^"]*)"', html), path)
+            for gone in ("/art/jellyfin/", "/art/komga/", "/art/calibre-web/", "Movies and TV", "Comics", "lib=jellyfin"):
+                self.assertNotIn(gone, html, (path, gone))
+
     def test_another_member_never_receives_the_victims_cached_page_or_thumbnails(self):
         other = self.by_name["bench-m07"]                  # Audiobookshelf only; its own upstream account
         status, html, *_ = self.b.get("/", other.headers())

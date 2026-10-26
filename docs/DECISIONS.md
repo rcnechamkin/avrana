@@ -83,11 +83,11 @@ their own explicit approval.
 | PR #11 (shelves-first home) is closed as superseded by #23 | After checking that its still-relevant requirements are carried by the replacement |
 | CI: offline verification stays required; missing GitHub Actions and axe-core results are stated, never assumed | Billing is an owner dependency, not permission to weaken a check |
 | **Artwork keeps each library's natural shape** (posters, audiobook squares, books, comics, video stills) | DESIGN.md Shapes and Media components; replaces the one-square-crop rule for media artwork |
-| **Artwork keeps its original colour** inside the monochrome interface | No greyscale treatment of library artwork |
-| **Search gets a visible, labelled entry near the primary navigation** once search works | The Watch, Listen, Read, Request, Help order is kept |
+| **Artwork keeps its original colour** inside the monochrome interface | No greyscale treatment of library artwork. *Partly superseded 2026-10-25 (O2): on Home shell pages the interface is no longer monochrome; artwork still keeps its colour* |
+| **Search gets a visible, labelled entry near the primary navigation** once search works | The Watch, Listen, Read, Request, Help order is kept. *On Home shell pages the entry is the Search tab (D1, 2026-10-26)* |
 | **The 720px browsing column stays** for now, subject to a desktop review; **Kindle keeps its 640px form column** | Kindle's column becomes a named single-form variant, not drift |
-| **The account menu stays native and script-free** at first | Keyboard, Escape, outside tap, focus and VoiceOver are checked in Safari; a script, if shown to be needed for accessibility, comes as a narrowly scoped CSP exception for separate review |
-| **The compact Home stays**: bounded Continue and New rows, browsing on `/new` | As approved in AVR-452 |
+| **The account menu stays native and script-free** at first | Keyboard, Escape, outside tap, focus and VoiceOver are checked in Safari; a script, if shown to be needed for accessibility, comes as a narrowly scoped CSP exception for separate review. *Superseded on Home shell pages 2026-10-26: the account menu is retired; the Me tab opens the Me hub (D1, MK-2/MK-5b), and the script rule is replaced by O1 (below)* |
+| **The compact Home stays**: bounded Continue and New rows, browsing on `/new` | As approved in AVR-452. *Amended on Home shell pages 2026-10-26: the places bar stays (D16), a hero sits above Continue (D6), the New row is "Recently added" (memo section 4), and browsing is the Library tab (`/library`, D1); the rows stay bounded* |
 | Earlier approved direction is preserved | These decisions are not blanket visual approval |
 | **Visual approval of #23, #24, #26 and #27 is pending** (AVR-455): the direction is accepted | Reviewed on a real iPhone in Safari with VoiceOver from a private, fixture-only preview; no UI change that needs it merges before then |
 
@@ -98,8 +98,68 @@ on the iPhone Safari and VoiceOver review, AVR-455), a merge or a deployment.
 
 | Decision | Consequence |
 |---|---|
-| **Brand binaries are stored as base64 text, in `services/avrana-home/avrana_home/app/brand/` only** | The PNG icons and the Geist WOFF2 are `*.b64` copies of the exact package bytes, each pinned by SHA-256 in `brand/SOURCES.json`; `brand.py` refuses to serve a file that does not match, and `brand/.gitattributes` (`* -text`) keeps every byte. The repository's binary policy and `scripts/review_git_content.py` are unchanged: no other folder gains this exception |
-| **Shell pages alone get `font-src 'self'`**, beside their existing `manifest-src 'self'` | Only pages that wear the Home shell load Geist from `/brand/geist.woff2`; every other response (portal, Kindle, errors, sections off) keeps the base CSP. No other source, and still no script |
+| **Brand binaries are stored as base64 text, in `services/avrana-home/avrana_home/app/brand/` only** | The PNG icons and the interface font's WOFF2 files (Geist then; Plus Jakarta Sans since AVR-715, from npm) are `*.b64` copies of the exact source bytes, each pinned by SHA-256 in `brand/SOURCES.json`; `brand.py` refuses to serve a file that does not match, and `brand/.gitattributes` (`* -text`) keeps every byte. The repository's binary policy and `scripts/review_git_content.py` are unchanged: no other folder gains this exception |
+| **Shell pages alone get `font-src 'self'`**, beside their existing `manifest-src 'self'` | Only pages that wear the Home shell load the interface font (Geist from `/brand/geist.woff2` then; *superseded by AVR-715*: Plus Jakarta Sans from `/brand/plus-jakarta-sans-latin.woff2` and `-latin-ext.woff2`); every other response (portal, Kindle, errors, sections off) keeps the base CSP. No other source, and still no script. *"Still no script" superseded for shell pages 2026-10-26 by O1 (`script-src 'self'; worker-src 'self'`, section below)* |
+
+## Owner decisions, 2026-10-25 and 2026-10-26: Concept K · Avrana Console on Home shell pages (AVR-713)
+
+Recorded from the owner's brief of 2026-10-25 and their approval of the Phase 1 frames and decision memo on
+2026-10-26 ("Perfect. Proceed working on this using the recommended choices."), which makes every recommendation
+D1 to D17 in that memo a decision. Figma: "Avrana Media — Console" (`OggTUO1p24pNYFI6iVlLWL`). None of this approves
+a merge or a deployment; the device review below still applies.
+
+| Decision | Consequence |
+|---|---|
+| **O2: "Full Concept K, with yellow in place of purple."** On shell pages the Title Card is retired: Concept K's type (Plus Jakarta Sans), radii, surfaces, shell and glass replace it; "Atomic Purple's role (selection, chosen option, focus/signal, product tags, the nav lens) goes to a Media yellow. Purple never appears in Media." | Reverses DESIGN.md's No Accent Rule and the 2026-10-15 "interface stays monochrome" line **on shell pages only**. The portal, Kindle, Audible and every page without the shell keep the Title Card, byte-identical (parity) |
+| **Media yellow: Butter-High `#EADA6E`**, Yellow Deep `#776A00` (D2) | The only candidate a deuteranope can tell from a warning amber, and the only one that keeps 3:1 on glass over bright art. Used for selection and "yours" only, never as a large fill or inside a warning |
+| **Shell pages use the console warn `#F59E0B`**, not Media's `#E8CF8A` (D3) | `#E8CF8A` is 1.07:1 against the yellow; status is always said in words as well |
+| **The yellow is a Media-scoped token in `templates/home.css`** (D4) | Not in `avrana-brand` or the mirrored foundation; DESIGN.md says where it is used |
+| **Plus Jakarta Sans replaces Geist on shell pages** (owner's standing rule, as in Party #185 and Games #93) | The Fontsource 5.3.0 files Party ships, base64 in `avrana_home/app/brand/` and SHA-256 pinned like the brand files (the 2026-10-18 folder exception, extended to this font); Geist leaves Home. The Authentik gate keeps the system font |
+| **O1: progressive-enhancement JavaScript** (one first-party script, one service worker, shell pages only, every page works without it) | Recorded with its CSP and security review in the MK-3 change (AVR-717), which is where it takes effect |
+| **Navigation** (D1, D16, D5): tabs Home · Library · Search · Me; the Watch, Listen, Read, Request, Help bar stays on Home; the L3 lockup stays on Home, the Spire-A micro cut is the Home button elsewhere | MK-2 (AVR-716). Keeps AVR-452's composition and the identity tests' bar |
+| **Installed name "Avrana Media"** (D8); everything stays behind the Authentik outpost (D9); `/signout` clears this site's cache and storage (D10); no `Cache-Control` relaxation (D11) | MK-3 (AVR-717) |
+| **The iPhone, Safari and VoiceOver review (AVR-585) runs on the Concept K build** (D17) | No UI change that needs visual approval merges before the owner has seen it on a device |
+
+Every Phase 1 recommendation, as decided on 2026-10-26, and where it took effect (all on draft branches; nothing
+merged to `main` or deployed):
+
+| # | Decision | Where |
+|---|---|---|
+| D1 | Tabs Home · Library · Search · Me (option B); Request and Contribute as a group on Library and in Search's no-results state | MK-2 (AVR-716), MK-5a/MK-5b (AVR-719) |
+| D2 | Media yellow Butter-High `#EADA6E`, Yellow Deep `#776A00`, for selection and "yours" only; reverses the No Accent Rule and the 2026-10-15 monochrome line on shell pages | MK-1 (AVR-715) |
+| D3 | Shell pages use the console warn `#F59E0B`; non-shell pages keep `#e8cf8a` until AVR-362; status always in words | MK-1 |
+| D4 | The yellow is a Media-scoped token in `home.css`; repeated hex values are listed in FOUNDATION-MAPPING | MK-1, MK-7 (AVR-721) |
+| D5 | L3 product lockup on Home; Spire-A micro cut in the glass Home button elsewhere | MK-2 |
+| D6 | Hero: the poster on its own blurred art (CSS blur, contained, never cropped) and a no-art hero; the backdrop allow-list is a follow-up with its own security review | MK-4 (AVR-718); follow-up F-1 in `docs/design/CONCEPT-K-FOLLOW-UPS.md` |
+| D7 | `apple-mobile-web-app-status-bar-style` stays `black`; translucent frames are Proposal | MK-2, MK-3 (unchanged) |
+| D8 | Installed name "Avrana Media" | MK-3 (AVR-717) |
+| D9 | Everything stays behind the Authentik outpost; no exempt paths | MK-3 |
+| D10 | `GET /signout` with `Clear-Site-Data: "cache", "storage"`, ending at the outpost sign-out; copy never claims the Authentik session ended | MK-3, built as a 303 redirect carrying the header rather than the memo's 200 page; verified in Chromium only |
+| D11 | No `Cache-Control` relaxation | MK-3 |
+| D12 | One script and one worker as O1 decided: `script-src 'self'; worker-src 'self'` on shell pages, `connect-src 'self'` on `/sw.js` only | MK-3 (section below) |
+| D13 | No expired-session heartbeat now | MK-3; follow-up F-6 |
+| D14 | The foundation mirror stays untouched; DESIGN.md carries Concept K as the shell-page standard, with the Title Card kept for pages without the shell | MK-1, MK-7 |
+| D15 | Frames and memo approved; Phase 2 draft PRs may start | 2026-10-26 |
+| D16 | The Watch, Listen, Read, Request, Help bar stays on Home, under the lockup | MK-2 |
+| D17 | The AVR-585 iPhone, Safari and VoiceOver review runs on the Concept K build | Not yet run |
+
+### Questions for the owner (open, 2026-10-26)
+
+Not decisions. Each build choice is the conservative one until the owner answers; details in
+`docs/design/CONCEPT-K-FOLLOW-UPS.md` section 3.
+
+- **The title page's button naming the app, and which surfaces name the upstream app:** "Resume in Jellyfin", as
+  on the Home hero, or today's short verb ("Resume") with the library in member language in its accessible name?
+  Today the hero, Library's "Open <app>" and "Browse everything in <app>", and the Watch interstitial name the app;
+  everything else uses member language.
+- **Library showing in-progress items:** should `/library` include the member's Continue items, or stay "recently
+  added" only?
+- **The ADMIN tag on Me:** it comes from the catalogue's Operations gate (`authentik Admins`), the only role signal
+  Home has. Keep it, or no tag?
+- **Request rows saying "Opens the request website"** rather than naming the product. Keep?
+- **Contribute in Search's no-results group** (memo section 2). Keep it there, or offer only requests?
+- **The sign-out hop as built (D10):** a 303 redirect carrying `Clear-Site-Data`, verified in Chromium only, instead
+  of the memo's 200 page with a refresh. Accept it, or ask for the 200 page now?
 
 ## Owner decisions, 2026-10-18: AVRANA Brand v1.0.0 on the Authentik gate
 
@@ -115,3 +175,24 @@ auth.avrana.net still needs the owner's explicit approval for that step, after a
 | **No rule under the wordmark**, on the gate and on Home | Removed from the gate's brand CSS; Home's masthead rule is removed in a separate Home change |
 | The live apply needs explicit approval, a backup and a rollback; push and a draft PR are approved | `brand_css_change.py backup`, `apply`, `rollback`; each live step is approved one at a time, Git-only until then |
 | **The gate uses the system font, not embedded Geist** (owner, 2026-10-18) | The staged stack stays: no font embedded in the brand CSS (16 KB, not 109 KB). Geist can come later from Home's own copy once Home is deployed, which needs CORS on the font |
+
+## Owner decisions, 2026-10-26: Concept K, progressive-enhancement script and service worker (AVR-713, MK-3 AVR-717)
+
+Quoted from the owner. O1 was given on 2026-10-25; the approval is of the Phase 1 design memo (2026-10-26). Neither approves a merge or a deployment, and MK-3 still needs its dedicated security review.
+
+> **O1, 2026-10-25:** "JavaScript: progressive enhancement. Add one small first-party script and one service worker, served from Home's own origin, for the offline shell, the nav lens, inline previews and transitions. Every page must keep working with no JavaScript. This reverses part of HOME-APP.md ("no JavaScript") and changes the CSP (script-src 'self', worker-src 'self' on shell pages only), so the PR that does it needs a dedicated security review and a DECISIONS.md entry quoting this decision."
+
+> **2026-10-26, on the Phase 1 memo:** "Perfect. Proceed working on this using the recommended choices."
+
+| Decision | Consequence |
+|---|---|
+| **Home shell pages may run one first-party script and register one service worker.** This supersedes `install.py`'s "No service worker and no script" and the 2026-10-15 "script only if needed for accessibility" rule, **for Home shell pages only** | `script-src 'self'; worker-src 'self'` on the responses that already get `manifest-src 'self'; font-src 'self'`. No inline script, no `unsafe-inline` or `unsafe-eval` for script, no other host. Portal, Kindle, Audible, error pages without the shell and every non-page route keep their CSP and get no script |
+| Every page keeps working with no JavaScript | The script is added on top: the nav lens slide, worker registration and update banner, and a reload when a page returns from the back/forward cache. Inline previews (MK-4) are not in this change |
+| **D12:** `connect-src 'self'` is on the `/sw.js` response only | The worker takes its CSP from its own response; shell pages get no `connect-src`. `/offline`, which the worker stores and shows, gets `font-src 'self'` and nothing else (no script, no manifest) |
+| **D9:** everything stays behind the Authentik outpost | No exempt paths, no `skip_path_regex` (G1 review F5). A signed-out worker update fails quietly and retries on the next signed-in load |
+| **D11:** no `Cache-Control` relaxation | Every response stays `no-store` (`/art` stays `private, no-store`). The script path carries a content hash; the worker's own store serves the static files |
+| **D13:** no session heartbeat | The script makes no request of its own |
+| **D10:** `GET /signout` sends `Clear-Site-Data: "cache", "storage"` (never `"cookies"`), then redirects (303) to `/outpost.goauthentik.io/sign_out` | Account's Sign out points at it on shell pages. The copy says it signs you out of Avrana Media on this device; it does not claim the Authentik session ended |
+| **D8:** the installed name is "Avrana Media" | Manifest `name` and `short_name`, `apple-mobile-web-app-title`; the manifest gains `id: "/"`, `description`, `lang` |
+| Kill switch `HOME_PWA_SW=off` | `/sw.js` serves a worker that unregisters itself and deletes its caches; the script skips registration and unregisters any worker it finds |
+| The worker caches only static, identical-for-everyone files | The page script, `/offline`, the brand font, lockup and favicon, the install icons. Never member HTML, `/art/*`, `/home.json`, search or any redirected, non-200, cross-origin or wrongly typed response. Navigations always go to the network; the offline page is shown only when the request itself fails. Navigations to `/signout` and `/outpost.goauthentik.io/` are not handled by the worker at all, so the hop and the outpost run as real navigations |

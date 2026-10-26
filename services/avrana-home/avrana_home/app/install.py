@@ -2,13 +2,14 @@
 
 Standard library only, no request object, no member data. What this provides, and what it does not:
 
-  * `GET /manifest.webmanifest` (application/manifest+json): name and short name "Avrana", `display:
+  * `GET /manifest.webmanifest` (application/manifest+json): name and short name "Avrana Media", `display:
     standalone`, `start_url` and `scope` "/", Spire Ink background and theme, the brand's PNG icons.
   * `GET /icons/avrana-180.png`, `-192.png`, `-512.png` and `/icons/avrana-maskable-512.png` (image/png): the
     approved AVRANA Brand v1.0.0 icons (AVR-584), byte for byte from the brand package and checked against their
     recorded SHA-256 (brand.py, brand/SOURCES.json). iOS does not take an SVG `apple-touch-icon`, so these are PNG.
-  * No service worker and no script of any kind: there is no offline mode. Opened from the home screen
-    without a connection, the page simply fails to load like any web page.
+  * The service worker, the offline page and the page script are in pwa.py (MK-3, AVR-717, owner decision O1, which
+    supersedes the earlier "no service worker and no script" for Home shell pages only). This module serves only the
+    manifest and the icons, and still has no script of its own.
 
 The routes are served ONLY when the Home shell can render (`HOME_SECTIONS` on and adapters built): with
 sections off the paths are unknown and answer the portal's 404, exactly as today (portal parity). They do
@@ -40,8 +41,11 @@ THEME = "#121214"   # Spire Ink, the brand package's theme and background colour
 
 def manifest() -> dict:
     return {
-        "name": "Avrana",
-        "short_name": "Avrana",
+        "id": "/",
+        "name": "Avrana Media",
+        "short_name": "Avrana Media",
+        "description": "Your Avrana libraries: Watch, Listen, Read and Request, in one place.",
+        "lang": "en",
         "start_url": "/",
         "scope": "/",
         "display": "standalone",

@@ -1,15 +1,88 @@
   /* Home (AVR-374/452/478): the approved preview's rules (tests/ui/home_preview/static/home.css, PR #26) adapted
      to this shell's tokens (ink=--bg, paper=--fg, ash=--dim). Added to the page ONLY when the home sections render,
      so no other page and no sections-off page changes (portal parity). Search, title and wall rules stay out. */
-  /* Approved AVRANA Brand v1.0.0 (AVR-584), shell pages only: the package tokens (03-Typography-and-Colors/tokens/
-     avrana-tokens.css) mapped onto this shell's variables, so no rule below changes. Spire Ink ground, Cream type,
-     Stone secondary text (8.2:1), Control for interactive edges (3.6:1), Ash strong rules, Graphite quiet rules
-     (decorative). Media is monochrome: no Atomic Purple. The portal and every page without the shell keep style.css
-     unchanged (portal parity); converging them is AVR-362. Geist is served from /brand/ (brand.py, SIL OFL 1.1). */
-  @font-face{font-family:"Geist";src:url("/brand/geist.woff2") format("woff2");font-weight:100 900;font-display:swap;}
-  :root{--bg:#121214;--fg:#edeae4;--dim:#aeaba7;--rule-quiet:#5e5b57;--rule-control:#6e6c72;--rule-strong:#8f8c89;
-    --dim-on-fg:#5e5b57;}
-  body{font-family:"Geist",system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;}
+  /* Concept K · Avrana Console (AVR-713/715), shell pages only. Owner decisions O2 (2026-10-25) and the Phase 1
+     approval (2026-10-26): Concept K's type, colours, radii, glass and motion replace the Title Card here; a Media
+     yellow (Butter-High) takes Atomic Purple's role (selection, chosen option, focus, product tags, the nav lens);
+     purple never appears in Media. The portal and every page without the shell keep style.css unchanged (portal
+     parity; AVR-362). Base colours stay the approved Brand v1.0.0 tokens: Spire Ink ground, Cream type, Stone
+     secondary text (8.2:1), Control for interactive edges (3.6:1), Ash strong rules, Graphite quiet rules.
+     The older names (--bg, --fg, --dim, --rule-*) stay as aliases, so the rules below keep working.
+     Plus Jakarta Sans (variable 200 to 800, SIL OFL 1.1) is served from /brand/ (brand.py), the same Fontsource
+     5.3.0 files Avrana Party ships; the system font shows until it arrives, and stays if it never does. */
+  @font-face{font-family:"Plus Jakarta Sans";src:url("/brand/plus-jakarta-sans-latin.woff2") format("woff2");
+    font-weight:200 800;font-display:swap;unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,
+    U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;}
+  @font-face{font-family:"Plus Jakarta Sans";src:url("/brand/plus-jakarta-sans-latin-ext.woff2") format("woff2");
+    font-weight:200 800;font-display:swap;unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,
+    U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;}
+  :root{
+    /* Colour. Graphite is decorative only (2.7:1); text uses Stone or Cream. */
+    --depth:#0d0d0f;--ink:#121214;--surface:#161618;--raised:#1e1e21;--graphite:#5e5b57;--ash:#8f8c89;
+    --stone:#aeaba7;--cream:#edeae4;--control:#6e6c72;
+    --line:rgb(255 255 255 / 0.09);--line-strong:rgb(255 255 255 / 0.18);
+    /* Media yellow (Butter-High, OKLCH 0.88 0.13 101): 13.1:1 on ink. Yellow Deep only for 14px+ semibold text on
+       cream (4.55:1). Tints for the chosen chip and the lens. Never a large fill; never inside a warning. */
+    --accent:#eada6e;--accent-deep:#776a00;--accent-selected:rgb(234 218 110 / 0.22);--accent-lens:rgb(234 218 110 / 0.24);
+    /* Status: the console's colours. Media's older warn (#e8cf8a) reads as the same colour as the yellow, so shell
+       pages use the console amber; status is always said in words as well. */
+    --ready:#34d399;--warn:#f59e0b;--danger:#ef4444;
+    --focus:var(--accent);
+    /* Older names, now aliases. */
+    --bg:var(--ink);--fg:var(--cream);--dim:var(--stone);--rule-quiet:var(--graphite);--rule-control:var(--control);
+    --rule-strong:var(--ash);--dim-on-fg:var(--graphite);
+    /* Type. Big type is Light, small type Medium or SemiBold. */
+    --font-sans:"Plus Jakarta Sans",system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+    --text-display:3rem;--text-display-fallback:2.75rem;--text-page:1.75rem;--text-shelf:1.25rem;--text-button:1.0625rem;
+    --text-body:0.9375rem;--text-secondary:0.875rem;--text-eyebrow:0.75rem;
+    /* Shape and space. */
+    --radius-preview:1.25rem;--radius-panel:1rem;--radius-button:0.875rem;--radius-control:0.75rem;--radius-chip:0.5rem;
+    --gutter:1rem;--gutter-hero:1.25rem;
+    /* Motion: tier 1 everyday (a press answers), tier 2 an in-place answer, tier 3 a scene change. Tier 3 is 200 ms
+       (Party's shipped cap); anything longer is a Proposal behind a default-off flag. */
+    --motion-1:150ms;--motion-2:300ms;--motion-3:200ms;--motion-3-proposal:600ms;--motion-spring:480ms;
+    --ease-standard:ease;--ease-responsive:cubic-bezier(0.2,0,0,1);--ease-meaningful:cubic-bezier(0.16,1,0.3,1);
+    --ease-spring:linear(0,0.076,0.246,0.445,0.632,0.786,0.902,0.979,1.025,1.047,1.053,1.049,1.04,1.029,1.019,1.011,1.005,
+      1.001,0.999,0.997,0.997,0.997,0.998,0.998,1);
+  }
+  @media (prefers-contrast:more){:root{--stone:#d2cfcb;--ash:#b9b6b3;--line:rgb(255 255 255 / 0.3);
+    --line-strong:rgb(255 255 255 / 0.5);--control:#a5a3a8;--rule-quiet:var(--ash);}}
+  @media (prefers-reduced-motion:reduce){:root{--motion-2:150ms;--motion-3:150ms;--motion-spring:150ms;--ease-spring:linear;}}
+  html{-webkit-text-size-adjust:100%;background:var(--ink);}
+  body{font-family:var(--font-sans);-webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent;}
+  /* Every link's focus ring on a shell page is the yellow (the portal's style.css draws it in cream). :where() keeps
+     this at the portal rule's own weight, so controls with their own ring later in this file, and the skip link's
+     inverted block, keep theirs. */
+  :where(body:has(.mast)) a:focus-visible{outline:2px solid transparent;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--focus);}
+  /* Type roles. */
+  .k-display{font-size:var(--text-display);font-weight:300;line-height:1;letter-spacing:-0.02em;color:var(--cream);}
+  .k-page{font-size:var(--text-page);font-weight:400;line-height:1.2;letter-spacing:-0.01em;}
+  .k-shelf{font-size:var(--text-shelf);font-weight:400;line-height:1.25;letter-spacing:-0.01em;}
+  .k-eyebrow{font-size:var(--text-eyebrow);font-weight:500;letter-spacing:0.16em;text-transform:uppercase;color:var(--stone);}
+  .k-eyebrow.yours{color:var(--accent);}
+  .k-meta{font-size:var(--text-secondary);color:var(--stone);font-variant-numeric:tabular-nums;}
+  /* Liquid glass: only the three shell controls wear it (the tab bar, the top-left Home button, and the top-right
+     utility, which arrives with Library in MK-5).
+     The element clips itself (radius set per control, overflow hidden, isolation), or Safari paints a square of
+     blur around a round control. The rim is a masked ::before, never border-image. Blur is never animated. Controls
+     inside a glass host draw focus inside it (outline-offset:-3px), because overflow:hidden clips anything outside. */
+  .glass{position:relative;isolation:isolate;overflow:hidden;background:rgb(18 18 20 / 0.58);
+    -webkit-backdrop-filter:blur(28px) saturate(1.2);backdrop-filter:blur(28px) saturate(1.2);
+    box-shadow:0 16px 40px rgb(0 0 0 / 0.45),inset 0 1px 0 rgb(255 255 255 / 0.28),inset 0 -8px 16px rgb(255 255 255 / 0.07);}
+  .glass::before{content:"";position:absolute;inset:0;z-index:-1;border-radius:inherit;padding:1px;pointer-events:none;
+    background:linear-gradient(to bottom,rgb(255 255 255 / 0.4),rgb(255 255 255 / 0.06));
+    -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;
+    mask:linear-gradient(#000 0 0) content-box exclude,linear-gradient(#000 0 0);}
+  @supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){
+    .glass{background:var(--raised);}.glass::before{background:var(--line-strong);}}
+  @media (prefers-reduced-transparency:reduce),(prefers-contrast:more){
+    .glass{background:var(--raised);-webkit-backdrop-filter:none;backdrop-filter:none;}
+    .glass::before{background:var(--line-strong);}}
+  /* The selected tab's lens: a yellow tint and rim (purple's role in Party). */
+  .k-lens,.tabbar .lens{background:var(--accent-lens);box-shadow:inset 0 0 0 1px rgb(234 218 110 / 0.55),inset 0 1px 0 rgb(255 255 255 / 0.3);}
+  @media (prefers-reduced-transparency:reduce),(prefers-contrast:more){.k-lens,.tabbar .lens{background:var(--accent-selected);box-shadow:inset 0 0 0 1px var(--accent);}}
+  /* Reduce Motion: nothing animates. */
+  @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;}}
   /* The portal's body centres its one column (justify-content:center); turned into a column here, that would centre
      a short shell page vertically. The masthead stays at the top on every shell page. */
   body:has(.mast){flex-direction:column;align-items:center;justify-content:flex-start;}
@@ -24,9 +97,10 @@
   .mast,.places,main,footer{width:100%;max-width:45rem;margin-inline:auto;
     padding-left:max(1.25rem,env(safe-area-inset-left));padding-right:max(1.25rem,env(safe-area-inset-right));}
   .mast{padding-top:max(0.5rem,env(safe-area-inset-top));display:flex;flex-direction:column;align-items:center;gap:0.625rem;text-align:center;}
-  /* The Media L3 lockup (brand.py) is the heading: 3.5rem tall (56px, twice the package's 28px minimum, so the
-     product name inside it stays legible); it grows with text size. The h1 drops the serif wordmark's tracking. */
+  /* The Media L3 lockup (brand.py) is Home's heading: 3.5rem tall (56px, twice the package's 28px minimum, so the
+     product name inside it stays legible), at the top left as in the frames; it grows with text size. */
   .mast h1{font-size:1rem;line-height:1;letter-spacing:0;text-indent:0;}
+  .mast.at-home{align-items:flex-start;text-align:left;}
   .mast .lockup{display:block;width:auto;height:3.5rem;max-width:calc(100vw - 2.5rem);object-fit:contain;}
   /* Forced colours (Windows high contrast) leave the cream lockup as it is, so on a light high-contrast ground it
      all but disappears. There the name shows as system-coloured text; the image is hidden visually only, never with
@@ -36,42 +110,86 @@
     .mast .lockup{position:absolute;width:1px;height:1px;margin:-1px;overflow:hidden;clip-path:inset(50%);}
     .mast .lockup-text{display:inline;font-size:1.75rem;font-weight:300;line-height:1.2;}
   }
+  /* Forced colours: glass shows as a system-coloured edge (the masked rim and blur mean nothing there). */
+  @media (forced-colors:active){.glass{border:1px solid CanvasText;}.glass::before{display:none;}}
   .mast a{text-decoration:none;display:inline-flex;align-items:center;min-height:2.75rem;}
-  .id{align-self:stretch;display:flex;flex-wrap:wrap;justify-content:flex-end;align-items:center;gap:0 0.25rem;min-height:2.75rem;}
-  /* Search and Account keep their size; Geist is set untracked (the package's body tracking). With large text the
-     row wraps to two right-aligned rows of full 44px targets rather than shrinking the labels. */
-  .idlink{display:inline-flex;align-items:center;justify-content:center;min-height:2.75rem;min-width:2.75rem;padding:0 0.25rem;
-    font-size:0.92rem;letter-spacing:0;color:var(--fg);text-decoration:none;}
-  .idlink:hover,.idlink[aria-current]{text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:0.25em;}
-  .idlink:focus-visible{outline:2px solid transparent;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--fg);}
-  .menu a[aria-current]{text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:0.25em;}
-  details.account{position:relative;}
-  .account summary{list-style:none;display:inline-flex;align-items:center;gap:0.5rem;min-height:2.75rem;min-width:2.75rem;
-    padding:0 0.25rem;cursor:pointer;font-size:0.92rem;letter-spacing:0;}
-  .account summary::-webkit-details-marker{display:none;}
-  .account summary:focus-visible,.menu a:focus-visible{outline:2px solid transparent;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--fg);}
-  .mono{display:inline-flex;align-items:center;justify-content:center;width:1.75rem;height:1.75rem;
-    border:1px solid var(--rule-control);font-size:0.95rem;letter-spacing:0;}
-  .account[open] .mono{background:var(--fg);color:var(--bg);border-color:var(--fg);}
-  .menu{position:absolute;right:0;top:100%;z-index:2;text-align:left;background:var(--bg);border:1px solid var(--rule-control);
-    padding:0.25rem 0;width:max-content;min-width:min(14rem,calc(100vw - 2.5rem));max-width:calc(100vw - 2.5rem);}
-  .menu .as{margin:0;padding:0.5rem 1rem;color:var(--dim);font-size:0.92rem;border-bottom:1px solid var(--rule-quiet);overflow-wrap:anywhere;}
-  .menu ul{list-style:none;margin:0;padding:0;}
-  .menu a{display:flex;align-items:center;min-height:2.75rem;padding:0 1rem;text-decoration:none;color:var(--fg);}
-  .menu a:hover{text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:0.25em;}
-  .menu a:focus-visible{box-shadow:inset 0 0 0 2px var(--fg);}
-  /* The places bar: one row at 360px (five places); at large text it wraps to whole words, never mid-word,
-     and never past the screen edge. */
-  .places{display:flex;flex-wrap:wrap;justify-content:space-between;gap:0;margin-top:1rem;max-width:45rem;
-    border-top:1px solid var(--rule-quiet);border-bottom:1px solid var(--rule-quiet);
-    padding-left:max(0.625rem,env(safe-area-inset-left));padding-right:max(0.625rem,env(safe-area-inset-right));}
+  /* The glass Home button (D5): a 44px circle holding the Spire-A micro cut at the 24px it is drawn for. Focus is
+     drawn inside it, because glass clips what lies outside. In forced colours the cream mark gives way to the word
+     "Home" (the image's alt text, so the name and the visible word agree). */
+  .mast:not(.at-home){align-items:flex-start;min-height:0;}
+  .homebtn{width:2.75rem;height:2.75rem;justify-content:center;border-radius:50%;color:var(--cream);}
+  .homebtn .spire{display:block;width:24px;height:24px;}
+  .homebtn-text{display:none;}
+  .homebtn:focus-visible{outline:2px solid var(--focus);outline-offset:-3px;
+    box-shadow:0 16px 40px rgb(0 0 0 / 0.45),inset 0 1px 0 rgb(255 255 255 / 0.28),inset 0 -8px 16px rgb(255 255 255 / 0.07);}
+  @media (forced-colors:active){
+    .homebtn{width:auto;min-width:2.75rem;padding:0 0.875rem;border-radius:1.375rem;}
+    .homebtn .spire{position:absolute;width:1px;height:1px;margin:-1px;overflow:hidden;clip-path:inset(50%);}
+    .homebtn-text{display:inline;}
+  }
+  /* The places bar on Home (AVR-452, D16): opaque chips, never glass. Five fit one row at 390px with 44px targets;
+     at 320px or large text they wrap to whole chips, never shrinking the words. A down library stays in its place,
+     struck through, and leads to what to do. */
+  .places{display:flex;flex-wrap:wrap;justify-content:flex-start;gap:0.375rem;margin-top:0.75rem;max-width:45rem;}
   .places>*{display:inline-flex;align-items:center;justify-content:center;min-height:2.75rem;min-width:2.75rem;
-    padding:0 0.5rem;font-size:1.0625rem;letter-spacing:0.03em;text-decoration:none;color:var(--fg);white-space:nowrap;}
-  @media (max-width:24rem){.places>*{padding:0 0.375rem;font-size:1rem;letter-spacing:0.02em;}}
-  .places a:hover,.places a[aria-current]{text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:0.25em;}
-  .places a:focus-visible{box-shadow:inset 0 0 0 2px var(--fg);}
-  .places .off{color:var(--dim);}
-  .places .off s{text-decoration-color:var(--rule-strong);}
+    padding:0 0.5625rem;border:1px solid var(--line-strong);border-radius:999px;background:var(--raised);
+    font-size:var(--text-body);font-weight:500;text-decoration:none;color:var(--cream);white-space:nowrap;}
+  .places a:hover{border-color:var(--control);}
+  .places a:focus-visible{outline:2px solid var(--focus);outline-offset:2px;}
+  .places .off{color:var(--stone);background:transparent;}
+  .places .off s{text-decoration-color:var(--ash);}
+  /* The tab bar (D1): glass, fixed above the bottom edge and its safe area, centred, at most 28rem wide. Each tab
+     is a full-height target. The bar's edges and padding are in px, so at large text the labels get the width
+     instead of the margins; a label never breaks inside a word. The lens sits under the section's tab, placed by
+     data-at alone (server-printed; MK-3's script may move it), and slides on the spring when it moves. Without a
+     section there is no lens. */
+  .tabbar{position:fixed;z-index:20;left:max(16px,env(safe-area-inset-left));right:max(16px,env(safe-area-inset-right));
+    bottom:max(24px,env(safe-area-inset-bottom));max-width:28rem;margin-inline:auto;display:flex;padding:6px;
+    border-radius:2.25rem;--n:4;--at:0;}
+  .tabbar[data-tabs="2"]{--n:2;}
+  .tabbar[data-at="1"]{--at:1;}.tabbar[data-at="2"]{--at:2;}.tabbar[data-at="3"]{--at:3;}
+  .tab{position:relative;z-index:1;flex:1 1 0;min-width:0;display:flex;flex-direction:column;align-items:center;
+    justify-content:center;gap:0.125rem;min-height:3.25rem;padding:0.25rem 2px;border-radius:1.875rem;
+    color:var(--stone);text-decoration:none;font-size:var(--text-eyebrow);font-weight:500;line-height:1.2;text-align:center;}
+  .tab:hover,.tab[aria-current]{color:var(--cream);}
+  .tab:focus-visible{outline:2px solid var(--focus);outline-offset:-3px;box-shadow:none;}
+  .tab .ic{width:1.5rem;height:1.5rem;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;}
+  .tab .me{display:inline-flex;align-items:center;justify-content:center;width:1.5rem;height:1.5rem;border-radius:50%;
+    background:var(--raised);border:1px solid var(--line-strong);color:var(--cream);font-size:var(--text-eyebrow);font-weight:600;}
+  .tab .tl{overflow-wrap:normal;word-break:normal;}
+  .tabbar .lens{position:absolute;z-index:0;top:6px;bottom:6px;left:6px;width:calc((100% - 12px) / var(--n));
+    border-radius:1.875rem;transform:translateX(calc(var(--at) * 100%));pointer-events:none;
+    transition:transform var(--motion-spring) var(--ease-spring);}
+  .tabbar:not([data-at]) .lens{display:none;}
+  /* Very large text (the viewport is under 18em of the browser's text size: 200% at 390px, 150% at 320px): the bar
+     runs edge to edge, above the bottom safe area, and each tab takes the width its word needs, so whole words fit
+     even at 320px. The sliding lens assumes equal tabs, so here the section's own tab carries the capsule instead
+     (it does not slide; nothing else changes). */
+  @media (max-width:18em){
+    .tabbar{left:env(safe-area-inset-left,0px);right:env(safe-area-inset-right,0px);bottom:env(safe-area-inset-bottom,0px);
+      max-width:none;padding:4px 2px;border-radius:1.25rem 1.25rem 0 0;}
+    .tab{flex:1 1 auto;padding-inline:4px;}
+    .tabbar .lens{display:none;}
+    .tab[aria-current]{background:var(--accent-lens);box-shadow:inset 0 0 0 1px rgb(234 218 110 / 0.55);}
+  }
+  @media (forced-colors:active){.tabbar .lens{border:2px solid Highlight;}
+    .tab[aria-current] .tl{text-decoration:underline;text-underline-offset:0.2em;}}
+  /* Scroll end: the last row clears the bar by 1rem (bar 4rem, its bottom offset, and 1rem). */
+  body:has(.tabbar) .page{padding-bottom:calc(5rem + max(24px, env(safe-area-inset-bottom)));}
+  /* The update prompt (MK-3's script adds it only when a new version is waiting): an opaque panel just above the tab
+     bar, never glass, with one cream button. The words wrap; the button keeps a full target. */
+  .update-banner{position:fixed;z-index:21;left:max(16px,env(safe-area-inset-left));right:max(16px,env(safe-area-inset-right));
+    bottom:calc(max(24px, env(safe-area-inset-bottom)) + 4.75rem);max-width:28rem;margin-inline:auto;display:flex;flex-wrap:wrap;
+    align-items:center;justify-content:space-between;gap:0.5rem 0.75rem;padding:0.625rem 0.75rem 0.625rem 1rem;
+    background:var(--raised);border:1px solid var(--line-strong);border-radius:var(--radius-panel);color:var(--cream);
+    font-size:var(--text-secondary);box-shadow:0 12px 32px rgb(0 0 0 / 0.45);}
+  .update-banner-text{flex:1 1 12rem;min-width:0;}
+  .update-banner-button{min-height:2.75rem;min-width:2.75rem;padding:0 1rem;border:0;border-radius:var(--radius-button);
+    background:var(--cream);color:var(--ink);font:inherit;font-weight:600;cursor:pointer;}
+  .update-banner-button:focus-visible{outline:2px solid var(--focus);outline-offset:2px;}
+  @media (forced-colors:active){.update-banner{border-color:CanvasText;}.update-banner-button{border:1px solid ButtonText;}}
+  /* Focus is never hidden under the bar (WCAG 2.4.11): scrolling to a focused control keeps it above the bar. */
+  html:has(.tabbar){scroll-padding-bottom:calc(5rem + max(24px, env(safe-area-inset-bottom)));}
   main{padding-top:1.5rem;padding-bottom:2rem;}
   .shelf{display:flex;flex-direction:column;gap:0.75rem;min-width:0;}
   .shelf h2{margin:0;font-weight:400;font-size:0.9rem;line-height:1.3;letter-spacing:0.22em;text-transform:uppercase;color:var(--dim);}
@@ -79,7 +197,7 @@
     text-underline-offset:0.2em;font-size:0.92rem;display:inline-flex;align-items:center;justify-content:center;
     min-height:2.75rem;min-width:2.75rem;}
   .link:hover{text-decoration-color:var(--fg);}
-  .link:focus-visible{outline:2px solid transparent;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--fg);}
+  .link:focus-visible{outline:2px solid transparent;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--focus);}
   .said{margin:0;color:var(--dim);max-width:34rem;line-height:1.55;}
   .banner{margin:0;padding:0.75rem 1rem;border:1px solid var(--rule-strong);color:var(--fg);}
   .tabs{display:flex;gap:0.25rem;margin:-0.25rem -1.25rem 0;padding:0 1.25rem;overflow-x:auto;scrollbar-width:none;
@@ -90,7 +208,7 @@
   .tabs a:first-child{margin-left:-0.5rem;}
   .tabs a:hover,.tabs a[aria-current]{color:var(--fg);}
   .tabs a[aria-current]::after{content:"";position:absolute;left:0.5rem;right:0.5rem;bottom:0;height:1px;background:var(--fg);}
-  .tabs a:focus-visible{box-shadow:inset 0 0 0 2px var(--fg);}
+  .tabs a:focus-visible{box-shadow:inset 0 0 0 2px var(--focus);}
   /* Artwork keeps its natural shape (owner decision 2026-10-15): --r is the shape's width/height ratio. Outside
      a rail (Search) the frame takes its width and the ratio sets the height. Images are contained, never
      cropped into another shape. */
@@ -117,7 +235,8 @@
   .p{font-size:0.875rem;line-height:1.35;color:var(--fg);}
   .go{align-self:flex-start;margin-top:0.25rem;font-size:0.875rem;line-height:1.35;letter-spacing:0.03em;color:var(--fg);
     text-decoration:underline;text-decoration-color:var(--rule-strong);text-decoration-thickness:1px;text-underline-offset:0.25em;}
-  .card:hover .frame,.card:focus-visible .frame{border-color:var(--fg);}
+  .card:hover .frame{border-color:var(--fg);}
+  .card:focus-visible .frame{border-color:var(--focus);}
   .card:hover .t{text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:0.2em;}
   .card:hover .go,.card:focus-visible .go{text-decoration-color:var(--fg);}
   /* Rails scroll sideways whenever the column cannot hold them. Every frame in a rail stands on the same
@@ -158,7 +277,7 @@
     color:var(--fg);background:var(--bg);border:1px solid var(--rule-control);border-radius:0;}
   .srch input[aria-invalid=true]{border-color:var(--fg);border-width:2px;}
   .srch button{min-height:2.75rem;padding:0.5rem 1.25rem;font:inherit;color:var(--bg);background:var(--fg);border:1px solid var(--fg);cursor:pointer;}
-  .srch input:focus-visible,.srch button:focus-visible{outline:2px solid transparent;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--fg);}
+  .srch input:focus-visible,.srch button:focus-visible{outline:2px solid transparent;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--focus);}
   .hint,.err{margin:0;font-size:0.92rem;line-height:1.5;overflow-wrap:anywhere;}
   .hint{color:var(--dim);}
   .err{color:var(--fg);padding:0.5rem 0.75rem;border:1px solid var(--rule-strong);}
@@ -176,12 +295,12 @@
   a.open{flex:none;display:inline-flex;align-items:center;min-height:2.75rem;padding:0 1rem;color:var(--fg);
     border:1px solid var(--rule-strong);text-decoration:none;}
   a.open:hover,a.open:focus-visible{background:var(--fg);color:var(--bg);}
-  a.open:focus-visible{outline:2px solid transparent;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--fg);}
+  a.open:focus-visible{outline:2px solid transparent;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--focus);}
   /* Lane C (AVR-383/384): search result titles are the one link; the title page. Minimal, owned by Lane C. */
   ul.hits a.t{color:var(--fg);text-decoration:underline;text-decoration-color:var(--rule-strong);text-decoration-thickness:1px;
     text-underline-offset:0.2em;display:inline-flex;align-items:center;min-height:2.75rem;}
   ul.hits a.t:hover{text-decoration-color:var(--fg);}
-  ul.hits a.t:focus-visible{outline:2px solid transparent;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--fg);}
+  ul.hits a.t:focus-visible{outline:2px solid transparent;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--focus);}
   .asks{margin:0;padding:0;list-style:none;display:flex;flex-wrap:wrap;gap:0 1.25rem;}
   .kicker{margin:0;color:var(--dim);font-size:0.9rem;letter-spacing:0.08em;text-transform:uppercase;}
   .title-body{display:flex;flex-wrap:wrap;gap:1rem 1.25rem;align-items:flex-start;}
@@ -195,10 +314,358 @@
   a.inline{color:var(--fg);text-decoration:underline;text-decoration-color:var(--rule-strong);text-decoration-thickness:1px;
     text-underline-offset:0.2em;}
   a.inline:hover{text-decoration-color:var(--fg);}
-  a.inline:focus-visible{outline:2px solid transparent;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--fg);}
+  a.inline:focus-visible{outline:2px solid transparent;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--focus);}
   /* Account (shell): "Your access" split into Libraries and Requests. */
   h3.sub{margin:0;font-weight:400;font-size:0.98rem;letter-spacing:0.04em;color:var(--fg);}
   /* Help topics in the shell: the client name and its Recommended tag wrap as whole words at 200% text on a phone,
      never pushing the page sideways. */
   .client>div{display:flex;flex-wrap:wrap;align-items:baseline;gap:0.25rem 0.75rem;min-width:0;}
   .client .tag{margin-left:0;}
+  /* ---- MK-4 Home (AVR-718) ---- */
+  /* Concept K Home (memo sections 3 and 4; D6): the hero, Home's section headings, the rails and their cards. One
+     block, appended last, overriding earlier rules rather than editing them (several are test-pinned). Home only:
+     the hero, rails and cards exist only on Home; the section headings are scoped to Home by its masthead. */
+  /* Section headings in the Concept K shelf role (20px, regular, Cream), not the old letter-spaced caps. */
+  body:has(.mast.at-home) .shelf h2{font-size:var(--text-shelf);font-weight:400;line-height:1.25;letter-spacing:-0.01em;
+    text-transform:none;color:var(--cream);}
+  /* The hero: the member's own next thing. The art is the item's own /art image twice: crisp at its natural shape
+     (contained, never cropped: square and 13:20 covers keep their shapes), centred, over a blurred,
+     dimmed copy that bleeds to the screen edges and fades out before the text, so the type always sits on Spire
+     Ink. Art is sized in px, like the rails: it is not text, and at 200% text the words get the room. */
+  .hero{--hero-h:225px;position:relative;display:flex;flex-direction:column;gap:0.5rem;min-width:0;}
+  .hero-stage{position:relative;display:flex;justify-content:center;align-items:flex-end;padding:0.75rem 0 1.25rem;}
+  .hero-glow{position:absolute;z-index:0;top:-1.5rem;bottom:-1.5rem;overflow:hidden;pointer-events:none;
+    left:calc(0rem - max(1.25rem,env(safe-area-inset-left)));right:calc(0rem - max(1.25rem,env(safe-area-inset-right)));
+    -webkit-mask-image:linear-gradient(to bottom,transparent,#000 22%,#000 55%,transparent);
+    mask-image:linear-gradient(to bottom,transparent,#000 22%,#000 55%,transparent);}
+  .hero-glow .art{inset:auto;left:-15%;top:-15%;width:130%;height:130%;max-width:none;object-fit:cover;
+    filter:blur(36px) saturate(1.15) brightness(0.5);}
+  .hero .frame{position:relative;z-index:1;flex:none;width:min(100%,calc(var(--hero-h) * var(--r)));
+    border-radius:var(--radius-preview);border-color:var(--line-strong);background:var(--raised);
+    box-shadow:0 18px 40px rgb(0 0 0 / 0.45);}
+  /* No art: the letter frame Home already uses, set large and Light, and no backdrop. */
+  .hero.no-art .ph{font-size:5rem;font-weight:300;color:var(--stone);}
+  /* 320px wide (frame 22:2597): no poster, by design; the backdrop stays as the stage. A no-art hero shows nothing. */
+  @media (max-width:359px){.hero .frame{display:none;}.hero-stage{min-height:7.5rem;padding:0;}
+    .hero.no-art .hero-stage{display:none;}}
+  /* Where the backdrop is off (more contrast, forced colours) a posterless stage would only be empty space. */
+  @media (max-width:359px) and (prefers-contrast:more){.hero-stage{display:none;}}
+  @media (max-width:359px) and (forced-colors:active){.hero-stage{display:none;}}
+  /* The eyebrow is part of the heading (heading navigation reads it before the title). Yellow, with the 3px signal
+     bar, only for the member's own state (.yours: in progress); the newest-items eyebrow stays Stone with no bar.
+     This stylesheet ships on every shell page, so its comments name no section, library or member word (the
+     revocation and isolation tests read the whole page). The title is the Light
+     display role at 48px: it wraps and is never fitted to its title; a very long title clamps visually at four lines
+     (its full text stays in the heading). At default text it is 48px from 320px up; with large text it still grows,
+     but no faster than the screen allows (0.5rem + 12.5vw: 65px at 200% on a 390px phone), so ordinary words keep
+     whole instead of breaking letter by letter. Only a single word wider than the column breaks, rather than
+     pushing the page sideways. */
+  .hero-title{position:relative;z-index:1;margin:0;display:flex;flex-direction:column;align-items:flex-start;gap:0.5rem;min-width:0;font-weight:inherit;}
+  .hero-title .k-eyebrow{display:inline-flex;align-items:center;gap:0.5rem;line-height:1.2;}
+  .hero-title .k-eyebrow.yours::before{content:"";flex:none;width:3px;height:1.1em;border-radius:1px;background:var(--accent);}
+  .hero-title .k-display{max-width:100%;font-size:min(var(--text-display),calc(0.5rem + 12.5vw));line-height:1.08;padding-bottom:0.06em;overflow-wrap:break-word;
+    display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:4;line-clamp:4;overflow:hidden;}
+  .hero .k-meta{margin:0;line-height:1.45;}
+  /* One Cream primary hand-off and a quiet Details. On one row they share the width about 2:1, as in the frames;
+     when the label does not fit beside Details on one line (a long app name, 320px, large text) each takes a whole
+     row instead of the label wrapping inside a squeezed button. Text never shrinks. */
+  .hero-acts{margin:0.75rem 0 0;display:flex;flex-wrap:wrap;gap:0.625rem;}
+  .hero-go,.hero-details{display:inline-flex;align-items:center;justify-content:center;min-height:3.25rem;
+    padding:0.625rem 1.25rem;border-radius:var(--radius-button);font-size:var(--text-button);font-weight:600;
+    line-height:1.25;text-align:center;text-decoration:none;}
+  .hero-go{flex:3 1 auto;background:var(--cream);color:var(--ink);border:1px solid var(--cream);}
+  .hero-details{flex:1 0 auto;background:var(--raised);color:var(--cream);border:1px solid var(--line-strong);}
+  .hero-go:hover{box-shadow:inset 0 0 0 2px var(--ink);}
+  .hero-details:hover{border-color:var(--control);}
+  /* Focus: the shell's two-ring mark (an ink gap, then the yellow), the same as every other shell link. */
+  .hero-go:focus-visible,.hero-details:focus-visible{outline:2px solid transparent;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--focus);}
+  @media (prefers-contrast:more){.hero-glow{display:none;}}
+  @media (forced-colors:active){.hero-glow{display:none;}.hero .frame{box-shadow:none;}
+    .hero-title .k-eyebrow.yours::before{forced-color-adjust:none;background:CanvasText;}
+    .hero-go,.hero-details{border:1px solid ButtonText;}}
+  /* Rails (memo section 4): art 180px high everywhere, each shape at its natural width inside one card width
+     (posters 120, 13:20 covers 117, squares 180; a still is held to the card width and stands shorter,
+     bottom-aligned). The card width stays one per rail on phones, because the keyboard contract (DESIGN.md "Media
+     card": scroll-padding leaving one card's region, mandatory snap, the trailing spacer) depends on it; the earlier
+     .rail rules keep all of that and only the sizes change here. Art takes the preview radius. */
+  .rail,.rail.tall{--art-h:180px;--card-min:11.25rem;}
+  @media (min-width:45rem){.rail,.rail.tall{--art-h:180px;--card-min:9.5rem;}}
+  .rail .frame{border-radius:var(--radius-preview);border-color:var(--line);background:var(--raised);}
+  .card{gap:0.1875rem;}
+  .card .frame{margin-bottom:0.625rem;}
+  .card .t{font-size:var(--text-body);font-weight:500;line-height:1.3;color:var(--cream);}
+  .card .d{font-size:var(--text-secondary);color:var(--stone);}
+  .card .p{font-size:var(--text-secondary);color:var(--cream);font-variant-numeric:tabular-nums;}
+  /* The in-progress rail's progress rule: 3px, Cream on a dark track along the foot of the art, beside the words (status, not
+     selection: never the yellow). Its length comes from a 5%-step class, so no inline style is needed. */
+  .frame .bar{position:absolute;z-index:1;left:0.625rem;right:0.625rem;bottom:0.625rem;height:3px;border-radius:2px;
+    overflow:hidden;background:rgb(13 13 15 / 0.72);box-shadow:0 0 0 1px rgb(13 13 15 / 0.35);}
+  .frame .bar .fill{display:block;height:100%;border-radius:inherit;background:var(--cream);}
+  .bar .pc0{width:0%;}.bar .pc5{width:5%;}.bar .pc10{width:10%;}.bar .pc15{width:15%;}.bar .pc20{width:20%;}.bar .pc25{width:25%;}.bar .pc30{width:30%;}.bar .pc35{width:35%;}.bar .pc40{width:40%;}.bar .pc45{width:45%;}.bar .pc50{width:50%;}.bar .pc55{width:55%;}.bar .pc60{width:60%;}.bar .pc65{width:65%;}.bar .pc70{width:70%;}.bar .pc75{width:75%;}.bar .pc80{width:80%;}.bar .pc85{width:85%;}.bar .pc90{width:90%;}.bar .pc95{width:95%;}.bar .pc100{width:100%;}
+  @media (forced-colors:active){.frame .bar{forced-color-adjust:none;background:Canvas;box-shadow:0 0 0 1px CanvasText;}
+    .frame .bar .fill{background:CanvasText;}}
+  /* ---- MK-5a Library and title (AVR-719) ---- */
+  /* Concept K Library page and title page (memo sections 2, 3, 5 and 6; frames 17:1851, 17:1996, 17:2103, 22:2680,
+     19:1748, 19:1846). One block, appended last, overriding earlier rules rather than editing them. This stylesheet
+     ships on every shell page, so these comments name no section, library or member word. */
+  /* The page title in the page role, top left, where a page that is not a tab has its Home button; the top-right glass
+     utility beside it (one of the three glass controls) holds one 44px Search link, focus drawn inside the glass. */
+  body:has(.lib-head) main{gap:1.5rem;}
+  .lib-head{display:flex;align-items:center;justify-content:space-between;gap:0.75rem;min-width:0;}
+  .lib-head h2.topic{font-size:var(--text-page);font-weight:400;line-height:1.2;letter-spacing:-0.01em;color:var(--cream);}
+  .utility{flex:none;display:flex;border-radius:999px;}
+  .util{display:inline-flex;align-items:center;justify-content:center;min-width:2.75rem;min-height:2.75rem;
+    padding:0 0.625rem;border-radius:inherit;color:var(--cream);text-decoration:none;}
+  .util .ic{width:1.5rem;height:1.5rem;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;}
+  .util:focus-visible{outline:2px solid var(--focus);outline-offset:-3px;box-shadow:none;}
+  /* Section headings on these pages take the shelf role (20px, regular, Cream), as on the first page. */
+  body:has(.lib-head) .shelf h2,body:has(.title-page) .shelf h2,body:has(.title-down) .shelf h2{font-size:var(--text-shelf);
+    font-weight:400;line-height:1.25;letter-spacing:-0.01em;text-transform:none;color:var(--cream);}
+  /* Filter chips: plain links, opaque. Whole chips wrap to a new row (no chip is hidden off screen, so the chosen one
+     is always in view); a label wraps only between words, never inside one, and text never shrinks. The chosen chip
+     is the Media yellow's selection: tint, rim and a check glyph (geometry as well as colour). A chip whose library is
+     not answering stays, struck through, and says so to screen readers. */
+  .chips{display:flex;flex-wrap:wrap;gap:0.5rem;margin-top:-0.5rem;min-width:0;}
+  .chip{display:inline-flex;align-items:center;justify-content:center;gap:0.375rem;min-height:2.75rem;min-width:2.75rem;
+    max-width:100%;padding:0.375rem 1rem;border:1px solid var(--line-strong);border-radius:999px;background:var(--raised);
+    color:var(--cream);font-size:var(--text-body);font-weight:500;line-height:1.25;text-align:center;text-decoration:none;
+    overflow-wrap:normal;word-break:normal;}
+  .chip:hover{border-color:var(--control);}
+  .chip:focus-visible{outline:2px solid var(--focus);outline-offset:2px;box-shadow:none;}
+  .chip[aria-current]{background:var(--accent-selected);border-color:var(--accent);padding-left:0.75rem;}
+  .chip .ck{flex:none;width:1rem;height:1rem;color:var(--accent);fill:none;stroke:currentColor;stroke-width:2;
+    stroke-linecap:round;stroke-linejoin:round;}
+  .chip.off{color:var(--stone);background:transparent;}
+  .chip.off s{text-decoration-color:var(--ash);}
+  .chip.off[aria-current]{background:var(--accent-selected);}
+  @media (forced-colors:active){.chip{border-color:CanvasText;}.chip[aria-current]{border:2px solid Highlight;}
+    .chip .ck{color:CanvasText;}}
+  /* A warning: a rectangle with a glyph, words and the amber edge. Never the yellow, never a bare colour. */
+  .k-warn{display:flex;flex-wrap:wrap;align-items:flex-start;gap:0.5rem 0.75rem;margin:0;padding:0.875rem 1rem;
+    border:1px solid var(--warn);border-radius:var(--radius-panel);background:var(--surface);color:var(--cream);}
+  .k-warn-ic{flex:none;width:1.5rem;height:1.5rem;margin-top:0.0625rem;color:var(--warn);fill:none;stroke:currentColor;
+    stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;}
+  .k-warn-text{flex:1 1 11rem;min-width:0;display:flex;flex-direction:column;gap:0.25rem;}
+  .k-warn-text p{margin:0;font-size:var(--text-body);line-height:1.45;}
+  .k-warn-act{flex:none;align-self:center;display:inline-flex;align-items:center;justify-content:center;min-height:2.75rem;
+    min-width:2.75rem;padding:0 0.25rem;margin-left:auto;color:var(--cream);font-size:var(--text-body);font-weight:600;
+    text-decoration:underline;text-decoration-color:var(--ash);text-underline-offset:0.2em;}
+  .k-warn-act:hover{text-decoration-color:var(--cream);}
+  @media (forced-colors:active){.k-warn{border-color:CanvasText;}.k-warn-ic{color:CanvasText;}}
+  /* A shelf per library: the heading, and a quiet link to that library's own place, right-aligned; it drops under
+     the heading when they do not fit side by side. */
+  .shelf-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:0 1rem;min-width:0;}
+  .shelf-open{display:inline-flex;align-items:center;gap:0.25rem;min-height:2.75rem;color:var(--stone);
+    font-size:var(--text-body);text-decoration:none;}
+  .shelf-open:hover{color:var(--cream);}
+  .chev{flex:none;width:1rem;height:1rem;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;}
+  /* One library chosen: a grid instead of a rail. Art stands on one 180px baseline at its natural shape, never
+     cropped; a shape wider than the column is held to the column and stands shorter, bottom-aligned, so the titles
+     still line up (container units; without them the frame keeps its shape at the column's width). */
+  .lib-grid{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(min(9.5rem,100%),1fr));
+    gap:1.5rem 1rem;}
+  .lib-grid>li{min-width:0;container-type:inline-size;}
+  .lib-grid .frame{--fw:min(100cqw,calc(180px * var(--r)));width:var(--fw);height:calc(var(--fw) / var(--r));aspect-ratio:auto;
+    margin-top:calc(180px - var(--fw) / var(--r));border-radius:var(--radius-preview);border-color:var(--line);background:var(--raised);}
+  /* Opaque rows: the hand-off to a library's own place, and the request places at the end. */
+  .lib-browse{margin:0.25rem 0 0;}
+  .lib-browse a,.lib-rows a{display:flex;align-items:center;gap:0.75rem;min-height:3.5rem;padding:0.75rem 1rem;
+    color:var(--cream);text-decoration:none;}
+  .lib-browse a{justify-content:space-between;border:1px solid var(--line-strong);border-radius:var(--radius-panel);
+    background:var(--surface);font-size:var(--text-body);font-weight:500;}
+  .lib-browse a:hover,.lib-rows a:hover{background:var(--raised);}
+  .lib-rows{list-style:none;margin:0;padding:0;border:1px solid var(--line-strong);border-radius:var(--radius-panel);
+    background:var(--surface);overflow:hidden;}
+  .lib-rows li+li{border-top:1px solid var(--line);}
+  .lib-rows a{display:grid;grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"t c" "d c";gap:0.125rem 0.75rem;}
+  .lib-row-t{grid-area:t;font-size:var(--text-body);font-weight:500;}
+  .lib-row-d{grid-area:d;font-size:var(--text-secondary);color:var(--stone);}
+  .lib-rows .chev{grid-area:c;color:var(--stone);}
+  .lib-browse a:focus-visible,.lib-rows a:focus-visible{outline:2px solid var(--focus);outline-offset:-3px;box-shadow:none;}
+  /* Nothing to show anywhere: one honest panel, with the way to each library's own place. */
+  .lib-empty{padding:1.25rem 1rem 0.75rem;border:1px solid var(--line-strong);border-radius:var(--radius-panel);background:var(--surface);}
+  @media (forced-colors:active){.lib-browse a,.lib-rows,.lib-empty{border-color:CanvasText;}}
+  /* The title page: the art is the item's own image twice, as in the hero (crisp at its natural shape over a
+     blurred, dimmed copy that fades before the text); the masthead's glass Home button stays above it. From 360px a
+     tall cover rises beside the Home button, as in the frames; wide and square art (and every cover under 360px) stays
+     below it, so art never sits under the button. Under 360px the art is shorter, so the title shows on the first
+     screen. */
+  body:has(.title-page) .mast{position:relative;z-index:2;}
+  .title-page{--hero-h:225px;position:relative;gap:0.5rem;}
+  .title-stage{position:relative;display:flex;justify-content:center;align-items:flex-end;padding:0 0 1.25rem;}
+  @media (min-width:360px){.title-page:is(.w-poster,.w-book,.w-comic) .title-stage{margin-top:-3.25rem;}}
+  @media (max-width:359px){.title-page{--hero-h:160px;}}
+  .title-page .frame{position:relative;z-index:1;flex:none;width:min(100%,calc(var(--hero-h) * var(--r)));
+    border-radius:var(--radius-preview);border-color:var(--line-strong);background:var(--raised);box-shadow:0 18px 40px rgb(0 0 0 / 0.45);}
+  .title-page.no-art .ph{font-size:5rem;font-weight:300;color:var(--stone);}
+  .title-page .kicker{position:relative;z-index:1;font-size:var(--text-eyebrow);font-weight:500;letter-spacing:0.16em;
+    line-height:1.2;text-transform:uppercase;color:var(--stone);}
+  .title-page .title-meta{position:relative;z-index:1;flex:none;gap:0.375rem;}
+  /* The title in the display role: it wraps and clamps visually at four lines (the full text stays in the heading),
+     grows with text size no faster than the screen allows, and breaks only a single word wider than the column. */
+  .title-page .title-meta h2.t{font-size:min(var(--text-display),calc(0.5rem + 12.5vw));font-weight:300;line-height:1.08;
+    letter-spacing:-0.02em;padding-bottom:0.06em;color:var(--cream);overflow-wrap:break-word;-webkit-line-clamp:4;line-clamp:4;}
+  .title-page .title-meta .d{white-space:normal;overflow:visible;font-size:var(--text-body);line-height:1.45;color:var(--stone);}
+  .title-page .title-meta .p{color:var(--cream);font-variant-numeric:tabular-nums;}
+  .title-bar{display:block;width:min(100%,12rem);height:3px;margin-top:0.125rem;border-radius:2px;overflow:hidden;
+    background:var(--raised);box-shadow:0 0 0 1px var(--line);}
+  .title-bar .fill{display:block;height:100%;border-radius:inherit;background:var(--cream);}
+  /* One Cream action across the column, then the quiet note on where it opens, in an opaque panel. */
+  .title-page .act{margin-top:1.25rem;}
+  .title-page a.open{display:flex;justify-content:center;width:100%;min-height:3.25rem;padding:0.625rem 1.25rem;
+    border:1px solid var(--cream);border-radius:var(--radius-button);background:var(--cream);color:var(--ink);
+    font-size:var(--text-button);font-weight:600;line-height:1.25;text-align:center;}
+  .title-page a.open:hover{background:var(--cream);color:var(--ink);box-shadow:inset 0 0 0 2px var(--ink);}
+  .title-page a.open:focus-visible{background:var(--cream);color:var(--ink);outline:2px solid transparent;
+    box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--focus);}
+  .title-page .hint{margin-top:0.75rem;padding:0.875rem 1rem;border:1px solid var(--line-strong);border-radius:var(--radius-panel);
+    background:var(--surface);color:var(--stone);font-size:var(--text-secondary);overflow-wrap:normal;}
+  /* The synopsis (R3-A, AVR-748): after the action and its note, a hairline, then body text at a reading measure in
+     Stone (never the yellow). Plain text only; it wraps, it is never clamped, and it adds no motion. */
+  .title-about{position:relative;z-index:1;margin-top:1.75rem;padding-top:1.25rem;border-top:1px solid var(--line);}
+  .title-about .kicker{margin:0 0 0.5rem;}
+  .title-about .summary{margin:0;max-width:62ch;font-size:var(--text-body);line-height:1.55;color:var(--stone);
+    overflow-wrap:break-word;}
+  @media (forced-colors:active){.title-page .frame{box-shadow:none;}.title-page a.open{border-color:ButtonText;}
+    .title-bar{forced-color-adjust:none;background:Canvas;box-shadow:0 0 0 1px CanvasText;}.title-bar .fill{background:CanvasText;}
+    .title-page .hint{border-color:CanvasText;}.title-about{border-top-color:CanvasText;}}
+  /* ---- MK-5b Search, requests and Me (AVR-719) ---- */
+  /* Concept K on the remaining tab and place pages (frames 19:1943 to 19:2181, 17:619, 17:872, 17:1583, 17:1698): page
+     titles, grouped opaque rows, the search field, the warning panel, the Me hub, and the panels of the account and
+     help pages. One block, appended last, overriding earlier rules rather than editing them (several are test-pinned).
+     Everything here is opaque: glass stays on the three shell controls. Words wrap whole; icons and art are in px so
+     that at large text the words get the room. */
+  /* The page title role (28px, regular), top left. */
+  body:has(.mast) h2.topic,#h-search,main:has(.kplaces)>section.block:first-child>h2{margin:0;font-size:var(--text-page);
+    font-weight:400;line-height:1.2;letter-spacing:-0.01em;text-transform:none;color:var(--cream);overflow-wrap:break-word;}
+  main:has(.kplaces)>section.block:first-child{gap:0.75rem;}
+  /* A group: an eyebrow heading (12px Medium caps tracked 0.16em, wrapping) over one opaque panel. */
+  section.kgroup{display:flex;flex-direction:column;gap:0.625rem;min-width:0;}
+  .kgroup-h,section.kgroup>h2,.found>h3{margin:0;font-size:var(--text-eyebrow);font-weight:500;line-height:1.35;
+    letter-spacing:0.16em;text-transform:uppercase;color:var(--stone);overflow-wrap:break-word;}
+  nav.tiles.kplaces{display:flex;flex-direction:column;gap:1.75rem;}
+  .krows,.kpanel,ul.hits{margin:0;padding:0;list-style:none;background:var(--surface);border:1px solid var(--line);
+    border-radius:var(--radius-panel);overflow:hidden;}
+  .krow+.krow,ul.hits li+li,ul.access.kpanel li+li{border-top:1px solid var(--line);}
+  /* A row: one link, the whole row its target (at least 44px), focus drawn inside it (the panel clips outside). */
+  .krow-a{display:flex;align-items:center;gap:0.75rem;min-height:3.75rem;padding:0.625rem 0.875rem 0.625rem 0.75rem;
+    color:var(--cream);text-decoration:none;}
+  .krow-a:hover,.kask:hover,ul.hits li:hover{background:var(--raised);}
+  .krow-a:focus-visible{outline:2px solid var(--focus);outline-offset:-2px;box-shadow:none;}
+  .krow-ic{flex:none;display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:50%;
+    background:var(--raised);color:var(--cream);}
+  .kic{flex:none;width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;}
+  .krow-text{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:0.125rem;}
+  .krow-t{font-size:1rem;font-weight:500;line-height:1.3;overflow-wrap:break-word;}
+  .krow-d{font-size:var(--text-secondary);line-height:1.35;color:var(--stone);overflow-wrap:break-word;}
+  .krow-go,.hit-go{color:var(--stone);}
+  /* The no-results offers keep their link-and-words markup: a grid row whose link covers the whole row. */
+  .asks.krows{display:block;}
+  .kask{position:relative;display:grid;grid-template-columns:40px minmax(0,1fr) auto;grid-template-areas:"ic t go" "ic d go";
+    column-gap:0.75rem;align-items:center;align-content:center;min-height:3.75rem;padding:0.625rem 0.875rem 0.625rem 0.75rem;}
+  .kask:not(:has(.hint)){grid-template-areas:"ic t go";}
+  .kask .krow-ic{grid-area:ic;}
+  .kask .link{grid-area:t;justify-content:flex-start;min-height:0;min-width:0;font-size:1rem;font-weight:500;line-height:1.3;
+    text-align:left;text-decoration:none;color:var(--cream);overflow-wrap:break-word;}
+  .kask .link::after{content:"";position:absolute;inset:0;}
+  .kask .hint{grid-area:d;font-size:var(--text-secondary);line-height:1.35;}
+  .kask>.krow-go{grid-area:go;}
+  .kask .link:focus-visible{outline:none;box-shadow:none;}
+  .kask:has(.link:focus-visible){outline:2px solid var(--focus);outline-offset:-2px;}
+  /* The search field: opaque (never glass), a 3:1 Control edge, the glyph inside it, 16px+ text (no zoom on focus). The
+     button stays for keyboards and no script; the field keeps its visible label. */
+  .srch label{font-size:var(--text-secondary);font-weight:500;letter-spacing:0;text-transform:none;color:var(--stone);}
+  .srch .ask{gap:0.5rem;}
+  .ask-field{position:relative;flex:1 1 9rem;min-width:0;display:flex;}
+  .ask-ic{position:absolute;left:16px;top:50%;transform:translateY(-50%);color:var(--stone);pointer-events:none;}
+  .srch .ask-field input[type=search]{flex:1 1 auto;width:100%;min-width:0;min-height:3.25rem;padding:0.625rem 1rem 0.625rem 46px;
+    font-size:1.0625rem;color:var(--cream);background:var(--surface);border:1px solid var(--control);border-radius:var(--radius-button);}
+  .srch .ask-field input[aria-invalid=true]{border-color:var(--cream);border-width:2px;}
+  .srch button{min-height:3.25rem;padding:0.5rem 1rem;border:1px solid var(--cream);border-radius:var(--radius-button);
+    background:var(--cream);color:var(--ink);font-weight:600;}
+  .srch .err{border-radius:var(--radius-control);}
+  /* The results heading is a quiet count; each library's results are one panel of rows. A row's title link covers the
+     row; the chevron (a page in Avrana) or the external glyph (it opens the library) says where it goes. */
+  #h-outcome{font-size:var(--text-body);font-weight:500;line-height:1.35;letter-spacing:0;text-transform:none;color:var(--cream);}
+  .found{gap:0.625rem;}
+  ul.hits{gap:0;}
+  ul.hits li{--thumb:40px;position:relative;grid-template-columns:var(--thumb) minmax(0,1fr) auto;grid-template-areas:"art meta go";
+    align-items:center;gap:0 0.75rem;border:0;padding:0.625rem 0.875rem 0.625rem 0.75rem;}
+  ul.hits .frame{border-radius:6px;border-color:var(--line);background:var(--raised);}
+  ul.hits .ph{font-size:1rem;}
+  ul.hits a.t{display:-webkit-box;min-height:0;font-size:1rem;font-weight:500;line-height:1.3;color:var(--cream);text-decoration:none;}
+  ul.hits a.t::after{content:"";position:absolute;inset:0;}
+  ul.hits a.t:focus-visible{outline:none;box-shadow:none;}
+  ul.hits li:has(a.t:focus-visible){outline:2px solid var(--focus);outline-offset:-2px;}
+  ul.hits .d{font-size:var(--text-secondary);color:var(--stone);}
+  .hit-go{grid-area:go;}
+  /* A library that could not answer: words in a rectangle with the triangle glyph and a 1px amber edge. Never the
+     yellow, never colour alone. */
+  .said.kwarn{display:flex;align-items:flex-start;gap:0.75rem;max-width:none;padding:0.875rem 1rem;color:var(--cream);
+    background:var(--surface);border:1px solid var(--warn);border-radius:var(--radius-control);}
+  .kwarn-ic{width:20px;height:20px;margin-top:0.125rem;color:var(--warn);}
+  .kwarn-t{flex:1 1 auto;min-width:0;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:0 1rem;
+    line-height:1.5;overflow-wrap:break-word;}
+  .kwarn .link{flex:none;min-height:2.75rem;font-weight:600;}
+  /* The Me hub: the initial on a raised circle (no avatar is available), the name, who is signed in, and the role tag
+     in the Media yellow, slanted (the tag is a role, so it is the accent; never a large fill). */
+  .me-id{display:flex;flex-wrap:wrap;align-items:center;gap:0.75rem 1rem;min-width:0;}
+  .me-av{flex:none;display:inline-flex;align-items:center;justify-content:center;width:80px;height:80px;border-radius:50%;
+    background:var(--raised);border:1px solid var(--line);font-size:2rem;font-weight:300;line-height:1;color:var(--cream);}
+  /* Beside the circle while the name fits; under it at large text, never breaking the name inside a word. */
+  .me-who{flex:1 1 12rem;min-width:0;display:flex;flex-direction:column;gap:0.25rem;}
+  .me-name{margin:0;font-size:var(--text-page);font-weight:300;line-height:1.2;color:var(--cream);overflow-wrap:break-word;}
+  .me-who .k-meta{margin:0;overflow-wrap:anywhere;}
+  .k-tag{display:inline-block;vertical-align:0.3em;padding:0.1875rem 0.75rem;font-size:var(--text-eyebrow);font-weight:700;
+    line-height:1.2;letter-spacing:0.16em;text-transform:uppercase;color:var(--ink);background:var(--accent);
+    clip-path:polygon(6px 0,100% 0,calc(100% - 6px) 100%,0 100%);}
+  @media (forced-colors:active){.k-tag{clip-path:none;border:1px solid CanvasText;}.me-av{border-color:CanvasText;}}
+  /* Account: the facts and the access lists as panels; notes at a readable measure; sub-headings as quiet labels. */
+  .kgroup p.note{max-width:36rem;color:var(--stone);font-size:var(--text-body);line-height:1.55;}
+  .kgroup h3.sub{margin:0.25rem 0 0;font-size:var(--text-secondary);font-weight:500;letter-spacing:0;color:var(--cream);}
+  dl.facts.kpanel{display:block;padding:0 1rem;}
+  dl.facts.kpanel dt{padding-top:0.75rem;font-size:var(--text-secondary);letter-spacing:0;text-transform:none;color:var(--stone);}
+  dl.facts.kpanel dd{margin:0;padding:0.125rem 0 0.75rem;font-size:1rem;font-weight:500;color:var(--cream);overflow-wrap:anywhere;}
+  dl.facts.kpanel dd:not(:last-child){border-bottom:1px solid var(--line);}
+  ul.access.kpanel{display:block;}
+  ul.access.kpanel li{display:flex;align-items:center;min-height:3rem;padding:0.625rem 1rem;border:0;font-size:1rem;}
+  /* Help topics and the recovery topic: each platform an opaque panel, steps at a readable measure, the Recommended tag
+     in the eyebrow role, any address in a monospace face. */
+  body:has(.mast) .platform{gap:0.875rem;padding:1rem;border:1px solid var(--line);border-radius:var(--radius-panel);background:var(--surface);}
+  body:has(.mast) .platform>h3{font-size:var(--text-shelf);font-weight:400;line-height:1.25;letter-spacing:-0.01em;}
+  body:has(.mast) .platform p.note,body:has(.mast) .platform ul,body:has(.mast) .client ol{max-width:36rem;}
+  body:has(.mast) .platform p.note{color:var(--stone);font-size:var(--text-body);line-height:1.55;}
+  body:has(.mast) .platform ul{margin:0;padding-left:1.25rem;color:var(--stone);line-height:1.55;}
+  body:has(.mast) .client .cname{font-weight:600;}
+  body:has(.mast) .client .tag{font-size:var(--text-eyebrow);font-weight:500;letter-spacing:0.16em;color:var(--stone);}
+  body:has(.mast) .client ol{color:var(--stone);font-size:var(--text-body);}
+  body:has(.mast) .client code{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-size:0.9em;color:var(--cream);
+    border-bottom:0;padding:0 0.25rem;background:var(--raised);border-radius:4px;}
+  /* Very large text on a narrow screen: the decorative icon circles give their width to the words. */
+  @media (max-width:18em){.krow-ic{display:none;}
+    .kask{grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"t go" "d go";}.kask:not(:has(.hint)){grid-template-areas:"t go";}
+    .me-av{width:56px;height:56px;font-size:1.5rem;}}
+  @media (forced-colors:active){.said.kwarn{border-color:CanvasText;}}
+  /* ---- MK-6 Motion (AVR-720) ---- */
+  /* Page-to-page motion (memo section 10; the motion tiers above). One block, appended last. Everything that moves is
+     inside the no-preference query: with Reduce Motion there is no transition at all, not even a fade, and the
+     names below are never set. A browser without cross-document view transitions (or a cross-origin hop, such as
+     sign-in) simply loads the next page, as before. The fade and the lens need no page script.
+     Tier 3 only: 200 ms (--motion-3) on the meaningful curve, for the page fade, the art and the lens alike. The
+     600 ms token is a Proposal: off by default, and only a server setting adds it (never this file).
+     Names are unique on every page: the lens (one per tab bar), and the art, which only the title page's one frame
+     carries; on the page being left, the page script names the one frame beside the link that was followed, only
+     while the old page is captured. The tab bar itself is not named: it is the same on both pages, so it stays put
+     and readable in the page fade; only its lens travels. Interruptible: keys and the browser's own navigation still
+     navigate; where the browser exposes the active transition, the page script ends it on the first press, so a
+     touch tap then reaches the page (a mouse click during the 200 ms may be lost). */
+  @media (prefers-reduced-motion:no-preference){
+    @view-transition{navigation:auto;}
+    ::view-transition-group(*),::view-transition-old(*),::view-transition-new(*){animation-duration:var(--motion-3);
+      animation-timing-function:var(--ease-meaningful);}
+    .title-page .frame,.frame.k-flight{view-transition-name:k-art;}
+    .tabbar .lens{view-transition-name:k-lens;}
+  }
+  /* Belt and braces: should any transition ever start under Reduce Motion, it ends at once. */
+  @media (prefers-reduced-motion:reduce){::view-transition-group(*),::view-transition-old(*),::view-transition-new(*){
+    animation:none!important;}}

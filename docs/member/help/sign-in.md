@@ -22,3 +22,10 @@ url: none
 5. Check the date and time on your device. A wrong clock can break sign-in. [UNVERIFIED on a real device]
 6. Forgot your password? [OWNER DECISION D-13: what to tell members about password recovery] [UNVERIFIED on a real device]
 7. Still stuck? [OWNER DECISION D-1: where to send a help request] [UNVERIFIED on a real device]
+
+## On a shared device
+### Signing out
+store: none
+url: none
+1. Open the tab with your initial and choose Sign out (Sign out on Account works too). It signs you out of Avrana Media on this device and clears what it saved here. [UNVERIFIED on a real device]
+2. Apps and websites you signed in to separately stay signed in. Sign out inside each one. [UNVERIFIED on a real device]

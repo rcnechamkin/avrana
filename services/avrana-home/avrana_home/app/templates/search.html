@@ -1,10 +1,15 @@
 {% extends "base.html" %}
 {% from "_parts.html" import frame %}
+{% from "_rows.html" import glyph, row %}
 {% block title %}{% if page.outcome %}{{ page.outcome }} · {% endif %}Search · Avrana{% endblock %}
 {% block body %}
-{# Search (AVR-383). One plain GET form, no script, no suggestions. The typed term is autoescaped and bounded by
-   the view-model; results are grouped by library, only libraries the member may use are ever named, and every
-   group says truthfully what happened. The shell (masthead, places, Search, Help, account) is the same as Home. #}
+{# Search (AVR-383; Concept K AVR-719, frames 19:1943, 19:1996, 19:2083, 19:2181). One plain GET form, no script, no
+   suggestions. The typed term is autoescaped and bounded by the view-model; results are grouped by library, only
+   libraries the member may use are ever named, and every group says truthfully what happened. A library that could
+   not answer is said in words inside the warning style (a rectangle with the triangle glyph and the amber edge,
+   never the yellow). Every request offer leaves Avrana (the Seerr link directly with the term, the others through our
+   own route's redirect), so every one says so, in words and with the external-link glyph. The shell (the tab bar) is
+   the same as on every shell page. #}
   <section class="shelf" aria-labelledby="h-search">
     <h2 id="h-search">Search</h2>
 {% if page.mode == "no_library" %}
@@ -13,8 +18,8 @@
     <form class="srch" method="get" action="/search" role="search">
       <label for="q">Title or author</label>
       <div class="ask">
-        <input id="q" name="q" type="search" value="{{ page.term }}" maxlength="100" autocomplete="off" spellcheck="false"
-          {%- if page.mode == "invalid" %} aria-invalid="true" aria-describedby="q-error q-hint"{% else %} aria-describedby="q-hint"{% endif %}>
+        <span class="ask-field">{{ glyph("search", "kic ask-ic") }}<input id="q" name="q" type="search" value="{{ page.term }}" maxlength="100" autocomplete="off" spellcheck="false"
+          {%- if page.mode == "invalid" %} aria-invalid="true" aria-describedby="q-error q-hint"{% else %} aria-describedby="q-hint"{% endif %}></span>
         <button type="submit">Search</button>
       </div>
 {% if page.mode == "invalid" %}
@@ -28,14 +33,25 @@
   <section class="shelf" aria-labelledby="h-outcome">
     <h2 id="h-outcome">{{ page.outcome }}</h2>
 {% if not page.found %}
-    <p class="said" role="status">{{ page.message }}{% if page.result_state == "unsearchable" and page.retry_href %} <a class="link" href="{{ page.retry_href }}">Try again<span class="sr"> searching your libraries</span></a>{% elif page.result_state == "not_set_up" %} <a class="link" href="/help/trouble#not-set-up">What to do next</a>{% endif %}</p>
+{% if page.result_state == "unsearchable" %}
+    <p class="said kwarn" role="status">{{ glyph("warn", "kic kwarn-ic") }}<span class="kwarn-t">{{ page.message }}{% if page.retry_href %} <a class="link" href="{{ page.retry_href }}">Try again<span class="sr"> searching your libraries</span></a>{% endif %}</span></p>
+{% else %}
+    <p class="said" role="status">{{ page.message }}{% if page.result_state == "not_set_up" %} <a class="link" href="/help/trouble#not-set-up">What to do next</a>{% endif %}</p>
 {% endif %}
-{% if page.requests %}
-    <ul class="asks">
+{% endif %}
+{% set offer_contribute = contribute and page.result_state in ("none", "partial_none") %}
+{% if page.requests or offer_contribute %}
+    <section class="kgroup" aria-labelledby="h-ask">
+      <h3 class="kgroup-h" id="h-ask">Ask for it</h3>
+      <ul class="asks krows">
 {% for r in page.requests %}
-      <li><a class="link" href="{{ r.href }}">{{ r.label }}{% if r.leaves %}<span class="sr">, opens the request website</span>{% endif %}</a>{% if r.leaves %} <span class="hint" aria-hidden="true">Opens the request website</span>{% endif %}</li>
+        <li class="krow kask"><span class="krow-ic">{{ glyph({"requests": "film", "requestabook": "book", "requestacomic": "comic"}.get(r.path, "plus")) }}</span><a class="link" href="{{ r.href }}">{{ r.label }}<span class="sr">, opens the request website</span></a> <span class="hint" aria-hidden="true">Opens the request website</span>{{ glyph("external", "kic krow-go") }}</li>
 {% endfor %}
-    </ul>
+{% if offer_contribute %}
+        {{ row(contribute.href, contribute.label|trusted, contribute.desc|trusted, "plus", leaves=True, leaves_said=True) }}
+{% endif %}
+      </ul>
+    </section>
 {% endif %}
 {% for g in page.groups %}
     <section class="found" aria-labelledby="g-{{ loop.index }}">
@@ -44,9 +60,11 @@
       <ul class="hits">
 {% for it in g.items %}
         <li class="w-{{ it.shape }}">{{ frame(it.image, it.title) }}
-          <span class="meta"><a class="t" href="{{ it.href }}">{{ it.title }}<span class="sr">, {{ it.medium }}{% if it.opens %}, opens in {{ it.opens }}{% endif %}</span></a>{% if it.line %}<span class="d">{{ it.line }}</span>{% endif %}{% if it.opens %}<span class="d" aria-hidden="true">Opens in {{ it.opens }}</span>{% endif %}</span></li>
+          <span class="meta"><a class="t" href="{{ it.href }}">{{ it.title }}<span class="sr">, {{ it.medium }}{% if it.opens %}, opens in {{ it.opens }}{% endif %}</span></a>{% if it.line %}<span class="d">{{ it.line }}</span>{% endif %}{% if it.opens %}<span class="d" aria-hidden="true">Opens in {{ it.opens }}</span>{% endif %}</span>{{ glyph("external" if it.opens else "chevron", "kic hit-go") }}</li>
 {% endfor %}
       </ul>
+{% elif g.state == "unavailable" and (page.found or page.result_state != "unsearchable") %}
+      <p class="said kwarn" role="status">{{ glyph("warn", "kic kwarn-ic") }}<span class="kwarn-t">{{ g.message }}{% if g.retry and page.retry_href %} <a class="link" href="{{ page.retry_href }}">Try again<span class="sr"> searching {{ g.label }}</span></a>{% endif %}</span></p>
 {% elif page.found or page.result_state != "unsearchable" %}
       <p class="said" role="status">{{ g.message }}{% if g.retry and page.retry_href %} <a class="link" href="{{ page.retry_href }}">Try again<span class="sr"> searching {{ g.label }}</span></a>{% elif g.state == "not_linked" %} <a class="link" href="/help/trouble#not-set-up">What to do next<span class="sr"> about {{ g.label }}</span></a>{% endif %}</p>
 {% else %}
