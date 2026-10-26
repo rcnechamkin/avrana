@@ -347,8 +347,7 @@ class HeaderBudgetTests(Fixture):
 
     def test_a_request_using_the_whole_budget_is_served_and_one_byte_more_is_not(self):
         from avrana_home.app.identity import IDENTITY_HEADER_BUDGET, MAX_HEADER_BYTES, header_bytes
-        from avrana_home.outpost_jwt import MAX_TOKEN_LEN
-        token = self.token_of_length(MAX_TOKEN_LEN).encode()
+        token = self.token_of_length(IDENTITY_HEADER_BUDGET[JWT]).encode()
         full = {JWT: token, USER: b"member-a".ljust(IDENTITY_HEADER_BUDGET[USER], b"a"),
                 GROUPS: b"avrana-users|avrana-videos".ljust(IDENTITY_HEADER_BUDGET[GROUPS], b"g")}
         for name in IDENTITY_HEADER_BUDGET:
@@ -368,17 +367,19 @@ class HeaderBudgetTests(Fixture):
         self.assertEqual([], self.mock.paths())
 
     def test_the_budget_adds_up(self):
-        from avrana_home.app.identity import IDENTITY_HEADER_BUDGET, MAX_HEADER_BYTES, OTHER_HEADERS_BUDGET
+        from avrana_home.app.identity import (IDENTITY_HEADER_BUDGET, MAX_HEADER_BYTES, MAX_JWT_HEADER_LEN,
+                                              OTHER_HEADERS_BUDGET)
         from avrana_home.outpost_jwt import MAX_TOKEN_LEN
         self.assertEqual(16 * 1024, MAX_HEADER_BYTES)
-        self.assertEqual(MAX_TOKEN_LEN, IDENTITY_HEADER_BUDGET[JWT])
+        self.assertEqual(MAX_JWT_HEADER_LEN, IDENTITY_HEADER_BUDGET[JWT])
+        self.assertLessEqual(MAX_JWT_HEADER_LEN, MAX_TOKEN_LEN)     # Home's ceiling is the binding one
         used = sum(len(name) + size + 4 for name, size in IDENTITY_HEADER_BUDGET.items())
         self.assertEqual(MAX_HEADER_BYTES, used + OTHER_HEADERS_BUDGET)
         self.assertGreaterEqual(OTHER_HEADERS_BUDGET, 3 * 1024)
 
     def test_a_largest_valid_token_with_other_headers_inside_the_budget_is_served(self):
         from avrana_home.app.identity import OTHER_HEADERS_BUDGET, header_bytes
-        from avrana_home.outpost_jwt import MAX_TOKEN_LEN
+        from avrana_home.app.identity import MAX_JWT_HEADER_LEN as MAX_TOKEN_LEN
         token = self.token_of_length(MAX_TOKEN_LEN)
         self.assertLessEqual(len(token), MAX_TOKEN_LEN)
         self.assertGreaterEqual(len(token), MAX_TOKEN_LEN - 3)
@@ -391,8 +392,8 @@ class HeaderBudgetTests(Fixture):
         self.assertEqual(["watch", "request", "help"], self.tiles(r.text))
         self.assertEqual(200, self.required.get("/watch", headers=sent).status_code)
 
-    def test_a_token_over_its_own_limit_is_refused_by_the_verifier_not_by_size(self):
-        from avrana_home.outpost_jwt import MAX_TOKEN_LEN
+    def test_a_token_over_homes_limit_is_dropped_not_refused_by_size(self):
+        from avrana_home.app.identity import MAX_JWT_HEADER_LEN as MAX_TOKEN_LEN
         token = self.token_of_length(MAX_TOKEN_LEN + 200)
         self.assertGreater(len(token), MAX_TOKEN_LEN)
         r = self.required.get("/", headers=[(JWT, token)])
@@ -400,6 +401,26 @@ class HeaderBudgetTests(Fixture):
         self.assertEqual(["help"], self.tiles(r.text))
         self.assertEqual(404, self.required.get("/watch", headers=[(JWT, token)]).status_code)
         self.assertEqual([], self.mock.paths())
+
+    def test_an_oversized_token_is_dropped_so_log_only_still_serves_the_plain_headers(self):
+        from avrana_home.app.identity import MAX_JWT_HEADER_LEN
+        token = self.token_of_length(MAX_JWT_HEADER_LEN + 200)
+        records = []
+
+        class Capture(logging.Handler):
+            def emit(self, record):
+                records.append(record)
+
+        log, handler = logging.getLogger("avrana_home.app"), Capture(level=logging.DEBUG)
+        old = log.level
+        log.setLevel(logging.INFO)
+        log.addHandler(handler)
+        self.addCleanup(lambda: (log.removeHandler(handler), log.setLevel(old)))
+        r = self.log_only.get("/", headers=self.plain() + [(JWT, token)])
+        self.assertEqual(["watch", "request", "help"], self.tiles(r.text))
+        reasons = [rec.avrana_fields["reason"] for rec in records if rec.msg == "identity_jwt"]
+        self.assertEqual(["oversized_header", "missing_header"], reasons)   # as for a malformed token
+        self.assertFalse(any(token[:40] in repr(vars(rec)) for rec in records))   # never the token itself
 
     def test_a_valid_token_in_a_block_over_16_kib_gets_431_and_no_page(self):
         token = mint()

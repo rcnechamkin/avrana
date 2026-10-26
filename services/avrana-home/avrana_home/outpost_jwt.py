@@ -43,10 +43,7 @@ from typing import Callable, Iterable, Mapping, Optional
 ALG = "RS256"
 HMAC_ALG = "HS256"
 MIN_HMAC_SECRET = 32
-# app/identity.py IDENTITY_HEADER_BUDGET: token + identity + other headers <= 16 KiB. The ceiling is ~8.3 KB unless the
-# groups or other identity limits are lowered too (the import-time check keeps >= 3 KiB for every other header).
-# A token over this limit gives no principal (fail closed); it is not a 431.
-MAX_TOKEN_LEN = 8192
+MAX_TOKEN_LEN = 16384
 MIN_MODULUS_BITS = 2048
 DEFAULT_LEEWAY = 60
 MAX_LEEWAY = 300
