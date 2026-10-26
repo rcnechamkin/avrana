@@ -104,6 +104,15 @@ def chooser_intro(path: str):
     return CHOOSER_INTRO.get(path, ())
 
 
+ME_ROUTE = "/me"
+
+
+def me_decision(page) -> Decision:
+    """GET /me, the Me hub (Concept K, AVR-719), once the route layer knows the shell is on and there is a verified
+    member (main.py); otherwise the path is unknown and `decide` answers 404, as the portal does. `page` is a MeVM."""
+    return Decision(ME_ROUTE, 200, "me.html", {"me": page})
+
+
 def trouble_decision(groups) -> Decision:
     """GET /help/trouble once the route layer knows the shell is on (main.py); otherwise the path is unknown
     and `decide` answers 404, as the portal does. The content names only libraries this member can use."""

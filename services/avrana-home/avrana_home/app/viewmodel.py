@@ -297,7 +297,7 @@ class ShellVM:
     initial: str
     places: Tuple[PlaceVM, ...]
     can_search: bool                      # only a member with a library is offered Library and Search
-    current: str                          # home | search | account | help | help-topic | place | title
+    current: str                          # home | search | me | account | help | help-topic | place | title
 
 
 @dataclass(frozen=True)
@@ -332,6 +332,44 @@ def account_access(services, groups) -> AccessVM:
     other = [ACCOUNT_OTHER.get(p, label) for p, label in services if p not in ACCOUNT_LIBRARY and p not in fills]
     dedupe = lambda xs: tuple(dict.fromkeys(xs))   # noqa: E731
     return AccessVM(dedupe(libraries), dedupe(requests), dedupe(other))
+
+
+# ---- The Me hub (Concept K, AVR-719) -----------------------------------------------------------------------
+# Catalogue places the Me hub and the Request page may link to, each only when it is in THIS member's own tiles
+# (the catalogue's group gate, the same one the place's route uses: a member without it gets the standard 404).
+OPERATIONS_PATH = "ops"
+CONTRIBUTE_PATH = "contribute"
+
+
+@dataclass(frozen=True)
+class PlaceLinkVM:
+    href: str              # our own route ("/ops", "/contribute"), which hands off to the place's fixed host
+    label: object          # catalogue text (Trusted): the template renders it with |trusted
+    desc: object
+
+
+def place_link(tiles, path: str) -> Optional[PlaceLinkVM]:
+    """The member's own tile for `path`, or None. `tiles` is the catalogue's group-filtered list (decide("/")), so
+    nothing here can offer a place the member cannot open."""
+    return next((PlaceLinkVM("/" + p, label, desc) for p, label, desc in tiles if p == path), None)
+
+
+@dataclass(frozen=True)
+class MeVM:
+    """The Me hub: who is signed in and the member's own way to Account, Help and (admins) Operations. From the
+    verified principal and the member's catalogue tiles only; nothing here calls an adapter."""
+    username: str                       # "Signed in as <username>"
+    operations: Optional[PlaceLinkVM]   # only when the catalogue's Operations gate admits this member
+    signout_href: str                   # the catalogue's fixed sign-out address
+
+    @property
+    def admin(self) -> bool:
+        """The ADMIN tag: exactly the catalogue gate that offers Operations (never a second role source)."""
+        return self.operations is not None
+
+
+def build_me(tiles, username: str, signout_href: str) -> MeVM:
+    return MeVM(_plain(username or ""), place_link(tiles, OPERATIONS_PATH), signout_href)
 
 
 def has_library(tiles) -> bool:
@@ -642,6 +680,7 @@ class RequestVM:
     href: str
     label: str                    # "Ask for a film or show"
     leaves: bool                  # True: the link goes to the request website with the term (the page says so)
+    path: str = ""                # the catalogue request path ("requests", ...): picks the row's decorative icon
 
 
 @dataclass(frozen=True)
@@ -695,11 +734,11 @@ def request_options(empty_services, term: Optional[str], request_hosts) -> Tuple
             href, leaves = f"https://{host}{REQUEST_SEARCH[path]}{quote(term, safe='')}", True
         else:
             href, leaves = "/" + path, False
-        nouns = by_href.setdefault(href, (leaves, []))[1]
+        nouns = by_href.setdefault(href, (leaves, [], path))[1]
         if noun not in nouns:
             nouns.append(noun)
-    return tuple(RequestVM(href, "Ask for " + " or ".join(nouns), leaves)
-                 for href, (leaves, nouns) in by_href.items())
+    return tuple(RequestVM(href, "Ask for " + " or ".join(nouns), leaves, path)
+                 for href, (leaves, nouns, path) in by_href.items())
 
 
 def _names(labels) -> str:

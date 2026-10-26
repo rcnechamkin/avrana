@@ -106,7 +106,7 @@ class SectionRenderingTests(Fixture):
         bar = re.search(r'<nav class="tabbar glass" aria-label="Sections".*?</nav>', text, flags=re.S).group(0)
         self.assertEqual(1, text.count('href="/search"'))
         self.assertEqual(1, bar.count('<a class="tab" href="/search"'))
-        self.assertEqual(1, bar.count('<a class="tab" href="/account"'))
+        self.assertEqual(1, bar.count('<a class="tab" href="/me"'))           # Me opens the Me hub (AVR-719)
         self.assertGreater(text.index(bar), text.index("</footer>"))
 
     def test_navigation_stays_reachable_for_every_state(self):
@@ -206,7 +206,7 @@ class NavigationAndCallPatternTests(Fixture):
                 self.assertEqual(1, text.count("<footer>"))
                 self.assertEqual(1, len(re.findall(r"<main(?:\s[^>]*)?>", text)))
                 self.assertIn('href="/help"', text.split("</header>")[0])   # Help in the masthead's places bar (#56)
-                self.assertIn('<a class="tab" href="/account"', text.split("</footer>", 1)[1])   # Me, in the tab bar
+                self.assertIn('<a class="tab" href="/me"', text.split("</footer>", 1)[1])   # Me, in the tab bar
         self.mock.set_mode("ok")
 
     def test_one_cold_page_makes_one_mapping_call(self):

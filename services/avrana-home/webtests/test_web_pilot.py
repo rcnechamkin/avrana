@@ -22,7 +22,7 @@ CRED = "viewer:mock-api-key-not-real"
 A = [(USER, "member-a"), (GROUPS, "avrana-users|avrana-videos|avrana-books")]     # Movies and TV + Books
 B = [(USER, "member-b"), (GROUPS, "avrana-users|avrana-videos")]                  # Movies and TV only
 NOTHING = [(USER, "member-x"), (GROUPS, "avrana-users")]
-SHELL_ROUTES = ["/", "/search", "/account", "/help", "/help/movies"]
+SHELL_ROUTES = ["/", "/search", "/me", "/account", "/help", "/help/movies"]
 
 
 def mains(text):
@@ -85,7 +85,7 @@ class NavigationTests(Mocks):
                     bar = tabbar(t)
                     self.assertIn('<a class="tab" href="/"', bar)
                     self.assertIn('<a class="tab" href="/search"', bar)      # Search is a tab (D1), never a sixth place
-                    self.assertIn('<a class="tab" href="/account"', bar)
+                    self.assertIn('<a class="tab" href="/me"', bar)          # Me opens the Me hub (AVR-719)
                     # the old top row (Search link, account disclosure) is gone: those are tabs now
                     self.assertNotIn('class="idlink"', t)
                     self.assertNotIn('<details class="account">', t)
@@ -96,32 +96,33 @@ class NavigationTests(Mocks):
                     else:
                         self.assertIn('<h1 class="sr">Avrana Media</h1>', t)
                         self.assertNotIn('<nav class="places"', t)
-        # elsewhere Help is one step away, from Me (Account)
-        self.assertIn('href="/help"', c.get("/account", headers=A).text.split("<main", 1)[1].split("</main>", 1)[0])
+        # elsewhere Help is one step away, from Me (the hub) and from Account
+        for route in ("/me", "/account"):
+            self.assertIn('href="/help"', c.get(route, headers=A).text.split("<main", 1)[1].split("</main>", 1)[0])
 
     def test_the_current_page_is_marked_and_nothing_else_is(self):
         c = self.client()
         # "page" marks the tab (and on Home the lockup) that is this page; "true" marks the section a deeper page
-        # belongs to: Help and its topics are reached from Me.
-        want = {"/": [("/", "page"), ("/", "page")], "/search": [("/search", "page")],
-                "/account": [("/account", "page")], "/help": [("/account", "true")],
-                "/help/movies": [("/account", "true")]}
+        # belongs to: Account, Help and its topics are reached from Me (the hub, AVR-719).
+        want = {"/": [("/", "page"), ("/", "page")], "/search": [("/search", "page")], "/me": [("/me", "page")],
+                "/account": [("/me", "true")], "/help": [("/me", "true")],
+                "/help/movies": [("/me", "true")]}
         for route, expected in want.items():
             with self.subTest(route=route):
                 self.assertEqual(sorted(expected), sorted(aria_current(c.get(route, headers=A).text)))
         # the lens follows the same section, printed by the server so it is right without JavaScript
-        at = {"/": "0", "/search": "2", "/account": "3", "/help": "3", "/help/movies": "3"}
+        at = {"/": "0", "/search": "2", "/me": "3", "/account": "3", "/help": "3", "/help/movies": "3"}
         for route, index in at.items():
             self.assertIn(f'data-tabs="4" data-at="{index}"', tabbar(c.get(route, headers=A).text), route)
 
     def test_search_and_library_are_offered_only_to_a_member_with_a_library(self):
         c = self.client()
-        for route in ("/", "/account", "/help"):
+        for route in ("/", "/me", "/account", "/help"):
             t = c.get(route, headers=NOTHING).text
             self.assertNotIn('href="/search"', t, route)
             bar = tabbar(t)
             self.assertIn('data-tabs="2"', bar, route)
-            self.assertEqual(["/", "/account"], re.findall(r'<a class="tab" href="([^"]*)"', bar), route)
+            self.assertEqual(["/", "/me"], re.findall(r'<a class="tab" href="([^"]*)"', bar), route)
         self.assertIn('href="/help"', re.search(r'<nav class="places".*?</nav>', c.get("/", headers=NOTHING).text, re.S).group(0))
         self.assertEqual(1, mains(c.get("/search", headers=NOTHING).text))
 

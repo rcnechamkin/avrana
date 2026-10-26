@@ -62,7 +62,7 @@ SEARCH_SEEDS = {"/search": "search", "/search?q=Synthetic": "search-results",
 # Member-a's own film: a title page in every state (ok, unavailable, not set up for member-c; 404 is skipped).
 TITLE_SEEDS = ("/title/jellyfin/aaaa0000000000000000000000000001",)
 TITLE = re.compile(r"^/title/([a-z-]+)/[A-Za-z0-9_-]+(?:\?q=[A-Za-z0-9%]+)?$")
-CRAWL = re.compile(r"^/(?:\?new=[a-z-]+)?$|^/(?:account|help|read|request|watch)$|^/help/[a-z0-9-]+$"
+CRAWL = re.compile(r"^/(?:\?new=[a-z-]+)?$|^/(?:me|account|help|read|request|watch)$|^/help/[a-z0-9-]+$"
                    r"|^/search(?:\?q=[A-Za-z0-9%]+)?$|" + TITLE.pattern[1:])
 ACTION = re.compile(r'(<form [^>]*action=")(/search)(")')
 HREF = re.compile(r'(\bhref=")([^"]*)(")')

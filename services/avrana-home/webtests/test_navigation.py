@@ -17,7 +17,7 @@ VIDEO = [(USER, "member-a"), (GROUPS, "avrana-users|avrana-videos")]
 COMICS = [(USER, "member-c"), (GROUPS, "avrana-users|avrana-comics")]
 NOLIB = [(USER, "member-n"), (GROUPS, "avrana-users")]
 OTHER_LIBRARIES = ("Audiobooks", "audiobook", "Comics", "comics", "Books", "books", "Listen", "/listen", "/read")
-SHELL_PAGES = ["/", "/search", "/account", "/help", "/help/movies", "/help/trouble", "/read", "/request", "/watch"]
+SHELL_PAGES = ["/", "/search", "/me", "/account", "/help", "/help/movies", "/help/trouble", "/read", "/request", "/watch"]
 
 
 def footer(text):
@@ -63,7 +63,7 @@ class ReturnNavigationTests(Fixture):
                     self.assertNotRegex(r.text, r'<img class="lockup"')
                     self.assertIn('<a class="link" href="/">Back to home</a>', footer(r.text))
                     # pages that are not tabs carry the glass Home button (D5); tab pages show their own title
-                    if path in ("/search", "/account", "/help"):
+                    if path in ("/search", "/me", "/account", "/help"):
                         self.assertNotIn('class="homebtn', r.text)
                     else:
                         self.assertIn(home_button, r.text)
@@ -79,7 +79,12 @@ class ReturnNavigationTests(Fixture):
     def test_me_is_the_one_way_to_account_and_help_is_a_step_from_it(self):
         text = self.on.get("/", headers=ALL).text
         bar = re.search(r'<nav class="tabbar.*?</nav>', text, flags=re.S).group(0)
-        self.assertEqual(1, bar.count('href="/account"'))
+        # Me opens the Me hub (AVR-719), which is the one way on to Account and Help
+        self.assertEqual(1, bar.count('href="/me"'))
+        self.assertNotIn('href="/account"', text)
+        hub = main_of(self.on.get("/me", headers=ALL).text)
+        self.assertIn('<a class="krow-a" href="/account">', hub)
+        self.assertIn('<a class="krow-a" href="/help">', hub)
         self.assertIn('<span class="tl">Me<span class="sr">, signed in as member-a</span></span>', bar)
         self.assertNotIn('<details class="account">', text)
         self.assertNotIn('href="/account"', footer(text))        # the footer does not repeat the shell
@@ -105,7 +110,7 @@ class ReturnNavigationTests(Fixture):
     def test_chooser_intro_names_no_library(self):
         for path in ("/read", "/request"):
             text = main_of(self.on.get(path, headers=COMICS).text)
-            intro = text.split('<nav class="tiles"', 1)[0]
+            intro = text.split('<nav class="tiles', 1)[0]
             for word in ("Movies", "Audiobook", "Books", "ebook", "film"):
                 self.assertNotIn(word, intro, (path, word))
 
