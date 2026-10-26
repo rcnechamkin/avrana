@@ -41,7 +41,7 @@ PATHS = {
 # schema -> the properties the adapter reads
 SCHEMAS = {
     "BaseItemDto": ("Id", "Name", "Type", "SeriesName", "ParentIndexNumber", "IndexNumber", "ProductionYear",
-                    "RunTimeTicks", "UserData", "ImageTags"),
+                    "RunTimeTicks", "UserData", "ImageTags", "Overview", "ProviderIds"),
     "BaseItemDtoQueryResult": ("Items",),
     # UserId is read only if present and is absent upstream; kept here so its absence is checked, not assumed
     "UserItemDataDto": ("PlaybackPositionTicks", "PlayedPercentage", "Played", "ItemId", "UserId"),
@@ -50,7 +50,7 @@ SCHEMAS = {
 }
 # enum -> the members the adapter sends (fields, enableImageTypes, includeItemTypes, mediaTypes) or matches on
 ENUMS = {
-    "ItemFields": ("PrimaryImageAspectRatio",),
+    "ItemFields": ("Overview", "PrimaryImageAspectRatio", "ProviderIds"),
     "ImageType": ("Primary",),
     "BaseItemKind": ("Episode", "Movie", "Series"),
     "MediaType": ("Video",),

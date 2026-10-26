@@ -19,7 +19,9 @@
      "Primary"
     ],
     "ItemFields": [
-     "PrimaryImageAspectRatio"
+     "Overview",
+     "PrimaryImageAspectRatio",
+     "ProviderIds"
     ],
     "MediaType": [
      "Video"
@@ -93,8 +95,10 @@
      "ImageTags": "object",
      "IndexNumber": "integer",
      "Name": "string",
+     "Overview": "string",
      "ParentIndexNumber": "integer",
      "ProductionYear": "integer",
+     "ProviderIds": "object",
      "RunTimeTicks": "integer",
      "SeriesName": "string",
      "Type": "ref:BaseItemKind",
@@ -133,7 +137,9 @@
      "Primary"
     ],
     "ItemFields": [
-     "PrimaryImageAspectRatio"
+     "Overview",
+     "PrimaryImageAspectRatio",
+     "ProviderIds"
     ],
     "MediaType": [
      "Video"
@@ -207,8 +213,10 @@
      "ImageTags": "object",
      "IndexNumber": "integer",
      "Name": "string",
+     "Overview": "string",
      "ParentIndexNumber": "integer",
      "ProductionYear": "integer",
+     "ProviderIds": "object",
      "RunTimeTicks": "integer",
      "SeriesName": "string",
      "Type": "ref:BaseItemKind",
