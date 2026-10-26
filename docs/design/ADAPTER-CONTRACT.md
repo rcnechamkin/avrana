@@ -498,22 +498,38 @@ partial drops stay as before. A non-empty user list in which no entry can be par
 (section 3). Re-recording against a real server with a read-only step, before any upstream
 upgrade, remains the Media 2.0 plan (section 7 of `MEDIA-2.0.md`) and is an owner-approved action.
 
-**Published-interface gate (R2-A, AVR-747, 2026-10-26).** `contracts/jellyfin-openapi-subset.json` holds the
-route parameter names, response envelopes, schema property names and types and four enums from Jellyfin's
-official OpenAPI files for **10.11.11** (deployed) and **12.3.0** (current), each with its source URL and SHA-256;
-`tools/extract_openapi_subset.py` regenerates it from hand-downloaded files (no test downloads anything).
-`tests/test_openapi_subset.py` fails if, in either version, an allow-listed route or query key is missing, a
-user-scoped route stops accepting `userId`, a `fields`/`enableImageTypes`/`includeItemTypes`/`mediaTypes` value the
-adapter actually sends is not in the spec's enum, or `contracts/jellyfin.json` declares an envelope or field the
-spec lacks. Findings when it was added:
+**Published-interface gate (R2-A, AVR-747, 2026-10-26).** `contracts/jellyfin-openapi-subset.json` holds only
+what the adapter calls, sends or reads, taken from Jellyfin's official OpenAPI files: the five routes in its
+allow-list with just the query-parameter names it sends, response envelopes and auth/deprecated flags; the
+properties it reads from `BaseItemDto`, `BaseItemDtoQueryResult`, `UserItemDataDto`, `UserDto` and `UserPolicy`
+(names and JSON types); and the enum members it sends or matches on. Names and types only: no descriptions,
+examples or other prose, and the full spec is never vendored. Each version entry records a clean `source_url`,
+the `sha256` of the file read and a `retrieved` date (10.11.11: not recorded, on or before 2026-10-26; 12.3.0:
+2026-10-26). The 12.3.0 URL is the moving `jellyfin-openapi-stable.json` alias, so its `sha256` is what pins it.
+`tools/extract_openapi_subset.py` regenerates the file from hand-downloaded specs (no test downloads anything);
+its allow-lists mirror the adapter exactly. `tests/test_openapi_subset.py` fails if, in any recorded version, an
+allow-listed route or query key is missing, a user-scoped route stops accepting `userId`, a
+`fields`/`enableImageTypes`/`includeItemTypes`/`mediaTypes` value the adapter actually sends is not in the spec's
+enum, `contracts/jellyfin.json` declares an envelope or field the spec lacks, or the extractor's allow-lists drift
+from what the adapter uses. `UserItemDataDto.Key` and `UserPolicy.IsAdministrator` are declared in the contract
+but never read, so they are not extracted.
+
+**Licence: UNRESOLVED (owner question Q5).** The Jellyfin server is GPL-2.0 and the OpenAPI document is generated
+from it; no separate licence statement for the published OpenAPI document was found. Whether extracting interface
+names and types from it is free of that licence has not been determined and awaits owner/legal disposition. No
+clearance is asserted; the minimisation above limits exposure, it does not settle the question.
+
+**12.3.0 is a comparison only (owner question Q1).** The 12.3.0 entry records the published interface for
+information. It implies no compatibility guarantee and no Jellyfin 12.x upgrade is authorised. The test requires
+only the deployed 10.11.11 entry; any other entry is checked if present. Findings when the gate was added:
 
 - Every route and query key the adapter uses exists, undeprecated, in both 10.11.11 and 12.3.0; only the image
   route is unauthenticated (matching the visibility re-check before every cover).
 - `UserItemDataDto` has **no `UserId`** in either version, so the `UserData.UserId` scope tripwire in the adapter
-  never fires in practice (the `ItemId` check does). It stays declared and is listed as a known divergence.
-- 10.11.11 to 12.3.0, for the routes and schemas Home uses: `/Items` gains `audioLanguages` and
-  `subtitleLanguages`; `/Shows/NextUp` drops `disableFirstEpisode` (Home never sent it); `BaseItemDto` gains
-  `OriginalLanguage` and `AlbumNormalizationGain`. Nothing Home sends or reads changes.
+  never fires in practice (the `ItemId` check does). It stays declared, is still extracted so its absence is
+  checked rather than assumed, and is listed as a known divergence.
+- 10.11.11 to 12.3.0: nothing Home sends or reads changes. (Differences outside the adapter's use were seen when
+  the full files were read but are deliberately not recorded.)
 
 This proves agreement with the published interface only, not with the deployed server.
 

@@ -1,15 +1,19 @@
 """The Jellyfin adapter checked against Jellyfin's own published OpenAPI interface (R2-A, AVR-747). Offline.
 
-`contracts/jellyfin-openapi-subset.json` holds route parameter names, response envelopes, schema property names
-and types, and four enums, extracted by `tools/extract_openapi_subset.py` from the official spec files for
-10.11.11 (deployed) and 12.3.0 (current release). This gate fails when, for ANY recorded version:
+`contracts/jellyfin-openapi-subset.json` holds only the routes, query-parameter names, response envelopes, schema
+property names and types, and enum members the adapter calls, sends or reads, extracted by
+`tools/extract_openapi_subset.py` from the official spec file for 10.11.11 (deployed) and, as a comparison, 12.3.0.
+The 12.x entry is a published-interface comparison only: it implies no compatibility guarantee and no upgrade is
+authorised (owner question Q1). This gate fails when, for ANY recorded version:
   * the adapter allow-lists a route the spec does not have, or a query key that route does not accept;
   * a user-scoped route stops accepting `userId` (an API key is an administrator, so a route without it would
     answer unfiltered: docs/audits/2026-10-26-oss-reuse-audit.md, section 6);
   * the adapter actually SENDS a `fields`, `enableImageTypes`, `includeItemTypes` or `mediaTypes` value the
     spec's enum does not list (captured from real adapter calls against the synthetic fake);
   * `contracts/jellyfin.json` declares an envelope or a field the spec does not have, or with another type,
-    unless the divergence is recorded in KNOWN_ABSENT with its reason.
+    unless the divergence is recorded in KNOWN_ABSENT with its reason;
+  * the extractor's allow-lists drift from what the adapter really uses (so the subset stays minimal, Q5).
+Whether extracting even these names is free of the server's GPL-2.0 licence is UNRESOLVED (the file's `_licence`).
 It proves agreement with the published interface, not with the deployed server (that is the owner's recorded
 check, ADAPTER-CONTRACT.md section 9).
 """
@@ -18,8 +22,10 @@ import sys as _sys
 
 _sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
 from tests import _netguard  # noqa: E402,F401  (installs the network guard, also when run directly)
+import importlib.util
 import json
 from pathlib import Path
+import re
 import unittest
 
 from avrana_home.adapters.jellyfin import ALLOWED_ROUTES, JellyfinAdapter
@@ -31,6 +37,10 @@ HOME = Path(__file__).resolve().parents[1]
 SUBSET = json.loads((HOME / "contracts/jellyfin-openapi-subset.json").read_text(encoding="utf-8"))
 CONTRACT = json.loads((HOME / "contracts/jellyfin.json").read_text(encoding="utf-8"))
 VERSIONS = SUBSET["versions"]
+DEPLOYED = "10.11.11"
+_spec = importlib.util.spec_from_file_location("extract_openapi_subset", HOME / "tools/extract_openapi_subset.py")
+EXTRACT = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(EXTRACT)
 
 # adapter route name -> the spec path template it corresponds to
 SPEC_PATH = {"users": "/Users", "resume": "/UserItems/Resume", "latest": "/Items/Latest", "items": "/Items",
@@ -46,17 +56,35 @@ KNOWN_ABSENT = {
     ("item.UserData", "UserId"): "not in UserItemDataDto in 10.11.11 or 12.3.0; the adapter's scope tripwire "
                                  "reads it only when present, so it is harmless but in practice never fires",
 }
+# Declared in contracts/jellyfin.json but never read by the adapter, so deliberately not extracted (Q5 minimisation).
+DECLARED_NOT_READ = {
+    ("item.UserData", "Key"): "declared in the contract; the adapter never reads it",
+    ("user.Policy", "IsAdministrator"): "declared in the contract; the adapter reads only IsDisabled",
+}
 COMPATIBLE = {"string": {"string", "enum"}, "integer": {"integer"}, "number": {"number", "integer"},
               "boolean": {"boolean"}, "object": {"object"}}
 
 
 class SubsetFileTests(unittest.TestCase):
-    def test_records_the_deployed_and_the_current_release(self):
-        self.assertIn("10.11.11", VERSIONS)
-        self.assertTrue(any(v.startswith("12.") for v in VERSIONS), sorted(VERSIONS))
+    def test_records_the_deployed_release_with_provenance(self):
+        # Only the deployed release is required. Any other entry (12.3.0 today) is checked if present, as a
+        # published-interface comparison only: no compatibility guarantee, no upgrade authorised (owner Q1).
+        self.assertIn(DEPLOYED, VERSIONS)
         for version, doc in VERSIONS.items():
+            self.assertEqual(doc["version"], version)
             self.assertRegex(doc["sha256"], r"\A[0-9a-f]{64}\Z", version)
-            self.assertTrue(doc["source_url"].startswith("https://repo.jellyfin.org/"), version)
+            self.assertRegex(doc["source_url"], r"\Ahttps://repo\.jellyfin\.org/\S+\.json\Z", version)
+            self.assertTrue(re.fullmatch(r"\d{4}-\d{2}-\d{2}", doc["retrieved"])
+                            or doc["retrieved"].startswith("unknown"), (version, doc["retrieved"]))
+            if version not in doc["source_url"]:     # a moving alias: say that the sha256 is what pins it
+                self.assertIn("sha256", doc.get("source_note", ""), version)
+
+    def test_states_the_unresolved_licence_question(self):
+        licence = SUBSET["_licence"]
+        self.assertIn("GPL-2.0", licence["upstream_code"])
+        self.assertTrue(licence["status"].startswith("UNRESOLVED"))
+        self.assertIn("Q5", licence["status"])
+        self.assertIn("Q1", SUBSET["_comparison"])
 
     def test_holds_names_and_types_only(self):
         # no upstream prose is copied: every leaf is a short identifier
@@ -75,6 +103,37 @@ class SubsetFileTests(unittest.TestCase):
                     if isinstance(leaf, str):
                         self.assertNotIn(" ", leaf, (version, key, leaf))
                         self.assertLess(len(leaf), 64, (version, key, leaf))
+
+
+class MinimalAllowListTests(unittest.TestCase):
+    """The extractor keeps exactly what the adapter uses, and the committed file holds nothing more."""
+
+    def test_extracted_routes_and_query_keys_are_the_adapters(self):
+        self.assertEqual({p: set(k) for p, k in EXTRACT.PATHS.items()},
+                         {SPEC_PATH[r.name]: set(r.query_keys) for r in ALLOWED_ROUTES})
+
+    def test_extracted_schema_properties_are_the_contracts_minus_the_unread(self):
+        want = {}
+        for entity, fields in CONTRACT["entities"].items():
+            if entity in SPEC_SCHEMA:
+                want.setdefault(SPEC_SCHEMA[entity], set()).update(
+                    f for f in fields if (entity, f) not in DECLARED_NOT_READ)
+        want["BaseItemDtoQueryResult"] = {"Items"}
+        self.assertEqual({k: set(v) for k, v in EXTRACT.SCHEMAS.items()}, want)
+
+    def test_known_absent_fields_are_still_extracted_so_their_absence_is_real(self):
+        for entity, field in KNOWN_ABSENT:
+            self.assertIn(field, EXTRACT.SCHEMAS[SPEC_SCHEMA[entity]])
+
+    def test_committed_file_holds_nothing_outside_the_allow_lists(self):
+        for version, doc in VERSIONS.items():
+            self.assertLessEqual(set(doc["paths"]), set(EXTRACT.PATHS), version)
+            for path, entry in doc["paths"].items():
+                self.assertLessEqual(set(entry["query"]), set(EXTRACT.PATHS[path]), (version, path))
+            for name, props in doc["schemas"].items():
+                self.assertLessEqual(set(props), set(EXTRACT.SCHEMAS[name]), (version, name))
+            for name, members in doc["enums"].items():
+                self.assertLessEqual(set(members), set(EXTRACT.ENUMS[name]), (version, name))
 
 
 class RouteTests(unittest.TestCase):
@@ -141,6 +200,8 @@ class SentValueTests(unittest.TestCase):
                 if key in query:
                     sent.setdefault(enum, set()).update(v for v in query[key].split(",") if v)
         self.assertTrue(sent, "no enum-valued parameter was sent")
+        # the extractor keeps exactly these members (Type matching uses the same three kinds)
+        self.assertEqual(sent, {k: set(v) for k, v in EXTRACT.ENUMS.items()})
         for version, doc in VERSIONS.items():
             for enum, values in sent.items():
                 self.assertEqual(values - set(doc["enums"][enum]), set(), (version, enum))
@@ -159,7 +220,7 @@ class SchemaTests(unittest.TestCase):
                     continue
                 props = doc["schemas"][schema_name]
                 for field, json_type in fields.items():
-                    if (entity, field) in KNOWN_ABSENT:
+                    if (entity, field) in KNOWN_ABSENT or (entity, field) in DECLARED_NOT_READ:
                         continue
                     self.assertIn(field, props, (version, entity, field))
                     spec_type = props[field]
