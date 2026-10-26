@@ -28,10 +28,10 @@ from typing import Optional
 
 from fastapi import Request
 
-from ..outpost_jwt import OutpostJwtVerifier
-from ..principal import (EMAIL_HEADER, GROUPS_HEADER, JWT_HEADER, MODE_HEADERS, MODE_JWT_REQUIRED,
-                         NAME_HEADER, USERNAME_HEADER, MemberPrincipal, PrincipalError, decode_raw_headers,
-                         principal_for_request)
+from ..outpost_jwt import MAX_TOKEN_LEN, OutpostJwtVerifier
+from ..principal import (EMAIL_HEADER, GROUPS_HEADER, JWT_HEADER, MAX_GROUPS_HEADER_LEN, MAX_OPTIONAL_LEN,
+                         MAX_USERNAME_LEN, MODE_HEADERS, MODE_JWT_REQUIRED, NAME_HEADER, USERNAME_HEADER,
+                         MemberPrincipal, PrincipalError, decode_raw_headers, principal_for_request)
 from .logsafe import app_log, log_event
 from .settings import IDENTITY_MODES, Settings, SettingsError
 
@@ -177,11 +177,21 @@ def search_term_from_scope(scope) -> Optional[str]:
 
 
 # h11's default (max_incomplete_event_size): the same limit, now independent of how the bytes were read. Counted as
-# name + value + ": " and CRLF per header line, close to the wire size. Header identity is at most ~4.3 KiB
-# (principal.py: username 150, groups header 4096). outpost_jwt.MAX_TOKEN_LEN (16384) is larger than this whole
-# budget, as it already was against h11 whenever a request arrived in more than one read: in JWT mode the real
-# ceiling for a token is 16 KiB minus the other headers (AVR-732).
+# name + value + ": " and CRLF per header line, close to the wire size (AVR-732).
 MAX_HEADER_BYTES = 16 * 1024
+# The one budget inside that limit (owner, 2026-10-26: keep 16 KiB; token plus other headers must fit). Each identity
+# header at its own parser maximum (principal.py, outpost_jwt.py), the token included; whatever is left is for every
+# other header (Host, Cookie, User-Agent, Accept...). A request inside this budget is never refused as too large.
+IDENTITY_HEADER_BUDGET = {
+    JWT_HEADER: MAX_TOKEN_LEN,
+    USERNAME_HEADER: MAX_USERNAME_LEN,
+    GROUPS_HEADER: MAX_GROUPS_HEADER_LEN,
+    EMAIL_HEADER: MAX_OPTIONAL_LEN,
+    NAME_HEADER: MAX_OPTIONAL_LEN,
+}
+OTHER_HEADERS_BUDGET = MAX_HEADER_BYTES - sum(len(name) + size + 4 for name, size in IDENTITY_HEADER_BUDGET.items())
+if OTHER_HEADERS_BUDGET < 3 * 1024:                    # checked at import: a parser limit raised alone fails loudly
+    raise RuntimeError("identity header limits leave under 3 KiB of the 16 KiB header budget")
 
 
 def header_bytes(headers) -> int:

@@ -43,7 +43,7 @@ from typing import Callable, Iterable, Mapping, Optional
 ALG = "RS256"
 HMAC_ALG = "HS256"
 MIN_HMAC_SECRET = 32
-MAX_TOKEN_LEN = 16384
+MAX_TOKEN_LEN = 8192        # app/identity.py IDENTITY_HEADER_BUDGET: token + identity + other headers <= 16 KiB
 MIN_MODULUS_BITS = 2048
 DEFAULT_LEEWAY = 60
 MAX_LEEWAY = 300
