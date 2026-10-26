@@ -292,3 +292,83 @@
      never pushing the page sideways. */
   .client>div{display:flex;flex-wrap:wrap;align-items:baseline;gap:0.25rem 0.75rem;min-width:0;}
   .client .tag{margin-left:0;}
+  /* ---- MK-4 Home (AVR-718) ---- */
+  /* Concept K Home (memo sections 3 and 4; D6): the hero, Home's section headings, the rails and their cards. One
+     block, appended last, overriding earlier rules rather than editing them (several are test-pinned). Home only:
+     the hero, rails and cards exist only on Home; the section headings are scoped to Home by its masthead. */
+  /* Section headings in the Concept K shelf role (20px, regular, Cream), not the old letter-spaced caps. */
+  body:has(.mast.at-home) .shelf h2{font-size:var(--text-shelf);font-weight:400;line-height:1.25;letter-spacing:-0.01em;
+    text-transform:none;color:var(--cream);}
+  /* The hero: the member's own next thing. The art is the item's own /art image twice: crisp at its natural shape
+     (contained, never cropped: square and 13:20 covers keep their shapes), centred, over a blurred,
+     dimmed copy that bleeds to the screen edges and fades out before the text, so the type always sits on Spire
+     Ink. Art is sized in px, like the rails: it is not text, and at 200% text the words get the room. */
+  .hero{--hero-h:225px;position:relative;display:flex;flex-direction:column;gap:0.5rem;min-width:0;}
+  .hero-stage{position:relative;display:flex;justify-content:center;align-items:flex-end;padding:0.75rem 0 1.25rem;}
+  .hero-glow{position:absolute;z-index:0;top:-1.5rem;bottom:-1.5rem;overflow:hidden;pointer-events:none;
+    left:calc(0rem - max(1.25rem,env(safe-area-inset-left)));right:calc(0rem - max(1.25rem,env(safe-area-inset-right)));
+    -webkit-mask-image:linear-gradient(to bottom,transparent,#000 22%,#000 55%,transparent);
+    mask-image:linear-gradient(to bottom,transparent,#000 22%,#000 55%,transparent);}
+  .hero-glow .art{inset:auto;left:-15%;top:-15%;width:130%;height:130%;max-width:none;object-fit:cover;
+    filter:blur(36px) saturate(1.15) brightness(0.5);}
+  .hero .frame{position:relative;z-index:1;flex:none;width:min(100%,calc(var(--hero-h) * var(--r)));
+    border-radius:var(--radius-preview);border-color:var(--line-strong);background:var(--raised);
+    box-shadow:0 18px 40px rgb(0 0 0 / 0.45);}
+  /* No art: the letter frame Home already uses, set large and Light, and no backdrop. */
+  .hero.no-art .ph{font-size:5rem;font-weight:300;color:var(--stone);}
+  /* 320px wide (frame 22:2597): no poster, by design; the backdrop stays as the stage. A no-art hero shows nothing. */
+  @media (max-width:359px){.hero .frame{display:none;}.hero-stage{min-height:7.5rem;padding:0;}
+    .hero.no-art .hero-stage{display:none;}}
+  /* The eyebrow is part of the heading (heading navigation reads it before the title). Yellow, with the 3px signal
+     bar, only for the member's own state (.yours: in progress); the newest-items eyebrow stays Stone with no bar.
+     This stylesheet ships on every shell page, so its comments name no section, library or member word (the
+     revocation and isolation tests read the whole page). The title is the Light
+     display role at 48px: it wraps and is never fitted to its title; a very long title clamps visually at four lines
+     (its full text stays in the heading). At default text it is 48px from 320px up; with large text it still grows,
+     but no faster than the screen allows (0.5rem + 12.5vw: 65px at 200% on a 390px phone), so ordinary words keep
+     whole instead of breaking letter by letter. Only a single word wider than the column breaks, rather than
+     pushing the page sideways. */
+  .hero-title{margin:0;display:flex;flex-direction:column;align-items:flex-start;gap:0.5rem;min-width:0;font-weight:inherit;}
+  .hero-title .k-eyebrow{display:inline-flex;align-items:center;gap:0.5rem;line-height:1.2;}
+  .hero-title .k-eyebrow.yours::before{content:"";flex:none;width:3px;height:1.1em;border-radius:1px;background:var(--accent);}
+  .hero-title .k-display{max-width:100%;font-size:min(var(--text-display),calc(0.5rem + 12.5vw));line-height:1.08;padding-bottom:0.06em;overflow-wrap:break-word;
+    display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:4;line-clamp:4;overflow:hidden;}
+  .hero .k-meta{margin:0;line-height:1.45;}
+  /* One Cream primary hand-off and a quiet Details. On one row they share the width about 2:1, as in the frames;
+     when the label does not fit beside Details on one line (a long app name, 320px, large text) each takes a whole
+     row instead of the label wrapping inside a squeezed button. Text never shrinks. */
+  .hero-acts{margin:0.75rem 0 0;display:flex;flex-wrap:wrap;gap:0.625rem;}
+  .hero-go,.hero-details{display:inline-flex;align-items:center;justify-content:center;min-height:3.25rem;
+    padding:0.625rem 1.25rem;border-radius:var(--radius-button);font-size:var(--text-button);font-weight:600;
+    line-height:1.25;text-align:center;text-decoration:none;}
+  .hero-go{flex:3 1 auto;background:var(--cream);color:var(--ink);border:1px solid var(--cream);}
+  .hero-details{flex:1 0 auto;background:var(--raised);color:var(--cream);border:1px solid var(--line-strong);}
+  .hero-go:hover{box-shadow:inset 0 0 0 2px var(--ink);}
+  .hero-details:hover{border-color:var(--control);}
+  /* Focus: the shell's two-ring mark (an ink gap, then the yellow), the same as every other shell link. */
+  .hero-go:focus-visible,.hero-details:focus-visible{outline:2px solid transparent;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--focus);}
+  @media (prefers-contrast:more){.hero-glow{display:none;}}
+  @media (forced-colors:active){.hero-glow{display:none;}.hero .frame{box-shadow:none;}
+    .hero-title .k-eyebrow.yours::before{forced-color-adjust:none;background:CanvasText;}
+    .hero-go,.hero-details{border:1px solid ButtonText;}}
+  /* Rails (memo section 4): art 180px high everywhere, each shape at its natural width inside one card width
+     (posters 120, 13:20 covers 117, squares 180; a still is held to the card width and stands shorter,
+     bottom-aligned). The card width stays one per rail on phones, because the keyboard contract (DESIGN.md "Media
+     card": scroll-padding leaving one card's region, mandatory snap, the trailing spacer) depends on it; the earlier
+     .rail rules keep all of that and only the sizes change here. Art takes the preview radius. */
+  .rail,.rail.tall{--art-h:180px;--card-min:11.25rem;}
+  @media (min-width:45rem){.rail,.rail.tall{--art-h:180px;--card-min:9.5rem;}}
+  .rail .frame{border-radius:var(--radius-preview);border-color:var(--line);background:var(--raised);}
+  .card{gap:0.1875rem;}
+  .card .frame{margin-bottom:0.625rem;}
+  .card .t{font-size:var(--text-body);font-weight:500;line-height:1.3;color:var(--cream);}
+  .card .d{font-size:var(--text-secondary);color:var(--stone);}
+  .card .p{font-size:var(--text-secondary);color:var(--cream);font-variant-numeric:tabular-nums;}
+  /* The in-progress rail's progress rule: 3px, Cream on a dark track along the foot of the art, beside the words (status, not
+     selection: never the yellow). Its length comes from a 5%-step class, so no inline style is needed. */
+  .frame .bar{position:absolute;z-index:1;left:0.625rem;right:0.625rem;bottom:0.625rem;height:3px;border-radius:2px;
+    overflow:hidden;background:rgb(13 13 15 / 0.72);box-shadow:0 0 0 1px rgb(13 13 15 / 0.35);}
+  .frame .bar .fill{display:block;height:100%;border-radius:inherit;background:var(--cream);}
+  .bar .pc0{width:0%;}.bar .pc5{width:5%;}.bar .pc10{width:10%;}.bar .pc15{width:15%;}.bar .pc20{width:20%;}.bar .pc25{width:25%;}.bar .pc30{width:30%;}.bar .pc35{width:35%;}.bar .pc40{width:40%;}.bar .pc45{width:45%;}.bar .pc50{width:50%;}.bar .pc55{width:55%;}.bar .pc60{width:60%;}.bar .pc65{width:65%;}.bar .pc70{width:70%;}.bar .pc75{width:75%;}.bar .pc80{width:80%;}.bar .pc85{width:85%;}.bar .pc90{width:90%;}.bar .pc95{width:95%;}.bar .pc100{width:100%;}
+  @media (forced-colors:active){.frame .bar{forced-color-adjust:none;background:Canvas;box-shadow:0 0 0 1px CanvasText;}
+    .frame .bar .fill{background:CanvasText;}}

@@ -97,7 +97,7 @@ class SectionRenderingTests(Fixture):
         self.assertEqual(1, len(re.findall(r"<main(?:\s[^>]*)?>", text)))
         self.assertEqual(1, text.count("<h1>"))
         self.assertNotRegex(above, r"style=|<svg|<picture|<script|<canvas|on\w+=")
-        self.assertEqual(2, above.count("<h2"))
+        self.assertEqual(3, above.count("<h2"))           # the hero (AVR-718), Continue, Recently added
         # Continue is bounded (at most four); artwork is decoration (alt="") from the artwork route only
         self.assertLessEqual(len(re.findall(r'class="card"', above.split('id="h-new"')[0])), 4)
         for tag in re.findall(r"<img[^>]*>", above):
@@ -150,7 +150,8 @@ class SectionRenderingTests(Fixture):
         self.assertEqual(200, r.status_code)
         self.assertEqual([], cards(r.text))
         self.assertIn("Nothing in progress.", r.text)
-        self.assertIn("Nothing new this week.", r.text)
+        self.assertIn("Nothing recently added.", r.text)
+        self.assertNotIn("this week", r.text)                  # the lists are not date-bounded
 
     def test_hostile_titles_are_escaped_and_bidi_controls_removed(self):
         hostile = ['<script>alert(1)</script>', '"><img src=x onerror=alert(1)>', "' onmouseover='x",

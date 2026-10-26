@@ -68,19 +68,24 @@
 {# One piece of art: a frame with the item's natural shape (set by the w-<shape> class around it) and a quiet
    letter behind the image. If there is no art, the letter shows. If an image is served but cannot be decoded,
    browsers may draw their broken-image icon over the letter (known, DESIGN.md).
-   In a rail every frame has the rail's height, so titles start on one line whatever the shapes. #}
-{% macro frame(image, title) -%}
-<span class="frame"><span class="ph" aria-hidden="true">{{ (title[:1] or "A")|upper }}</span>{% if image %}<img class="art" src="{{ image }}" alt="" width="160" height="240" loading="lazy">{% endif %}</span>
+   In a rail every frame has the rail's height, so titles start on one line whatever the shapes.
+   `bar` (Continue cards only, AVR-718): the 3px Cream progress rule along the foot of the art, its length in 5%
+   steps as a class (no inline style: the CSP and the markup tests forbid it). It is decoration beside the progress
+   words, never instead of them, so it is hidden from assistive technology. Never the Media yellow. #}
+{% macro frame(image, title, bar=None) -%}
+<span class="frame"><span class="ph" aria-hidden="true">{{ (title[:1] or "A")|upper }}</span>{% if image %}<img class="art" src="{{ image }}" alt="" width="160" height="240" loading="lazy">{% endif %}{% if bar is not none %}<span class="bar" aria-hidden="true"><span class="fill pc{{ bar }}"></span></span>{% endif %}</span>
 {%- endmacro %}
 
 {# One card, one link, one action. Order: title (two lines at most), the creator, series or episode line
    (dim, one line), progress in words, then the action verb (Continue cards only: `verb=True`). Clamping is
    visual only: the full title and line stay in the link's text, so its accessible name carries them in full,
    with a spoken comma between the parts. The link never takes an aria-label (it would hide line and progress).
-   When `action_label` is set it stands in for the verb for assistive technology. #}
+   When `action_label` is set it stands in for the verb for assistive technology.
+   Without script the card stays a plain link to where the item opens; an in-place preview is MK-3's script
+   territory (progressive enhancement over this link, never a replacement for it). #}
 {% macro card(c, verb=False) -%}
 <li class="w-{{ c.shape }}"><a class="card" href="{{ c.href }}">
-  {{ frame(c.image, c.title) }}
+  {{ frame(c.image, c.title, c.bar) }}
   <span class="t">{{ c.title }}</span>
   {% if c.line or (not verb and c.kind_label) %}<span class="d"><span class="sr">, </span>{{ c.line or c.kind_label }}</span>{% endif +%}
   {% if c.progress %}<span class="p"><span class="sr">, </span>{{ c.progress }}</span>{% endif +%}

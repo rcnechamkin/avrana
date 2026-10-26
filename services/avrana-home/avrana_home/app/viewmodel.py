@@ -75,6 +75,24 @@ def progress_words(kind: str, progress: Optional[dict]) -> Optional[str]:
     return None
 
 
+def progress_fraction(progress: Optional[dict]) -> Optional[float]:
+    """How far along, 0 to 1, for the 3px progress rule beside the words (never instead of them). The same
+    believable numbers as `progress_words`: whole seconds first, then a whole percent, then a fraction. None when
+    the upstream gave nothing usable, so no rule is drawn rather than a guessed one."""
+    if not isinstance(progress, dict):
+        return None
+    pos, dur = _seconds(progress.get("position_seconds")), _seconds(progress.get("duration_seconds"))
+    if pos is not None and dur is not None and dur > 0:
+        return min(1.0, pos / dur)
+    pct = progress.get("percent")
+    if _is_int(pct) and 0 <= pct <= 100:
+        return pct / 100
+    frac = progress.get("fraction")
+    if isinstance(frac, (int, float)) and not isinstance(frac, bool) and math.isfinite(frac) and 0 <= frac <= 1:
+        return float(frac)
+    return None
+
+
 def _is_int(v) -> bool:
     return isinstance(v, int) and not isinstance(v, bool)
 
@@ -117,6 +135,8 @@ class ItemVM:
     service: str = ""              # which library (contract service value); for the member-language label
     resumable: bool = False        # the upstream gave this member a saved position (continue_state)
     finished: bool = False         # the upstream's numbers say nothing is left: never shown in Continue
+    item_id: Optional[str] = None  # the contract id ("jellyfin:<id>"), for the hero's Details link only
+    fraction: Optional[float] = None  # 0 to 1, for the progress rule beside the words (progress_fraction)
 
 
 @dataclass(frozen=True)
@@ -157,9 +177,11 @@ def _item_vm(it: dict) -> Optional[ItemVM]:
     detail = " · ".join(_plain(x) for x in parts if x) or None
     finished, resumable = continue_state(it.get("progress"))
     service = it.get("service") if it.get("service") in SERVICE_LABEL else ""
+    item_id = it.get("id") if isinstance(it.get("id"), str) else None
     return ItemVM(_plain(it.get("title") or "") or "Untitled", href, str(it.get("kind", "")), detail,
                   progress_words(it.get("kind", ""), it.get("progress")), _image(it.get("artwork")),
-                  service=service, resumable=resumable, finished=finished)
+                  service=service, resumable=resumable, finished=finished, item_id=item_id,
+                  fraction=progress_fraction(it.get("progress")))
 
 
 def build_sections(view: dict) -> Tuple[SectionVM, ...]:
@@ -184,7 +206,7 @@ def build_sections(view: dict) -> Tuple[SectionVM, ...]:
     return tuple(out)
 
 
-# ---- The Home page (AVR-374/452/478): places, Continue, New this week ---------------------------------
+# ---- The Home page (AVR-374/452/478; Concept K AVR-718): places, the hero, Continue, Recently added ------
 # Pure functions over `member_view()` plus the catalogue's tile list. Nothing here calls an adapter.
 RAIL_MOST = 4                       # a rail is one bounded row, never more than four things
 NEW_ALL = "all"
@@ -196,7 +218,8 @@ SHAPE = {"movie": "poster", "series": "poster", "episode": "still", "audiobook":
          "comic": "comic", "ebook": "book"}
 NOTHING_IN_PROGRESS = ("Nothing in progress. Whatever you start in a library appears here, "
                        "ready to pick up where you stopped.")
-NOTHING_NEW = "Nothing new this week."
+# "Recently added", never "this week": the upstream lists are not date-bounded (memo section 4, wording fix).
+NOTHING_NEW = "Nothing recently added."
 NO_LIBRARY = "No library is shared with this account yet. Ask the person who invited you, or read Help."
 
 
@@ -219,6 +242,30 @@ class CardVM:
     kind_label: Optional[str] = None   # "Movie", "Episode", "Audiobook", ... in member language
     action: str = "Open"               # the one visible verb: "Resume" only for a trustworthy saved position
     action_label: Optional[str] = None # accessible name for the action when the verb alone is ambiguous
+    bar: Optional[int] = None          # Continue only: the progress rule's length in 5% steps (0 to 100), beside
+                                       # the words, never instead of them; None draws no rule
+
+
+# The hero's one hand-off (memo sections 4 and 6). It names the app that opens, because that is where the member
+# lands (an installed Home opens it in a separate view), and it never claims playback: "Resume" only for a saved
+# position this member has in Movies and TV; the other libraries say what the member does there.
+HERO_APP = {"jellyfin": "Jellyfin", "audiobookshelf": "Audiobookshelf", "komga": "Komga", "calibre-web": "Calibre-Web"}
+HERO_VERB = {"jellyfin": "Open", "audiobookshelf": "Listen", "komga": "Read", "calibre-web": "Open"}
+
+
+@dataclass(frozen=True)
+class HeroVM:
+    """Home's hero (Concept K, AVR-718): the member's own next thing. `state` is "continue" (the first Continue item,
+    eyebrow in the Media yellow: it is the member's own state) or "recent" (nothing in progress: the first Recently
+    added item, eyebrow in Stone: a list is not the member's state). Built only from this member's sections."""
+    state: str
+    title: str
+    shape: str
+    image: Optional[str]               # same-origin /art/... only (the gateway re-checks it per member)
+    meta: Optional[str]                # "1 hour 10 minutes left · Movies and TV"
+    action: str                        # "Resume in Jellyfin": visible text of the one primary hand-off
+    action_href: str                   # the item's https hand-off on its library's fixed host
+    details_href: Optional[str] = None  # the title page, only for a library that has one (permission-checked)
 
 
 @dataclass(frozen=True)
@@ -239,6 +286,7 @@ class HomeVM:
     all_down: bool = False               # nothing answers: a calm page, not an error (no per-library lines)
     all_unset: bool = False              # every library is not set up yet: one block with the next step
     setup_href: Optional[str] = None     # "What to do": a library is not set up for this member
+    hero: Optional[HeroVM] = None        # Concept K hero (AVR-718); None on every state with nothing of the member's
 
 
 @dataclass(frozen=True)
@@ -369,19 +417,50 @@ def action_of(it: ItemVM, in_continue: bool) -> Tuple[str, str]:
     return verb, (f"{verb} in {library}" if library else verb)
 
 
+def _bar(it: ItemVM) -> Optional[int]:
+    """The progress rule in 5% steps, only beside progress words (a rule never stands alone)."""
+    if it.fraction is None or not it.progress:
+        return None
+    return max(0, min(100, int(round(it.fraction * 20)) * 5))
+
+
 def _cards(items, line_of, progress: bool = False) -> Tuple[CardVM, ...]:
     out = []
     for it in items:
         verb, name = action_of(it, progress)
         out.append(CardVM(it.title, it.href, SHAPE.get(it.kind, "poster"), line_of(it), it.image,
                           it.progress if progress else None, kind_label=KIND_LABEL.get(it.kind),
-                          action=verb, action_label=name))
+                          action=verb, action_label=name, bar=_bar(it) if progress else None))
     return tuple(out)
 
 
+def hero_of(it: ItemVM, state: str, title_services=frozenset()) -> Optional[HeroVM]:
+    """The hero for one of THIS member's items (already filtered by `_item_vm`: https hand-off on a fixed host).
+    Continue: progress in words, then the library. Recently added: the series or episode line (or what it is),
+    then the library. Details links to the title page only where that library offers the permission-checked
+    item lookup and the id is valid; otherwise there is no Details at all, never a dead link."""
+    if it.service not in HERO_APP or not handoff_ok(it.href, it.service):
+        return None
+    library = SERVICE_LABEL[it.service]
+    kind = KIND_LABEL.get(it.kind)
+    if state == "continue":
+        meta = " · ".join(x for x in (it.progress or it.detail, library) if x)
+    elif it.detail:
+        meta = f"{it.detail} · {library}"
+    else:
+        meta = kicker_of(kind or "", library)      # "Episode · Movies and TV", but "Movies and TV" for a movie
+    verb = "Resume" if (state == "continue" and it.service == "jellyfin" and it.resumable) else HERO_VERB[it.service]
+    parts = split_item_id(it.item_id)
+    details = (title_href(parts[0], parts[1]) if parts is not None and parts[0] == it.service
+               and it.service in title_services else None)
+    return HeroVM(state, it.title, SHAPE.get(it.kind, "poster"), it.image, meta or None,
+                  f"{verb} in {HERO_APP[it.service]}", it.href, details)
+
+
 def build_home(view: dict, tiles, *, new_tab: Optional[str] = None, limit: int = RAIL_MOST,
-               member_name: str = "") -> HomeVM:
-    """Home as display data. Retry links point at `/` (the new tab is kept), the same page again."""
+               member_name: str = "", title_services=frozenset()) -> HomeVM:
+    """Home as display data. Retry links point at `/` (the new tab is kept), the same page again.
+    `title_services`: libraries with a title page (main.py's set), for the hero's Details link only."""
     limit = max(1, min(int(limit), RAIL_MOST))
     held = _sections_by_service(view)
     places = build_places(tiles, view)
@@ -434,7 +513,7 @@ def build_home(view: dict, tiles, *, new_tab: Optional[str] = None, limit: int =
                         for x in held[s] if x["section"] == "continue")
     continue_said = None if (cont or cont_degraded) else NOTHING_IN_PROGRESS
 
-    # New this week: a tab for each library that answers; anything else falls back to All. A member with
+    # Recently added: a tab for each library that answers; anything else falls back to All. A member with
     # exactly one library has no use for "All" (it is the same list), so that tab is not offered.
     libs = [(s, SERVICE_LABEL[s]) for s in SERVICE_ORDER
             if any(x["section"] == "recent" and x["state"] in ("ok", "empty") for x in held.get(s, ()))]
@@ -446,12 +525,25 @@ def build_home(view: dict, tiles, *, new_tab: Optional[str] = None, limit: int =
         new_said = None if (new or notices) else NOTHING_NEW
     else:
         new = _cards(items_of("recent", tab)[:limit], lambda it: it.detail or KIND_LABEL.get(it.kind))
-        new_said = None if new else (NOTHING_NEW if len(libs) == 1 else f"Nothing new in {SERVICE_LABEL[tab]} this week.")
+        new_said = None if new else (NOTHING_NEW if len(libs) == 1 else f"Nothing recently added in {SERVICE_LABEL[tab]}.")
+
+    # The hero (memo section 4, Actual states only): the member's own next thing. H1: the first Continue item that
+    # is not from a library said to be down (a stale card stays in its rail, but is never the one big promise).
+    # H0, nothing in progress: the first Recently added item, newest of each library in library order, whichever
+    # tab is chosen (the hero does not jump when the member changes tab). Nothing at all: no hero.
+    def up(it):
+        return not library_down(held.get(it.service, ()))
+    first_cont = next((it for it in cont if up(it)), None)
+    if first_cont is not None:
+        hero = hero_of(first_cont, "continue", title_services)
+    else:
+        recent = _round_robin([[it for it in items_of("recent", s) if up(it)] for s in SERVICE_ORDER], 1)
+        hero = hero_of(recent[0], "recent", title_services) if recent else None
     return HomeVM(**base, no_library=False, notices=tuple(notices), show_continue=bool(cont_services),
                   continue_items=_cards(cont, lambda it: it.detail, progress=True),
                   continue_said=continue_said, show_new=True,
                   new_tabs=tuple((k, n, k == tab) for k, n in tabs), new_items=new, new_said=new_said,
-                  retry_href=retry_href, setup_href=setup_href)
+                  retry_href=retry_href, setup_href=setup_href, hero=hero)
 
 
 # ---- search page (AVR-383) --------------------------------------------------------------------------------

@@ -282,7 +282,7 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
         if decision.label == "/" and settings.home_sections and p is not None and adapter_list:
             home = build_home(await _gather(viewer), decision.context["tiles"],
                               new_tab=new_tab_from_scope(scope), limit=settings.section_limit,
-                              member_name=(facts.name or facts.username))
+                              member_name=(facts.name or facts.username), title_services=title_services)
             extra["home"] = home
             extra["shell"] = shell_for(viewer, "home", places=home.places)
         elif decision.status == 200 and decision.label in SHELL_PAGES:

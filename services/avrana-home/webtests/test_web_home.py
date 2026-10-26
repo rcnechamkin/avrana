@@ -104,7 +104,7 @@ class HomeViewModelTests(unittest.TestCase):
                               ("audiobookshelf", "Audiobooks", False)], list(home.new_tabs), bad)
             self.assertEqual(["F1", "F2"], [c.title for c in home.new_items])
         own = build_home(v, TILES, new_tab="audiobookshelf")
-        self.assertEqual("Nothing new in Audiobooks this week.", own.new_said)
+        self.assertEqual("Nothing recently added in Audiobooks.", own.new_said)
         self.assertEqual(NEW_ALL, [k for k, _n, cur in build_home(v, TILES).new_tabs if cur][0])
 
     def test_all_says_which_library_and_a_library_tab_says_what_it_is(self):
