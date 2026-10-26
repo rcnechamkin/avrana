@@ -444,7 +444,8 @@ existing variables, so no rule below them changes:
 | `--dim-on-fg` | `#333333` | Graphite `#5E5B57` | 5.6:1 on Cream |
 
 Atomic Purple and Purple Deep are Party only and are not used. Media stays monochrome; library artwork keeps its
-original colour and natural shape.
+original colour and natural shape. *(Superseded on shell pages by the Media yellow, AVR-715; see the Concept K
+section above.)*
 
 **Type.** *(Superseded on shell pages by Plus Jakarta Sans, AVR-715; see the Concept K section above.)* Geist
 (variable, 100 to 900, SIL OFL 1.1) replaced the serif on shell pages, served from `/brand/geist.woff2` with

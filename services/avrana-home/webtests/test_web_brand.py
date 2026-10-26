@@ -78,7 +78,7 @@ class BrandFiles(unittest.TestCase):
                       "--accent:#eada6e", "--accent-deep:#776a00", "--warn:#f59e0b", "--focus:var(--accent)",
                       '"plus jakarta sans"', 'url("/brand/plus-jakarta-sans-latin.woff2")',
                       'url("/brand/plus-jakarta-sans-latin-ext.woff2")', "font-display:swap",
-                      "--motion-3:200ms", "prefers-reduced-motion:reduce", "prefers-reduced-transparency:reduce"):
+                      "--motion-3:200ms", "prefers-reduced-transparency:reduce"):
             self.assertIn(token, css)
         rules = re.sub(r"/\*.*?\*/", "", css, flags=re.S)          # the comments may name what is not used
         for purple in ("#b9a9e8", "#5a439d", "--avr-purple", "rgb(185", "--color-purple"):
@@ -93,14 +93,41 @@ class BrandFiles(unittest.TestCase):
         self.assertNotIn("jakarta", portal)
         self.assertNotIn("#eada6e", portal)
 
-    def test_glass_clips_itself_and_has_fallbacks(self):
+    def test_glass_clips_itself_and_has_fallbacks_after_it(self):
         css = (TEMPLATES / "home.css").read_text(encoding="utf-8")
-        glass = re.search(r"\.glass\{([^}]*)\}", css).group(1)
-        for decl in ("isolation:isolate", "overflow:hidden", "backdrop-filter:blur(28px)"):
-            self.assertIn(decl, glass)
+        glass = re.search(r"\.glass\{([^}]*)\}", css)
+        for decl in ("isolation:isolate", "overflow:hidden"):
+            self.assertIn(decl, glass.group(1))
+        # both the prefixed and the unprefixed property, each a declaration of its own
+        self.assertRegex(glass.group(1), r"(^|;)\s*-webkit-backdrop-filter:blur\(28px\)")
+        self.assertRegex(glass.group(1), r"(^|;)\s*backdrop-filter:blur\(28px\)")
         self.assertNotIn("border-image", re.sub(r"/\*.*?\*/", "", css, flags=re.S))
-        self.assertIn("@supports not ((backdrop-filter:blur(1px))", css)
-        self.assertIn("@media (forced-colors:active){.glass", css)
+        # the fallbacks only win if they come after the base rule (same specificity)
+        for fallback in ("@supports not ((backdrop-filter:blur(1px))", "(prefers-reduced-transparency:reduce)",
+                         "@media (forced-colors:active){.glass"):
+            self.assertGreater(css.index(fallback), glass.start(), fallback)
+
+    def test_reduce_motion_stops_every_animation(self):
+        css = (TEMPLATES / "home.css").read_text(encoding="utf-8")
+        self.assertIn("@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;"
+                      "transition:none!important;}}", css)
+
+    def test_every_shell_link_focuses_in_the_yellow_without_outweighing_control_rings(self):
+        css = (TEMPLATES / "home.css").read_text(encoding="utf-8")
+        self.assertIn(":where(body:has(.mast)) a:focus-visible{outline:2px solid transparent;"
+                      "box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--focus);}", css)
+        self.assertIn("--rule-quiet:var(--ash);}}", css)              # quiet rules rise with more contrast
+
+    def test_the_sync_tool_pins_match_sources_json(self):
+        import importlib.util
+        path = Path(brand.__file__).resolve().parents[2] / "tools" / "sync_brand_assets.py"
+        spec = importlib.util.spec_from_file_location("sync_brand_assets", path)
+        tool = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(tool)
+        files = brand.sources()["files"]
+        for name, (_src, _pkg, pinned, _b64) in tool.FONTS.items():
+            self.assertEqual(pinned, files[name]["sha256"], name)
+        self.assertEqual(set(files), set(tool.ASSETS) | set(tool.FONTS))
 
 
 class BrandRoutes(unittest.TestCase):
