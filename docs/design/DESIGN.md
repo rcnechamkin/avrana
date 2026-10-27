@@ -419,7 +419,8 @@ words stay whole; a single word wider than the column may still break rather tha
 
 - **Radii:** preview 20 (art, hero), panel 16, button 14, control 12, chip 8; the tab bar and pills are fully
   round.
-- **The Three Glass Rule.** One `.glass` class (28px blur, inset highlights, a masked `::before` rim, never
+- **The Three Glass Rule.** One `.glass` class (liquid, not frosted: a thin tint, 16px blur with 1.9 saturation, a two-corner masked
+  `::before` rim, inner caustics and an `::after` sheen, CSS only, never
   `border-image`; the element clips itself with its radius, `overflow: hidden` and `isolation`) is worn by exactly
   three controls: the tab bar, the top-left Home button, and the top-right utility on Library. Everything else is
   opaque: cards, chips, panels, banners, the search field, the update prompt. Fallbacks: no `backdrop-filter`,
