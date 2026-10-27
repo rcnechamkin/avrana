@@ -498,17 +498,17 @@ words stay whole; a single word wider than the column may still break rather tha
   the verb for assistive technology only. A card never takes an `aria-label`, a second control, a menu or an icon.
 - **Artwork keeps each library's shape** (owner decision, 2026-10-15): 2:3 posters and books, 13:20 comics, square
   audiobooks, 16:9 stills. Art is 180px high in rails (`--art-h`), each shape at its natural width, contained and
-  never cropped, with the preview radius. On phones a still is held to the card width and stands shorter,
-  bottom-aligned; from 45rem it may be up to 12.5rem wide (`--wide-max`), wider than the 9.5rem cards.
+  never cropped, with the preview radius. Each card is as wide as its art (posters 120px, squares 180px); a still is
+  held to `--wide-max` (180px on phones, 12.5rem from 45rem) and stands shorter, bottom-aligned.
   Covers are decoration (`alt=""`); the title is always beside them in words. Artwork keeps its original colour.
 - **Progress** is words plus a 3px Cream rule along the foot of the art, hidden from assistive technology, its
   length a 5 % step class (`pc0` to `pc100`) because the CSP forbids inline style. Never yellow.
-- **Rails scroll sideways** inside themselves; the page never does. On phones every card is one width (11.25rem,
-  `--card-min`; 9.5rem from 45rem), so the next card peeks in; the rail snaps to card starts (mandatory) and a
+- **Rails scroll sideways** inside themselves; the page never does. Cards sit one 0.875rem gap apart whatever the
+  media type (owner review 2026-10-27: one fixed card width left posters trailing empty space), so the next card peeks in; the rail snaps to card starts (mandatory) and a
   trailing spacer lets the last card snap too. From 45rem the cards fit and snapping is proximity only.
 - **The Rail Focus Rule.** Browsers scroll a focused element into view only when it is wholly outside the scroller's
   optimal viewing region (the scroller less its `scroll-padding`), so a partly visible card would stay clipped. The
-  rail's right `scroll-padding` leaves a region one card (plus focus ring) wide: a peeking card counts as outside,
+  rail's right `scroll-padding` leaves a region one widest card (plus focus ring) wide: a peeking card counts as outside,
   Tab and Shift+Tab bring it fully into view, and the rail's padding keeps the ring unclipped. This relies on cards
   resting card-aligned, which is why phone rails snap mandatorily and carry the trailing spacer. No script.
   `tests/ui/check_home_export.mjs` checks it in Chromium with real key presses at 360, 390 and 390 at 200 % text;
