@@ -291,7 +291,7 @@
      gentle and no spacer is needed. */
   @media (min-width:45rem){.rail{--art-h:9rem;--card-min:9rem;--pad:0.375rem;--wide-max:12.5rem;margin:-0.375rem;
     scroll-snap-type:x proximity;}.rail::after{display:none;}
-    .rail.tall{--art-h:10.5rem;}.tabs{margin-inline:0;padding-inline:0;overflow:visible;}}
+    .rail.tall{--art-h:10.5rem;}.tabs{margin-inline:0;padding-inline:0;overflow:visible;flex-wrap:wrap;}}
   footer{display:flex;justify-content:center;gap:1.625rem;flex-wrap:wrap;padding-bottom:max(2.5rem,env(safe-area-inset-bottom));}
   @media (prefers-reduced-motion:reduce){.frame{transition:none;}}
   .retry{margin:0;}
