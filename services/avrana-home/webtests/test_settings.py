@@ -77,7 +77,9 @@ class SettingsTests(unittest.TestCase):
             with self.subTest(allowed=url):
                 Settings.from_mapping(dict(base, JELLYFIN_BASE_URL=url))
         for url in ("http://10.0.0.218:8096", "http://172.17.0.1:8096", "http://203.0.113.9",
-                    "http://jellyfin.lan:8096", "http://watch.avrana.net"):
+                    "http://jellyfin.lan:8096", "http://watch.avrana.net",
+                    # 10.0.0.218 spelled as one label: the C resolver (inet_aton) reads these as that address
+                    "http://167772378:8096", "http://0xa0000da:8096", "http://0XA0000DA:8096", "http://2130706433"):
             with self.subTest(refused=url), self.assertRaises(SettingsError) as cm:
                 Settings.from_mapping(dict(base, JELLYFIN_BASE_URL=url))
             self.assertIn("HTTPS across machines", str(cm.exception))
