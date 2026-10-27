@@ -224,3 +224,16 @@ can enforce it; the rest is operator policy.
 | **JWT required with the Audiobookshelf admin token** | Real mode with `AUDIOBOOKSHELF_BASE_URL` refuses to start unless `HOME_IDENTITY_MODE=jwt_required` (`settings.py`). Mock mode and the sealed owner preview are unaffected |
 | **HTTPS across machines; Docker's isolated networking exempt** | In real mode every upstream URL is `https://`, or plain `http://` only to loopback, `host.docker.internal` or a single-label Docker service name (`settings.plain_http_allowed`). Every non-loopback IP literal and dotted name over http is refused. The owner preview's example moves to Docker names (`preview.env.example`, `docs/runbooks/home-owner-preview.md`) |
 | **No username reuse** | An Authentik username, once used, is never given to another person. Offboarding deactivates (never deletes and recreates) and disables the member's Jellyfin and Audiobookshelf accounts (`scripts/offboard.py`), so the name maps to `disabled` in Home. Home has no stable account id (IDENTITY-MAPPING.md section 5.6), so this policy is what keeps a new person away from a former member's libraries. No link table |
+
+## Owner decisions, 2026-10-27: G1 applied (D-2, AVR-356)
+
+Owner approved the preflight, apply and validation in chat on 2026-10-27, window "now". Applied from `main`
+5a2ddbf (PR #108: explicit subnets) at about 14:40 PDT; signed off 14:46 PDT. Evidence on the host in
+`/mnt/avrana_media/.backups/batch7-20261027/` (rollback material with `SHA256SUMS`, state before and after).
+
+| Decision / result | Consequence |
+|---|---|
+| **G1 applied**: `authentik_portal` 10.220.29.0/24, `authentik_kindle` 10.220.30.0/24, `authentik_olivetin` 10.220.31.0/24, each holding `authentik-server` and one backend; `authentik_frontend` holds server, worker, ldap only | Bridge siblings can no longer reach the portal, Kindle connector or OliveTin. `g1-applied` marker set, so "not applied" and "cannot check" are now health FAILs |
+| Preflight 0 STOP / 0 VOID after the B2 off-host cap was raised (uploads had failed since 2026-10-10 with `storage_cap_exceeded`; alerts undelivered, AVR-346) | Off-host backups caught up the same day (13 runs remote) |
+| Checks: namespace sharing none (41/41); A 6/6 `200` from `authentik-server`; C controls pass; B 6/6 blocked with forged headers (`curl_rc` 6 names, 28 IPs); E1 6/6 redirected; **E2 passed (owner, member session)**: forged groups gave no Operations tile and `/ops` 404, forged username on Kindle showed only the member's own data | Finding F3 (outpost overwrites client headers) verified on Authentik 2026.5.6 |
+| Residuals unchanged | Host namespace (Jellyfin, Home Assistant, Beszel agent) and host shell still reach backend IPs (check D: `200`); D-3 remains the owner's decision. `avrana-boot-verify.service` failed unit since 2026-10-23 is unrelated and still open |
