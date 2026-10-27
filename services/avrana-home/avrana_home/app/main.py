@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import base64
 import contextlib
+import dataclasses
 import logging
 from pathlib import Path
 from typing import Optional, Sequence
@@ -36,6 +37,7 @@ from . import catalogue as catalogue_mod
 from .catalogue import Trusted
 from . import artwork as artwork_mod
 from . import install as install_mod
+from . import notice as notice_mod
 from . import pwa as pwa_mod
 from .identity import (IdentityResolver, Viewer, get_viewer, has_identity_headers, library_chip_from_scope,
                        new_tab_from_scope, search_term_from_scope)
@@ -166,6 +168,7 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
     # cache is an owner decision, see HOME-APP.md, and has no setting.)
     cache = MemberCache(SystemClock())
     adapter_list = list(adapters) if adapters is not None else build_adapters(settings, cache)
+    notices = notice_mod.NoticeBoard(settings.notice_file)          # AVR-365: read-only; None = no notices
 
     @contextlib.asynccontextmanager
     async def lifespan(_app):
@@ -183,6 +186,7 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
     app.state.catalogue = cat
     app.state.adapters = adapter_list
     app.state.env = env
+    app.state.notices = notices
     # Libraries whose search results link to a title page: those whose adapter offers the permission-checked
     # item lookup (`item`). The others' results link straight to the library.
     title_services = frozenset(a.service.value for a in adapter_list if "item" not in a.not_offered)
@@ -397,7 +401,10 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
         p = viewer.principal
         if not (settings.home_sections and p is not None and adapter_list):
             return None
-        return build_shell(tiles_for(viewer), current, (p.name or "").strip() or p.username, places=places)
+        shell = build_shell(tiles_for(viewer), current, (p.name or "").strip() or p.username, places=places)
+        # The operator notice (AVR-365): fixed words from notice.py, a library notice only for members who open it.
+        seen = notice_mod.visible_notice(notices.current(), place_paths(viewer))
+        return dataclasses.replace(shell, notice=seen) if seen is not None else shell
 
     async def _gather(viewer: Viewer) -> dict:
         """The sections for the verified member, via the adapters' own principal checks and

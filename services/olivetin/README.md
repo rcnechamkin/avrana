@@ -46,8 +46,9 @@ host, or exec into anything. This is not root-equivalent access.
 > allowlist is enforced above it (in `scripts/restart-service.sh` and OliveTin's fixed `choices`),
 > never by free-form input.
 
-**No free-form input anywhere.** The only parameter in the whole config is the service name, and
-it is a fixed `choices` dropdown *and* re-validated against a hardcoded allowlist in the script.
+**No free-form input anywhere.** The only parameters in the whole config are the service name and
+the member notice ID; each is a fixed `choices` dropdown *and* re-validated against a hardcoded
+allowlist in its script.
 Verified refused: `olivetin`, `authentik-server`, `bookstack-mariadb`, `jellyfin; rm -rf /`,
 `../../etc/passwd`, and empty.
 
@@ -66,6 +67,7 @@ writable host path is `state/`, which holds one marker file.
 | **Audiobookshelf library scan** | `POST /api/libraries/{id}/scan` for each library | no |
 | **Run stack backup now** | triggers the existing `avrana-backup.service` | yes |
 | **Restart Cloudflare tunnel** | bounces `cloudflared-avrana.service` so a newly added hostname goes live | yes |
+| **Member notice on Home** | sets or clears the one banner Avrana Home shows members (AVR-365); fixed choices, words live in Home | no |
 
 Restart allowlist: jellyfin, audiobookshelf, komga, calibre-web-automated, seerr,
 avrana-audible-connector, radarr, sonarr, prowlarr.
@@ -86,6 +88,17 @@ So OliveTin gets **one** capability instead: it writes a marker file to `state/`
 `systemd.path` unit notices it and starts `avrana-backup.service`. systemd will not run two
 instances of that unit, so a manual run **cannot race the 02:30 timer** - it joins the run already
 in progress. No socket, no exec, no host shell.
+
+### How the member notice works
+
+`scripts/home-notice.sh` writes `state/home-notice/current.json` (`{"id": ..., "set": ...}`) with an
+atomic rename, or deletes it for *Clear*. Avrana Home mounts `state/home-notice/` **read-only** and
+sets `HOME_NOTICE_FILE` to the file; it shows the fixed words it holds for that ID
+(`services/avrana-home/avrana_home/app/notice.py`), re-checking at most every 5 seconds. The file
+carries no words, markup or links, so this console cannot put arbitrary text on a member's screen,
+and Home has no route that writes it. Library notices (video, audiobooks, comics, books) show only
+to members who can open that library. Create the directory once: `mkdir -p state/home-notice`.
+Home is not deployed yet, so nothing reads the file until the Home deployment mounts it.
 
 **Restore is deliberately not a button.** It is destructive and needs judgement about which run and
 which components; it belongs in a terminal with the runbook open.

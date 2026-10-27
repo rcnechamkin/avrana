@@ -1,4 +1,4 @@
-{% from "_parts.html" import mast, tabbar %}<!doctype html>
+{% from "_parts.html" import mast, tabbar, notice_banner %}<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -27,6 +27,8 @@
     <div class="rule"></div>{% endif %}{% endblock %}
   </header>
   <main id="main" tabindex="-1">
+{% if shell and shell.notice %}{{ notice_banner(shell.notice) }}
+{% endif %}
 {% block body %}{% endblock %}
   </main>
   <footer>

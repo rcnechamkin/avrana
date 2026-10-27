@@ -467,6 +467,18 @@
     text-decoration:underline;text-decoration-color:var(--ash);text-underline-offset:0.2em;}
   .k-warn-act:hover{text-decoration-color:var(--cream);}
   @media (forced-colors:active){.k-warn{border-color:CanvasText;}.k-warn-ic{color:CanvasText;}}
+  /* The operator notice (AVR-365): the warning panel as a <details>, open by default, folds to its heading. */
+  .k-notice{margin:0 0 1rem;}
+  .k-notice details.k-warn{display:block;}
+  .k-notice summary{display:flex;align-items:flex-start;gap:0.75rem;min-height:2.75rem;cursor:pointer;list-style:none;
+    font-size:var(--text-body);font-weight:600;line-height:1.45;}
+  .k-notice summary::-webkit-details-marker{display:none;}
+  .k-notice-h{flex:1 1 auto;min-width:0;padding-top:0.125rem;}
+  .k-notice-t{flex:none;align-self:center;font-weight:600;text-decoration:underline;text-decoration-color:var(--ash);
+    text-underline-offset:0.2em;}
+  .k-notice details:not([open]) .k-notice-hide,.k-notice details[open] .k-notice-show{display:none;}
+  .k-notice details p{margin:0.5rem 0 0 2.25rem;font-size:var(--text-body);line-height:1.45;}
+  .k-notice summary:focus-visible{outline:2px solid var(--cream);outline-offset:4px;border-radius:4px;}
   /* A shelf per library: the heading, and a quiet link to that library's own place, right-aligned; it drops under
      the heading when they do not fit side by side. */
   .shelf-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:0 1rem;min-width:0;}

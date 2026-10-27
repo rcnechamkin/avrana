@@ -299,6 +299,7 @@ class ShellVM:
     places: Tuple[PlaceVM, ...]
     can_search: bool                      # only a member with a library is offered Library and Search
     current: str                          # home | library | search | me | account | help | help-topic | place | title
+    notice: Optional[object] = None       # the operator notice this member sees (notice.ActiveNotice), AVR-365
 
 
 @dataclass(frozen=True)
