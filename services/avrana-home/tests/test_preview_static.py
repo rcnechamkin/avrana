@@ -154,8 +154,13 @@ class ExampleEnvAndIgnoreTests(unittest.TestCase):
         self.assertTrue(pairs["PREVIEW_OWNER_USERNAME"].startswith("<"))
         self.assertTrue(pairs["CALIBRE_WEB_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS"].startswith("<"))
         self.assertNotIn("KOMGA_BASE_URL", pairs)                    # to verify at deploy, not guessed
-        self.assertEqual("http://10.0.0.218:13378", pairs["AUDIOBOOKSHELF_BASE_URL"])
-        self.assertEqual("http://10.0.0.218:8083", pairs["CALIBRE_WEB_BASE_URL"])
+        # HTTPS across machines (owner decision 2026-10-27): every example upstream must pass the real-mode rule.
+        from urllib.parse import urlsplit
+        from avrana_home.app.settings import plain_http_allowed
+        for name in ("JELLYFIN_BASE_URL", "AUDIOBOOKSHELF_BASE_URL", "CALIBRE_WEB_BASE_URL"):
+            parts = urlsplit(pairs[name])
+            self.assertTrue(parts.scheme == "https" or plain_http_allowed(parts.hostname or ""), name)
+        self.assertNotIn("10.0.0.218", "".join(pairs.values()))
 
     def test_preview_env_and_secrets_are_gitignored(self):
         rules = (REPO / ".gitignore").read_text(encoding="utf-8").splitlines()

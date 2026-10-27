@@ -74,7 +74,7 @@ class StartupRefusalTests(unittest.TestCase):
 
     def test_real_upstream_is_refused(self):
         real = Settings.from_mapping({"HOME_UPSTREAM_MODE": "real", "HOME_GATES_VERIFIED": "yes",
-                                      "JELLYFIN_BASE_URL": "http://jellyfin.internal:8096",
+                                      "JELLYFIN_BASE_URL": "http://jellyfin:8096",
                                       "JELLYFIN_API_KEY": "fake-key-for-test"})
         with self.assertRaises(DevIdentityRefused):
             check_startup(enabled=True, host="127.0.0.1", settings=real)

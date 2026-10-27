@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import ipaddress
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Mapping, Optional
@@ -53,6 +54,28 @@ class _OwnerPreviewSeal:
 # select the owner preview: HOME_OWNER_PREVIEW=yes without this token is refused.
 _OWNER_PREVIEW_SEAL = _OwnerPreviewSeal()
 MAX_MEMBER_USERNAME = 150                       # the principal's own limit
+
+
+DOCKER_HOST_GATEWAY = "host.docker.internal"   # Docker's alias for this same host (extra_hosts: host-gateway)
+_SERVICE_NAME = re.compile(r"[a-z0-9](?:[a-z0-9_-]{0,61}[a-z0-9])?")
+
+
+def plain_http_allowed(host: str) -> bool:
+    """Whether a plain-http upstream at `host` stays off the LAN: a loopback address, Docker's host-gateway alias,
+    or a single-label Docker service/container name (resolved only by Docker's embedded DNS on a shared,
+    isolated network). Every IP literal that is not loopback (LAN, Docker bridge or public) and every dotted
+    name is another machine, or could be, so it needs https."""
+    host = (host or "").strip("[]").lower()
+    if not host:
+        return False
+    if is_loopback_host(host) or host == DOCKER_HOST_GATEWAY:
+        return True
+    try:
+        ipaddress.ip_address(host)
+        return False
+    except ValueError:
+        pass
+    return _SERVICE_NAME.fullmatch(host) is not None
 
 
 def is_loopback_host(host: str) -> bool:
@@ -293,6 +316,15 @@ class Settings:
             if bool(abs_url) != bool(abs_token):
                 problems.append("AUDIOBOOKSHELF_BASE_URL and AUDIOBOOKSHELF_TOKEN (or _FILE) must be "
                                 "set together, or both left unset")
+        # HTTPS across machines (owner decision 2026-10-27, ABS admin-token review HIGH): in real mode a plain-http
+        # upstream must stay on this machine or inside Docker's isolated networking, so a service key never
+        # crosses the LAN in clear text. See `plain_http_allowed`.
+        if mode == "real":
+            for name, value in (("JELLYFIN_BASE_URL", base_url), ("AUDIOBOOKSHELF_BASE_URL", abs_url),
+                                ("KOMGA_BASE_URL", komga_url), ("CALIBRE_WEB_BASE_URL", cw_url)):
+                if value and urlsplit(value).scheme == "http" and not plain_http_allowed(url_host(value) or ""):
+                    problems.append(f"{name} uses plain http to another machine: use https, or a Docker service "
+                                    "name on a shared network (HTTPS across machines)")
         if base_url:
             _check_url(base_url, problems, "JELLYFIN_BASE_URL")
         if abs_url:
