@@ -1,0 +1,78 @@
+# Avrana Home LIVE-DATA BETA (AVR-771): real Authentik sign-in, the allowed tester's REAL libraries, read-only.
+# Runbook: docs/runbooks/home-beta-live.md. Owner-applied; nothing deploys this automatically.
+#
+# Same topology and Authentik provider as the synthetic beta (docker-compose.beta.yml): cloudflared
+# (media-beta.avrana.net) -> Authentik embedded outpost (signs in, gated by the avrana-beta group) -> HERE, with
+# the signed X-authentik-jwt. Same container name, so the provider's internal host http://avrana-home-beta:8096
+# is unchanged; run this file OR docker-compose.beta.yml, never both.
+#
+# The app runs as serve.py runs it (Dockerfile.live): real mode, which settings.py allows only with
+# HOME_GATES_VERIFIED=yes (G1 applied and signed off 2026-10-27, docs/DECISIONS.md; G2 suites in CI),
+# HOME_IDENTITY_MODE=jwt_required (also required by the Audiobookshelf admin token) and HOME_ALLOWED_USERS
+# (the second lock behind the avrana-beta group). A member is matched to their Jellyfin and Audiobookshelf
+# account by EXACT username (no mapping table); a name that differs shows "not set up".
+#
+# Networks: `authentik_home_beta` (shared with authentik-server alone, the G1 pattern) and the existing
+# Docker networks of the libraries it reads, so every upstream is a Docker service name or the host gateway:
+# HTTPS across machines (settings.plain_http_allowed); a LAN address over http is refused. All external:
+# this file creates no network. No host port is published.
+#
+# Secrets: ./secrets/ (gitignored, mode 0600, typed by the owner at a hidden prompt). Non-secret settings:
+# ./beta-live.env (gitignored; copy beta-live.env.example).
+services:
+  avrana-home-beta:
+    build:
+      context: .
+      dockerfile: Dockerfile.live
+      additional_contexts:
+        portal: ../avrana-portal
+    image: avrana-home-live:local
+    container_name: avrana-home-beta
+    networks: [authentik_home_beta, audiobookshelf_default]
+    # Jellyfin runs on the host network (:8096): reached as host.docker.internal, never the LAN address.
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    env_file: [beta-live.env]
+    environment:
+      - HOME_UPSTREAM_MODE=real
+      - HOME_GATES_VERIFIED=yes
+      - HOME_IDENTITY_MODE=jwt_required
+      - HOME_JWT_SECRET_FILE=/run/secrets/home_jwt_secret
+      - HOME_HEALTH_DETAIL=off
+      - HOME_SECTIONS=on
+      - JELLYFIN_BASE_URL=http://host.docker.internal:8096
+      - JELLYFIN_API_KEY_FILE=/run/secrets/jellyfin_api_key
+      - AUDIOBOOKSHELF_BASE_URL=http://audiobookshelf:80
+      - AUDIOBOOKSHELF_TOKEN_FILE=/run/secrets/audiobookshelf_token
+      - TZ=America/Los_Angeles
+    secrets: [home_jwt_secret, jellyfin_api_key, audiobookshelf_token]
+    read_only: true
+    tmpfs: ["/tmp:size=16m,mode=1777"]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    pids_limit: 128
+    mem_limit: 256m
+    cpus: 0.5
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8096/healthz',timeout=3).status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging: {driver: json-file, options: {max-size: "10m", max-file: "3"}}
+    restart: unless-stopped
+
+networks:
+  # Created by the owner once (home-beta-deploy.md step 2), shared with authentik-server only.
+  authentik_home_beta:
+    external: true
+  # Audiobookshelf's own compose network (service name `audiobookshelf`, container port 80; checked 2026-10-27).
+  audiobookshelf_default:
+    external: true
+
+secrets:
+  home_jwt_secret:
+    file: ./secrets/home_jwt_secret
+  jellyfin_api_key:
+    file: ./secrets/jellyfin_api_key
+  audiobookshelf_token:
+    file: ./secrets/audiobookshelf_token

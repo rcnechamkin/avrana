@@ -125,3 +125,8 @@ member.
 ## Rollback, all of it
 
 `6 → 5 → 4 → 3 → 2 → 1` undo lines above. The portal, the libraries and every member are untouched throughout.
+
+## Live data instead
+
+Owner decision 2026-10-27: the personal beta runs on live data. Use [`home-beta-live.md`](home-beta-live.md), which
+reuses steps 2, 3 and 6 above and replaces 1, 4 and 5.
