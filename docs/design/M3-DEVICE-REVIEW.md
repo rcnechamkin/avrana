@@ -59,6 +59,20 @@ certificate and Authentik sign-in, so it is just a link.
    text size, offline page). The beta shows synthetic data only (`Dockerfile.beta`), so nothing real is at risk.
 3. Tell the agent "looks good" or what is off; it records the result here and on AVR-585.
 
+**Automated device pass, 2026-10-27** (`services/avrana-home/tools/device_pass.js`, Chrome's iPhone emulation on
+the dev fixture stack, member-a; **not** Safari and not a real phone):
+
+| Check | Result |
+|---|---|
+| Responsiveness: Home, Library, Search, Me, Account, Help, trouble topic at 320, 375 (SE), 393 (15), 430 (15 Pro Max) and 15 landscape | P: every page 200, no horizontal scroll anywhere, no console errors |
+| Touch targets | P: nothing under 24 px apart from the dev-only "Switch" link and the off-screen skip link; search rows and rail cards are stretched links whose tap area is the whole row (search row 351 x 80 px) |
+| Accessibility, axe 4.14 (WCAG 2.0 to 2.2 AA plus best practice), Reduce Motion on | P: the only finding on every page is `region` on the dev identity banner, which the beta and production do not have |
+| Playback navigation | P: 8 hand-off links on Home, all on the allowed `*.avrana.net` hosts ("Resume in Jellyfin" on the hero); a Continue card opens its title page (200, title as the h2 under the sr-only h1, action "Resume" to `watch.avrana.net/web/#/details?id=...`); the Home link returns to `/` |
+| Installation | P: manifest "Avrana Media", `display: standalone`, `start_url` and `id` `/`, icons 192, 512 and maskable 512 all 200; `apple-touch-icon` 180 (200), `apple-mobile-web-app-capable`, title "Avrana Media", `viewport-fit=cover`; service worker active; offline navigation shows "This phone has no connection..." |
+
+Still needs the real phone (Step C): Safari's WebKit rendering, VoiceOver, Dynamic Type, Add to Home Screen and the
+installed app's sign-in after an Authentik session ends, and playback in the real Jellyfin and Audiobookshelf apps.
+
 ## 3. Journeys (record P pass, F fail, S skipped, with notes)
 
 Use `member-b` (every library) unless stated. Hand-off links go to the real public library hosts
