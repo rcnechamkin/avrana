@@ -24,6 +24,7 @@
     /* Media yellow (Butter-High, OKLCH 0.88 0.13 101): 13.1:1 on ink. Yellow Deep only for 14px+ semibold text on
        cream (4.55:1). Tints for the chosen chip and the lens. Never a large fill; never inside a warning. */
     --accent:#eada6e;--accent-deep:#776a00;--accent-selected:rgb(234 218 110 / 0.22);--accent-lens:rgb(234 218 110 / 0.24);
+    --lens:rgb(255 255 255 / 0.15);--lens-solid:#323236;
     /* Status: the console's colours. Media's older warn (#e8cf8a) reads as the same colour as the yellow, so shell
        pages use the console amber; status is always said in words as well. */
     --ready:#34d399;--warn:#f59e0b;--danger:#ef4444;
@@ -88,13 +89,13 @@
   @media (prefers-reduced-transparency:reduce),(prefers-contrast:more){
     .glass{background:var(--raised);-webkit-backdrop-filter:none;backdrop-filter:none;}
     .glass::before{background:var(--line-strong);}.glass::after{display:none;}}
-  /* The selected tab's lens: a raised drop of yellow-tinted glass (purple's role in Party), lit along its top edge;
-     a pressed tab gives a little (the 150 ms press tier). */
-  .k-lens,.tabbar .lens{background:var(--accent-lens);background-image:linear-gradient(to bottom,rgb(255 255 255 / 0.12),rgb(255 255 255 / 0) 60%);
-    box-shadow:inset 0 0 0 1px rgb(234 218 110 / 0.5),inset 0 1px 0 rgb(255 255 255 / 0.5),
-      inset 0 -6px 12px -8px rgb(234 218 110 / 0.45),0 4px 14px rgb(0 0 0 / 0.28);}
+  /* The selected tab's lens: a neutral, denser drop of glass, lit along its top edge, with no accent colour (owner,
+     2026-10-26: the way every system tab bar marks the current tab); a pressed tab gives a little (the 150 ms press
+     tier). */
+  .k-lens,.tabbar .lens{background:var(--lens);background-image:linear-gradient(to bottom,rgb(255 255 255 / 0.1),rgb(255 255 255 / 0) 60%);
+    box-shadow:inset 0 0 0 1px rgb(255 255 255 / 0.14),inset 0 1px 0 rgb(255 255 255 / 0.35),0 4px 14px rgb(0 0 0 / 0.28);}
   .tab{transition:transform 150ms ease-out;}.tab:active{transform:scale(0.94);}
-  @media (prefers-reduced-transparency:reduce),(prefers-contrast:more){.k-lens,.tabbar .lens{background:var(--accent-selected);box-shadow:inset 0 0 0 1px var(--accent);}}
+  @media (prefers-reduced-transparency:reduce),(prefers-contrast:more){.k-lens,.tabbar .lens{background:var(--lens-solid);box-shadow:inset 0 0 0 1px var(--line-strong);}}
   /* Reduce Motion: nothing animates. */
   @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;}}
   /* The portal's body centres its one column (justify-content:center); turned into a column here, that would centre
@@ -184,7 +185,7 @@
       max-width:none;padding:4px 2px;border-radius:1.25rem 1.25rem 0 0;}
     .tab{flex:1 1 auto;padding-inline:4px;}
     .tabbar .lens{display:none;}
-    .tab[aria-current]{background:var(--accent-lens);box-shadow:inset 0 0 0 1px rgb(234 218 110 / 0.55);}
+    .tab[aria-current]{background:var(--lens);box-shadow:inset 0 0 0 1px rgb(255 255 255 / 0.14);}
   }
   @media (forced-colors:active){.tabbar .lens{border:2px solid Highlight;}
     .tab[aria-current] .tl{text-decoration:underline;text-underline-offset:0.2em;}}
