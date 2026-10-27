@@ -48,23 +48,23 @@ Three tiers, the Material 3 model:
 
 | Role | For | Party | Media |
 |---|---|---|---|
-| `surface` | the page ground | `#0d0d0f` | `#000000` |
+| `surface` | the page ground | `#121214` | `#000000` |
 | `surface_low` | a quiet step up: notices, tiles | `#161618` | none |
 | `surface_raised` | a clear step up: fields, selected segments | `#1e1e21` | none |
-| `on_surface` | primary text | `#edeae4` (16.2:1) | `#ffffff` (21:1) |
-| `on_surface_muted` | secondary text | `#aeaba7` (8.5:1) | `#9a9a9a` (7.5:1) |
-| `on_surface_faint` | quiet labels, counts | `#8f8c89` (5.8:1) | none |
+| `on_surface` | primary text | `#edeae4` (15.6:1) | `#ffffff` (21:1) |
+| `on_surface_muted` | secondary text | `#aeaba7` (8.2:1) | `#9a9a9a` (7.5:1) |
+| `on_surface_faint` | quiet labels, counts | `#8f8c89` (5.6:1) | none |
 | `outline_quiet` | dividers only | white at 9% | `#474747` (2.3:1) |
-| `outline_control` | the edge of anything pressable | `#6e6c72` (3.7:1) | `#6e6e6e` (4.1:1) |
+| `outline_control` | the edge of anything pressable | `#6e6c72` (3.6:1) | `#6e6e6e` (4.1:1) |
 | `outline_strong` | emphasised rules, underlines | white at 18% | `#999999` |
 | `action` / `on_action` | the one main action of a region | `#edeae4` / `#121214` | `#ffffff` / `#000000` |
-| `accent` | selection, focus, links | `#b9a9e8` (9.2:1) | none |
+| `accent` | selection, focus, links | `#b9a9e8` (8.8:1) | none |
 | `selected` | a chosen item | accent at 16% | inversion |
 | `focus_ring` | keyboard focus | 2px `#b9a9e8`, 2px offset | 2px black then 2px white |
 | `status_ok` / `warn` / `error` | state, beside a word | `#70c696` / `#e6b862` / `#f08a7e` | `#8fe3a6` / `#e8cf8a` / `#ff8b8b` |
 | `status_info` | neutral information | `#81afdf` | none |
 
-Ratios are against the theme's `surface`, computed with the WCAG 2 formula on 2026-10-11. Every
+Ratios are against the theme's `surface`, computed with the WCAG 2 formula on 2026-10-11 (Party's `surface` moved to Concept K's ink `#121214` on 2026-10-21, AVR-706). Every
 Party text role also holds 4.5:1 on `surface_raised` and on the violet material (the lowest is
 `on_surface_faint` at 4.9:1); `outline_control` holds 3:1 on all of them.
 
