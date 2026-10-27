@@ -67,6 +67,7 @@ half the containers still carry its label).
 | Decision | Consequence |
 |---|---|
 | **D-8a**: CI may install exactly one hash-pinned PyYAML wheel, in CI only | `.github/requirements-ci.txt` holds one `==` pin with one sha256; `pip` runs `--require-hashes --only-binary=:all: --no-deps`. No secrets, read-only permissions, no deployment and the no-network second run are unchanged. `AVRANA_REQUIRE_YAML=1` makes a missing PyYAML fail the G1 security tests instead of skipping them. Any other dependency needs a new decision |
+| **D-8b** (owner, 2026-10-26, AVR-757): pin and document the missing test dependencies properly; do not skip the affected tests | `.github/requirements-ci.txt` adds hash-pinned pure-Python wheels for pytest (with iniconfig, packaging, pluggy, pygments), itsdangerous and python-multipart, and includes `services/avrana-home/requirements.lock` (FastAPI, Starlette, pydantic, Jinja2, httpx, uvicorn) instead of pinning those twice. The single pip call is unchanged (`--require-hashes --only-binary=:all: --no-deps`), and it is also the documented local install (`docs/DEVELOPMENT.md`). `tests/test_ci_workflow.py` holds the exact package list; any other dependency still needs a new decision |
 ## Owner decisions, 2026-10-15: Media 2.0 review
 
 Recorded from the owner's message of 2026-10-15. None of these authorises a production change: live
@@ -196,3 +197,18 @@ Quoted from the owner. O1 was given on 2026-10-25; the approval is of the Phase 
 | **D8:** the installed name is "Avrana Media" | Manifest `name` and `short_name`, `apple-mobile-web-app-title`; the manifest gains `id: "/"`, `description`, `lang` |
 | Kill switch `HOME_PWA_SW=off` | `/sw.js` serves a worker that unregisters itself and deletes its caches; the script skips registration and unregisters any worker it finds |
 | The worker caches only static, identical-for-everyone files | The page script, `/offline`, the brand font, lockup and favicon, the install icons. Never member HTML, `/art/*`, `/home.json`, search or any redirected, non-200, cross-origin or wrongly typed response. Navigations always go to the network; the offline page is shown only when the request itself fails. Navigations to `/signout` and `/outpost.goauthentik.io/` are not handled by the worker at all, so the hop and the outpost run as real navigations |
+
+## Owner decisions, 2026-10-26: Media direction after M3 (AVR-505)
+
+Recorded from the owner's "Personal Experience Specification v0.1" and dispositions of 2026-10-26. **Direction,
+not implementation approval**: no merge, deployment or build of any item below is approved by this entry. The
+tiers and issue IDs are in [`design/MEDIA-STATE-REGISTER.md`](design/MEDIA-STATE-REGISTER.md).
+
+| Decision | Consequence |
+|---|---|
+| Post-M3 direction selected: featured-first Home hero (AVR-750), browser playback spike (AVR-751), native movie and TV requests through a server-side broker (AVR-390, AVR-393, AVR-726), in-app inbox (AVR-752), release tracking (AVR-753), phone-to-TV control later (AVR-754, AVR-724) | None of it is M3 scope; each needs its own design and approval. Never a Seerr admin or global key in the browser |
+| Q1: no Jellyfin 12.x upgrade now | A future owner-controlled upgrade, with rollback and deployed-contract proof |
+| Q2: M3 Seerr handoffs only where the URL, version and ID allowlist is proven | No request filing in M3 |
+| Q3: Komga shared view unchanged; Q4: books and comics handoffs only | No member Komga API keys |
+| Q5: minimal OpenAPI facts with hashes and provenance | Legal disposition still open |
+| Q6: social deferred (AVR-749); AVR-723 NextUp not approved | No prototype |
