@@ -67,6 +67,7 @@ half the containers still carry its label).
 | Decision | Consequence |
 |---|---|
 | **D-8a**: CI may install exactly one hash-pinned PyYAML wheel, in CI only | `.github/requirements-ci.txt` holds one `==` pin with one sha256; `pip` runs `--require-hashes --only-binary=:all: --no-deps`. No secrets, read-only permissions, no deployment and the no-network second run are unchanged. `AVRANA_REQUIRE_YAML=1` makes a missing PyYAML fail the G1 security tests instead of skipping them. Any other dependency needs a new decision |
+| **D-8b** (owner, 2026-10-26, AVR-757): pin and document the missing test dependencies properly; do not skip the affected tests | `.github/requirements-ci.txt` adds hash-pinned pure-Python wheels for pytest (with iniconfig, packaging, pluggy, pygments), itsdangerous and python-multipart, and includes `services/avrana-home/requirements.lock` (FastAPI, Starlette, pydantic, Jinja2, httpx, uvicorn) instead of pinning those twice. The single pip call is unchanged (`--require-hashes --only-binary=:all: --no-deps`), and it is also the documented local install (`docs/DEVELOPMENT.md`). `tests/test_ci_workflow.py` holds the exact package list; any other dependency still needs a new decision |
 ## Owner decisions, 2026-10-15: Media 2.0 review
 
 Recorded from the owner's message of 2026-10-15. None of these authorises a production change: live
