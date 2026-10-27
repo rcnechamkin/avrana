@@ -8,8 +8,9 @@ with its own README; everything below that is not a script needs the owner's han
 
 The member-facing product milestone: [`docs/design/MEDIA-2.0.md`](design/MEDIA-2.0.md). M3 (the
 Avrana home) is the launch; M4 and M5 are post-launch. Current sprint:
-[`docs/design/MEDIA-2.0-SPRINT-1.md`](design/MEDIA-2.0-SPRINT-1.md). Items below that Media 2.0
-depends on:
+[`docs/design/MEDIA-2.0-SPRINT-1.md`](design/MEDIA-2.0-SPRINT-1.md). What is deployed, merged, in
+draft, approved or only a direction: [`docs/design/MEDIA-STATE-REGISTER.md`](design/MEDIA-STATE-REGISTER.md).
+Items below that Media 2.0 depends on:
 
 - **M0 (blocks invites and every notification):** the SMTP2GO rotation and alert script, `akadmin`
   MFA and Authentik proposals P1 to P6, Seerr CSRF and proxy trust (A20), off-host verification.
