@@ -81,10 +81,27 @@ class TitlePage(Fixture):
         r = c.get("/title/jellyfin/" + FILM_A3, headers=A)
         self.assertEqual(r.status_code, 200)
         self.assertIn('<h3 class="kicker" id="h-about">About</h3>', r.text)
+        self.assertIn('<div class="title-about">', r.text)                     # R3-A, Concept K
+        self.assertIn('<p class="summary" dir="auto">', r.text)
+        # order: title, then the action's note, then About
+        self.assertLess(r.text.index('id="h-title"'), r.text.index('class="hint"'))
+        self.assertLess(r.text.index('class="hint"'), r.text.index('id="h-about"'))
         self.assertIn("A synthetic film &amp; its overview. Second line.", r.text)
         for leak in ("<b>synthetic", "alert(1)", "<br>Second"):
             self.assertNotIn(leak, r.text)
         self.assertNotIn("its overview", c.get("/search?q=synthetic", headers=A).text)   # title page only
+
+    def test_the_about_block_css_keeps_its_tokens(self):
+        from avrana_home.app.main import TEMPLATES
+        css = (TEMPLATES / "home.css").read_text(encoding="utf-8")
+        rules = re.findall(r"\.title-about[^{]*\{[^}]*\}", css)
+        self.assertTrue(rules)
+        block = "".join(rules)
+        self.assertIn("var(--line)", block)
+        self.assertIn("var(--stone)", block)
+        self.assertNotIn("--accent", block)                 # never the Media yellow
+        self.assertNotIn("line-clamp", block)
+        self.assertIn(".title-about{border-top-color:CanvasText;}", css)
 
     def test_no_synopsis_no_about(self):
         c = self.client()
