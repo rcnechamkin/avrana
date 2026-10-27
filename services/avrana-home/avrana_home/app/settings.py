@@ -57,7 +57,9 @@ MAX_MEMBER_USERNAME = 150                       # the principal's own limit
 
 
 DOCKER_HOST_GATEWAY = "host.docker.internal"   # Docker's alias for this same host (extra_hosts: host-gateway)
-_SERVICE_NAME = re.compile(r"[a-z0-9](?:[a-z0-9_-]{0,61}[a-z0-9])?")
+# A service name starts with a letter: a label of digits (or 0x...) is an IPv4 address in another spelling to the
+# C resolver (inet_aton: "167772378" and "0xa0000da" are both 10.0.0.218), so it must meet the IP-literal rule.
+_SERVICE_NAME = re.compile(r"[a-z](?:[a-z0-9_-]{0,61}[a-z0-9])?")
 
 
 def plain_http_allowed(host: str) -> bool:
