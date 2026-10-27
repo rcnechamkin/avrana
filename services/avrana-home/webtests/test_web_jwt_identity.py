@@ -313,6 +313,124 @@ class ModeTests(Fixture):
 
 
 
+class HeaderBudgetTests(Fixture):
+    """AVR-732: the token, the header identity and every other header share one 16 KiB budget (app/identity.py)."""
+
+    @staticmethod
+    def token_of_length(target: int) -> str:
+        """A valid fixture token padded with an unused claim to `target` characters (base64 steps: within 3)."""
+        pad = max(0, (target - len(mint())) * 3 // 4 - 8)     # base64 turns 3 bytes into 4 characters
+        token = mint(claims={"x-pad": "p" * pad})
+        while len(token) < target - 3:
+            pad += 1
+            token = mint(claims={"x-pad": "p" * pad})
+        while len(token) > target:
+            pad -= 1
+            token = mint(claims={"x-pad": "p" * pad})
+        return token
+
+    def raw(self, client, headers, path="/"):
+        """Exact header bytes straight into the ASGI app (the test client would add headers of its own)."""
+        import asyncio
+        sent = []
+
+        async def receive():
+            return {"type": "http.request", "body": b"", "more_body": False}
+
+        async def send(message):
+            sent.append(message)
+
+        scope = {"type": "http", "method": "GET", "path": path, "raw_path": path.encode(), "query_string": b"",
+                 "client": ("203.0.113.9", 1), "headers": headers}
+        asyncio.run(client.fastapi_app(scope, receive, send))
+        return sent[0]["status"], b"".join(m.get("body", b"") for m in sent[1:]).decode("utf-8")
+
+    def test_a_request_using_the_whole_budget_is_served_and_one_byte_more_is_not(self):
+        from avrana_home.app.identity import IDENTITY_HEADER_BUDGET, MAX_HEADER_BYTES, header_bytes
+        token = self.token_of_length(IDENTITY_HEADER_BUDGET[JWT]).encode()
+        full = {JWT: token, USER: b"member-a".ljust(IDENTITY_HEADER_BUDGET[USER], b"a"),
+                GROUPS: b"avrana-users|avrana-videos".ljust(IDENTITY_HEADER_BUDGET[GROUPS], b"g")}
+        for name in IDENTITY_HEADER_BUDGET:
+            full.setdefault(name, b"x" * IDENTITY_HEADER_BUDGET[name])
+        headers = [(name.lower().encode(), value) for name, value in full.items()]
+        headers.append((b"host", b"127.0.0.1"))
+        filler = MAX_HEADER_BYTES - header_bytes(headers) - len(b"cookie") - 4
+        at_limit = headers + [(b"cookie", b"c" * filler)]
+        self.assertEqual(MAX_HEADER_BYTES, header_bytes(at_limit))
+        for client in (self.required, self.log_only, self.headers_app):
+            status, _ = self.raw(client, at_limit, "/account")
+            self.assertNotEqual(431, status)                    # at the budget: decided by identity, not by size
+            over = headers + [(b"cookie", b"c" * (filler + 1))]
+            status, body = self.raw(client, over, "/account")
+            self.assertEqual(431, status)
+            self.assertNotIn("member-a", body)
+        self.assertEqual([], self.mock.paths())
+
+    def test_the_budget_adds_up(self):
+        from avrana_home.app.identity import (IDENTITY_HEADER_BUDGET, MAX_HEADER_BYTES, MAX_JWT_HEADER_LEN,
+                                              OTHER_HEADERS_BUDGET)
+        from avrana_home.outpost_jwt import MAX_TOKEN_LEN
+        self.assertEqual(16 * 1024, MAX_HEADER_BYTES)
+        self.assertEqual(MAX_JWT_HEADER_LEN, IDENTITY_HEADER_BUDGET[JWT])
+        self.assertLessEqual(MAX_JWT_HEADER_LEN, MAX_TOKEN_LEN)     # Home's ceiling is the binding one
+        used = sum(len(name) + size + 4 for name, size in IDENTITY_HEADER_BUDGET.items())
+        self.assertEqual(MAX_HEADER_BYTES, used + OTHER_HEADERS_BUDGET)
+        self.assertGreaterEqual(OTHER_HEADERS_BUDGET, 3 * 1024)
+
+    def test_a_largest_valid_token_with_other_headers_inside_the_budget_is_served(self):
+        from avrana_home.app.identity import OTHER_HEADERS_BUDGET, header_bytes
+        from avrana_home.app.identity import MAX_JWT_HEADER_LEN as MAX_TOKEN_LEN
+        token = self.token_of_length(MAX_TOKEN_LEN)
+        self.assertLessEqual(len(token), MAX_TOKEN_LEN)
+        self.assertGreaterEqual(len(token), MAX_TOKEN_LEN - 3)
+        other = [("Cookie", "c" * (OTHER_HEADERS_BUDGET - 600)), ("User-Agent", "u" * 200)]
+        sent = [(JWT, token)] + other
+        # the test client adds host, accept, accept-encoding, connection and user-agent of its own
+        self.assertLess(header_bytes([(k.encode(), v.encode()) for k, v in sent]), 16 * 1024 - 300)
+        r = self.required.get("/", headers=sent)
+        self.assertEqual(200, r.status_code)
+        self.assertEqual(["watch", "request", "help"], self.tiles(r.text))
+        self.assertEqual(200, self.required.get("/watch", headers=sent).status_code)
+
+    def test_a_token_over_homes_limit_is_dropped_not_refused_by_size(self):
+        from avrana_home.app.identity import MAX_JWT_HEADER_LEN as MAX_TOKEN_LEN
+        token = self.token_of_length(MAX_TOKEN_LEN + 200)
+        self.assertGreater(len(token), MAX_TOKEN_LEN)
+        r = self.required.get("/", headers=[(JWT, token)])
+        self.assertEqual(200, r.status_code)                   # inside 16 KiB: no 431, simply no principal
+        self.assertEqual(["help"], self.tiles(r.text))
+        self.assertEqual(404, self.required.get("/watch", headers=[(JWT, token)]).status_code)
+        self.assertEqual([], self.mock.paths())
+
+    def test_an_oversized_token_is_dropped_so_log_only_still_serves_the_plain_headers(self):
+        from avrana_home.app.identity import MAX_JWT_HEADER_LEN
+        token = self.token_of_length(MAX_JWT_HEADER_LEN + 200)
+        records = []
+
+        class Capture(logging.Handler):
+            def emit(self, record):
+                records.append(record)
+
+        log, handler = logging.getLogger("avrana_home.app"), Capture(level=logging.DEBUG)
+        old = log.level
+        log.setLevel(logging.INFO)
+        log.addHandler(handler)
+        self.addCleanup(lambda: (log.removeHandler(handler), log.setLevel(old)))
+        r = self.log_only.get("/", headers=self.plain() + [(JWT, token)])
+        self.assertEqual(["watch", "request", "help"], self.tiles(r.text))
+        reasons = [rec.avrana_fields["reason"] for rec in records if rec.msg == "identity_jwt"]
+        self.assertEqual(["oversized_header", "missing_header"], reasons)   # as for a malformed token
+        self.assertFalse(any(token[:40] in repr(vars(rec)) for rec in records))   # never the token itself
+
+    def test_a_valid_token_in_a_block_over_16_kib_gets_431_and_no_page(self):
+        token = mint()
+        for client in (self.required, self.log_only, self.headers_app):
+            r = client.get("/watch", headers=[(JWT, token), ("Cookie", "c" * (16 * 1024))])
+            self.assertEqual(431, r.status_code)
+            self.assertNotIn("tile", r.text)
+        self.assertEqual([], self.mock.paths())
+
+
 class LogOnlyTests(Fixture):
     def capture(self):
         records = []

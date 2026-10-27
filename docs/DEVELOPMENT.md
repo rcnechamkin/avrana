@@ -6,8 +6,10 @@ Nothing in this file touches `avrana` (the host), the Cloudflare tunnel, Backbla
 
 ## Prerequisites
 
-- Python 3.12 (`python3` on Linux and macOS, `python` on Windows). Standard library only: there is no
-  `requirements.txt`, no virtualenv and nothing to install.
+- Python 3.12 (`python3` on Linux and macOS, `python` on Windows) in a virtual environment holding the
+  hash-pinned test dependencies from `.github/requirements-ci.txt` (decisions D-8a and D-8b): PyYAML,
+  pytest, FastAPI and the other web and connector test packages. Install them as in "Run everything".
+  Production code still needs nothing beyond what each service pins.
 - Git 2.30 or later. On Windows use Git for Windows; write files with LF endings
   (`git config core.autocrlf false`) and mark scripts executable with
   `git update-index --chmod=+x <path>`, because NTFS does not carry the mode.
@@ -15,8 +17,31 @@ Nothing in this file touches `avrana` (the host), the Cloudflare tunnel, Backbla
 
 ## Run everything
 
+Once per checkout, create a clean virtual environment and install exactly the CI set (Linux x86_64,
+CPython 3.12; the same command CI runs, decision D-8b, owner 2026-10-26):
+
 ```sh
-python3 -B tests/run_offline.py
+python3.12 -m venv .venv
+. .venv/bin/activate
+python -m pip install --disable-pip-version-check --no-cache-dir --no-deps --only-binary=:all: --require-hashes -r .github/requirements-ci.txt
+AVRANA_REQUIRE_YAML=1 python -B tests/run_offline.py
+```
+
+`.github/requirements-ci.txt` includes `services/avrana-home/requirements.lock`, so FastAPI, Starlette,
+pydantic, Jinja2, httpx and uvicorn are pinned once, there. `--no-deps` means the two files must name
+every package; pip refuses anything unhashed, unlisted or built from source.
+
+Windows and macOS: the hashes for PyYAML, pydantic-core and markupsafe are for the Linux x86_64 wheels only
+(every other pin is a pure-Python wheel whose hash holds everywhere), so `--require-hashes` fails there.
+For a local run on those platforms only, install the same `==` versions without hashes
+(`--only-binary=:all: --no-deps`, plus `colorama` on Windows, which pytest needs there); CI on Linux is the
+hash-checked install. Without the packages, `tests/test_ui_harness.py` fails ("pytest is not installed",
+"fastapi is not installed"): that is intended, the tests are not skipped.
+
+Each later run, inside the activated environment:
+
+```sh
+python -B tests/run_offline.py
 ```
 
 Exit 0 means every offline suite passed. Output includes lines starting `FAIL` from the backup tooling
@@ -47,7 +72,8 @@ One test: add `-k name` to a `unittest discover` command.
 Not run by `run_offline.py` today (a gap, not a design): `services/avrana-imax-verify/tests/test_server.py`
 (standard library, passes; run it with the command above), `scripts/test_epub_audiobook_matcher.py` and
 `scripts/test-storage-log-check.py` (standard library), the Audible connector tests under
-`services/avrana-audible-connector/connector/tests/` (need `pytest` and `fastapi`), and
+`services/avrana-audible-connector/connector/tests/` (their `pytest` and `fastapi` are in the pinned set,
+but the suite itself is not wired in; the UI harness renders its pages), and
 `services/calibre-web-automated/tests/` (needs the patched image). **Do not run
 `scripts/test_offboard.py` as a local check**: it invokes `/home/cody/avrana/scripts/offboard.py`, a host path.
 
@@ -107,12 +133,15 @@ After D-8 is approved and the workflow is merged, `.github/workflows/offline-tes
 request. It has no secrets and no deployment step, and `tests/test_ci_workflow.py` keeps it that way. CI is
 a second opinion; the local run before you commit is still the gate.
 
-PyYAML in CI (decision D-8a, owner 2026-10-14): the G1 compose-declaration and bypass-path tests need
-PyYAML. The workflow installs exactly one hash-pinned, binary-only wheel from `.github/requirements-ci.txt`
-and sets `AVRANA_REQUIRE_YAML=1`, so a missing PyYAML fails both runs instead of skipping those tests.
-Locally, `run_offline.py` prints a WARN when PyYAML is missing; set the same variable to make it fail. To
-change the pinned version, update the version and its sha256 together and have the policy change reviewed;
-`tests/test_ci_workflow.py` refuses any other install.
+Test dependencies in CI (decisions D-8a, owner 2026-10-14, and D-8b, owner 2026-10-26, AVR-757): the G1
+compose-declaration and bypass-path tests need PyYAML; the UI harness registry, the Audible pages and the
+avrana-home web suite need pytest, FastAPI and the packages listed in `.github/requirements-ci.txt`. The
+workflow installs exactly that file (and the avrana-home lock it includes) with one hash-pinned,
+binary-only, `--no-deps` pip call, the command in "Run everything", and sets `AVRANA_REQUIRE_YAML=1`, so a
+missing PyYAML fails both runs instead of skipping those tests. Locally, `run_offline.py` prints a WARN
+when PyYAML is missing; set the same variable to make it fail. To change a pinned version, update the
+version and its sha256 together and have the policy change reviewed; `tests/test_ci_workflow.py` holds the
+exact package list and refuses any other install.
 
 ## One worktree per issue
 
