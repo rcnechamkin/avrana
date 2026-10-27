@@ -7,15 +7,18 @@ statusStyle: dot
 hideVersion: true
 showStats: true
 layout:
-  Media:
+  Video:
     style: row
     columns: 3
-  Books & Comics:
+  Audiobooks:
     style: row
     columns: 3
-  Automation:
+  Books:
     style: row
     columns: 3
-  Server:
+  Comics:
+    style: row
+    columns: 3
+  Operations:
     style: row
     columns: 3
