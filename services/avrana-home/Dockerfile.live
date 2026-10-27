@@ -3,7 +3,8 @@
 # nothing live.
 #
 # Build (from services/avrana-home; the named context "portal" supplies the portal's route tables):
-#   docker build -f Dockerfile.live --build-context portal=../avrana-portal -t avrana-home-live:local .
+#   docker compose -p avrana-home-beta -f docker-compose.beta-live.yml build
+# (on avrana, plain `docker build --build-context` fails: no buildx; compose builds with BuildKit. Verified 2026-10-27.)
 #
 # Base image: the SAME pinned digest as Dockerfile.preview, Dockerfile.beta and services/avrana-portal/Dockerfile.
 # Contents (Dockerfile.live.dockerignore denies everything else): the hash-checked dependencies and avrana_home/
