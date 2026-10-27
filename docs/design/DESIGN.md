@@ -380,18 +380,20 @@ foundation's role names is in [FOUNDATION-MAPPING.md](FOUNDATION-MAPPING.md).
 | `--line`, `--line-strong` | white at 9 % and 18 % | Panel and chip edges, and 1px dividers between grouped rows and sections |
 | `--accent` | `#EADA6E` | Media yellow, Butter-High (13.1:1 on ink) |
 | `--accent-deep` | `#776A00` | Yellow Deep: 14px+ semibold text on cream only (4.55:1) |
-| `--accent-selected`, `--accent-lens` | yellow at 22 % and 24 % | Chosen chip tint, the tab lens |
+| `--accent-selected` | yellow at 22 % | Chosen chip tint |
+| `--lens`, `--lens-solid` | white at 15 %; `#323236` | The tab lens (neutral glass); its opaque fallback |
 | `--ready`, `--warn`, `--danger` | `#34D399`, `#F59E0B`, `#EF4444` | Status, always with words (D3: the console warn; Media's `#e8cf8a` reads as the yellow) |
 | `--focus` | `var(--accent)` | Every focus ring |
 
 The Title Card names (`--bg`, `--fg`, `--dim`, `--rule-*`, `--dim-on-fg`) are aliases of these, so older rules keep
 working. More contrast raises Stone, Ash, the lines and Control.
 
-**The Yellow Rule.** The Media yellow carries Atomic Purple's role in Party (O2), and only that: the tab lens, the
+**The Yellow Rule.** The Media yellow carries Atomic Purple's role in Party (O2), and only that: the
 chosen filter chip (tint, rim and a check glyph), the "yours" eyebrow and its 3px signal bar on Continue, the ADMIN
 role tag, and focus rings. Never on lists that are not the member's own state (Recently added, results), never on a
 progress bar (Cream), never inside a warning, never a large fill. Selection is told by geometry as well as colour
-(lens, check, bar, slanted tag); purple never appears in Media.
+(lens, check, bar, slanted tag); purple never appears in Media. The tab lens is neutral glass, not yellow (owner,
+2026-10-26), as in every system tab bar.
 
 **The Warning Rule.** A warning is a rectangle with a triangle glyph, words and a 1px `--warn` edge, on an opaque
 panel. Any large amber area is a warning, and a warning never contains the yellow. Status is always in words.
@@ -419,7 +421,8 @@ words stay whole; a single word wider than the column may still break rather tha
 
 - **Radii:** preview 20 (art, hero), panel 16, button 14, control 12, chip 8; the tab bar and pills are fully
   round.
-- **The Three Glass Rule.** One `.glass` class (28px blur, inset highlights, a masked `::before` rim, never
+- **The Three Glass Rule.** One `.glass` class (liquid, not frosted: a thin tint, 16px blur with 1.9 saturation, a two-corner masked
+  `::before` rim, inner caustics and an `::after` sheen, CSS only, never
   `border-image`; the element clips itself with its radius, `overflow: hidden` and `isolation`) is worn by exactly
   three controls: the tab bar, the top-left Home button, and the top-right utility on Library. Everything else is
   opaque: cards, chips, panels, banners, the search field, the update prompt. Fallbacks: no `backdrop-filter`,
@@ -437,7 +440,7 @@ words stay whole; a single word wider than the column may still break rather tha
   after the footer, so it is last in reading and focus order, as on screen. Glass, fixed above the bottom safe area,
   at most 28rem wide, edges in px so large text gets the width. Icons are inline SVG in `currentColor`; Me shows the
   member's initial on a raised circle, and its accessible name says who is signed in.
-- **Lens.** The section's tab carries the yellow lens, placed by `data-at` (the tab's index), which the server
+- **Lens.** The section's tab carries the neutral glass lens, placed by `data-at` (the tab's index), which the server
   prints, so it is right without JavaScript. `aria-current="page"` marks the tab that is this page, `"true"` the
   section a deeper page belongs to (places and titles under Home; Account, Help and its topics under Me). The page
   script only moves `data-at` on a plain click, and puts it back on `pagehide`. At very large text (viewport under
@@ -644,7 +647,7 @@ iPhone". The installed app is "Avrana Media" (D8).
 
 - **Do** build from `home.css` tokens only; one token file (the foundation is mirrored, not edited: D4, D14).
 - **Do** keep glass on the three shell controls and everything else opaque.
-- **Do** keep the yellow for the member's own state, selection, the lens and focus.
+- **Do** keep the yellow for the member's own state, selection and focus; the tab lens stays neutral.
 - **Do** keep the 404-not-403 doctrine: a page, chip, heading, link or empty state for a library the member cannot
   use does not exist for them.
 - **Don't** use purple, Geist, `#e8cf8a` or a large yellow fill, or put the yellow in a warning or a progress bar.

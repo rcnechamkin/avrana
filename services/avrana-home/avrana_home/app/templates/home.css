@@ -24,6 +24,7 @@
     /* Media yellow (Butter-High, OKLCH 0.88 0.13 101): 13.1:1 on ink. Yellow Deep only for 14px+ semibold text on
        cream (4.55:1). Tints for the chosen chip and the lens. Never a large fill; never inside a warning. */
     --accent:#eada6e;--accent-deep:#776a00;--accent-selected:rgb(234 218 110 / 0.22);--accent-lens:rgb(234 218 110 / 0.24);
+    --lens:rgb(255 255 255 / 0.15);--lens-solid:#323236;
     /* Status: the console's colours. Media's older warn (#e8cf8a) reads as the same colour as the yellow, so shell
        pages use the console amber; status is always said in words as well. */
     --ready:#34d399;--warn:#f59e0b;--danger:#ef4444;
@@ -66,21 +67,35 @@
      The element clips itself (radius set per control, overflow hidden, isolation), or Safari paints a square of
      blur around a round control. The rim is a masked ::before, never border-image. Blur is never animated. Controls
      inside a glass host draw focus inside it (outline-offset:-3px), because overflow:hidden clips anything outside. */
-  .glass{position:relative;isolation:isolate;overflow:hidden;background:rgb(18 18 20 / 0.58);
-    -webkit-backdrop-filter:blur(28px) saturate(1.2);backdrop-filter:blur(28px) saturate(1.2);
-    box-shadow:0 16px 40px rgb(0 0 0 / 0.45),inset 0 1px 0 rgb(255 255 255 / 0.28),inset 0 -8px 16px rgb(255 255 255 / 0.07);}
+  /* Liquid, not frosted (owner, 2026-10-26): a thin tint and a lighter blur with strong saturation, so the colour of
+     what scrolls beneath shows through; a rim lit at two opposite corners (light enters top-left and bounces out
+     bottom-right) and inner caustics along the top and bottom edges stand in for the refraction Safari cannot do
+     (it ignores `backdrop-filter:url()`, so no SVG displacement reaches the iPhone). A soft specular sheen sits in
+     ::after. CSS only: no script, no library; it works with JavaScript off. */
+  .glass{position:relative;isolation:isolate;overflow:hidden;
+    background:linear-gradient(to bottom,rgb(255 255 255 / 0.07),rgb(255 255 255 / 0.015) 55%),rgb(18 18 22 / 0.4);
+    -webkit-backdrop-filter:blur(16px) saturate(1.9) brightness(1.06);backdrop-filter:blur(16px) saturate(1.9) brightness(1.06);
+    box-shadow:0 12px 32px rgb(0 0 0 / 0.38),0 2px 6px rgb(0 0 0 / 0.22),
+      inset 0 10px 18px -12px rgb(255 255 255 / 0.4),inset 0 -10px 18px -12px rgb(255 255 255 / 0.2),
+      inset 0 0 0 0.5px rgb(255 255 255 / 0.08);}
   .glass::before{content:"";position:absolute;inset:0;z-index:-1;border-radius:inherit;padding:1px;pointer-events:none;
-    background:linear-gradient(to bottom,rgb(255 255 255 / 0.4),rgb(255 255 255 / 0.06));
+    background:linear-gradient(135deg,rgb(255 255 255 / 0.6),rgb(255 255 255 / 0.1) 32%,rgb(255 255 255 / 0.04) 62%,rgb(255 255 255 / 0.34));
     -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;
     mask:linear-gradient(#000 0 0) content-box exclude,linear-gradient(#000 0 0);}
+  .glass::after{content:"";position:absolute;inset:0;z-index:-1;border-radius:inherit;pointer-events:none;
+    background:radial-gradient(120% 70% at 28% -10%,rgb(255 255 255 / 0.14),transparent 60%);}
   @supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){
-    .glass{background:var(--raised);}.glass::before{background:var(--line-strong);}}
+    .glass{background:var(--raised);}.glass::before{background:var(--line-strong);}.glass::after{display:none;}}
   @media (prefers-reduced-transparency:reduce),(prefers-contrast:more){
     .glass{background:var(--raised);-webkit-backdrop-filter:none;backdrop-filter:none;}
-    .glass::before{background:var(--line-strong);}}
-  /* The selected tab's lens: a yellow tint and rim (purple's role in Party). */
-  .k-lens,.tabbar .lens{background:var(--accent-lens);box-shadow:inset 0 0 0 1px rgb(234 218 110 / 0.55),inset 0 1px 0 rgb(255 255 255 / 0.3);}
-  @media (prefers-reduced-transparency:reduce),(prefers-contrast:more){.k-lens,.tabbar .lens{background:var(--accent-selected);box-shadow:inset 0 0 0 1px var(--accent);}}
+    .glass::before{background:var(--line-strong);}.glass::after{display:none;}}
+  /* The selected tab's lens: a neutral, denser drop of glass, lit along its top edge, with no accent colour (owner,
+     2026-10-26: the way every system tab bar marks the current tab); a pressed tab gives a little (the 150 ms press
+     tier). */
+  .k-lens,.tabbar .lens{background:var(--lens);background-image:linear-gradient(to bottom,rgb(255 255 255 / 0.1),rgb(255 255 255 / 0) 60%);
+    box-shadow:inset 0 0 0 1px rgb(255 255 255 / 0.14),inset 0 1px 0 rgb(255 255 255 / 0.35),0 4px 14px rgb(0 0 0 / 0.28);}
+  .tab{transition:transform 150ms ease-out;}.tab:active{transform:scale(0.94);}
+  @media (prefers-reduced-transparency:reduce),(prefers-contrast:more){.k-lens,.tabbar .lens{background:var(--lens-solid);box-shadow:inset 0 0 0 1px var(--line-strong);}}
   /* Reduce Motion: nothing animates. */
   @media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;}}
   /* The portal's body centres its one column (justify-content:center); turned into a column here, that would centre
@@ -111,7 +126,7 @@
     .mast .lockup-text{display:inline;font-size:1.75rem;font-weight:300;line-height:1.2;}
   }
   /* Forced colours: glass shows as a system-coloured edge (the masked rim and blur mean nothing there). */
-  @media (forced-colors:active){.glass{border:1px solid CanvasText;}.glass::before{display:none;}}
+  @media (forced-colors:active){.glass{border:1px solid CanvasText;}.glass::before,.glass::after{display:none;}}
   .mast a{text-decoration:none;display:inline-flex;align-items:center;min-height:2.75rem;}
   /* The glass Home button (D5): a 44px circle holding the Spire-A micro cut at the 24px it is drawn for. Focus is
      drawn inside it, because glass clips what lies outside. In forced colours the cream mark gives way to the word
@@ -170,7 +185,7 @@
       max-width:none;padding:4px 2px;border-radius:1.25rem 1.25rem 0 0;}
     .tab{flex:1 1 auto;padding-inline:4px;}
     .tabbar .lens{display:none;}
-    .tab[aria-current]{background:var(--accent-lens);box-shadow:inset 0 0 0 1px rgb(234 218 110 / 0.55);}
+    .tab[aria-current]{background:var(--lens);box-shadow:inset 0 0 0 1px rgb(255 255 255 / 0.14);}
   }
   @media (forced-colors:active){.tabbar .lens{border:2px solid Highlight;}
     .tab[aria-current] .tl{text-decoration:underline;text-underline-offset:0.2em;}}
