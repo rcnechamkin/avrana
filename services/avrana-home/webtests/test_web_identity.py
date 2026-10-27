@@ -215,6 +215,30 @@ class RawScopeTests(unittest.TestCase):
                 self.assertEqual(404, self.call(headers, "/watch")[0], name)
                 self.assertEqual([], self.mock.paths())
 
+    def test_oversized_header_block_gets_431_before_identity_whatever_the_read_size(self):
+        """AVR-732: h11's own limit depends on how the bytes arrived; this one is applied to the scope itself."""
+        self.mock.reset()
+        for value in (b"g" * 70000, b"avrana-videos|" + b"g" * 17000):
+            with self.subTest(size=len(value)):
+                status, body = self.call([(b"X-authentik-username", b"member-a"), (b"X-authentik-groups", value)])
+                self.assertEqual(431, status)
+                self.assertNotIn("tile", body)
+                self.assertNotIn("member-a", body)
+                self.assertEqual(431, self.call([(b"X-authentik-groups", value)], "/watch")[0])
+        self.assertEqual([], self.mock.paths())                 # nothing reached the upstream
+
+    def test_largest_header_identity_with_a_realistic_token_and_cookie_is_under_the_limit(self):
+        from avrana_home.app.identity import MAX_HEADER_BYTES, header_bytes
+        from avrana_home.principal import MAX_GROUPS_HEADER_LEN, MAX_USERNAME_LEN
+        groups = ("avrana-videos|" + "|".join(["g" * 127] * 40))[:MAX_GROUPS_HEADER_LEN].rstrip("|").encode()
+        headers = [(b"x-authentik-username", b"u" * MAX_USERNAME_LEN), (b"x-authentik-groups", groups),
+                   (b"x-authentik-jwt", b"e" * 3072), (b"cookie", b"c" * 4096), (b"host", b"127.0.0.1"),
+                   (b"user-agent", b"a" * 256)]
+        self.assertLess(header_bytes(headers), MAX_HEADER_BYTES)
+        status, _ = self.call([(b"X-authentik-username", b"member-a"), (b"X-authentik-groups", groups),
+                               (b"Cookie", b"c" * 4096)], "/account")
+        self.assertNotEqual(431, status)
+
     def test_ascii_is_accepted_and_non_ascii_is_not(self):
         ok = [(b"X-authentik-username", ("m" + chr(0xe9) + "mber").encode()), (b"X-authentik-groups", b"avrana-users")]
         status, body = self.call(ok, "/account")

@@ -141,7 +141,10 @@ Each public method runs these steps, in this order, in the shared base class
   budget (never the hard cap); a flight older than one budget is abandoned and the next caller leads
   afresh; a follower never accepts an answer older than the mapping TTL; every follower gets its own
   new exception instance, never the leader's. A follower also knows its mapping was just confirmed by
-  the leader, so it never drops a mapping the leader has just confirmed.
+  the leader, so it never drops a mapping the leader has just confirmed. A sibling section of the
+  same page that starts only after the leader has already failed still follows that failed flight
+  (AVR-756): the page's jobs carry one page token, and a finished failed flight stays visible to that
+  page only. A later page, or a call outside a page, leads afresh, so the failure is never cached.
 - A `/Users` list that is non-empty but has **no parsable entry** (schema drift) is `UpstreamMalformed`
   (`UNAVAILABLE`, counted, not cached), never "everyone is unlinked". An empty list is legitimately
   unlinked.

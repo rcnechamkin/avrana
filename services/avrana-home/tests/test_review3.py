@@ -10,7 +10,7 @@ import unittest
 
 from avrana_home.adapters.jellyfin import JellyfinAdapter
 from avrana_home.aggregate import gather, health_summary
-from avrana_home.contract import SectionState
+from avrana_home.contract import SectionState, run_in_page
 from avrana_home.principal import principal_from_headers
 from avrana_home.resilience import CircuitBreaker, FakeClock, TransportResponse
 from tests.fake_jellyfin import FakeJellyfin, FakeTransport
@@ -142,6 +142,101 @@ class SingleFlightMapping(unittest.TestCase):
         t2.join(5)
         self.assertEqual(self.fake.paths().count("/Users"), 2)
         self.assertIs(done["r"].state, SectionState.OK)
+
+
+class LateSiblingSection(unittest.TestCase):
+    """AVR-756: the 'recent' job of a page may start only AFTER the 'continue' leader's mapping already failed
+    (pool scheduling). It must follow that failed flight, not lead afresh and count a second failure. Event-ordered,
+    no sleeps: 'recent' is held until 'continue' has returned."""
+
+    def setUp(self):
+        self.clock = FakeClock()
+        self.fake = FakeJellyfin(self.clock)
+        self.fake.overrides["/Users"] = ("status", 500)
+        self.adapter = JellyfinAdapter(FakeTransport(self.fake), clock=self.clock)
+        self.a = make_principal("member-a", GROUPS)
+
+    def late_sibling_page(self):
+        leader_done = threading.Event()
+        cont, recent = self.adapter.continue_items, self.adapter.recent_items
+
+        def continue_items(*args):
+            try:
+                return cont(*args)
+            finally:
+                leader_done.set()
+
+        def recent_items(*args):
+            self.assertTrue(leader_done.wait(5))
+            return recent(*args)
+        self.adapter.continue_items, self.adapter.recent_items = continue_items, recent_items
+        try:
+            return gather(self.a, [self.adapter])
+        finally:
+            del self.adapter.continue_items, self.adapter.recent_items
+
+    def test_a_sibling_starting_after_the_failed_leader_counts_no_second_failure(self):
+        res = self.late_sibling_page()
+        self.assertEqual([SectionState.UNAVAILABLE] * 2, [s.state for s in res.sections])
+        self.assertEqual(1, self.fake.paths().count("/Users"))
+        h = self.adapter.health()
+        self.assertEqual(("failing", 1), (h.state, h.consecutive_failures))
+
+    def test_the_failure_is_not_cached_each_later_page_asks_and_counts_again(self):
+        self.late_sibling_page()
+        self.late_sibling_page()
+        self.assertEqual(2, self.fake.paths().count("/Users"))
+        self.assertEqual(2, self.adapter.health().consecutive_failures)
+        self.late_sibling_page()
+        self.assertEqual("cooling_off", self.adapter.health().state)      # threshold unchanged: 3 pages
+
+    def test_a_different_page_never_follows_a_retained_unexpired_failure(self):
+        page1, page2 = object(), object()
+        run_in_page(page1, self.adapter.continue_items, self.a)
+        retained = self.adapter._flights[self.a.username]
+        self.assertTrue(retained.closed)
+        self.assertIs(page1, retained.page)
+        out = run_in_page(page2, self.adapter.recent_items, self.a)            # same instant: not expired
+        self.assertIs(SectionState.UNAVAILABLE, out.state)
+        self.assertEqual(2, self.fake.paths().count("/Users"))
+        self.assertEqual(2, self.adapter.health().consecutive_failures)
+        self.assertIs(page2, self.adapter._flights[self.a.username].page)
+
+    def test_another_member_is_untouched_by_a_retained_failure_of_the_same_page(self):
+        page = object()
+        run_in_page(page, self.adapter.continue_items, self.a)
+        retained = self.adapter._flights[self.a.username]
+        del self.fake.overrides["/Users"]                                       # the upstream recovers
+        b = make_principal("member-b", GROUPS)
+        out = run_in_page(page, self.adapter.continue_items, b)
+        self.assertIs(SectionState.OK, out.state)                               # its own flight and call
+        self.assertEqual(2, self.fake.paths().count("/Users"))
+        self.assertIs(retained, self.adapter._flights[self.a.username])         # member-a's flight unchanged
+        self.assertNotIn(b.username, self.adapter._flights)                     # a success is not retained
+
+    def test_a_retained_failure_older_than_the_request_timeout_is_ignored(self):
+        page = object()
+        run_in_page(page, self.adapter.continue_items, self.a)
+        self.clock.advance(self.adapter.request_timeout + 0.01)
+        out = run_in_page(page, self.adapter.recent_items, self.a)              # same page, but stale
+        self.assertIs(SectionState.UNAVAILABLE, out.state)
+        self.assertEqual(2, self.fake.paths().count("/Users"))
+        self.assertEqual(2, self.adapter.health().consecutive_failures)
+
+    def test_at_most_one_flight_per_member_is_retained_across_failing_pages(self):
+        seen = []
+        for _ in range(2):                                   # a third page would open the circuit
+            self.late_sibling_page()
+            self.assertEqual([self.a.username], list(self.adapter._flights))
+            seen.append(self.adapter._flights[self.a.username])
+        self.assertIsNot(seen[0], seen[1])                   # the later page replaced the earlier flight
+        self.assertTrue(all(f.closed and f.exc.__traceback__ is None for f in seen))
+
+    def test_calls_outside_a_page_still_lead_afresh_after_a_failed_flight(self):
+        self.adapter.continue_items(self.a)
+        self.adapter.recent_items(self.a)
+        self.assertEqual(2, self.fake.paths().count("/Users"))
+        self.assertEqual(2, self.adapter.health().consecutive_failures)
 
 
 class DisplayHeaders(unittest.TestCase):

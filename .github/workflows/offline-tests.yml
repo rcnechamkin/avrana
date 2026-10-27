@@ -1,12 +1,15 @@
-# Offline tests and the content gate. Decision D-8 (Media 2.0 Sprint 1), amended by D-8a (owner, 2026-10-14).
+# Offline tests and the content gate. Decision D-8 (Media 2.0 Sprint 1), amended by D-8a (owner, 2026-10-14)
+# and D-8b (owner, 2026-10-26, AVR-757).
 # Actions billing is blocked (2026-10-15): this workflow has not run on GitHub; local runs are the evidence.
-# Merging this file is the approval. It reads the repository and runs the standard-library suites;
-# it uses no secrets, has no network dependency beyond fetching the two pinned actions, Python and (D-8a,
-# owner 2026-10-14) one hash-pinned PyYAML wheel, and has no step that touches the host.
+# Merging this file is the approval. It reads the repository and runs the offline suites;
+# it uses no secrets, has no network dependency beyond fetching the two pinned actions, Python and the
+# hash-pinned wheels in .github/requirements-ci.txt (D-8a: PyYAML; D-8b: pytest, FastAPI and the other web
+# and connector test dependencies), and has no step that touches the host.
 # tests/test_ci_workflow.py enforces those properties.
 #
-# Runner needs (see docs/DEVELOPMENT.md): python 3.12, git, sh. Nothing else. The suites bind no
-# sockets, call no docker, rclone, zstd or curl, and use sqlite3 from the standard library.
+# Runner needs (see docs/DEVELOPMENT.md): python 3.12, git, sh and the pinned wheels. Nothing else. The
+# suites bind no sockets beyond loopback, call no docker, rclone, zstd or curl, and use sqlite3 from the
+# standard library.
 name: offline-tests
 
 on:
@@ -43,8 +46,9 @@ jobs:
           python-version: "3.12"
       - name: Python version
         run: python --version
-      # D-8a: exactly one hash-pinned wheel from requirements-ci.txt; pip refuses anything unhashed or a source build.
-      - name: Install the hash-pinned test dependency
+      # D-8a/D-8b: only the hash-pinned wheels in requirements-ci.txt (and the avrana-home lock it includes);
+      # pip refuses anything unhashed, a source build or an unlisted dependency.
+      - name: Install the hash-pinned test dependencies
         run: python -m pip install --disable-pip-version-check --no-cache-dir --no-deps --only-binary=:all: --require-hashes -r .github/requirements-ci.txt
       - name: Run every offline suite
         run: python -B tests/run_offline.py
