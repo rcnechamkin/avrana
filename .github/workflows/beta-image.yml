@@ -63,6 +63,8 @@ jobs:
             -e HOME_JWT_ISSUER -e HOME_JWT_AUDIENCE -e HOME_JWT_SECRET avrana-home-beta:ci
           for i in $(seq 1 30); do curl -fs -o /dev/null http://127.0.0.1:18096/healthz && break; sleep 1; done
           BETA_URL=http://127.0.0.1:18096 python3 -B services/avrana-home/beta/smoke.py
+      - name: Degraded-library rehearsal inside the container (AVR-388, mocks only)
+        run: docker exec beta python3 -B beta/rehearse_degraded.py
       - name: Container log (synthetic data only)
         if: always()
         run: docker logs beta || true

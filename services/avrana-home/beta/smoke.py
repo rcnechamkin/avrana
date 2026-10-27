@@ -26,10 +26,11 @@ def b64(raw: bytes) -> str:
     return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
 
 
-def mint(secret: str, issuer: str, audience: str, username: str = "member-a") -> str:
+def mint(secret: str, issuer: str, audience: str, username: str = "member-a",
+         groups=("avrana-users", "avrana-videos")) -> str:
     now = int(time.time())
     claims = {"iss": issuer, "aud": audience, "exp": now + 600, "iat": now - 5, "sub": "smoke",
-              "preferred_username": username, "groups": ["avrana-users", "avrana-videos"]}
+              "preferred_username": username, "groups": list(groups)}
     head = b64(json.dumps({"alg": "HS256", "typ": "JWT"}).encode())
     body = b64(json.dumps(claims).encode())
     mac = hmac.new(secret.encode(), f"{head}.{body}".encode(), hashlib.sha256).digest()
