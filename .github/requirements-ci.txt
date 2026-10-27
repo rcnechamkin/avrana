@@ -1,3 +1,30 @@
-# D-8a (owner, 2026-10-14): the only package CI installs. Hash-pinned, binary only, no dependencies.
+# The packages CI installs for tests/run_offline.py, and the documented local install (docs/DEVELOPMENT.md).
+# Hash-pinned, binary only, no dependency resolution: pip runs --require-hashes --only-binary=:all: --no-deps,
+# so this file plus the lock it includes must name the complete set.
+# D-8a (owner, 2026-10-14): PyYAML for the G1 compose-declaration and bypass-path tests.
+# D-8b (owner, 2026-10-26, AVR-757): the web and connector test dependencies, so the UI harness registry,
+# the Audible pages and the avrana-home web suite run instead of failing or skipping.
+# Hashes are for CPython 3.12 on Linux x86_64. Every wheel added by D-8b is pure Python (py3-none-any),
+# so its hash holds on every platform; PyYAML and the lock's pydantic-core and markupsafe are
+# platform wheels. Hashes checked against PyPI on the date in each comment.
+
 # PyYAML 6.0.2, CPython 3.12, manylinux x86_64 wheel; hash checked against PyPI on 2026-10-14.
 PyYAML==6.0.2 --hash=sha256:80bab7bfc629882493af4aa31a4cfa43a4c57c83813253626916b8c7ada83476
+
+# FastAPI, Starlette, pydantic, Jinja2, httpx, uvicorn and their dependencies: reused from the avrana-home
+# lock rather than pinned twice. The path is relative to this file.
+-r ../services/avrana-home/requirements.lock
+
+# The Audible connector app (pinned in its connector/requirements.txt) needs two packages the home app
+# does not: itsdangerous (signed sessions) and python-multipart (FastAPI form parsing). 2026-10-26.
+itsdangerous==2.2.0 --hash=sha256:c6242fc49e35958c8b15141343aa660db5fc54d4f13a1db01a3f5891b98700ef
+python-multipart==0.0.20 --hash=sha256:8a62d3a8335e06589fe01f2a3e178cdcc632f3fbe0d492ad9ee0ec35aab1f104
+
+# pytest and its runtime dependencies: the Audible connector's tests/conftest.py imports pytest, and the
+# UI harness renders the Audible pages through it. colorama is a Windows-only pytest dependency and is
+# not needed on Linux. 2026-10-26.
+pytest==9.1.1 --hash=sha256:37a86b45efb9a47a61a36449063e8e18d0cab3161329fc099eb21783169c4f0c
+iniconfig==2.3.0 --hash=sha256:f631c04d2c48c52b84d0d0549c99ff3859c98df65b3101406327ecc7d53fbf12
+packaging==26.3 --hash=sha256:d7193f7c8e4e93f444fde0262bf90af30e16fa0ad0ad44cb553c87339b23cd1c
+pluggy==1.6.0 --hash=sha256:e920276dd6813095e9377c0bc5566d94c932c33b27a3e3945d8389c374dd4746
+pygments==2.21.0 --hash=sha256:2363c69b61c4a97c838da3b130dcd6468f4848992b21a82f2a63ec34377137d9

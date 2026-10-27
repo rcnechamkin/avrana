@@ -24,6 +24,7 @@ the circuit shared by all members is `resilience.counts_toward_breaker`.
 """
 from __future__ import annotations
 
+import contextvars
 import copy
 import enum
 import logging
@@ -57,6 +58,20 @@ MAPPING_TTL_FOUND = 60.0              # bounds how long a renamed or swapped ups
 MAPPING_TTL_ABSENT = 60.0
 TRUNCATED = "truncated"               # SectionResult.reason: a list cut short by the request budget
 TRUNCATED_TTL = 5.0                   # ... is cached this briefly, so a complete list follows soon
+
+# The page a section job belongs to (AVR-756). `aggregate._run` gives every job of one page the same opaque token, so a
+# sibling section that starts only AFTER its single-flight leader failed still shares that one counted failure. Calls
+# outside a page (direct adapter calls, artwork) carry None and share only a flight that is still in progress.
+_PAGE: "contextvars.ContextVar[Optional[object]]" = contextvars.ContextVar("avrana_page", default=None)
+
+
+def run_in_page(page: object, fn: Callable[..., Any], *args: Any) -> Any:
+    """Run one section job of `page` (on a pool thread); the page token is cleared afterwards."""
+    token = _PAGE.set(page)
+    try:
+        return fn(*args)
+    finally:
+        _PAGE.reset(token)
 
 log = logging.getLogger("avrana_home")
 
@@ -309,15 +324,17 @@ class _ArtworkBreaker:
 
 class _Flight:
     """One in-progress mapping lookup that concurrent sections of the same member share."""
-    __slots__ = ("event", "result", "exc", "started", "finished", "counted")
+    __slots__ = ("event", "result", "exc", "started", "finished", "counted", "page", "closed")
 
-    def __init__(self, started: float):
+    def __init__(self, started: float, page: Optional[object] = None):
         self.event = threading.Event()
         self.result = None
         self.exc = None
         self.started = started            # when the leader began: an old flight is abandoned
         self.finished = None              # when the leader reported: a stale answer is not shared
         self.counted = True               # False when an artwork call led it (its failure was not counted)
+        self.page = page                  # the leader's page token (None outside a page)
+        self.closed = False               # the leader has reported (set under the flight lock)
 
 
 def _fresh_copy(err: Exception) -> Exception:
@@ -606,13 +623,16 @@ class MediaAdapter:
                 raise AmbiguousMappingError()
             raise MappingFailed(payload)
         member = principal.username
+        page = _PAGE.get()
         with self._flight_lock:
             flight = self._flights.get(member)
             if flight is not None and self.clock.now() - flight.started > self._request_timeout:
                 flight = None                # older than one request budget: its leader is hung or gone
+            elif flight is not None and flight.closed and (page is None or flight.page is not page):
+                flight = None                # a finished (failed) flight is shared only within its own page
             leader = flight is None
             if leader:
-                flight = self._flights[member] = _Flight(self.clock.now())
+                flight = self._flights[member] = _Flight(self.clock.now(), page)
                 flight.counted = not ctx.artwork
         if not leader:
             # Single-flight: a concurrent section of the same page is already asking the upstream
@@ -651,8 +671,16 @@ class MediaAdapter:
                 flight.finished = self.clock.now()
             except Exception:
                 flight.finished = None
+            # A failed flight of a page stays visible to that page's sibling sections that start after it ended
+            # (AVR-756): they follow it, so one page is still one counted failure. A failure is never cached as
+            # data; a later page (another token) or a call outside a page leads afresh. The kept copy carries no
+            # traceback, so a retained flight pins no frames.
+            retain = page is not None and isinstance(flight.exc, Exception)
+            if retain:
+                flight.exc = _fresh_copy(flight.exc)
             with self._flight_lock:
-                if self._flights.get(member) is flight:
+                flight.closed = True
+                if self._flights.get(member) is flight and not retain:
                     del self._flights[member]
             flight.event.set()
 
