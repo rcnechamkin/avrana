@@ -88,7 +88,7 @@ upstream's to report, and `/help/trouble` ("If something doesn't open") says wha
 | **Expired session / second sign-in elsewhere** | Library asks to sign in again (Help: "If you are asked to sign in") | same | same | same | app asks |
 | **Library unavailable** | Home: "Movies and TV are unavailable right now.", Try again, the place struck through and linked to `/help/trouble#unavailable` (any section unavailable counts; items still shown from the cache carry "Anything shown from them may be out of date."; see HOME-APP.md section 5). Everything down: one calm block, one combined line. Other libraries unaffected | same | same | same | n/a |
 | **Not linked** (no matching upstream account) | Home: "Movies and TV are not set up for your account yet." under a "Not set up yet" heading when nothing else answers, with "What to do next" linking `/help/trouble#not-set-up` (Search and the title page link the same section). Help: ask the person who invited you | same | same | same | n/a |
-| **Way back to Avrana** | Back button; AVRANA at the top of every Avrana page; footer "Back to home" on every shell page except Home | Close the sheet (Done) or swipe back (**UNVERIFIED**) | Back button | Back button | n/a |
+| **Way back to Avrana** | Back button; the Home tab and Home button on every shell page (AVRANA at the top before Concept K); footer "Back to home" on every shell page except Home | Close the sheet (Done) or swipe back (**UNVERIFIED**) | Back button | Back button | n/a |
 
 **Allowlist proof (fixtures).** `tests/test_continue_semantics.py::HandoffTests` proves each service builds its
 one fixed host and path, that hostile ids (`../`, `//host`, `@host`, `?`, `#`, backslashes, over-long, wrong
@@ -98,6 +98,12 @@ because they come only from that member's own section (isolation suites: `test_w
 `test_web_audiobooks`). No route builds a redirect from request input (`test_route_layer_source`).
 
 ## 5. Navigation decisions
+
+> *Superseded on Home shell pages by Concept K (2026-10-26; DESIGN.md "Concept K · Avrana Console", "Shell"):* the
+> masthead's AVRANA link and the top row (Search link, account menu) are gone. Home's heading is the Avrana Media
+> lockup; other shell pages have the glass Home button or a tab title; Search, Library and Me are tabs, and Account
+> and Help sit under Me. The places bar stays on Home only. The footer, interstitial, unavailable-place and
+> `/help/trouble` rules below still hold. P13 below checks for the Home button or Home tab.
 
 - Every shell page (Home, Search, Account, Help, help topics, `/help/trouble`, Read, Request, the Watch
   interstitial) shows the masthead with AVRANA linking to Home. Every one except Home has a footer
@@ -150,7 +156,7 @@ Preparation: one movie partly watched (Jellyfin), one episode partly watched, on
 | P10 | TV (Roku/Fire/Apple TV app) | Find the Continue movie by name in the TV app | The TV app's own resume point; Avrana does not claim to reach the TV |
 | P11 | Any | Stop Audiobookshelf briefly (owner's choice) or block it, load Home | Movies still show; "Audiobooks are unavailable right now."; Listen struck through and linking to the help section; Try again works once it is back |
 | P12 | Any | Remove or hide a Continue item upstream, wait 30 s, reload Home; tap an old link if still open | The card is gone after reload; the old link shows the library's own not-found page (record its wording) |
-| P13 | Any | Open Read, Request, the Watch interstitial, Help, a help topic, `/help/trouble`, Account | Each has AVRANA at the top and "Back to home" in the footer; Request explains what requesting does; nothing says "success" or "playing" |
+| P13 | Any | Open Read, Request, the Watch interstitial, Help, a help topic, `/help/trouble`, Account | Each has the Home button (or, on Account and Help, the tab bar's Home tab) and "Back to home" in the footer; Request explains what requesting does; nothing says "success" or "playing" |
 
 ## 7. Not done here
 

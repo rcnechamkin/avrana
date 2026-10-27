@@ -97,13 +97,17 @@ class SectionRenderingTests(Fixture):
         self.assertEqual(1, len(re.findall(r"<main(?:\s[^>]*)?>", text)))
         self.assertEqual(1, text.count("<h1>"))
         self.assertNotRegex(above, r"style=|<svg|<picture|<script|<canvas|on\w+=")
-        self.assertEqual(2, above.count("<h2"))
+        self.assertEqual(3, above.count("<h2"))           # the hero (AVR-718), Continue, Recently added
         # Continue is bounded (at most four); artwork is decoration (alt="") from the artwork route only
         self.assertLessEqual(len(re.findall(r'class="card"', above.split('id="h-new"')[0])), 4)
         for tag in re.findall(r"<img[^>]*>", above):
             self.assertRegex(tag, r'^<img class="art" src="/art/[A-Za-z0-9_/-]+" alt="" width="160" height="240" loading="lazy">$')
-        self.assertRegex(text, r'<details class="account">\s*<summary>')
-        self.assertEqual(1, text.count('class="idlink" href="/search"'))   # Search is in the masthead
+        # Search and Me are tabs (D1): each once, in the tab bar after the footer, never a sixth place
+        bar = re.search(r'<nav class="tabbar glass" aria-label="Sections".*?</nav>', text, flags=re.S).group(0)
+        self.assertEqual(1, text.count('href="/search"'))
+        self.assertEqual(1, bar.count('<a class="tab" href="/search"'))
+        self.assertEqual(1, bar.count('<a class="tab" href="/me"'))           # Me opens the Me hub (AVR-719)
+        self.assertGreater(text.index(bar), text.index("</footer>"))
 
     def test_navigation_stays_reachable_for_every_state(self):
         for headers in (A, B, C, D, NOLIB, ADMIN):
@@ -146,7 +150,8 @@ class SectionRenderingTests(Fixture):
         self.assertEqual(200, r.status_code)
         self.assertEqual([], cards(r.text))
         self.assertIn("Nothing in progress.", r.text)
-        self.assertIn("Nothing new this week.", r.text)
+        self.assertIn("Nothing recently added.", r.text)
+        self.assertNotIn("this week", r.text)                  # the lists are not date-bounded
 
     def test_hostile_titles_are_escaped_and_bidi_controls_removed(self):
         hostile = ['<script>alert(1)</script>', '"><img src=x onerror=alert(1)>', "' onmouseover='x",
@@ -185,7 +190,7 @@ class NavigationAndCallPatternTests(Fixture):
     PLACES = '<nav class="places" aria-label="Avrana">'
 
     def test_places_and_footer_are_present_once_in_every_state(self):
-        """Watch/Request/Help/Account stay reachable whatever the sections do."""
+        """Watch/Request/Help (places) and Account (the Me tab) stay reachable whatever the sections do."""
         scenarios = [("ok", self.on, A), ("not_linked", self.on, D),
                      ("no library", self.on, ADMIN), ("no principal", self.on, [])]
         failing = self.fresh()
@@ -201,7 +206,7 @@ class NavigationAndCallPatternTests(Fixture):
                 self.assertEqual(1, text.count("<footer>"))
                 self.assertEqual(1, len(re.findall(r"<main(?:\s[^>]*)?>", text)))
                 self.assertIn('href="/help"', text.split("</header>")[0])   # Help in the masthead's places bar (#56)
-                self.assertIn('href="/account"', text.split("<footer>")[0])   # the masthead's account menu
+                self.assertIn('<a class="tab" href="/me"', text.split("</footer>", 1)[1])   # Me, in the tab bar
         self.mock.set_mode("ok")
 
     def test_one_cold_page_makes_one_mapping_call(self):

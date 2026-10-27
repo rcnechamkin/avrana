@@ -1,6 +1,6 @@
-{# The Home sections, from the approved design: Continue, then New this week. Everything comes from the
+{# The Home sections, from the approved design: the hero, Continue, then Recently added. Everything comes from the
    view-model (`home`); titles are escaped by autoescape; hrefs are https hand-off URLs only. #}
-{% from "_parts.html" import card %}
+{% from "_parts.html" import card, frame %}
 {% if home.all_unset %}
   <section class="shelf" aria-labelledby="h-setup">
     <h2 id="h-setup">Not set up yet</h2>
@@ -27,6 +27,28 @@
   <p class="retry">{% if home.retry_href %}<a class="link" href="{{ home.retry_href }}">Try again<span class="sr"> to load your libraries</span></a>{% endif %}{% if home.retry_href and home.setup_href %} {% endif %}{% if home.setup_href %}<a class="link" href="{{ home.setup_href }}">What to do next<span class="sr"> about a library that is not set up</span></a>{% endif %}</p>
 {% endif %}
 {% endif %}
+{#- The hero (Concept K, AVR-718; memo section 4, D6): the member's own next thing, from the view-model only. The art
+   is the item's own /art image twice: crisp at its natural shape, and behind it a blurred, dimmed copy (CSS only),
+   so artwork keeps flowing through the member-scoped gateway. No art: the letter frame, and no backdrop. The eyebrow
+   is part of the heading, so heading navigation hears "Continue: <title>"; it is yellow only for the member's own
+   state (Continue), Stone for Recently added. One Cream hand-off that names the app and never claims playback, and
+   Details only where the library has a title page. #}
+{% if home.hero %}
+{% set h = home.hero %}
+  <section class="hero w-{{ h.shape }}{% if not h.image %} no-art{% endif %}" aria-labelledby="h-hero">
+    <div class="hero-stage">
+{% if h.image %}
+      <span class="hero-glow" aria-hidden="true"><img class="art" src="{{ h.image }}" alt="" width="160" height="240" loading="lazy"></span>
+{% endif %}
+      {{ frame(h.image, h.title) }}
+    </div>
+    <h2 id="h-hero" class="hero-title"><span class="k-eyebrow{% if h.state == "continue" %} yours{% endif %}">{% if h.state == "continue" %}Continue{% else %}Recently added{% endif %}<span class="sr">: </span></span> <span class="k-display">{{ h.title }}</span></h2>
+{% if h.meta %}
+    <p class="k-meta">{{ h.meta }}</p>
+{% endif %}
+    <p class="hero-acts"><a class="hero-go" href="{{ h.action_href }}">{{ h.action }}<span class="sr">: {{ h.title }}</span></a>{% if h.details_href %} <a class="hero-details" href="{{ h.details_href }}">Details<span class="sr">: {{ h.title }}</span></a>{% endif %}</p>
+  </section>
+{% endif %}
 {% if home.show_continue %}
   <section class="shelf" aria-labelledby="h-continue">
     <h2 id="h-continue">Continue</h2>
@@ -42,8 +64,8 @@
 {% endif %}
 {% if home.show_new %}
   <section class="shelf" aria-labelledby="h-new">
-    <h2 id="h-new">New this week</h2>
-    <nav class="tabs" aria-label="New, by library">
+    <h2 id="h-new">Recently added</h2>
+    <nav class="tabs" aria-label="Recently added, by library">
 {% for key, name, current in home.new_tabs %}
       <a href="/{% if key != 'all' %}?new={{ key }}{% endif %}#h-new"{% if current %} aria-current="true"{% endif %}>{{ name }}</a>
 {% endfor %}

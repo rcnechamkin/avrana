@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% from "_rows.html" import row %}
+{% block title %}Me · Avrana{% endblock %}
+{% block body %}
+{# The Me hub (Concept K, AVR-719; frame 17:872). Shell only: with sections off /me is the portal's 404. Everything
+   here is the verified member's own: the name and username from the principal, and rows only for places the
+   member's catalogue opens (Operations only behind its own group gate, which is also what the role tag says).
+   Not built (no data or no page today): an avatar image (Authentik gives Home none: the initial stands in), and
+   "This phone · Install" (no install help is served by Home yet; MK-3's install hint will bring one). #}
+  <h2 class="topic">Me</h2>
+  <section class="me-id" aria-label="Signed in">
+    <span class="me-av" aria-hidden="true">{{ shell.initial }}</span>
+    <div class="me-who">
+      <p class="me-name">{{ shell.member_name }}{% if me.admin %} <span class="k-tag">Admin</span>{% endif %}</p>
+      <p class="k-meta">Signed in as {{ me.username }}</p>
+    </div>
+  </section>
+  <section class="kgroup" aria-labelledby="me-account">
+    <h3 class="kgroup-h" id="me-account">Account</h3>
+    <ul class="krows">
+      {{ row("/account", "Account", "Your access and sign-in", "person") }}
+    </ul>
+  </section>
+  <section class="kgroup" aria-labelledby="me-help">
+    <h3 class="kgroup-h" id="me-help">Help</h3>
+    <ul class="krows">
+      {{ row("/help", "Help", "Apps and setup guides", "help") }}
+      {{ row("/help/trouble", "If something doesn't open", "Sign-in, missing items and getting back", "info") }}
+    </ul>
+  </section>
+{% if me.operations %}
+  <section class="kgroup" aria-labelledby="me-ops">
+    <h3 class="kgroup-h" id="me-ops">Operations</h3>
+    <ul class="krows">
+      {{ row(me.operations.href, me.operations.label|trusted, me.operations.desc|trusted, "tools", leaves=True, leaves_said=True) }}
+    </ul>
+  </section>
+{% endif %}
+  <section class="kgroup" aria-label="Sign out">
+    <ul class="krows">
+{#- MK-3's /signout hop (D10): it clears this device's caches and storage, then goes on to the sign-out. #}
+      {{ row(me.signout_href, "Sign out", None, "signout") }}
+    </ul>
+  </section>
+{% endblock %}
+{% block footer %}    <a class="link" href="/">Back to home</a>{% endblock %}

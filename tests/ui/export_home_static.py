@@ -8,7 +8,8 @@ loopback mock services (Jellyfin, Audiobookshelf, Komga, Calibre-Web), for synth
 these states: normal, one library unavailable, one section unavailable (the library still answers in part),
 all unavailable, a library not set up for the member, no library, signed out, and the New tabs. Besides Home
 it follows the shell's own links: Search, title pages (at most one per library per member and state),
-Account, Help and its topics, "If something doesn't open", Read, Request and the Watch interstitial. Titles are lengthened by the invented long-title overlay (dev/mock_long_titles.py) so narrow cards
+Account, Help and its topics, "If something doesn't open", Read, Request, the Watch interstitial and Library
+with its chips (MK-5a). Titles are lengthened by the invented long-title overlay (dev/mock_long_titles.py) so narrow cards
 show real-world wrapping; `--short-titles` serves the fixtures' own short titles. It then writes plain files: HTML, one shared stylesheet per page kind, and generated SVG
 placeholders for the artwork. Serve the folder from the PC's LAN address:
 
@@ -62,7 +63,8 @@ SEARCH_SEEDS = {"/search": "search", "/search?q=Synthetic": "search-results",
 # Member-a's own film: a title page in every state (ok, unavailable, not set up for member-c; 404 is skipped).
 TITLE_SEEDS = ("/title/jellyfin/aaaa0000000000000000000000000001",)
 TITLE = re.compile(r"^/title/([a-z-]+)/[A-Za-z0-9_-]+(?:\?q=[A-Za-z0-9%]+)?$")
-CRAWL = re.compile(r"^/(?:\?new=[a-z-]+)?$|^/(?:account|help|read|request|watch)$|^/help/[a-z0-9-]+$"
+CRAWL = re.compile(r"^/(?:\?new=[a-z-]+)?$|^/(?:me|account|help|read|request|watch)$|^/help/[a-z0-9-]+$"
+                   r"|^/library(?:\?lib=[a-z-]+)?$"
                    r"|^/search(?:\?q=[A-Za-z0-9%]+)?$|" + TITLE.pattern[1:])
 ACTION = re.compile(r'(<form [^>]*action=")(/search)(")')
 HREF = re.compile(r'(\bhref=")([^"]*)(")')
@@ -100,7 +102,7 @@ def slug_of(key: str) -> str:
     name = "home" if path == "/" else path.strip("/").replace("/", "-")
     if path.startswith("/title/"):                 # title pages: one file per item, the search term dropped
         return re.sub(r"[^A-Za-z0-9-]", "-", name)
-    return f"{name}-{query.replace('new=', 'new-')}" if query else name
+    return f"{name}-{query.replace('new=', 'new-').replace('lib=', 'lib-')}" if query else name
 
 
 def placeholder(ref: str, shape: str, title: str) -> str:
@@ -188,6 +190,10 @@ class Exporter:
         return written
 
     def rewrite(self, text: str, pages: dict) -> str:
+        # The page script (MK-3, AVR-717) needs the live server and its worker; the static review export has neither,
+        # so every page works as the no-JavaScript page it must always be.
+        text = re.sub(r'<script src="/static/home\.[0-9a-f]+\.js" defer[^>]*></script>\n?', "", text)
+
         def art(m):
             pre, shape, src, post = m.groups()
             title = re.search(r'<span class="t">(.*?)</span>', text[m.end():], re.S)
@@ -254,7 +260,8 @@ class Exporter:
             '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" '
             'content="width=device-width, initial-scale=1"><meta name="color-scheme" content="dark">'
             '<title>Avrana Home review</title>' + PLAIN + '<style>body{margin:0;padding:16px}'
-            'li{margin:0 0 16px}a{display:inline-block;min-height:44px;line-height:44px;margin-right:12px}'
+            'li{margin:0 0 16px}a{display:inline-flex;align-items:center;min-height:44px;max-width:100%;'
+            'overflow-wrap:anywhere;margin-right:12px}'
             '</style></head><body><main><h1>Avrana Home: device review</h1>'
             '<p>Static export. Synthetic data only. Start with <em>home</em> in each row.</p><ul>'
             + "\n".join(rows) + '</ul></main></body></html>\n').encode())

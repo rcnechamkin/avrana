@@ -234,8 +234,8 @@ class Safety(Fixture):
         srcs = re.findall(r'<img class="art"[^>]*src="([^"]*)"', r.text)
         self.assertTrue(srcs)
         self.assertTrue(all(s.startswith("/art/") for s in srcs), srcs)
-        # the only other image is the masthead's brand lockup, a fixed same-origin file (AVR-584)
-        self.assertEqual(["/brand/avrana-media-l3.svg"], re.findall(r'<img class="(?!art")[^"]*"[^>]*src="([^"]*)"', r.text))
+        # Search is a tab page: no brand image either (the lockup is Home's; the Home button is for non-tab pages)
+        self.assertEqual([], re.findall(r'<img class="(?!art")[^"]*"[^>]*src="([^"]*)"', r.text))
 
     def test_the_term_is_never_logged(self):
         records = []

@@ -146,15 +146,26 @@ async def get_viewer(request: Request) -> Viewer:
 
 
 def new_tab_from_scope(scope) -> Optional[str]:
-    """The one display preference a member may ask for in the address: `?new=<library>` (which New this week
-    tab to show). Bounded text only; the view-model checks it against the member's own allowlist and
+    """The one display preference a member may ask for in the address of Home: `?new=<library>` (which Recently
+    added tab to show). Bounded text only; the view-model checks it against the member's own allowlist and
     never echoes it. It confers no identity and no access."""
+    return _choice_from_scope(scope, "new")
+
+
+def library_chip_from_scope(scope) -> Optional[str]:
+    """The one display preference a member may ask for in the address of /library: `?lib=<library>` (which filter
+    chip is chosen; MK-5a, AVR-719). Exactly as `?new=` on Home: bounded text only, checked by the view-model
+    against the member's own libraries, never echoed. It confers no identity and no access."""
+    return _choice_from_scope(scope, "lib")
+
+
+def _choice_from_scope(scope, name: str) -> Optional[str]:
     from urllib.parse import parse_qsl
     raw = scope.get("query_string") or b""
     if not isinstance(raw, (bytes, bytearray)) or len(raw) > 512:
         return None
     for key, value in parse_qsl(bytes(raw).decode("ascii", "ignore"), keep_blank_values=False):
-        if key == "new":
+        if key == name:
             return value[:32]
     return None
 

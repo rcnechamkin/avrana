@@ -17,7 +17,7 @@ VIDEO = [(USER, "member-a"), (GROUPS, "avrana-users|avrana-videos")]
 COMICS = [(USER, "member-c"), (GROUPS, "avrana-users|avrana-comics")]
 NOLIB = [(USER, "member-n"), (GROUPS, "avrana-users")]
 OTHER_LIBRARIES = ("Audiobooks", "audiobook", "Comics", "comics", "Books", "books", "Listen", "/listen", "/read")
-SHELL_PAGES = ["/", "/search", "/account", "/help", "/help/movies", "/help/trouble", "/read", "/request", "/watch"]
+SHELL_PAGES = ["/", "/library", "/search", "/me", "/account", "/help", "/help/movies", "/help/trouble", "/read", "/request", "/watch"]
 
 
 def footer(text):
@@ -44,34 +44,53 @@ class Fixture(unittest.TestCase):
 
 
 class ReturnNavigationTests(Fixture):
-    def test_every_shell_page_has_the_masthead_and_a_way_home(self):
+    def test_every_shell_page_has_the_shell_and_a_way_home(self):
+        lockup = (r'<h1><a href="/" aria-current="page"><img class="lockup" src="/brand/avrana-media-l3.svg" '
+                  r'alt="Avrana Media" width="1384" height="650">'
+                  r'<span class="lockup-text" aria-hidden="true">Avrana Media</span></a></h1>')
+        home_button = ('<a class="homebtn glass" href="/"><img class="spire" src="/brand/spire-a-24.svg" alt="Home" '
+                       'width="24" height="24"><span class="homebtn-text" aria-hidden="true">Home</span></a>')
         for path in SHELL_PAGES:
             with self.subTest(path=path):
                 r = self.on.get(path, headers=ALL)
                 self.assertEqual(200, r.status_code)
-                self.assertIn('<nav class="places" aria-label="Avrana">', r.text)
-                self.assertRegex(r.text, r'<h1><a href="/"( aria-current="page")?><img class="lockup" src="/brand/avrana-media-l3.svg" '
-                                         r'alt="Avrana Media" width="1384" height="650">'
-                                         r'<span class="lockup-text" aria-hidden="true">Avrana Media</span></a></h1>')
-                if path != "/":
+                # the Home tab is on every shell page (D1)
+                self.assertRegex(r.text, r'<nav class="tabbar glass" aria-label="Sections"[^>]*>\s*<a class="tab" href="/"')
+                if path == "/":
+                    self.assertRegex(r.text, lockup)                          # L3 on Home (D5)
+                    self.assertIn('<nav class="places" aria-label="Avrana">', r.text)   # kept on Home (D16)
+                else:
+                    self.assertNotRegex(r.text, r'<img class="lockup"')
                     self.assertIn('<a class="link" href="/">Back to home</a>', footer(r.text))
+                    # pages that are not tabs carry the glass Home button (D5); tab pages show their own title
+                    if path in ("/library", "/search", "/me", "/account", "/help"):
+                        self.assertNotIn('class="homebtn', r.text)
+                    else:
+                        self.assertIn(home_button, r.text)
                 self.assertNotRegex(footer(r.text), r">Back<")          # one wording for return, everywhere
 
     def test_footers_never_repeat_the_masthead(self):
-        """Search, Help and Account live in the masthead. The one exception is "All help" on a help topic, which is
-        the way up one level from that topic, not a copy of the masthead link."""
+        """Search and Account (Me) are tabs, Help is a place on Home and a link on Account. The one exception is
+        "All help" on a help topic, which is the way up one level from that topic, not a copy of a shell link."""
         for path in SHELL_PAGES:
             f = footer(self.on.get(path, headers=ALL).text).replace('href="/help">All help<', "")
             self.assertNotRegex(f, r'href="/(account|help|search)"', path)
 
-    def test_account_appears_once_in_the_masthead_and_help_is_not_repeated_in_the_menu(self):
+    def test_me_is_the_one_way_to_account_and_help_is_a_step_from_it(self):
         text = self.on.get("/", headers=ALL).text
-        menu = re.search(r'<div class="menu">.*?</div>', text, flags=re.S).group(0)
-        self.assertEqual(['/account'], re.findall(r'href="([^"]+)"', menu))
-        self.assertIn(">Account and security</a>", menu)
-        self.assertNotIn('href="/account"', footer(text))        # the footer does not repeat the masthead
+        bar = re.search(r'<nav class="tabbar.*?</nav>', text, flags=re.S).group(0)
+        # Me opens the Me hub (AVR-719), which is the one way on to Account and Help
+        self.assertEqual(1, bar.count('href="/me"'))
+        self.assertNotIn('href="/account"', text)
+        hub = main_of(self.on.get("/me", headers=ALL).text)
+        self.assertIn('<a class="krow-a" href="/account">', hub)
+        self.assertIn('<a class="krow-a" href="/help">', hub)
+        self.assertIn('<span class="tl">Me<span class="sr">, signed in as member-a</span></span>', bar)
+        self.assertNotIn('<details class="account">', text)
+        self.assertNotIn('href="/account"', footer(text))        # the footer does not repeat the shell
         self.assertNotIn('href="/help"', footer(text))
         self.assertIn('href="/help/trouble"', footer(text))
+        self.assertIn('<a class="link" href="/help">Help</a>', main_of(self.on.get("/account", headers=ALL).text))
 
     def test_place_pages_explain_and_offer_help(self):
         watch = self.on.get("/watch", headers=ALL).text
@@ -91,7 +110,7 @@ class ReturnNavigationTests(Fixture):
     def test_chooser_intro_names_no_library(self):
         for path in ("/read", "/request"):
             text = main_of(self.on.get(path, headers=COMICS).text)
-            intro = text.split('<nav class="tiles"', 1)[0]
+            intro = text.split('<nav class="tiles', 1)[0]
             for word in ("Movies", "Audiobook", "Books", "ebook", "film"):
                 self.assertNotIn(word, intro, (path, word))
 

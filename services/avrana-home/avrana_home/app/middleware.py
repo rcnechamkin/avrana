@@ -13,7 +13,9 @@ carry these headers; they contain no application data (documented in HOME-APP.md
     a request that arrives in one read (Linux asyncio reads up to 256 KiB at once) reached the application
     whatever its size. This check holds whatever the read size.
   * Every response gets Cache-Control: no-store, Referrer-Policy: no-referrer,
-    X-Content-Type-Options: nosniff and a strict Content-Security-Policy with no script source.
+    X-Content-Type-Options: nosniff and a strict Content-Security-Policy. Only Home shell pages may run script, and
+    only their own origin's (`script-src 'self'; worker-src 'self'`, MK-3 / AVR-717, owner decision O1); there is
+    never an inline script, `unsafe-inline` for script, `unsafe-eval` or another host.
   * An exception escaping the application becomes a generic 500 page; only the exception CLASS is
     logged, never its message or traceback (those can carry request data), and nothing is
     re-raised into the server's own logger.
@@ -38,10 +40,17 @@ HYGIENE = (
 )
 # /search is the one page with a form (a plain GET to itself), so it alone may submit to its own origin.
 CSP_SEARCH = CSP.replace(b"form-action 'none'", b"form-action 'self'")
-# Shell pages (Home with sections, Search, Account, Help) link the web app manifest (install.py) and load the brand
-# font, Geist (brand.py, home.css; AVR-584); they alone may load those two from their own origin. Nothing else
-# changes: no script, no other source. Every other route keeps CSP.
-SHELL_SOURCES = b"; manifest-src 'self'; font-src 'self'"
+# Shell pages (Home with sections, Library, Search, Me, Account, Help) link the web app manifest (install.py), load
+# the brand font, Plus Jakarta Sans (brand.py, home.css; AVR-584, AVR-715), and load the one first-party page script (pwa.py; MK-3, AVR-717, owner
+# decision O1); they alone may load those from their own origin, and register the worker from it. Nothing else
+# changes: no inline script, no other source. Every other route keeps CSP, except the two below.
+SHELL_SOURCES = b"; manifest-src 'self'; font-src 'self'; script-src 'self'; worker-src 'self'"
+# The worker takes its CSP from the /sw.js response: without `connect-src` its own fetch() and cache writes would
+# fall under `default-src 'none'`. Same origin only, and only on that one response (owner decision D12).
+WORKER_SOURCES = b"; connect-src 'self'"
+# The offline page is stored by the worker with its headers and styled with the brand font: no script, no manifest.
+OFFLINE_SOURCES = b"; font-src 'self'"
+ROUTE_SOURCES = {"/sw.js": WORKER_SOURCES, "/offline": OFFLINE_SOURCES}
 _HYGIENE_NAMES = frozenset(name for name, _ in HYGIENE)
 
 NOT_IMPLEMENTED_BODY = (b"<!DOCTYPE HTML>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n"
@@ -58,16 +67,17 @@ HEADERS_TOO_LARGE_BODY = (b"<!DOCTYPE HTML>\n<html lang=\"en\">\n<head>\n<meta c
 _PRIVATE_NO_STORE = (b"cache-control", b"private, no-store")
 
 
-def csp_for(form_self: bool = False, manifest: bool = False) -> bytes:
-    return (CSP_SEARCH if form_self else CSP) + (SHELL_SOURCES if manifest else b"")
+def csp_for(form_self: bool = False, manifest: bool = False, route: str = "") -> bytes:
+    return ((CSP_SEARCH if form_self else CSP) + (SHELL_SOURCES if manifest else b"")
+            + ROUTE_SOURCES.get(route, b""))
 
 
-def with_hygiene(headers, form_self: bool = False, manifest: bool = False) -> list:
+def with_hygiene(headers, form_self: bool = False, manifest: bool = False, route: str = "") -> list:
     headers = list(headers)
     cache = HYGIENE[0]
     if any((bytes(k).lower(), bytes(v).lower()) == _PRIVATE_NO_STORE for k, v in headers):
         cache = _PRIVATE_NO_STORE
-    csp = csp_for(form_self, manifest)
+    csp = csp_for(form_self, manifest, route)
     return ([(k, v) for k, v in headers if bytes(k).lower() not in _HYGIENE_NAMES]
             + [cache] + [(k, csp if k == b"content-security-policy" else v) for k, v in HYGIENE[1:]])
 
@@ -94,9 +104,13 @@ class HygieneMiddleware:
             if message["type"] == "http.response.start":
                 state["status"] = message["status"]
                 state["started"] = True
-                message = dict(message, headers=with_hygiene(message.get("headers", ()),
-                                                             scope.get("avrana_route") == "/search",
-                                                             scope.get("avrana_shell") is True))
+                if state.get("error_page"):        # the generic 500 page: base CSP, whatever the failed route marked
+                    message = dict(message, headers=with_hygiene(message.get("headers", ())))
+                else:
+                    message = dict(message, headers=with_hygiene(message.get("headers", ()),
+                                                                 scope.get("avrana_route") == "/search",
+                                                                 scope.get("avrana_shell") is True,
+                                                                 scope.get("avrana_route") or ""))
             await send(message)
 
         try:
@@ -112,6 +126,9 @@ class HygieneMiddleware:
             log_event(app_log, logging.ERROR, "unhandled_error", error_class=type(exc).__name__,
                       route=scope.get("avrana_route", "unmatched"))
             if not state["started"]:
+                # The generic 500 page is not a shell page, not /search and not the worker or offline page: whatever the
+                # failed route had marked, it gets the base CSP (no script, no form-action 'self', no extra sources).
+                state["error_page"] = True
                 await self._plain(wrapped_send, 500, self._render_error(), head=(method == "HEAD"))
         finally:
             log_event(access_log, logging.INFO, "request",

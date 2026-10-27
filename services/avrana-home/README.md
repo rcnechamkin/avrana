@@ -27,7 +27,7 @@ Part of [Avrana Media 2.0](../../docs/design/MEDIA-2.0.md). Read these first:
 | Path | What |
 |---|---|
 | `avrana_home/principal.py`, `contract.py`, `resilience.py`, `cache.py`, `aggregate.py`, `adapters/` | The adapter layer (standard library only; import-only) |
-| `avrana_home/app/` | The web application: `create_app(settings)` (FastAPI + Jinja, server-rendered, no JavaScript) |
+| `avrana_home/app/` | The web application: `create_app(settings)` (FastAPI + Jinja, server-rendered; one optional first-party script and service worker on shell pages only, MK-3) |
 | `avrana_home/app/templates/` | Jinja templates and the one stylesheet |
 | `dev/` | `mock_jellyfin.py`, `dev_identity.py`, `run_dev.py`: development only, never part of an image |
 | `tests/` | The 137 adapter tests (no sockets allowed) and `run_web_tests.py` |

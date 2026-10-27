@@ -1,22 +1,35 @@
 {% extends "base.html" %}
 {% from "_parts.html" import tile %}
+{% from "_rows.html" import row %}
 {% block title %}Help · Avrana{% endblock %}
 {% block body %}
 {% if shell %}
+{#- Concept K (AVR-719; frame 17:1698): the member's own help topics (each gated on its library's group, as before)
+   as one group of opaque rows, then "If something doesn't open". #}
   <h2 class="topic">Help</h2>
+{% if not tiles %}
+  <section class="block"><p class="note msg">Nothing is set up on this account yet.</p></section>
 {% endif %}
+  <nav class="tiles kplaces" aria-label="Help topics">
+    <section class="kgroup" aria-labelledby="g-topics">
+      <h3 class="kgroup-h" id="g-topics">Topics</h3>
+      <ul class="krows">
+{% for path, label, desc in tiles %}
+        {{ row("/" ~ path, label|trusted, desc|trusted, {"help/movies": "film", "help/audiobooks": "listen", "help/comics": "comic", "help/books": "book", "help/requests": "plus"}.get(path, "help")) }}
+{% endfor %}
+        {{ row("/help/trouble", "If something doesn't open", "Sign-in, missing items and getting back", "info") }}
+      </ul>
+    </section>
+  </nav>
+{% else %}
 {% if tiles %}
   <nav class="tiles" aria-label="Help topics">
 {% for path, label, desc in tiles %}{{ tile(path, label, desc) }}
 {% endfor %}
-{% if shell %}    <a class="tile" href="/help/trouble">
-      <span class="label">If something doesn&#x27;t open</span>
-      <span class="desc">Sign-in, missing items and getting back</span>
-    </a>
-{% endif %}
   </nav>
 {% else %}
   <section class="block"><p class="note msg">Nothing is set up on this account yet.</p></section>
+{% endif %}
 {% endif %}
 {% endblock %}
 {% block footer %}{% if shell %}    <a class="link" href="/">Back to home</a>{% else %}    <a class="account" href="/">Back</a>{% endif %}{% endblock %}

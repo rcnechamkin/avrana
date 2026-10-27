@@ -12,7 +12,7 @@ performed, and needs the owner's approval for that step with rollback material p
 
 ## 1. What it is
 
-One small Python application: FastAPI and Jinja, server-rendered, no JavaScript, no front-end
+One small Python application: FastAPI and Jinja, server-rendered, no JavaScript except the one optional first-party script on shell pages (MK-3, DECISIONS.md 2026-10-26), no front-end
 build, no broker, no database server. It does two things:
 
 1. **Serves today's portal pages and redirects unchanged** (`/`, `/watch`, `/listen`, `/comics`,
@@ -22,7 +22,9 @@ build, no broker, no database server. It does two things:
    for every fixture identity (section 4).
 2. **Behind a flag (`HOME_SECTIONS`, default off)** renders the member's *Continue* and *Recently
    added* sections from the adapter layer as deliberately plain markup above the unchanged
-   navigation, and exposes the same data as JSON at `/home.json` (section 5).
+   navigation, and exposes the same data as JSON at `/home.json` (section 5). With the flag on, the pages a member
+   sees wear the Concept K shell (Home, `/library`, `/search`, title pages, `/me`, Account, Help), and the one
+   script, the worker, `/offline` and `/signout` exist (section 5a).
 
 ```
 request ─► HygieneMiddleware (method gate, headers, access log, error containment)
@@ -127,7 +129,7 @@ hostname is described in `docs/design/BETA-CHECKLIST.md` and needs owner approva
 | I-5 | Non-ASCII username (UTF-8, latin-1 or mojibake) | Latin-1 decoded and shown | No principal (adapter layer: `principal_from_raw_headers` refuses any non-ASCII username) | **Keep (owner decision).** Non-ASCII usernames get no principal, so a mojibake name can never map to another account. A non-ASCII display name is shown only if it is valid UTF-8. Tested over a real socket. |
 | I-6 | Display name or e-mail that is duplicated, over 254 characters or contains control characters | Shown, whitespace-stripped | Omitted from `/account` | **Keep.** Display-only values never decide anything. |
 | I-7 | Method other than GET and HEAD | 501 from `http.server`, before routing, body echoes the method | 501 from the middleware, before routing and identity, fixed body that does **not** echo the method | **Chosen: 501, not 405.** 501 is what members' clients see today; FastAPI's native 405 would differ per path and add an `Allow` header. Identical for every identity and path; same hygiene headers. |
-| I-8 | Every response | Cache-Control, Referrer-Policy, X-Content-Type-Options (`nosniff`, asserted on every response) | Those three **plus** `Content-Security-Policy: default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'` (no script source) | **Keep.** Exception (AVR-383): `/search` alone sends `form-action 'self'` so its GET form can submit; every other page keeps `'none'`, title pages (`/title/<service>/<id>`, AVR-384, no form) included. Exception (Home 2.0, AVR-364): every page that renders the shell (Home with sections, Search, title pages, Account, Help and help topics, and the Read, Request and Watch pages when they wear the shell) adds `manifest-src 'self'` for the web app manifest (`app/install.py`); `respond()` sets it whenever a shell is rendered. Every other response keeps the CSP above unchanged. Inline `<style>` is how the portal is built today; dropping it needs a stylesheet route and the design team's agreement. |
+| I-8 | Every response | Cache-Control, Referrer-Policy, X-Content-Type-Options (`nosniff`, asserted on every response) | Those three **plus** `Content-Security-Policy: default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'` (no script source) | **Keep.** Exception (AVR-383): `/search` alone sends `form-action 'self'` so its GET form can submit; every other page keeps `'none'`, title pages (`/title/<service>/<id>`, AVR-384, no form) included. Exception (Home 2.0, AVR-364): every page that renders the shell (Home with sections, Library (`/library`, MK-5a), Search, title pages, the Me hub `/me` (AVR-719; shell only, otherwise the standard 404), Account, Help and help topics, and the Read, Request and Watch pages when they wear the shell) adds `manifest-src 'self'` for the web app manifest (`app/install.py`); `respond()` sets it whenever a shell is rendered. Exception (MK-3, AVR-717, owner decision O1, DECISIONS.md 2026-10-26): the same shell pages also add `script-src 'self'; worker-src 'self'` for the one first-party page script and the service worker (`app/pwa.py`); the `/sw.js` response alone adds `connect-src 'self'`, and `/offline` adds `font-src 'self'`. Never an inline script, `unsafe-inline` or `unsafe-eval` for script, or another host. Every other response keeps the CSP above unchanged. Inline `<style>` is how the portal is built today; dropping it needs a stylesheet route and the design team's agreement. |
 | I-9 | Protocol-level problems (malformed request line, unknown HTTP version, oversized headers) | Python `http.server` replies (400/505) with the three headers | uvicorn/h11 replies **before the application runs**: 400/431 with no application headers; `HTTP/9.9` is accepted. h11's 16 KiB header limit holds only while a request is incomplete, so a request read in one piece (Linux asyncio) reached the application whatever its size (AVR-732); the outermost middleware now refuses a header block over 16 KiB with 431 and fixed text before identity. One budget inside it (`app/identity.py` `IDENTITY_HEADER_BUDGET`, owner 2026-10-26): `X-authentik-jwt` up to `identity.MAX_JWT_HEADER_LEN` 8192 (a longer token header is dropped before verification, reason `oversized_header`; the shared verifier's own 16384 stays, since the portal vendors it byte for byte), username 150, groups 4096, e-mail and name 254 each, and at least 3 KiB (3332 bytes) for every other header; a request inside it is never refused as too large (an oversized token gives no token, so jwt_required fails closed; not a 431), and a parser limit raised alone fails at import | **Accept.** These replies carry no application data. Documented, tested to contain no page, at the socket and on the ASGI scope (independent of read size). |
 | I-10 | Connection reuse | HTTP/1.0, one request per connection (pinned by the portal tests so a connection never carries two identities) | uvicorn keeps connections alive | **Accept.** Identity is read per request and no state is per connection; pipelined and reused connections are tested with different identities. |
 | I-11 | `/readyz`, `/home.json`, `/_dev/*` | 404 | `/readyz`: loopback peer only, else 404. `/home.json`: only with `HOME_SECTIONS` on and a valid principal, else 404. `/_dev/*`: 404 (the shim is not part of the app) | **Keep.** Unchanged for anyone who is not an operator on the host or a member with the flag on. |
@@ -210,6 +212,9 @@ At cut-over the tables move into the app. Today `catalogue.load()` executes `por
 function changes, because every consumer goes through the seam.
 
 ## 5. Home sections and the JSON view
+
+*The markup described in this section is M3.1's plain rendering. The shell pages now render the same view-model in
+Concept K (DESIGN.md; section 5a); the state rules, the JSON view and the "unavailable" rule below still hold.*
 
 `HOME_SECTIONS=on` adds, **above** the unchanged navigation tiles, one plain `<section>` per
 section the adapters return. No classes, no images, no script, no new CSS (the portal stylesheet
@@ -319,6 +324,124 @@ is unavailable right now" with Try again; it says nothing about whether the titl
 Every view makes the permission-checked upstream lookup (no cache), so access removed upstream shows at once.
 Hand-off links (results and the primary action) must be on the item's own service host (`contract.HANDOFF_BASE`).
 
+## 5a. Shell pages, the script and the worker (Concept K, AVR-713)
+
+Owner decision O1 (2026-10-25, quoted in DECISIONS.md 2026-10-26) reverses "no JavaScript" **for Home shell pages
+only**: one first-party page script and one service worker, both from Home's own origin, as progressive
+enhancement. MK-3 (AVR-717) built it; MK-2 (AVR-716), MK-4 (AVR-718) and MK-5 (AVR-719) built the pages. These
+invariants hold on top of sections 2 to 5; nothing here weakens an identity, isolation or revocation guarantee.
+
+**Works with JavaScript off.** Every page renders completely on the server and works with no script: the tab bar's
+lens is printed by the server (`data-at`), cards and the hero are plain links, Library chips and Recently added tabs
+are links, Search is a plain GET form with a button, Sign out is a link. The script only adds behaviour on top.
+JavaScript-off parity is tested per page (`webtests/test_web_pages_k.py`, `test_web_library_k.py`,
+`test_web_shell_k.py`) and by the browser checks with JavaScript disabled.
+
+**What makes a page a shell page.** One flag: `respond(decision, scope, shell=...)` with shell data sets
+`scope["avrana_shell"]`. From that one flag come the manifest link, the font, the `<script src>` tag,
+`viewport-fit=cover`, the tab bar, and the CSP's extra sources; a test asserts "script tag if and only if
+`script-src`" on every route and identity. `shell_for` gives shell data only when `HOME_SECTIONS` is on, the request
+has a valid principal and adapters are built; otherwise the page is the portal's, byte for byte (section 4).
+
+**Shell routes** (all `Cache-Control: no-store`, all through `respond()`):
+
+| Route | Shell page | Without the shell |
+|---|---|---|
+| `/` | Home: lockup, places bar, hero, Continue, Recently added | The portal's tile page |
+| `/library` (MK-5a) | Library tab page; `?lib=` picks one of the member's own libraries | Standard 404, byte-identical to an unknown route |
+| `/search` | Search tab page (`form-action 'self'`) | Standard 404 with sections off |
+| `/title/<service>/<id>` | Title page; 503 page when the library is unavailable | Standard 404 |
+| `/me` (MK-5b) | Me hub | Standard 404, byte-identical to an unknown route |
+| `/account`, `/help`, `/help/<slug>` | Account, Help, topics (under Me) | The portal's pages |
+| `/help/trouble` | "If something doesn't open" | Standard 404 |
+| `/read`, `/request`, `/watch` | Place pages with the Home button | The portal's chooser and interstitial |
+
+Old URLs (`/watch`, `/listen`, `/comics`, `/books`, `/request`, `/requestabook`, …) keep resolving exactly as in the
+portal. The tab bar's links are `/`, `/library`, `/search`, `/me`; a member without a library gets Home and Me only.
+
+**Non-page routes added by MK-3** (`app/pwa.py`), each only where the shell can render (sections on, adapters built;
+otherwise the portal's 404, listed in the parity test), the same bytes for every viewer, no identity needed:
+
+| Route | What it is |
+|---|---|
+| `/static/home.<hash>.js` | The page script (`app/assets/home.js`), `text/javascript`, path carries a content hash |
+| `/sw.js` | The service worker (`app/assets/sw.js`, filled in by `pwa.py`), scope `/`, no `Service-Worker-Allowed` |
+| `/offline` | The static page the worker shows when the network fails |
+| `/signout` | The sign-out hop (D10) |
+
+**CSP per route class** (base = `default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none';
+form-action 'none'; frame-ancestors 'none'`; single source `middleware.csp_for`):
+
+| Response class | CSP |
+|---|---|
+| Shell pages | base + `; manifest-src 'self'; font-src 'self'; script-src 'self'; worker-src 'self'` (`/search`: `form-action 'self'`) |
+| `/sw.js` | base + `; connect-src 'self'` (the worker takes its CSP from its own response) |
+| `/offline` | base + `; font-src 'self'` (no script, no manifest) |
+| Everything else: the script file, `/signout`, manifest, icons, `/brand/*`, `/art/*`, `/home.json`, `/healthz`, `/readyz`, 404, 501 and error pages, the generic 500 page even when a shell route failed, sections-off pages, portal, Kindle, Audible | base, byte-identical to before |
+
+Never an inline script, an `on*=` handler, `unsafe-inline` or `unsafe-eval` for script, a `data:` source or another
+host. `style-src 'unsafe-inline'` is unchanged everywhere (inline `<style>`, no `style=` attributes for data).
+`connect-src` is never on a page (D12).
+
+**What the page script may do** (all of it; `app/assets/home.js`, loaded with `defer` in `<head>`, never between
+`<body>` and the skip link):
+
+1. Move the lens: on a plain left click on a tab it sets `data-at`, never prevents navigation, ignores modifier keys,
+   the current tab and same-page links, does nothing with Reduce Motion, and restores the printed value on
+   `pagehide`.
+2. Register `/sw.js` (`scope: '/'`, `updateViaCache: 'none'`) after `load`, and show the update prompt ("A new version
+   of Avrana Media is ready." and Reload, `role="status"`) only when a new worker waits while an old one controls the
+   page; Reload sends exactly `{type: 'SKIP_WAITING'}` and reloads once on `controllerchange`.
+3. Reload a page restored from the back/forward cache (`pageshow` with `persisted`), so it passes the outpost again.
+4. With the kill switch on, unregister any worker and delete `avrana-*` caches instead of registering.
+
+It may not: read member data, use `localStorage`, `sessionStorage`, IndexedDB or cookies, build HTML from text
+(`innerHTML`, `document.write`), `eval`, or make a request of its own (no heartbeat, D13). A static test scans its
+bytes for those APIs. Inline previews and transitions were part of O1's purpose but are not in the script.
+
+**What the worker may do** (`app/assets/sw.js`):
+
+- Navigations: pass the original request to `fetch` untouched, so a redirect to sign-in stays an opaque redirect the
+  browser follows; answer with the stored `/offline` page only when that fetch throws a `TypeError` (no network).
+  A 302, 401, 403, 404 or 5xx is returned as it is. Navigations to `/signout` and `/outpost.goauthentik.io/` are not
+  handled at all, so the hop's headers and the outpost run as real navigations.
+- Store, at install and all or nothing, an exact allow-list of identity-free static files: the page script,
+  `/offline`, the paths in `brand.ROUTES` (font, lockup, favicon, Spire-A) and `install.ICON_PATHS`. Each response is
+  guarded before it is stored: status 200, `type 'basic'`, not redirected, the one content type allowed for that
+  path, no `Vary: *`, non-empty and under 512 KiB. Install requests use `redirect: 'error'` and `cache: 'reload'`.
+- Serve those files cache-first; cache name `avrana-shell-<hash of worker source and stored bytes>`; activate deletes
+  every other `avrana-*` cache; no `clients.claim()`; `skipWaiting()` only on the page's exact message.
+
+It may not: answer a navigation from cache, store or read any member page, `/art/*`, `/home.json`, search results or
+the manifest, store a `Request`, read credentials or request headers, use any storage but its own cache, call
+`importScripts`, or follow a cross-origin redirect. Every non-navigation request outside the allow-list gets no
+`respondWith` (navigations always get `respondWith(fetch(request))`, apart from the sign-out paths above).
+
+**Sign-out hop (D10).** `GET /signout` answers 303 to the catalogue's fixed outpost target
+(`/outpost.goauthentik.io/sign_out`) with `Clear-Site-Data: "cache", "storage"`, never `"cookies"` (that would sign
+the member out of every app on the registered domain). It clears this site's HTTP cache, worker and storage on this
+device; it does not end the Authentik session on auth.avrana.net, and no copy says it does (U-19 open). Me and
+Account link Sign out to it on shell pages; sections-off Account keeps the portal's direct link (parity). Verified in
+Chromium on localhost only: Safari and Firefox are unverified, and plain http (the LAN preview) ignores the header.
+Like the outpost link it replaces, it is a state-changing GET reachable by a cross-site navigation.
+
+**Authentik (D9).** Everything, including `/sw.js`, the manifest, `/offline`, the icons and the script, stays behind
+the outpost. No exempt paths, no `skip_path_regex` (G1 review F5). While signed out, worker updates and the manifest
+fetch get the sign-in redirect and fail quietly; they retry on the next signed-in load.
+
+**Caching (D11).** No `Cache-Control` relaxation: every response stays `no-store` (`/art` `private, no-store`). The
+script's hashed path, not a header, keeps a stale script from pairing with new HTML.
+
+**Kill switch and rollback limits.** `HOME_PWA_SW=off` (section 7) makes `/sw.js` a worker that deletes its caches
+and unregisters itself, and the page script removes registrations and caches instead of registering. It reaches only
+devices that load a shell page or fetch `/sw.js` while signed in, so it must be set with `HOME_SECTIONS` still on and
+held long enough for active devices. Turning sections off or reverting the image does not remove installed workers
+(section 9): they keep serving their stored static files and the offline page, and never member data.
+
+**Not verified.** Nothing ran on a phone, over HTTPS or behind the real outpost; installability, standalone
+behaviour, the iOS Home Screen cookie jar, `Clear-Site-Data` on Safari and bfcache with `no-store` on Safari are
+research findings, not tests. The device review (AVR-585, D17) runs on the Concept K build.
+
 ## 6. Logging
 
 Structured JSON, one object per line, to stderr. Fields: `route` (the route **template** such as
@@ -357,6 +480,8 @@ variables (never the values).
 | `HOME_TIMEOUT` | `2.0` | Per-call seconds, 0.1 to 10. |
 | `HOME_SECTION_LIMIT` | `12` | Items per section, 1 to 50. |
 | `HOME_HEALTH_DETAIL` | `loopback` | `loopback` or `off`. |
+| `HOME_PWA_SW` | `on` | `off` is the kill switch for the service worker (MK-3): `/sw.js` serves a worker that removes itself and its caches, and the page script stops registering one. It only reaches a device that can fetch `/sw.js` or load a shell page, so rollback needs `off` with `HOME_SECTIONS` still on, held long enough for active devices to come back (section 9). |
+| `HOME_MOTION_PROPOSAL` | `off` | `on` turns on the motion Proposal (MK-6, AVR-720): page-to-page transitions run at the 600 ms Proposal token instead of tier 3 (200 ms), on every page that carries the shell stylesheet (shell pages and the offline page). During a transition, where the browser exposes it, the first press ends it and a touch tap then reaches the page; a mouse click during the transition may be lost, for longer than at 200 ms. For the owner to compare only; never with Reduce Motion. |
 | `HOME_CATALOGUE_PATH` | the portal's `portal.py` | Must be a file; the tables are loaded from it. |
 | `HOME_HOST`, `HOME_PORT` | `127.0.0.1`, `8096` | Bind address for `serve.py`. A container must set `HOME_HOST=0.0.0.0` deliberately. |
 | `LOG_LEVEL` | `INFO` | DEBUG, INFO, WARNING, ERROR. |
@@ -409,6 +534,19 @@ container stays deployed and unused for at least two weeks. Each of these is an 
 change with a rehearsed rollback, and none is prepared by this change. The beta hostname (AVR-373,
 decision D-5) must exist first, gated on `authentik Admins` plus named testers.
 
+**Rolling back the service worker (MK-3, AVR-717).** The kill switch is `HOME_PWA_SW=off` **with `HOME_SECTIONS`
+still on**. Then `/sw.js` answers 200 with a worker that deletes its `avrana-*` caches and unregisters itself, and
+shell pages load a script that removes any registration and cache it finds. Keep it that way long enough for active
+devices to reach it (a browser checks for a new worker on a navigation, at least once a day, and only while the
+member is signed in). The switch cannot reach an installed worker once the server stops serving the new worker:
+turning sections off makes `/sw.js` a 404 (the worker stays installed on devices that already have it, and a
+browser may or may not unregister it), and a device whose Authentik session has ended gets a redirect to sign-in
+instead of `/sw.js`, so it keeps its old worker until it signs in again. Rolling back by reverting the image or by
+turning sections off therefore does not remove workers already installed; it only stops new ones. The worker
+stores only static files and sends every page navigation to the network, so a worker that is left behind does not
+show member data, but it does keep serving its stored script and offline page. Do not change the portal for this.
+`/signout` clears this site's cache and storage on the device, which also removes the worker for that member.
+
 **Before real adapters may be enabled** (all must be true and recorded):
 1. G1 applied and verified (private network per backend, so only the outpost can reach the app and
    the identity headers can be trusted); decision D-3 (shared-secret header) decided.
@@ -433,6 +571,11 @@ The existing 137 adapter tests are unchanged (`services/avrana-home/tests/`, whi
 socket); the web tests run in a separate process because they need loopback.
 
 ## 11. For the design team
+
+> *Updated 2026-10-26 (MK-7):* this section describes the M3.1 hand-over. The shell pages are now designed and built
+> to Concept K (DESIGN.md, "Concept K · Avrana Console"; section 5a for routes, script and worker). The paragraphs
+> below stay as the record of what M3.1 left open; "deliberately unstyled / not built" no longer holds for shelves,
+> rails, cards, artwork, search, title pages or empty states.
 
 **Routes** (all server-rendered HTML except `/home.json`): `/`, `/account`, `/help`,
 `/help/<slug>`, the choosers `/read` and `/request`, the service redirects and the `/watch`
@@ -484,6 +627,9 @@ then reload as a member whose cache is cold (the cache keeps a warm member's pag
 | L-1 | Serving artwork needs a member-scoped route | Done: `/art/<ref>` (AVR-382) |
 
 ## 13. Known gaps
+
+*As of M3.1 (2026-10-12). Since then all four adapters, `/art`, search, title pages and the Concept K shell exist on
+draft branches; the open Concept K follow-ups are in [CONCEPT-K-FOLLOW-UPS.md](CONCEPT-K-FOLLOW-UPS.md).*
 
 - One adapter (Jellyfin). Audiobookshelf, Komga, Calibre-Web are not built; the view-model and
   templates already name them.

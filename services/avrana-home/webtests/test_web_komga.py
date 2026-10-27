@@ -65,7 +65,7 @@ class RecentComicsTests(Fixture):
         c = self.client()
         r = c.get("/", headers=A)
         self.assertEqual(200, r.status_code)
-        self.assertIn("New this week", r.text)
+        self.assertIn('<h2 id="h-new">Recently added</h2>', r.text)     # memo section 4: not date-bounded
         sec = self.recent(c, A)
         self.assertEqual("ok", sec["state"])
         self.assertEqual(A_BOOKS, sorted(i["title"] for i in sec["items"]))

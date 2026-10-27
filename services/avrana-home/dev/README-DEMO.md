@@ -9,6 +9,11 @@
 > yellow "DEVELOPMENT IDENTITY" banner. There is no Authentik here: the shim stands in for the
 > outpost with invented members.
 
+The one exception is `/offline`, the page the service worker stores and shows to every viewer (MK-3): the shim
+serves it exactly as the application sends it, with no banner, so no member name is ever baked into it. To try the
+service worker locally use `http://127.0.0.1:8096/` (a secure context); `HOME_PWA_SW=off` in the environment turns the
+worker's kill switch on (`/sw.js` then removes the worker and its caches).
+
 **Page composition and visual design belong to the UI/UX team.** The home-page sections in this app
 are an unstyled, semantic placeholder (`avrana_home/app/templates/_sections.html`: `section`, `h2`,
 `ul`, `a`, `span`, `p role="status"`, no classes, no images). The app deliberately does **not**

@@ -115,8 +115,8 @@ class TitlePage(Fixture):
         self.assertTrue(all(h.startswith(("https://watch.avrana.net/", "/", "#main")) for h in hrefs), hrefs)
         for src in re.findall(r'<img class="art"[^>]*src="([^"]*)"', r.text):
             self.assertTrue(src.startswith("/art/jellyfin/primary/"), src)
-        # the only other image is the masthead's brand lockup, a fixed same-origin file (AVR-584)
-        self.assertEqual(["/brand/avrana-media-l3.svg"], re.findall(r'<img class="(?!art")[^"]*"[^>]*src="([^"]*)"', r.text))
+        # the only other image is the glass Home button's Spire-A mark, a fixed same-origin brand file (AVR-584, D5)
+        self.assertEqual(["/brand/spire-a-24.svg"], re.findall(r'<img class="(?!art")[^"]*"[^>]*src="([^"]*)"', r.text))
         w = c.get("/title/jellyfin/" + FILM_A3, headers=A)
         self.assertIn(">Watch</a>", w.text)
         self.assertIn("2020", w.text)
@@ -311,9 +311,11 @@ class SearchLinks(Fixture):
         self.assertIn('href="https://request.avrana.net/search?query=nomatch%20here">Ask for a film or show'
                       '<span class="sr">, opens the request website</span></a> '
                       '<span class="hint" aria-hidden="true">Opens the request website</span>', r.text)
-        self.assertIn('href="/requestacomic">Ask for a comic</a>', r.text)
+        # The others leave Avrana too, through our own route's redirect (MK-5b review): each says so as well.
+        self.assertIn('href="/requestacomic">Ask for a comic<span class="sr">, opens the request website</span></a> '
+                      '<span class="hint" aria-hidden="true">Opens the request website</span>', r.text)
         self.assertIn('href="/requestabook">Ask for ', r.text)
-        self.assertEqual(1, r.text.count("Opens the request website</span>"))   # only the link that leaves
+        self.assertEqual(3, r.text.count("Opens the request website</span>"))   # one per offer, each leaves
         self.assertNotIn("Request this title", r.text)
         self.assertNotIn("an ebook", r.text)
         v = c.get("/search", params={"q": "nomatch here"}, headers=A_VIDEO_ONLY).text

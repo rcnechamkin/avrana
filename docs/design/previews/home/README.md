@@ -101,8 +101,8 @@ accessibility does one come, as a narrowly scoped CSP exception in its own pull 
 
 ## Search and title pages (AVR-426, proposed)
 
-Specified in [DESIGN.md, Media components](../../DESIGN.md#media-components), with every state's
-sentence. Open them from the preview bar; they keep the state and viewer switches.
+Specified in DESIGN.md's former "Media components" section (now summarised under
+[History](../../DESIGN.md#history); on Home shell pages Concept K replaces it), with every state's sentence. Open them from the preview bar; they keep the state and viewer switches.
 
 | Page | Address | What a member sees |
 |---|---|---|
