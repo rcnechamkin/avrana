@@ -79,7 +79,7 @@ edited in this part.
 
 | Part | Date and time | Result (pass/fail) | Durations | Notes (no secrets, no member names) |
 |---|---|---|---|---|
-| A | CI run link | | degraded at, recovered after | |
+| A | 2026-10-27 05:38 UTC, [run 40456490943](https://github.com/rcnechamkin/avrana/actions/runs/40456490943) (main after #92) | pass | degraded at 30.2 s, recovered 2.0 s after the mock returned | smoke 7/7; also runs on every Home change |
 | B | | | | |
 | C | | | outage seen after, recovered after | what Help and the health script showed |
 | D | | | switch to portal, switch back | |

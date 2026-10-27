@@ -164,10 +164,10 @@ Two behaviours worth knowing:
 | Dependency down | What a member sees here | What still works |
 |---|---|---|
 | Jellyfin | "Movies and TV are unavailable right now." in the Continue and Recently-added sections of members who may use it (members who may not see nothing, byte-identical to flag off) | Everything else on the page, Help, Account, redirects |
-| Audiobookshelf, Komga, Calibre-Web | Not built yet (one adapter exists); the same pattern applies | |
+| Audiobookshelf, Komga, Calibre-Web | The same pattern, per library (all four adapters exist; the beta image rehearses Jellyfin down in CI) | |
 | A request service | Not applicable to this slice (links only, redirects are static) | |
 | Authentik or cloudflared | Nothing (outside the app) | |
-| The media array (unmounted) | Same as Jellyfin down; the operator notice is a later slice | |
+| The media array (unmounted) | Same as Jellyfin down; operator steps in `docs/runbooks/home-degraded-library.md` | |
 | The home app itself | Roll back (section 9) | All per-service hostnames and native apps |
 
 ### Health
