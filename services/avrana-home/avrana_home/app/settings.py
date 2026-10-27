@@ -328,6 +328,13 @@ class Settings:
             if jwt_previous and not jwt_secret:
                 problems.append("HOME_JWT_SECRET_PREVIOUS needs HOME_JWT_SECRET")
 
+        # The Audiobookshelf token is an ADMIN token (ADAPTER-CONTRACT 11; it reads every member's progress), so a
+        # forged username would read another member's listening. Independent ABS admin-token review 2026-10-27
+        # (HIGH, owner decision): in real mode it is accepted only with verified identity (jwt_required). The
+        # sealed owner preview is exempt: it strips every inbound identity header and serves only the owner.
+        if mode == "real" and abs_url and id_mode != "jwt_required" and not sealed:
+            problems.append("AUDIOBOOKSHELF_TOKEN is an admin token: real mode needs HOME_IDENTITY_MODE=jwt_required")
+
         # Beta allowlist (AVR-373): a second lock behind the Authentik application binding. It only
         # means something when the username comes from a verified token, so any other mode refuses it.
         allowed = _allowed_users(env, problems)

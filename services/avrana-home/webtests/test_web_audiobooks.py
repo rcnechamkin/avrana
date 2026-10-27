@@ -241,13 +241,39 @@ class SettingsTests(unittest.TestCase):
             Settings.from_mapping({**real, "AUDIOBOOKSHELF_BASE_URL": "https://abs.example.test"})
         with self.assertRaises(SettingsError):
             Settings.from_mapping({**real, "AUDIOBOOKSHELF_TOKEN": "t"})
-        both = Settings.from_mapping({**real, "AUDIOBOOKSHELF_BASE_URL": "https://abs.example.test",
+        both = Settings.from_mapping({**real, **JWT_REQUIRED, "AUDIOBOOKSHELF_BASE_URL": "https://abs.example.test",
                                       "AUDIOBOOKSHELF_TOKEN": "sentinel-token"})
         self.assertNotIn("sentinel-token", repr(both))
         with self.assertRaises(SettingsError):
             Settings.from_mapping({k: v for k, v in real.items() if k != "HOME_GATES_VERIFIED"}
                                   | {"AUDIOBOOKSHELF_BASE_URL": "https://abs.example.test",
                                      "AUDIOBOOKSHELF_TOKEN": "t"})
+
+
+    def test_the_admin_token_in_real_mode_needs_verified_identity(self):
+        # Independent ABS admin-token review 2026-10-27 (HIGH): the token reads every member's progress, so a
+        # forged plain header must never reach it. Real mode accepts it only with HOME_IDENTITY_MODE=jwt_required.
+        from avrana_home.app.settings import Settings, SettingsError
+        real = {"HOME_UPSTREAM_MODE": "real", "HOME_GATES_VERIFIED": "yes",
+                "JELLYFIN_BASE_URL": "https://jf.example.test", "JELLYFIN_API_KEY": "k",
+                "AUDIOBOOKSHELF_BASE_URL": "https://abs.example.test", "AUDIOBOOKSHELF_TOKEN": "sentinel-token"}
+        jwt = {k: v for k, v in JWT_REQUIRED.items() if k != "HOME_IDENTITY_MODE"}
+        for env in ({}, {"HOME_IDENTITY_MODE": "headers"}, {**jwt, "HOME_IDENTITY_MODE": "jwt_log_only"}):
+            with self.subTest(mode=env.get("HOME_IDENTITY_MODE", "default")):
+                with self.assertRaises(SettingsError) as cm:
+                    Settings.from_mapping({**real, **env})
+                self.assertIn("jwt_required", str(cm.exception))
+                self.assertNotIn("sentinel-token", str(cm.exception))
+        ok = Settings.from_mapping({**real, **JWT_REQUIRED})
+        self.assertEqual("jwt_required", ok.identity_mode)
+        # Without Audiobookshelf nothing changes: real mode with headers keeps today's behaviour.
+        Settings.from_mapping({k: v for k, v in real.items() if not k.startswith("AUDIOBOOKSHELF_")})
+        # Mock mode is synthetic data: unaffected.
+        Settings.from_mapping({"HOME_UPSTREAM_MODE": "mock", "AUDIOBOOKSHELF_BASE_URL": "http://127.0.0.1:18097"})
+
+
+JWT_REQUIRED = {"HOME_IDENTITY_MODE": "jwt_required", "HOME_JWT_ISSUER": "https://auth.example.test/application/o/t/",
+                "HOME_JWT_AUDIENCE": "t", "HOME_JWT_SECRET": "x" * 48}
 
 
 if __name__ == "__main__":
