@@ -46,6 +46,33 @@ packet. Owner choices for the phone and TV steps:
 
 Either way: no Cloudflare tunnel, DNS name, router forward or Authentik change; no step touches `avrana`.
 
+**Owner choice, 2026-10-27: B2 now, the phone pass on the beta hostname later.** Step B1 was built (#88) and
+dropped as too fiddly for a review (a private certificate on the phone, a passphrase, a firewall prompt). The
+owner approved the look from iPhone-size screenshots of Step A (Chrome, iPhone 15 viewport): Home, Library,
+Search and Me, dark and light. Nothing was installed on any device.
+
+**Step C, the phone pass (when the beta hostname of AVR-373 is live).** No setup: the beta hostname has a real
+certificate and Authentik sign-in, so it is just a link.
+
+1. On the iPhone, open the beta link and sign in as usual.
+2. Walk the journeys in section 3 and the checks in section 4 (Add to Home Screen, VoiceOver, Reduce Motion,
+   text size, offline page). The beta shows synthetic data only (`Dockerfile.beta`), so nothing real is at risk.
+3. Tell the agent "looks good" or what is off; it records the result here and on AVR-585.
+
+**Automated device pass, 2026-10-27** (`services/avrana-home/tools/device_pass.js`, Chrome's iPhone emulation on
+the dev fixture stack, member-a; **not** Safari and not a real phone):
+
+| Check | Result |
+|---|---|
+| Responsiveness: Home, Library, Search, Me, Account, Help, trouble topic at 320, 375 (SE), 393 (15), 430 (15 Pro Max) and 15 landscape | P: every page 200, no horizontal scroll anywhere, no console errors |
+| Touch targets | P: nothing under 24 px apart from the dev-only "Switch" link and the off-screen skip link; search rows and rail cards are stretched links whose tap area is the whole row (search row 351 x 80 px) |
+| Accessibility, axe 4.14 (WCAG 2.0 to 2.2 AA plus best practice), Reduce Motion on | P: the only finding on every page is `region` on the dev identity banner, which the beta and production do not have |
+| Playback navigation | P: 8 hand-off links on Home, all on the allowed `*.avrana.net` hosts ("Resume in Jellyfin" on the hero); a Continue card opens its title page (200, title as the h2 under the sr-only h1, action "Resume" to `watch.avrana.net/web/#/details?id=...`); the Home link returns to `/` |
+| Installation | P: manifest "Avrana Media", `display: standalone`, `start_url` and `id` `/`, icons 192, 512 and maskable 512 all 200; `apple-touch-icon` 180 (200), `apple-mobile-web-app-capable`, title "Avrana Media", `viewport-fit=cover`; service worker active; offline navigation shows "This phone has no connection..." |
+
+Still needs the real phone (Step C): Safari's WebKit rendering, VoiceOver, Dynamic Type, Add to Home Screen and the
+installed app's sign-in after an Authentik session ends, and playback in the real Jellyfin and Audiobookshelf apps.
+
 ## 3. Journeys (record P pass, F fail, S skipped, with notes)
 
 Use `member-b` (every library) unless stated. Hand-off links go to the real public library hosts
@@ -131,7 +158,7 @@ playback.
 
 | Decision | Choice |
 |---|---|
-| LAN preview: approve Step B1 (fixture-only, password gated, own PR first) or B2 (no LAN preview) | |
-| Visual: approve or reject the Concept K Home at `847b8d4`, with notes | |
+| LAN preview: approve Step B1 (fixture-only, password gated, own PR first) or B2 (no LAN preview) | B2 (2026-10-27); phone pass moves to Step C on the beta hostname |
+| Visual: approve or reject the Concept K Home at `847b8d4`, with notes | Approved from iPhone-size screenshots of main (2026-10-27): "looks great" |
 | AVR-729: should Library show the member's in-progress items (F-8, Q2)? | |
 | AVR-730: which surfaces name the upstream app ("Resume in Jellyfin" vs "Resume") (F-9, Q1)? | |
