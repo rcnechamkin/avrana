@@ -4,17 +4,23 @@
 //
 //   node services/avrana-home/tools/device_pass.js <out-dir>     (dev stack: run_dev.py --dev-identity --port 8099)
 //
-// UI_TOOLING: a folder with node_modules/playwright and node_modules/axe-core (default: the owner's .ui-tooling).
+// UI_TOOLING (required): a folder with node_modules/playwright and node_modules/axe-core.
 // DEVICE_PASS_BASE: the site (default http://127.0.0.1:8099). Synthetic data only; never point it at real members.
 // Note: touch targets made by a stretched ::after link (search rows, rail cards) read small here; their real tap
 // area is the whole row.
 const path = require('path');
 const fs = require('fs');
-const T = (process.env.UI_TOOLING || 'C:/Users/cnech/Projects/avrana-homelab/.ui-tooling').split('\\').join('/') + '/node_modules/';
+const OUT = process.argv[2];
+if (!OUT || !process.env.UI_TOOLING) {
+  console.error('usage: UI_TOOLING=<folder with node_modules/playwright and axe-core> node device_pass.js <out-dir>');
+  process.exit(2);
+}
+fs.mkdirSync(OUT, { recursive: true });
+const T = process.env.UI_TOOLING.split('\\').join('/') + '/node_modules/';
 const { chromium, devices } = require(T + 'playwright');
 const AXE = fs.readFileSync(T + 'axe-core/axe.min.js', 'utf8');
-const BASE = process.env.DEVICE_PASS_BASE || 'http://127.0.0.1:8099';
-const OUT = process.argv[2];
+const BASE = (process.env.DEVICE_PASS_BASE || 'http://127.0.0.1:8099').replace(/\/+$/, '');
+const ORIGIN = new URL(BASE).origin;
 const PAGES = ['/', '/library', '/search?q=synthetic', '/me', '/account', '/help', '/help/trouble'];
 const HANDOFF = /^https:\/\/(watch|listen|read|books|request)\.avrana\.net\//;
 const report = { viewports: {}, playback: {}, install: {}, axe: {} };
@@ -83,7 +89,8 @@ async function newCtx(b, dev, extra = {}) {
     const links = await p.$$eval('a[href]', as => as.map(a => ({
       text: a.innerText.trim().replace(/\s+/g, ' ').slice(0, 40), href: a.href })));
     const handoffs = links.filter(l => /avrana\.net/.test(l.href));
-    const titleLinks = links.filter(l => l.href.startsWith('http://127.0.0.1:8099/title/') || /^http:\/\/127\.0\.0\.1:8099\/(watch|listen|read|books)\/[^?]/.test(l.href));
+    const titleLinks = links.filter(l => l.href.startsWith(ORIGIN + '/') &&
+      /^\/(title|watch|listen|read|books)\/[^?]/.test(new URL(l.href).pathname));
     report.playback.homeHandoffs = handoffs.length;
     report.playback.badHandoffs = handoffs.filter(l => !HANDOFF.test(l.href) && !/^https:\/\/avrana\.net\//.test(l.href));
     report.playback.handoffLabels = [...new Set(handoffs.map(l => l.text))].slice(0, 8);
@@ -123,9 +130,9 @@ async function newCtx(b, dev, extra = {}) {
     if (meta.manifest) {
       const m = await (await p.request.get(meta.manifest)).json();
       report.install.manifest = { name: m.name, short_name: m.short_name, display: m.display, start_url: m.start_url,
-        id: m.id, icons: m.icons.map(i => i.sizes + ' ' + (i.purpose || '')) };
+        id: m.id, icons: (m.icons || []).map(i => i.sizes + ' ' + (i.purpose || '')) };
       report.install.iconStatus = [];
-      for (const i of m.icons) report.install.iconStatus.push((await p.request.get(new URL(i.src, BASE).href)).status());
+      for (const i of m.icons || []) report.install.iconStatus.push((await p.request.get(new URL(i.src, BASE).href)).status());
     }
     if (meta.appleIcon) report.install.appleIconStatus = (await p.request.get(meta.appleIcon)).status();
     await p.waitForTimeout(2000);
