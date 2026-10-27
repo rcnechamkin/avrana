@@ -1,0 +1,24 @@
+# Build context of services/avrana-home for Dockerfile.beta (BuildKit reads <Dockerfile>.dockerignore).
+# Deny everything, then allow exactly the inputs the beta image copies.
+*
+!requirements.lock
+!avrana_home/
+!beta/
+!dev/__init__.py
+!dev/synthetic_art.py
+!dev/mock_jellyfin.py
+!dev/mock_audiobookshelf.py
+!dev/mock_komga.py
+!dev/mock_calibre_web.py
+!tests/fake_abs.py
+!tests/fake_komga.py
+!tests/fake_calibre_web.py
+!tests/fixtures/
+# Never in an image, even if a rule above changes.
+dev/dev_identity.py
+dev/run_dev.py
+tests/__init__.py
+secrets/
+*.env
+**/__pycache__/
+**/*.pyc
