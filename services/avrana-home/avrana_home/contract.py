@@ -55,6 +55,13 @@ DEFAULT_MAX_IN_FLIGHT_PER_MEMBER = 2  # ... of which one member may hold at most
 ARTWORK_MAX_IN_FLIGHT = 8
 ARTWORK_MAX_IN_FLIGHT_PER_MEMBER = 4
 ARTWORK_SLOT_WAIT = 0.4               # seconds, at most, and never more than half the request deadline
+# F2 (AVR-503): a section that finds every slot taken waits in a BOUNDED queue instead of failing at once as `busy`,
+# so fifteen members opening Home together all get their sections. Bounded three ways: at most SECTION_SLOT_WAIT
+# seconds and never more than half of the call's own deadline (the wait is part of that deadline, so the page's hard
+# cap holds), at most SECTION_MAX_WAITERS queued per adapter, and only while the circuit is closed (a failing or
+# cooling-off service still answers `busy` at once, so a hung upstream adds no queueing on top of its timeouts).
+SECTION_SLOT_WAIT = 1.0                # tuned on the burst benchmark: 0.75 s left 7 of 45 sections busy at 200 ms
+SECTION_MAX_WAITERS = 24
 MAPPING_TTL_FOUND = 60.0              # bounds how long a renamed or swapped upstream account can linger
 MAPPING_TTL_ABSENT = 60.0
 TRUNCATED = "truncated"               # SectionResult.reason: a list cut short by the request budget
@@ -446,6 +453,7 @@ class MediaAdapter:
         self._flights: dict = {}                      # member -> in-progress mapping lookup
         self._flight_lock = threading.Lock()
         self._slot_freed = threading.Condition(self._flight_lock)
+        self._waiting = 0                          # sections queued for a slot (F2), at most SECTION_MAX_WAITERS
         self._art_in_flight = 0
         self._art_by_member: dict = {}
         self._local = threading.local()
@@ -604,26 +612,51 @@ class MediaAdapter:
         budget = getattr(self._local, "budget", None)
         return budget if budget is not None else CallBudget(self.clock, self._request_timeout)
 
-    def _acquire_slot(self, member: str) -> Optional[str]:
+    def _acquire_slot(self, member: str, budget: Optional[CallBudget] = None) -> Optional[str]:
         """None when admitted, else the refusal reason. Service cap first, then the per-member cap
-        (so one member cannot take every slot)."""
-        with self._flight_lock:
-            if self._in_flight >= self._max_in_flight:
-                return "busy"
+        (so one member cannot take every slot). With a `budget`, a call refused by the SERVICE cap waits in the
+        bounded queue (SECTION_SLOT_WAIT, SECTION_MAX_WAITERS, circuit closed only); the per-member cap never waits."""
+        with self._slot_freed:
             if self._by_member.get(member, 0) >= self._max_per_member:
-                return "member_busy"
-            self._in_flight += 1
-            self._by_member[member] = self._by_member.get(member, 0) + 1
-            return None
+                return "member_busy" if self._in_flight < self._max_in_flight else "busy"
+            if self._in_flight < self._max_in_flight:
+                return self._take_slot(member)
+            if (budget is None or self._waiting >= SECTION_MAX_WAITERS or not self.breaker.closed()):
+                return "busy"
+            try:
+                wait = min(SECTION_SLOT_WAIT, budget.remaining() / 2)
+            except UpstreamTimeout:
+                return "busy"
+            end = time.monotonic() + wait
+            self._waiting += 1
+            try:
+                while True:
+                    left = end - time.monotonic()
+                    if left <= 0:
+                        return "busy"
+                    self._slot_freed.wait(left)
+                    if self._by_member.get(member, 0) >= self._max_per_member:
+                        return "member_busy"
+                    if self._in_flight < self._max_in_flight:
+                        return self._take_slot(member)
+            finally:
+                self._waiting -= 1
+
+    def _take_slot(self, member: str) -> None:
+        """Caller holds `_flight_lock`."""
+        self._in_flight += 1
+        self._by_member[member] = self._by_member.get(member, 0) + 1
+        return None
 
     def _release_slot(self, member: str) -> None:
-        with self._flight_lock:
+        with self._slot_freed:
             self._in_flight -= 1
             left = self._by_member.get(member, 0) - 1
             if left > 0:
                 self._by_member[member] = left
             else:
                 self._by_member.pop(member, None)
+            self._slot_freed.notify_all()          # a queued section (F2) may take the freed slot
 
     def _acquire_art_slot(self, member: str, budget: CallBudget) -> Optional[str]:
         """The artwork allowance: separate from the section slots, with a short bounded wait (real time, at most
@@ -765,15 +798,16 @@ class MediaAdapter:
         keep a failing service circuit closed."""
         scope = self.cache.for_member(principal)
         member = principal.username
-        budget = CallBudget(self.clock, self._request_timeout) if artwork else None
-        refused = self._acquire_art_slot(member, budget) if artwork else self._acquire_slot(member)
+        # Both kinds start their deadline BEFORE any wait for a slot, so the wait is part of it (the page's hard cap).
+        budget = CallBudget(self.clock, self._request_timeout)
+        refused = self._acquire_art_slot(member, budget) if artwork else self._acquire_slot(member, budget)
         if refused is not None:
             return _Outcome("unavailable", reason=refused)
         br = _ArtworkBreaker(self.breaker) if artwork else self.breaker
         try:
             # inside the try: whatever the clock does, the slot is released below. An artwork call's deadline
             # started before its (bounded) wait for a slot, so the wait is part of it.
-            self._local.budget = budget if budget is not None else CallBudget(self.clock, self._request_timeout)
+            self._local.budget = budget
             token = br.acquire()
             if token is None:
                 return _Outcome("unavailable", reason="cooling_off")

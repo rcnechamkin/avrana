@@ -485,6 +485,11 @@ class CircuitBreaker:
         self._last_error: Optional[str] = None
         self._lock = threading.Lock()
 
+    def closed(self) -> bool:
+        """True while the circuit has not opened (no cool-off, no half-open trial pending). Read-only."""
+        with self._lock:
+            return not self._opened and self._clock.now() >= self._open_until
+
     def acquire(self, trial: bool = True) -> Optional[int]:
         """A token for one call, or None (open, or the half-open trial is taken). `trial=False` (artwork, review
         of #57) never takes the half-open trial: it is refused whenever the circuit has opened and not yet been

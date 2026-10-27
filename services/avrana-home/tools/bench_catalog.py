@@ -647,7 +647,12 @@ def fast(ms):
     return {s: ("ok", ms / 1000.0) for s in SERVICES}
 
 
-def scenarios(quick: bool):
+def scenarios(quick: bool, burst_only: bool = False):
+    if burst_only:                       # F2 (AVR-503): the concurrency cap, before and after a change
+        return [("burst 20 ms, 5,000 items", 5000, fast(20), "burst"),
+                ("burst 200 ms, 5,000 items", 5000, fast(200), "burst"),
+                ("burst, Jellyfin hangs (2 s timeout), others 20 ms", 5000,
+                 dict(fast(20), jellyfin=("hang", None)), "burst")]
     out = [("normal 20 ms, 100 items", 100, fast(20), "seq"),
            ("normal 20 ms, 5,000 items", 5000, fast(20), "seq"),
            ("normal 20 ms, 50,000 items", 50000, fast(20), "seq")]
@@ -669,13 +674,14 @@ def main(argv=None) -> int:
     ap.add_argument("--rounds", type=int, default=3, help="fresh app (cold cache) per round; 15 members each")
     ap.add_argument("--quick", action="store_true", help="one round, three scenarios (smoke)")
     ap.add_argument("--json", help="also write the raw summary as JSON to this path")
+    ap.add_argument("--burst-only", action="store_true", help="only the 15-members-at-once scenarios (F2)")
     args = ap.parse_args(argv)
     rounds = 1 if args.quick else args.rounds
     cap = install_capture()
     results, notes = Results(), {}
     worlds: Dict[int, World] = {}
     started = time.monotonic()
-    for name, size, profile, kind in scenarios(args.quick):
+    for name, size, profile, kind in scenarios(args.quick, args.burst_only):
         world = worlds.get(size) or worlds.setdefault(size, World(args.seed, size))
         print(f"... {name}", file=sys.stderr, flush=True)
         if kind == "burst":

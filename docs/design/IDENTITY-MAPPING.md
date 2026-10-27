@@ -173,3 +173,20 @@ failing (`webtests/test_web_isolation_h2.py`).
    taken from the request's own deadline (so the page's hard cap still holds), only while the circuit is
    closed, with that test revised in review. Either is a reviewed follow-up, not a member-beta blocker for a
    small invited group.
+
+   **Done 2026-10-27 (owner instruction "benchmark first, then implement and test a bounded queue"): option (b).**
+   A section refused by the service cap waits in a bounded queue: at most `SECTION_SLOT_WAIT` (1.0 s) and half of
+   its own deadline (the wait is part of it), at most `SECTION_MAX_WAITERS` (24) queued per adapter, and only while
+   the circuit is closed; the per-member cap never waits. Burst benchmark (`tools/bench_catalog.py --burst-only`,
+   3 rounds, 15 members, synthetic upstreams), unavailable sections out of 45 pages:
+
+   | Scenario | Before | After | p95 before / after |
+   |---|---|---|---|
+   | 20 ms upstreams | 36 (busy) | 0 | 351 / 386 ms |
+   | 200 ms upstreams | 36 (busy) | 0 | 1756 / 1756 ms |
+   | Jellyfin hangs, others 20 ms | 60 (24 timeout, 36 busy) | 60 (same) | 2039 / 2042 ms |
+
+   A hung upstream still shows as unavailable and adds no latency beyond its own timeout (p95 unchanged); median
+   Home in that case rises from 0.3 s to 1.0 s because queued Jellyfin sections wait before giving up.
+   `tests/test_section_queue.py` covers admission, the bound, the half-deadline rule, open circuit, queue length,
+   the per-member cap and 30 sections through 8 slots. Real upstream tolerance is still unmeasured.

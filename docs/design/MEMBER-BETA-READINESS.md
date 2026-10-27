@@ -70,7 +70,7 @@ Test names are in `services/avrana-home` unless they start with `tests/` at the 
 | Offboarding purges a member's cache | 1 (method only) | `MemberCache.purge_member`, `tests/test_cache.py` | Not wired into any offboarding step |
 | A reused username never reaches the previous holder's upstream accounts or cache (F4) | - (residual, owner decision) | `docs/design/IDENTITY-MAPPING.md` section 5 item 6 | Stable id (Authentik uid or JWT `sub` plus an owner-maintained link table) or the offboarding steps there: deactivate, disable or rename upstream accounts, wait 5 minutes or restart |
 | Expired cache entries are swept, not left in memory (F3) | 1 | `tests/test_h2_security.py::ExpiredEntriesAreSwept` | Review |
-| Fifteen members opening Home at once get every section (F2) | - | IDENTITY-MAPPING.md section 5 item 8 (recommendation) | Live measurement, then a reviewed cap or bounded-wait change |
+| Fifteen members opening Home at once get every section (F2) | - | IDENTITY-MAPPING.md section 5 item 8 (recommendation) | Bounded queue implemented 2026-10-27 (36 to 0 busy on the synthetic burst); live measurement on the beta still to do |
 | Upstream-side permission changes take effect within 30 s / 120 s (sections), covers per request or 300 s (F5) | documented | IDENTITY-MAPPING.md section 5 item 7 | Owner decision |
 
 ## What the LAN owner preview proves, and what it does not
