@@ -46,6 +46,19 @@ packet. Owner choices for the phone and TV steps:
 
 Either way: no Cloudflare tunnel, DNS name, router forward or Authentik change; no step touches `avrana`.
 
+**Owner choice, 2026-10-27: B2 now, the phone pass on the beta hostname later.** Step B1 was built (#88) and
+dropped as too fiddly for a review (a private certificate on the phone, a passphrase, a firewall prompt). The
+owner approved the look from iPhone-size screenshots of Step A (Chrome, iPhone 15 viewport): Home, Library,
+Search and Me, dark and light. Nothing was installed on any device.
+
+**Step C, the phone pass (when the beta hostname of AVR-373 is live).** No setup: the beta hostname has a real
+certificate and Authentik sign-in, so it is just a link.
+
+1. On the iPhone, open the beta link and sign in as usual.
+2. Walk the journeys in section 3 and the checks in section 4 (Add to Home Screen, VoiceOver, Reduce Motion,
+   text size, offline page). The beta shows synthetic data only (`Dockerfile.beta`), so nothing real is at risk.
+3. Tell the agent "looks good" or what is off; it records the result here and on AVR-585.
+
 ## 3. Journeys (record P pass, F fail, S skipped, with notes)
 
 Use `member-b` (every library) unless stated. Hand-off links go to the real public library hosts
@@ -131,7 +144,7 @@ playback.
 
 | Decision | Choice |
 |---|---|
-| LAN preview: approve Step B1 (fixture-only, password gated, own PR first) or B2 (no LAN preview) | |
-| Visual: approve or reject the Concept K Home at `847b8d4`, with notes | |
+| LAN preview: approve Step B1 (fixture-only, password gated, own PR first) or B2 (no LAN preview) | B2 (2026-10-27); phone pass moves to Step C on the beta hostname |
+| Visual: approve or reject the Concept K Home at `847b8d4`, with notes | Approved from iPhone-size screenshots of main (2026-10-27): "looks great" |
 | AVR-729: should Library show the member's in-progress items (F-8, Q2)? | |
 | AVR-730: which surfaces name the upstream app ("Resume in Jellyfin" vs "Resume") (F-9, Q1)? | |
