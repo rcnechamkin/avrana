@@ -118,6 +118,21 @@ class Main(unittest.TestCase):
         finally:
             _os.unlink(fh.name)
 
+    def test_a_file_saved_with_a_byte_order_mark_reads_its_first_name_whole(self):
+        import tempfile
+        with tempfile.NamedTemporaryFile("wb", suffix=".txt", delete=False) as fh:
+            fh.write(b"\xef\xbb\xbfmember-a\r\nmember-b\r\n")     # PowerShell 5.1 Out-File style
+        try:
+            args = tool.argparse.Namespace(usernames=[], file=fh.name)
+            self.assertEqual(tool.read_usernames(args), ["member-a", "member-b"])
+        finally:
+            _os.unlink(fh.name)
+
+    def test_an_invalid_username_with_invisible_characters_is_shown_escaped(self):
+        rows = tool.check(["\u200bmember-a", "bad\x1b[2Jname"], {Service.JELLYFIN: lambda p: None})
+        self.assertEqual([r["username"] for r in rows], [r"\u200bmember-a", r"bad\x1b[2Jname"])
+        self.assertTrue(all(r["fix"].isprintable() for r in rows))
+
 
 if __name__ == "__main__":
     unittest.main()
