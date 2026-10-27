@@ -75,6 +75,23 @@ class Fixture(unittest.TestCase):
 
 
 class TitlePage(Fixture):
+    def test_the_synopsis_is_plain_escaped_text_under_about(self):
+        # R2-C: the fixture's Overview carries <b>, &amp;, <br> and a <script>; only its text reaches the page
+        c = self.client()
+        r = c.get("/title/jellyfin/" + FILM_A3, headers=A)
+        self.assertEqual(r.status_code, 200)
+        self.assertIn('<h3 class="kicker" id="h-about">About</h3>', r.text)
+        self.assertIn("A synthetic film &amp; its overview. Second line.", r.text)
+        for leak in ("<b>synthetic", "alert(1)", "<br>Second"):
+            self.assertNotIn(leak, r.text)
+        self.assertNotIn("its overview", c.get("/search?q=synthetic", headers=A).text)   # title page only
+
+    def test_no_synopsis_no_about(self):
+        c = self.client()
+        r = c.get("/title/jellyfin/" + FILM_A, headers=A)
+        self.assertEqual(r.status_code, 200)
+        self.assertNotIn("h-about", r.text)
+
     def test_a_members_own_title_with_resume_and_safe_links(self):
         c = self.client()
         r = c.get("/title/jellyfin/" + FILM_A, headers=A)

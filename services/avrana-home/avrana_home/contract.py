@@ -24,14 +24,16 @@ the circuit shared by all members is `resilience.counts_toward_breaker`.
 """
 from __future__ import annotations
 
+import contextvars
 import copy
 import enum
+from html.parser import HTMLParser
 import logging
 import re
 import threading
 import time
 import unicodedata
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Callable, Optional, Tuple
 
 from .cache import MemberCache, register_cacheable
@@ -57,6 +59,20 @@ MAPPING_TTL_FOUND = 60.0              # bounds how long a renamed or swapped ups
 MAPPING_TTL_ABSENT = 60.0
 TRUNCATED = "truncated"               # SectionResult.reason: a list cut short by the request budget
 TRUNCATED_TTL = 5.0                   # ... is cached this briefly, so a complete list follows soon
+
+# The page a section job belongs to (AVR-756). `aggregate._run` gives every job of one page the same opaque token, so a
+# sibling section that starts only AFTER its single-flight leader failed still shares that one counted failure. Calls
+# outside a page (direct adapter calls, artwork) carry None and share only a flight that is still in progress.
+_PAGE: "contextvars.ContextVar[Optional[object]]" = contextvars.ContextVar("avrana_page", default=None)
+
+
+def run_in_page(page: object, fn: Callable[..., Any], *args: Any) -> Any:
+    """Run one section job of `page` (on a pool thread); the page token is cleared afterwards."""
+    token = _PAGE.set(page)
+    try:
+        return fn(*args)
+    finally:
+        _PAGE.reset(token)
 
 log = logging.getLogger("avrana_home")
 
@@ -170,6 +186,56 @@ def clean_text(value: Any, limit: int = MAX_TITLE_LEN) -> Optional[str]:
     return text[:limit] or None
 
 
+MAX_SUMMARY = 1200          # characters of synopsis shown; longer text is cut at a word with an ellipsis
+MAX_SUMMARY_RAW = 20000     # longer upstream input is cut before it is parsed at all
+
+
+class _TextOnly(HTMLParser):
+    """Collects the text of an upstream synopsis. Upstreams store HTML here (Audiobookshelf descriptions, some
+    Jellyfin overviews); tags, attributes, comments, scripts and styles are dropped and entities decoded, so only
+    plain text remains. The template autoescapes that text: no upstream markup is ever rendered."""
+    _BREAKS = frozenset({"br", "p", "div", "li", "ul", "ol", "h1", "h2", "h3", "h4", "h5", "h6", "tr", "blockquote"})
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.parts, self.skip = [], 0
+
+    def handle_starttag(self, tag, attrs):
+        if tag in ("script", "style"):
+            self.skip += 1
+        elif tag in self._BREAKS:
+            self.parts.append(" ")
+
+    def handle_endtag(self, tag):
+        if tag in ("script", "style"):
+            self.skip = max(0, self.skip - 1)
+        elif tag in self._BREAKS:
+            self.parts.append(" ")
+
+    def handle_data(self, data):
+        if not self.skip:
+            self.parts.append(data)
+
+
+def clean_summary(value: Any) -> Optional[str]:
+    """A synopsis as bounded plain text, or None. Never HTML: see `_TextOnly`."""
+    if not isinstance(value, str) or not value.strip():
+        return None
+    raw = value[:MAX_SUMMARY_RAW]
+    if len(value) > MAX_SUMMARY_RAW and raw.rfind("<") > raw.rfind(">"):
+        raw = raw[:raw.rfind("<")]          # never show half a tag that the cut-off split
+    parser = _TextOnly()
+    try:
+        parser.feed(raw)
+        parser.close()
+    except Exception:                       # HTMLParser is lenient; anything it still rejects shows nothing
+        return None
+    text = " ".join("".join(c if c.isprintable() else " " for c in "".join(parser.parts)).split())
+    if len(text) > MAX_SUMMARY:
+        text = text[:MAX_SUMMARY].rsplit(" ", 1)[0].rstrip(" ,;:.-") + "…"
+    return text or None
+
+
 @dataclass(frozen=True)
 class UpstreamUser:
     """The mapped upstream account. `upstream_id` is opaque and never shown to the member."""
@@ -206,6 +272,10 @@ class MediaItem:
     artwork: Optional[ArtworkRef] = None
     creator: Optional[str] = None        # author, or the person most associated; display text only
     year: Optional[int] = None           # release or publication year, only when the upstream gives one
+    # Validated (scheme, value) pairs the upstream itself returned (media_ids.py, MEDIA-IDENTITY.md). Internal:
+    # used to link the same title across a member's own results, never displayed and not in to_dict().
+    external_ids: Tuple[Tuple[str, str], ...] = field(default=(), repr=False)
+    summary: Optional[str] = None        # synopsis, plain text (clean_summary); set on title-page lookups only
 
     def to_dict(self) -> dict:
         progress = None
@@ -219,7 +289,7 @@ class MediaItem:
                 "title": self.title, "subtitle": self.subtitle, "series": self.series,
                 "progress": progress,
                 "artwork": self.artwork.to_dict() if self.artwork else None,
-                "creator": self.creator, "year": self.year,
+                "creator": self.creator, "year": self.year, "summary": self.summary,
                 "handoff_url": self.handoff_url}
 
 
@@ -306,15 +376,17 @@ class _ArtworkBreaker:
 
 class _Flight:
     """One in-progress mapping lookup that concurrent sections of the same member share."""
-    __slots__ = ("event", "result", "exc", "started", "finished", "counted")
+    __slots__ = ("event", "result", "exc", "started", "finished", "counted", "page", "closed")
 
-    def __init__(self, started: float):
+    def __init__(self, started: float, page: Optional[object] = None):
         self.event = threading.Event()
         self.result = None
         self.exc = None
         self.started = started            # when the leader began: an old flight is abandoned
         self.finished = None              # when the leader reported: a stale answer is not shared
         self.counted = True               # False when an artwork call led it (its failure was not counted)
+        self.page = page                  # the leader's page token (None outside a page)
+        self.closed = False               # the leader has reported (set under the flight lock)
 
 
 def _fresh_copy(err: Exception) -> Exception:
@@ -603,13 +675,16 @@ class MediaAdapter:
                 raise AmbiguousMappingError()
             raise MappingFailed(payload)
         member = principal.username
+        page = _PAGE.get()
         with self._flight_lock:
             flight = self._flights.get(member)
             if flight is not None and self.clock.now() - flight.started > self._request_timeout:
                 flight = None                # older than one request budget: its leader is hung or gone
+            elif flight is not None and flight.closed and (page is None or flight.page is not page):
+                flight = None                # a finished (failed) flight is shared only within its own page
             leader = flight is None
             if leader:
-                flight = self._flights[member] = _Flight(self.clock.now())
+                flight = self._flights[member] = _Flight(self.clock.now(), page)
                 flight.counted = not ctx.artwork
         if not leader:
             # Single-flight: a concurrent section of the same page is already asking the upstream
@@ -648,8 +723,16 @@ class MediaAdapter:
                 flight.finished = self.clock.now()
             except Exception:
                 flight.finished = None
+            # A failed flight of a page stays visible to that page's sibling sections that start after it ended
+            # (AVR-756): they follow it, so one page is still one counted failure. A failure is never cached as
+            # data; a later page (another token) or a call outside a page leads afresh. The kept copy carries no
+            # traceback, so a retained flight pins no frames.
+            retain = page is not None and isinstance(flight.exc, Exception)
+            if retain:
+                flight.exc = _fresh_copy(flight.exc)
             with self._flight_lock:
-                if self._flights.get(member) is flight:
+                flight.closed = True
+                if self._flights.get(member) is flight and not retain:
                     del self._flights[member]
             flight.event.set()
 

@@ -8,6 +8,10 @@ carry these headers; they contain no application data (documented in HOME-APP.md
   * Methods other than GET and HEAD get 501 before any routing or identity work, for every path
     and every identity, like the portal (http.server answers 501 before looking at groups). The
     body is fixed text and does NOT echo the method.
+  * A request whose header block exceeds identity.MAX_HEADER_BYTES gets 431 with fixed text before any routing or
+    identity work (AVR-732). h11 enforces its own 16 KiB limit only while a request is still incomplete, so
+    a request that arrives in one read (Linux asyncio reads up to 256 KiB at once) reached the application
+    whatever its size. This check holds whatever the read size.
   * Every response gets Cache-Control: no-store, Referrer-Policy: no-referrer,
     X-Content-Type-Options: nosniff and a strict Content-Security-Policy. Only Home shell pages may run script, and
     only their own origin's (`script-src 'self'; worker-src 'self'`, MK-3 / AVR-717, owner decision O1); there is
@@ -23,6 +27,7 @@ import logging
 import time
 from typing import Callable
 
+from .identity import header_block_too_large
 from .logsafe import access_log, app_log, log_event
 
 CSP = (b"default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; "
@@ -51,6 +56,11 @@ _HYGIENE_NAMES = frozenset(name for name, _ in HYGIENE)
 NOT_IMPLEMENTED_BODY = (b"<!DOCTYPE HTML>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n"
                         b"<title>Error response</title>\n</head>\n<body>\n<h1>Error response</h1>\n"
                         b"<p>Error code: 501</p>\n<p>Message: Unsupported method.</p>\n</body>\n</html>\n")
+
+
+HEADERS_TOO_LARGE_BODY = (b"<!DOCTYPE HTML>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n"
+                          b"<title>Error response</title>\n</head>\n<body>\n<h1>Error response</h1>\n"
+                          b"<p>Error code: 431</p>\n<p>Message: Request header fields too large.</p>\n</body>\n</html>\n")
 
 
 # The artwork route sets "private, no-store" itself; that is the only value allowed to replace the default.
@@ -104,7 +114,10 @@ class HygieneMiddleware:
             await send(message)
 
         try:
-            if method not in ("GET", "HEAD"):
+            if header_block_too_large(scope):
+                scope["avrana_route"] = "headers_too_large"
+                await self._plain(wrapped_send, 431, HEADERS_TOO_LARGE_BODY, head=(method == "HEAD"))
+            elif method not in ("GET", "HEAD"):
                 scope["avrana_route"] = "method_not_supported"
                 await self._plain(wrapped_send, 501, NOT_IMPLEMENTED_BODY, head=False)
             else:

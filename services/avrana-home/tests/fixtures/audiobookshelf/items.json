@@ -16,7 +16,10 @@
           "authorName": "Synthetic Author",
           "seriesName": "Synthetic Saga #1",
           "publishedYear": "2011",
-          "explicit": false
+          "explicit": false,
+          "isbn": "0-306-40615-2",
+          "asin": "B0SYNTH001",
+          "description": "<p>A synthetic audiobook description.</p><p onclick=\"x()\">With <a href=\"javascript:alert(1)\">a link</a>.</p>"
         },
         "tags": [],
         "duration": 36000.0,

@@ -141,7 +141,10 @@ Each public method runs these steps, in this order, in the shared base class
   budget (never the hard cap); a flight older than one budget is abandoned and the next caller leads
   afresh; a follower never accepts an answer older than the mapping TTL; every follower gets its own
   new exception instance, never the leader's. A follower also knows its mapping was just confirmed by
-  the leader, so it never drops a mapping the leader has just confirmed.
+  the leader, so it never drops a mapping the leader has just confirmed. A sibling section of the
+  same page that starts only after the leader has already failed still follows that failed flight
+  (AVR-756): the page's jobs carry one page token, and a finished failed flight stays visible to that
+  page only. A later page, or a call outside a page, leads afresh, so the failure is never cached.
 - A `/Users` list that is non-empty but has **no parsable entry** (schema drift) is `UpstreamMalformed`
   (`UNAVAILABLE`, counted, not cached), never "everyone is unlinked". An empty list is legitimately
   unlinked.
@@ -183,7 +186,12 @@ Each public method runs these steps, in this order, in the shared base class
 | `series` | string or null | |
 | `progress` | object or null | `fraction` (0 to 1), `percent` (integer), `position_seconds`, `duration_seconds`; any of the four may be null when the upstream did not say (then show the position or no bar, never a guess). Only for in-progress items. |
 | `artwork` | object or null | `ref` (opaque) and `alt` (text alternative) |
+| `summary` | string or null | Synopsis as plain text, at most 1,200 characters (cut at a word with an ellipsis). **Only on title-page lookups** (`item`); always `null` in Continue, Recent and search. Upstream HTML is reduced to its text (`contract.clean_summary`): tags, attributes, scripts, styles and comments dropped, entities decoded; the template escapes the result (R2-C) |
 | `handoff_url` | string | `https://` URL on a fixed Avrana hostname |
+
+`MediaItem.external_ids` (validated TMDB, IMDb, TVDB, ISBN-13 and ASIN values the upstream returned) is internal
+and deliberately **not** in `to_dict()`: it exists only to link the same title across one member's results
+([MEDIA-IDENTITY.md](MEDIA-IDENTITY.md), R2-B).
 
 **Accessibility-relevant fields.** `artwork.alt` is always supplied when artwork exists (for example
 `"Poster for Synthetic Film One"`); when `artwork` is `null` the UI shows a placeholder with no
@@ -974,5 +982,10 @@ Calibre-Web has no item lookup, so its search results link straight to Calibre-W
 malformed: the standard 404. Komga's 403 for a book the shared account may not open is treated as hidden (404), not
 as an outage, and never counts toward the circuit; an Audiobookshelf item in a library the member may not use is
 hidden before any other field is checked, and a malformed item on the title path fails closed to hidden.
-Unavailable: a calm 503 page with Try again that says nothing about the title. The primary action and every search
+Unavailable: a calm 503 page with Try again that says nothing about the title. **Synopsis (R2-C, 2026-10-26):** the
+title lookup alone asks for it: Jellyfin adds `Overview` to `fields` only on this call; Audiobookshelf reads
+`media.metadata.description` and Komga `metadata.summary` only after the item passed every permission check. Shown
+under an "About" heading when present, never on cards or search results. Field names doc-verified at the R1 audit's
+pinned commits (Jellyfin `BaseItemDto.Overview` and the `Overview` item field in the 10.11.11 and 12.3.0 OpenAPI files);
+not live-verified. The primary action and every search
 result link only to the item's own service host (`HANDOFF_BASE`).

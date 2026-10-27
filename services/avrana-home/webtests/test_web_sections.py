@@ -256,7 +256,8 @@ class JsonViewTests(Fixture):
             self.assertEqual({"service", "section", "state", "items"}, set(s))
             for it in s["items"]:
                 self.assertEqual({"id", "service", "kind", "title", "subtitle", "series", "progress",
-                                  "artwork", "creator", "year", "handoff_url"}, set(it))
+                                  "artwork", "creator", "year", "summary", "handoff_url"}, set(it))
+                self.assertIsNone(it["summary"])       # a synopsis only on the title page (R2-C)
         self.assertNotIn("reason", r.text)
 
     def test_not_permitted_is_omitted_entirely(self):
@@ -357,8 +358,60 @@ class DegradationTests(Fixture):
         self.assertEqual("cooling_off", adapter.health().state)
         self.mock.set_mode("ok")
         adapter.breaker._open_until = 0.0           # the 60 s cool-off elapsing (no sleeping in tests)
+        # Half-open admits exactly ONE trial (resilience.CircuitBreaker). Continue and Recently added are fetched
+        # concurrently and race for it; the loser is refused as cooling off. When Recently added wins, this first
+        # page has no Continue, and "Synthetic Film One" is a Continue item only (AVR-733: the old single-page
+        # assertion failed whenever that thread won). The trial's success must close the circuit, with no restart.
+        client.get("/", headers=A)
+        self.assertEqual("ok", adapter.health().state)
         r = client.get("/", headers=A)
         self.assertIn("Synthetic Film One", r.text)
+        self.assertEqual("ok", adapter.health().state)
+
+    def test_half_open_trial_goes_to_one_section_and_its_sibling_is_refused(self):
+        """AVR-733, made deterministic: Recently added takes the trial and holds it until Continue has asked."""
+        import threading
+        self.mock.set_mode("500")
+        client = self.fresh()
+        for _ in range(3):
+            client.get("/", headers=A)
+        adapter = client.fastapi_app.state.adapters[0]
+        self.mock.set_mode("ok")
+        adapter.breaker._open_until = 0.0
+        real_acquire, real_recent, real_continue = adapter.breaker.acquire, adapter.recent_items, adapter.continue_items
+        holder = threading.local()
+        held, asked = threading.Event(), threading.Event()
+
+        def acquire(trial=True):
+            token = real_acquire(trial)
+            if getattr(holder, "first", False):
+                held.set()                       # the trial call is in flight ...
+                asked.wait(5)                    # ... until Continue has been answered
+            return token
+
+        def recent(*a, **k):
+            holder.first = True
+            try:
+                return real_recent(*a, **k)
+            finally:
+                holder.first = False
+
+        def continue_(*a, **k):
+            held.wait(5)                         # asks only while Recently added holds the trial
+            try:
+                return real_continue(*a, **k)
+            finally:
+                asked.set()
+
+        adapter.breaker.acquire, adapter.recent_items, adapter.continue_items = acquire, recent, continue_
+        try:
+            first = client.get("/", headers=A).text
+        finally:
+            adapter.breaker.acquire, adapter.recent_items, adapter.continue_items = (real_acquire, real_recent,
+                                                                                     real_continue)
+        self.assertNotIn("Synthetic Film One", first)   # Continue was refused: no upstream call, no stale data
+        self.assertEqual("ok", adapter.health().state)  # the trial closed the circuit
+        self.assertIn("Synthetic Film One", client.get("/", headers=A).text)
 
     def test_wrong_user_data_never_reaches_the_page_or_json(self):
         self.mock.set_mode("wrong-user")
