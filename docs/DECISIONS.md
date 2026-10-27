@@ -67,6 +67,7 @@ half the containers still carry its label).
 | Decision | Consequence |
 |---|---|
 | **D-8a**: CI may install exactly one hash-pinned PyYAML wheel, in CI only | `.github/requirements-ci.txt` holds one `==` pin with one sha256; `pip` runs `--require-hashes --only-binary=:all: --no-deps`. No secrets, read-only permissions, no deployment and the no-network second run are unchanged. `AVRANA_REQUIRE_YAML=1` makes a missing PyYAML fail the G1 security tests instead of skipping them. Any other dependency needs a new decision |
+| **D-8b** (owner, 2026-10-26, AVR-757): pin and document the missing test dependencies properly; do not skip the affected tests | `.github/requirements-ci.txt` adds hash-pinned pure-Python wheels for pytest (with iniconfig, packaging, pluggy, pygments), itsdangerous and python-multipart, and includes `services/avrana-home/requirements.lock` (FastAPI, Starlette, pydantic, Jinja2, httpx, uvicorn) instead of pinning those twice. The single pip call is unchanged (`--require-hashes --only-binary=:all: --no-deps`), and it is also the documented local install (`docs/DEVELOPMENT.md`). `tests/test_ci_workflow.py` holds the exact package list; any other dependency still needs a new decision |
 ## Owner decisions, 2026-10-15: Media 2.0 review
 
 Recorded from the owner's message of 2026-10-15. None of these authorises a production change: live
@@ -115,3 +116,18 @@ auth.avrana.net still needs the owner's explicit approval for that step, after a
 | **No rule under the wordmark**, on the gate and on Home | Removed from the gate's brand CSS; Home's masthead rule is removed in a separate Home change |
 | The live apply needs explicit approval, a backup and a rollback; push and a draft PR are approved | `brand_css_change.py backup`, `apply`, `rollback`; each live step is approved one at a time, Git-only until then |
 | **The gate uses the system font, not embedded Geist** (owner, 2026-10-18) | The staged stack stays: no font embedded in the brand CSS (16 KB, not 109 KB). Geist can come later from Home's own copy once Home is deployed, which needs CORS on the font |
+
+## Owner decisions, 2026-10-26: Media direction after M3 (AVR-505)
+
+Recorded from the owner's "Personal Experience Specification v0.1" and dispositions of 2026-10-26. **Direction,
+not implementation approval**: no merge, deployment or build of any item below is approved by this entry. The
+tiers and issue IDs are in [`design/MEDIA-STATE-REGISTER.md`](design/MEDIA-STATE-REGISTER.md).
+
+| Decision | Consequence |
+|---|---|
+| Post-M3 direction selected: featured-first Home hero (AVR-750), browser playback spike (AVR-751), native movie and TV requests through a server-side broker (AVR-390, AVR-393, AVR-726), in-app inbox (AVR-752), release tracking (AVR-753), phone-to-TV control later (AVR-754, AVR-724) | None of it is M3 scope; each needs its own design and approval. Never a Seerr admin or global key in the browser |
+| Q1: no Jellyfin 12.x upgrade now | A future owner-controlled upgrade, with rollback and deployed-contract proof |
+| Q2: M3 Seerr handoffs only where the URL, version and ID allowlist is proven | No request filing in M3 |
+| Q3: Komga shared view unchanged; Q4: books and comics handoffs only | No member Komga API keys |
+| Q5: minimal OpenAPI facts with hashes and provenance | Legal disposition still open |
+| Q6: social deferred (AVR-749); AVR-723 NextUp not approved | No prototype |

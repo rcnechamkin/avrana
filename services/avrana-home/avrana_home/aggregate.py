@@ -21,7 +21,7 @@ import threading
 from dataclasses import dataclass
 from typing import Iterable, Optional, Sequence, Tuple
 
-from .contract import DEFAULT_LIMIT, MediaAdapter, SectionResult, SectionState, clean_query
+from .contract import DEFAULT_LIMIT, MediaAdapter, SectionResult, SectionState, clean_query, run_in_page
 from .principal import MemberPrincipal, is_minted_principal
 from .resilience import REQUEST_BUDGET, log_failure
 
@@ -120,7 +120,8 @@ def _run(jobs, args: tuple, adapters: Sequence[MediaAdapter], hard_cap: Optional
     if hard_cap is None:
         hard_cap = derive_hard_cap(adapters)
     pool = _shared_pool()
-    futures = [pool.submit(fn, *args) for _, _, fn in jobs]
+    page = object()        # one token per page: its sections share one failed mapping flight (AVR-756)
+    futures = [pool.submit(run_in_page, page, fn, *args) for _, _, fn in jobs]
     done, pending = cf.wait(futures, timeout=hard_cap)
     never_started = {fut for fut in pending if fut.cancel()}   # queued work is dropped; running work is not
     out = []
