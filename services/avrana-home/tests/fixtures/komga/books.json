@@ -22,7 +22,8 @@
         "number": "1",
         "authors": [{"name": "Synthetic Inker", "role": "inker"}, {"name": "Synthetic Writer", "role": "writer"}],
         "releaseDate": "2019-04-01",
-        "tags": []
+        "tags": [],
+        "isbn": "978-0-00-000001-9"
       },
       "readProgress": {
         "page": 77,

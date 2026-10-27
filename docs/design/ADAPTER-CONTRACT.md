@@ -188,6 +188,10 @@ Each public method runs these steps, in this order, in the shared base class
 | `artwork` | object or null | `ref` (opaque) and `alt` (text alternative) |
 | `handoff_url` | string | `https://` URL on a fixed Avrana hostname |
 
+`MediaItem.external_ids` (validated TMDB, IMDb, TVDB, ISBN-13 and ASIN values the upstream returned) is internal
+and deliberately **not** in `to_dict()`: it exists only to link the same title across one member's results
+([MEDIA-IDENTITY.md](MEDIA-IDENTITY.md), R2-B).
+
 **Accessibility-relevant fields.** `artwork.alt` is always supplied when artwork exists (for example
 `"Poster for Synthetic Film One"`); when `artwork` is `null` the UI shows a placeholder with no
 alt text of its own because the title is adjacent. `progress.percent` and the seconds let the UI

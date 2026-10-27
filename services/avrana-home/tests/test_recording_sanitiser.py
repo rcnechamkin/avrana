@@ -57,10 +57,13 @@ class SanitiserTests(unittest.TestCase):
     def test_undeclared_fields_are_named_not_kept(self):
         rec = rs.build_recording("resume", copy.deepcopy(RAW_RESUME), "10.11.11", CONTRACT)
         self.assertEqual(rec["_undeclared_fields"], {
-            "(envelope)": ["SomethingNew"], "item": ["Overview", "Path", "ProviderIds"],
+            "(envelope)": ["SomethingNew"], "item": ["Overview", "Path"],
             "item.ImageTags": ["Thumb"], "item.UserData": ["LastPlayedDate"]})
         item = rec["response"]["Items"][0]
         self.assertNotIn("Path", item)
+        # ProviderIds is declared (R2-B): its keys stay, its values are synthetic, never the real id
+        self.assertEqual(set(item["ProviderIds"]), {"Imdb"})
+        self.assertNotIn("tt0000001", json.dumps(rec))
         self.assertEqual(set(item["UserData"]), set(CONTRACT["entities"]["item.UserData"]))
 
     def test_keys_that_could_be_data_are_counted_not_named(self):

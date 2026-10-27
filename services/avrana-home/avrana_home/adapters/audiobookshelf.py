@@ -56,6 +56,7 @@ from typing import Any, Dict, List, Mapping, Optional, Tuple
 from ..contract import (TRUNCATED, ArtworkRef, ArtworkResult, DEFAULT_LIMIT, Kind, MappingFailed, MediaItem,
                         SectionResult, SectionState, Service, UpstreamUser, build_handoff_url, clean_text,
                         valid_upstream_id)
+from .. import media_ids
 from ..principal import MemberPrincipal
 from ..resilience import (DEFAULT_TIMEOUT, FanOutSpent, ItemGone, RouteMissing, Transport, UpstreamMalformed,
                           UpstreamMisbehaved, UpstreamTimeout, UserGone)
@@ -463,4 +464,5 @@ class AudiobookshelfAdapter(GuardedAdapter):
                          subtitle=clean_text(meta.get("authorName")), series=clean_text(meta.get("seriesName")),
                          progress_fraction=fraction, position_seconds=position,
                          duration_seconds=duration, artwork=artwork,
-                         creator=clean_text(meta.get("authorName")), year=year_from(meta.get("publishedYear"))), "ok"
+                         creator=clean_text(meta.get("authorName")), year=year_from(meta.get("publishedYear")),
+                         external_ids=media_ids.from_book_metadata(meta)), "ok"
