@@ -11,9 +11,22 @@ Every upstream claim is labelled:
 - **UNVERIFIED**: recalled, inferred, or only exercised by our own hand-written fixtures. Needs the owner's
   capture run (REAL-SERVICES-PATH.md, step 1) or a physical test below.
 
-Deployed versions as recorded in this repository: Jellyfin **10.11.11** (docs/SERVICES.md, public information
-endpoint). Audiobookshelf **2.36** is the fixtures' `_target_version`, not confirmed. Komga and
-Calibre-Web-Automated: no version recorded (UNVERIFIED).
+- **verified-at-pin** (added 2026-10-27): read in the upstream source at the exact release that the image digest
+  pinned in this repository resolves to (table below). That pins the claim to the version Git says is deployed;
+  it is still not a capture from the running instance, and `scripts/drift-check.py` is what shows whether the
+  host matches Git.
+
+### Version pins (2026-10-27)
+
+Each compose file pins an image digest. The digest was resolved to its release tag with the public registry
+(Docker Hub tag API; GHCR anonymous token and manifest `HEAD`), read-only:
+
+| Service | Compose pin | Release | Other evidence |
+|---|---|---|---|
+| Jellyfin | `services/media/docker-compose.yml` `jellyfin/jellyfin@sha256:aefb67e6…b35db` | **10.11.11** (Docker Hub tag `10.11.11` has this digest) | docs/SERVICES.md: the public information endpoint reported 10.11.11 |
+| Audiobookshelf | `services/audiobookshelf/docker-compose.yml` `ghcr.io/advplyr/audiobookshelf@sha256:180acad3…1a8e` | **2.36.0** | the fixtures' `_target_version` 2.36 |
+| Komga | `services/komga/docker-compose.yml` `gotson/komga@sha256:c4f9885f…e6fb` | **1.25.0** | none |
+| Calibre-Web-Automated | no digest pin found in this repository | **UNVERIFIED** | none |
 
 ## 1. What a Continue card does (AVR-381)
 
@@ -39,7 +52,7 @@ macro; this lane only sets the fields.
 
 | | Jellyfin | Audiobookshelf | Komga | Calibre-Web (CWA) |
 |---|---|---|---|---|
-| **Endpoint used** | `GET /UserItems/Resume?userId=` (10.9+; `Users/{id}/Items/Resume` kept as obsolete) **verified-by-doc**: `Jellyfin.Api/Controllers/ItemsController.cs`, branch `release-10.11.z` | `GET /api/users/{id}` and its `mediaProgress` list, then `GET /api/items/{id}?expanded=1` per entry. Field set **verified-by-doc**: `server/models/MediaProgress.js` `getOldMediaProgress()`, branch `master`. That `/api/users/{id}` embeds `mediaProgress` for an admin token: **UNVERIFIED** | none (not offered) | none (not offered) |
+| **Endpoint used** | `GET /UserItems/Resume?userId=` (10.9+; `Users/{id}/Items/Resume` kept as obsolete) **verified-at-pin** 10.11.11: `Jellyfin.Api/Controllers/ItemsController.cs` `[HttpGet("UserItems/Resume")]` (line 824, query `IsResumable = true` at 879); `Users/{userId}/Items/Resume` is `[Obsolete]` (924-925) | `GET /api/users/{id}` and its `mediaProgress` list, then `GET /api/items/{id}?expanded=1` per entry. **verified-at-pin** 2.36.0: `server/routers/ApiRouter.js` line 136 routes it to `UserController.findOne`, which answers 403 unless the caller `isAdminOrUp` (59-63), loads every `mediaProgress` row of the requested user (65-84), maps each with `getOldMediaProgress()` and sets `userJson.mediaProgress` (85-103). Rows include podcast episodes; the adapter skips any entry with an `episodeId` (`adapters/audiobookshelf.py`) | none (not offered) | none (not offered) |
 | **User scope** | The mapped member's user id in the query; the response's `UserData.UserId`/`ItemId` are checked when present (**UNVERIFIED** whether real responses carry them) | The member's own user id in the path; every entry's `userId` must equal it, else the section is discarded. Admin-capable token (ADAPTER-CONTRACT 11.1) | The shared regular account. Its read progress is the shared account's, not the member's, so it is never read | The shared viewer account. Per-member read state would need each member's own password |
 | **Granularity** | Ticks (1/10,000,000 s) and `PlayedPercentage`; `Played` flag. Resume list filters `IsResumable = true` (**verified-by-doc**, same file); whether that excludes played items is not visible there (**UNVERIFIED**), so the adapter drops `Played: true` itself | `currentTime` and `duration` in seconds (float), `progress` 0 to 1 stored as sent by the client (1 when marked finished), `isFinished`, `hideFromContinueListening`, `lastUpdate` in ms (**verified-by-doc**). Ebook progress (`ebookProgress`) is not read: an ebook-only item with no audio position is not shown | n/a | n/a |
 | **Refresh** | Section cache 30 s per member (`MediaAdapter.cache_ttl`), mapping 60 s | same | n/a | n/a |
@@ -60,9 +73,9 @@ fixed hosts followed by `/` (`viewmodel.HANDOFF_ALLOWED`, second check). There i
 
 | Service | Path | Evidence |
 |---|---|---|
-| Jellyfin | `/web/#/details?id=<id>` | **verified-by-doc** for 10.10 and 10.11: jellyfin-web uses `createHashRouter` (`src/RootAppRouter.tsx`), has a `details` route (`src/apps/stable/routes/legacyRoutes/user.ts`), and the details controller reads `params.id`; `serverId` is optional and falls back to the current `ApiClient` (`src/controllers/itemDetails/index.js`), branches `release-10.10.z` and `release-10.11.z`. So no `serverId` is needed for a single-server web client. That the web client is served under `/web/` on watch.avrana.net: **UNVERIFIED** here (the Jellyfin default) |
-| Audiobookshelf | `/item/<id>` | **verified-by-doc** (branch `master`): the client page `client/pages/item/_id/index.vue` exists; the server's default `ROUTER_BASE_PATH` is `/audiobookshelf` (`index.js`), and `server/Server.js` rewrites any URL without that prefix to include it (no redirect), so `/item/<id>` reaches the same handler. Whether the single-page client then renders the item at the un-prefixed address, and which version the deployed server runs: **UNVERIFIED** (P3). If it fails, the fix is the one path template in `contract._HANDOFF_PATH` (`/audiobookshelf/item/{id}`), not a new setting |
-| Komga | `/book/<id>` | **verified-by-doc** (branch `master`): `komga-webui/src/router.ts` has `/book/:bookId` (history mode, base from `urls.base`). Deployed base path: **UNVERIFIED** |
+| Jellyfin | `/web/#/details?id=<id>` | **verified-at-pin** jellyfin-web `v10.11.11` (and **verified-by-doc** for 10.10): `createHashRouter` (`src/RootAppRouter.tsx` line 24), a `details` route (`src/apps/stable/routes/legacyRoutes/user.ts` line 5), and the details controller reads `params.id` (`src/controllers/itemDetails/index.js` line 63); `serverId` is optional and falls back to the current `ApiClient`. So no `serverId` is needed for a single-server web client. That the web client is served under `/web/` on watch.avrana.net: **UNVERIFIED** here (the Jellyfin default) |
+| Audiobookshelf | `/item/<id>` | **verified-at-pin** 2.36.0: the client page `client/pages/item/_id/index.vue` exists; the default `ROUTER_BASE_PATH` is `/audiobookshelf` (`index.js` line 52), and `server/Server.js` (289-300) rewrites any URL without that prefix to include it (no redirect), so `/item/<id>` reaches the same handler. Whether the single-page client then renders the item at the un-prefixed address, and which version the deployed server runs: **UNVERIFIED** (P3). If it fails, the fix is the one path template in `contract._HANDOFF_PATH` (`/audiobookshelf/item/{id}`), not a new setting |
+| Komga | `/book/<id>` | **verified-at-pin** 1.25.0: `komga-webui/src/router.ts` has `/book/:bookId` (line 242; history mode, base from `urls.base`, lines 49-50). Deployed base path: **UNVERIFIED** |
 | Calibre-Web | `/book/<n>` | **verified-by-doc** for upstream Calibre-Web (`cps/web.py`, `@web.route("/book/<int:book_id>")`, `login_required_if_no_ano`, branch `master`). The deployed app is Calibre-Web-Automated, a fork: **UNVERIFIED** that it keeps the route |
 
 **LAN owner preview.** The preview (`docs/runbooks/home-owner-preview.md`) serves Home on
