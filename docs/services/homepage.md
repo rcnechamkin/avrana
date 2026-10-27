@@ -5,6 +5,6 @@
 > Original: [archive](../../docs/archive/bookstack/raw/services/28-homepage.md).
 
 Dashboard. Container `homepage` + `homepage-dockerproxy` (read-only, GET-only Docker socket proxy). Config in `deploy/homepage/config/`.
-- Groups: **Media · Books & Comics · Automation · Server**. Native widgets for Seerr, Jellyfin, ABS, Komga, CWA, Radarr, Sonarr, Prowlarr, SABnzbd, Mylar3.
-- **Libation** uses a `customapi` widget (via libation-status:8087) under *Automation*. **BookStack** is a plain tile (gethomepage has no native bookstack widget). The legacy **Health API tile was removed** 2026-08-13 (the service still runs).
+- Groups, by media pipeline in flow order (AVR-366, 2026-10-27): **Video** (Seerr → Radarr/Sonarr → Prowlarr → SABnzbd → Jellyfin → Tracearr) · **Audiobooks** (Audible Connector → Libation → Audiobookshelf) · **Books** (Shelfmark, Shelfarr → Calibre-Web Automated) · **Comics** (Request Comics → Mylar3 → Komga) · **Operations** (OliveTin, Authentik admin, Beszel). Native widgets for Seerr, Jellyfin, ABS, Komga, CWA, Radarr, Sonarr, Prowlarr, SABnzbd, Mylar3. `tests/test_homepage_nav.py` keeps groups, layout and container names consistent.
+- **Libation** has no web UI: its tile links to libation-status (8087, JSON) and uses a `customapi` widget there. Until 2026-10-27 the link opened Audiobookshelf by mistake. The **BookStack** tile (retired) and the tile for Homepage itself were removed. The legacy **Health API tile was removed** 2026-08-13 (the service still runs).
 - Widget secrets: `services/homepage/widget-secrets.env` (mode 600, gitignored). Dedicated read-only creds per service (Jellyfin/Komga API keys, CWA viewer account).

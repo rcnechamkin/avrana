@@ -1,21 +1,8 @@
-- Media:
-    - Jellyfin:
-        icon: jellyfin.png
-        href: http://10.0.0.218:8096
-        description: Movies and television
-        server: local
-        container: jellyfin
-        siteMonitor: http://10.0.0.218:8096/health
-        widget:
-          type: jellyfin
-          url: http://10.0.0.218:8096
-          key: "{{HOMEPAGE_VAR_JELLYFIN_KEY}}"
-          version: 1
-          fields: ["movies", "series", "episodes", "songs"]
-          enableBlocks: true
-          enableNowPlaying: true
-          enableUser: true
-          showEpisodeNumber: true
+# Operator dashboard, grouped by media pipeline in the order things flow: request -> acquire -> download ->
+# library -> playback (AVR-366). Members never see this page; their front door is the Avrana portal / Home.
+# BookStack (retired 2026-10-04, archived in docs/archive/bookstack/) and a tile for this dashboard itself
+# were removed.
+- Video:
     - Seerr:
         icon: jellyseerr.png
         href: http://10.0.0.218:5055
@@ -28,144 +15,6 @@
           url: http://10.0.0.218:5055
           key: "{{HOMEPAGE_VAR_SEERR_KEY}}"
           fields: ["pending", "approved", "processing", "available"]
-
-    - Tracearr:
-        icon: tracearr.png
-        href: http://10.0.0.218:5057
-        description: Jellyfin playback analytics
-        server: local
-        container: tracearr
-        siteMonitor: http://10.0.0.218:5057/health
-        widget:
-          type: tracearr
-          url: http://10.0.0.218:5057
-          key: "{{HOMEPAGE_VAR_TRACEARR_KEY}}"
-          # "both" = summary counters plus the active-session list. The summary
-          # fields are fixed upstream: streams / transcodes / directplay /
-          # bitrate -- which is precisely the direct-play-vs-transcode signal
-          # this service was deployed for.
-          view: both
-          enableUser: true
-          showEpisodeNumber: true
-
-- Books & Comics:
-    - Audiobookshelf:
-        icon: audiobookshelf.png
-        href: http://10.0.0.218:13378
-        description: Audiobook library
-        server: local
-        container: audiobookshelf
-        siteMonitor: http://10.0.0.218:13378/healthcheck
-        widget:
-          type: audiobookshelf
-          url: http://10.0.0.218:13378/audiobookshelf
-          key: "{{HOMEPAGE_VAR_ABS_KEY}}"
-          fields: ["books", "booksDuration", "podcasts", "podcastsDuration"]
-    - Komga:
-        icon: komga.png
-        href: http://10.0.0.218:25600
-        description: Comics library
-        server: local
-        container: komga
-        siteMonitor: http://10.0.0.218:25600/actuator/health
-        widget:
-          type: komga
-          url: http://10.0.0.218:25600
-          key: "{{HOMEPAGE_VAR_KOMGA_KEY}}"
-          version: 1
-          fields: ["libraries", "series", "books"]
-    - Request Comics:
-        icon: mdi-book-search-outline
-        href: https://requestacomic.avrana.net
-        description: Comic discovery and requests
-        server: local
-        container: omnibus
-        # No native homepage widget for Omnibus; link + health + container
-        # stats, same pattern as BookStack/Shelfarr. /api/health returns 401
-        # unauthenticated, which still proves the app is serving, so the root
-        # path is used for the monitor instead.
-        siteMonitor: http://10.0.0.218:5058/
-    - Calibre-Web Automated:
-        icon: calibre-web.png
-        href: http://10.0.0.218:8083
-        description: Ebook library and ingest
-        server: local
-        container: calibre-web-automated
-        siteMonitor: http://10.0.0.218:8083
-        widget:
-          type: calibreweb
-          url: http://10.0.0.218:8083
-          username: "{{HOMEPAGE_VAR_CWA_USER}}"
-          password: "{{HOMEPAGE_VAR_CWA_PASSWORD}}"
-          fields: ["books", "authors", "categories", "series"]
-
-- Automation:
-    - Shelfmark:
-        icon: mdi-bookshelf
-        href: http://10.0.0.218:8084
-        description: Book search and requests
-        server: local
-        container: shelfmark
-        siteMonitor: http://10.0.0.218:8084/api/health
-    - Shelfarr:
-        icon: mdi-book-search
-        href: http://10.0.0.218:5056
-        description: Book requests and monitoring
-        server: local
-        container: shelfarr
-        # Rails native readiness endpoint: 200 only once the app AND its
-        # database are up. gethomepage has no native shelfarr widget, so this
-        # is link + siteMonitor + container stats, same as BookStack.
-        siteMonitor: http://10.0.0.218:5056/up
-    - Libation:
-        icon: mdi-book-arrow-down
-        href: http://10.0.0.218:13378
-        description: Audible → M4B liberation
-        server: local
-        container: libation
-        widget:
-          type: customapi
-          url: http://10.0.0.218:8087
-          refreshInterval: 10000
-          method: GET
-          mappings:
-            - field: downloaded
-              label: Downloaded
-              format: number
-            - field: pending
-              label: Pending
-              format: number
-            - field: library
-              label: Library
-              format: number
-            - field: state
-              label: State
-              format: text
-    - Audible Connector:
-        icon: mdi-account-music
-        href: https://contribute.avrana.net
-        description: Audible → Audiobookshelf contributions
-        server: local
-        container: avrana-audible-connector
-        siteMonitor: http://10.0.0.218:8092/healthz
-        widget:
-          type: customapi
-          url: http://10.0.0.218:8092/status/summary
-          refreshInterval: 30000
-          method: GET
-          mappings:
-            - field: profiles
-              label: Profiles
-              format: number
-            - field: pending
-              label: To download
-              format: number
-            - field: downloading
-              label: Downloading
-              format: number
-            - field: imported
-              label: Imported
-              format: number
     - Radarr:
         icon: radarr.png
         href: http://10.0.0.218:7878
@@ -214,6 +63,152 @@
           url: http://10.0.0.218:8082
           key: "{{HOMEPAGE_VAR_SABNZBD_KEY}}"
           fields: ["rate", "queue", "timeleft"]
+    - Jellyfin:
+        icon: jellyfin.png
+        href: http://10.0.0.218:8096
+        description: Movies and television
+        server: local
+        container: jellyfin
+        siteMonitor: http://10.0.0.218:8096/health
+        widget:
+          type: jellyfin
+          url: http://10.0.0.218:8096
+          key: "{{HOMEPAGE_VAR_JELLYFIN_KEY}}"
+          version: 1
+          fields: ["movies", "series", "episodes", "songs"]
+          enableBlocks: true
+          enableNowPlaying: true
+          enableUser: true
+          showEpisodeNumber: true
+    - Tracearr:
+        icon: tracearr.png
+        href: http://10.0.0.218:5057
+        description: Jellyfin playback analytics
+        server: local
+        container: tracearr
+        siteMonitor: http://10.0.0.218:5057/health
+        widget:
+          type: tracearr
+          url: http://10.0.0.218:5057
+          key: "{{HOMEPAGE_VAR_TRACEARR_KEY}}"
+          # "both" = summary counters plus the active-session list. The summary
+          # fields are fixed upstream: streams / transcodes / directplay /
+          # bitrate -- which is precisely the direct-play-vs-transcode signal
+          # this service was deployed for.
+          view: both
+          enableUser: true
+          showEpisodeNumber: true
+
+- Audiobooks:
+    - Audible Connector:
+        icon: mdi-account-music
+        href: https://contribute.avrana.net
+        description: Audible → Audiobookshelf contributions
+        server: local
+        container: avrana-audible-connector
+        siteMonitor: http://10.0.0.218:8092/healthz
+        widget:
+          type: customapi
+          url: http://10.0.0.218:8092/status/summary
+          refreshInterval: 30000
+          method: GET
+          mappings:
+            - field: profiles
+              label: Profiles
+              format: number
+            - field: pending
+              label: To download
+              format: number
+            - field: downloading
+              label: Downloading
+              format: number
+            - field: imported
+              label: Imported
+              format: number
+    - Libation:
+        icon: mdi-book-arrow-down
+        # Libation has no web UI (docs/services/libation.md); its status lives in libation-status, which this
+        # tile's widget already reads. The link used to open Audiobookshelf (AVR-366).
+        href: http://10.0.0.218:8087
+        description: Audible → M4B liberation (status JSON)
+        server: local
+        container: libation
+        siteMonitor: http://10.0.0.218:8087
+        widget:
+          type: customapi
+          url: http://10.0.0.218:8087
+          refreshInterval: 10000
+          method: GET
+          mappings:
+            - field: downloaded
+              label: Downloaded
+              format: number
+            - field: pending
+              label: Pending
+              format: number
+            - field: library
+              label: Library
+              format: number
+            - field: state
+              label: State
+              format: text
+    - Audiobookshelf:
+        icon: audiobookshelf.png
+        href: http://10.0.0.218:13378
+        description: Audiobook library
+        server: local
+        container: audiobookshelf
+        siteMonitor: http://10.0.0.218:13378/healthcheck
+        widget:
+          type: audiobookshelf
+          url: http://10.0.0.218:13378/audiobookshelf
+          key: "{{HOMEPAGE_VAR_ABS_KEY}}"
+          fields: ["books", "booksDuration", "podcasts", "podcastsDuration"]
+
+- Books:
+    - Shelfmark:
+        icon: mdi-bookshelf
+        href: http://10.0.0.218:8084
+        description: Book search and requests
+        server: local
+        container: shelfmark
+        siteMonitor: http://10.0.0.218:8084/api/health
+    - Shelfarr:
+        icon: mdi-book-search
+        href: http://10.0.0.218:5056
+        description: Book requests and monitoring
+        server: local
+        container: shelfarr
+        # Rails native readiness endpoint: 200 only once the app AND its
+        # database are up. gethomepage has no native shelfarr widget, so this
+        # is link + siteMonitor + container stats.
+        siteMonitor: http://10.0.0.218:5056/up
+    - Calibre-Web Automated:
+        icon: calibre-web.png
+        href: http://10.0.0.218:8083
+        description: Ebook library and ingest
+        server: local
+        container: calibre-web-automated
+        siteMonitor: http://10.0.0.218:8083
+        widget:
+          type: calibreweb
+          url: http://10.0.0.218:8083
+          username: "{{HOMEPAGE_VAR_CWA_USER}}"
+          password: "{{HOMEPAGE_VAR_CWA_PASSWORD}}"
+          fields: ["books", "authors", "categories", "series"]
+
+- Comics:
+    - Request Comics:
+        icon: mdi-book-search-outline
+        href: https://requestacomic.avrana.net
+        description: Comic discovery and requests
+        server: local
+        container: omnibus
+        # No native homepage widget for Omnibus; link + health + container
+        # stats, same pattern as Shelfarr. /api/health returns 401
+        # unauthenticated, which still proves the app is serving, so the root
+        # path is used for the monitor instead.
+        siteMonitor: http://10.0.0.218:5058/
     - Mylar3:
         icon: mylar.png
         href: http://10.0.0.218:8090
@@ -224,8 +219,34 @@
           url: http://10.0.0.218:8090
           key: "{{HOMEPAGE_VAR_MYLAR_KEY}}"
           fields: ["series", "issues", "wanted"]
+    - Komga:
+        icon: komga.png
+        href: http://10.0.0.218:25600
+        description: Comics library
+        server: local
+        container: komga
+        siteMonitor: http://10.0.0.218:25600/actuator/health
+        widget:
+          type: komga
+          url: http://10.0.0.218:25600
+          key: "{{HOMEPAGE_VAR_KOMGA_KEY}}"
+          version: 1
+          fields: ["libraries", "series", "books"]
 
-- Server:
+- Operations:
+    - OliveTin:
+        icon: olivetin.png
+        href: https://ops.avrana.net
+        description: Operations buttons (admins only, through Authentik)
+        server: local
+        container: olivetin
+    - Authentik:
+        icon: authentik.png
+        href: http://10.0.0.218:9000/if/admin/
+        description: Identity, invites and member access (admin)
+        server: local
+        container: authentik-server
+        siteMonitor: http://10.0.0.218:9000/-/health/live/
     - Beszel:
         icon: beszel.png
         href: http://10.0.0.218:8093
@@ -233,16 +254,3 @@
         server: local
         container: beszel
         siteMonitor: http://10.0.0.218:8093/api/health
-    - BookStack:
-        icon: bookstack.png
-        href: http://10.0.0.218:6875
-        description: Documentation wiki
-        server: local
-        container: bookstack
-        siteMonitor: http://10.0.0.218:6875/status
-    - Homepage:
-        icon: homepage.png
-        href: http://10.0.0.218:3000
-        description: This dashboard
-        server: local
-        container: homepage
