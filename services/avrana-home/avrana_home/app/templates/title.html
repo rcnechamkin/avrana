@@ -22,6 +22,9 @@
         <p class="hint">Opens in {{ page.library }}. If it does not open there, see <a class="inline" href="/help/trouble">If something doesn&#x27;t open</a>.</p>
       </div>
     </div>
+{% if page.summary %}    <h3 class="kicker" id="h-about">About</h3>
+    <p class="d summary" dir="auto">{{ page.summary }}</p>
+{% endif %}
   </section>
 {% else %}
   <section class="shelf" aria-labelledby="h-title">

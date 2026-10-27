@@ -19,7 +19,8 @@ from dataclasses import dataclass
 from typing import Optional, Tuple
 from urllib.parse import quote
 
-from ..contract import HANDOFF_BASE, MIN_QUERY, REQUIRED_GROUP, Service, clean_query, valid_upstream_id
+from ..contract import (HANDOFF_BASE, MAX_SUMMARY, MIN_QUERY, REQUIRED_GROUP, Service, clean_query,
+                        valid_upstream_id)
 from .artwork import src_for
 
 SERVICE_LABEL = {"jellyfin": "Movies and TV", "audiobookshelf": "Audiobooks",
@@ -698,6 +699,7 @@ class TitleVM:
     image: Optional[str] = None
     kicker: str = ""                   # "Episode · Movies and TV"; the medium only when the library name lacks it
     progress: Optional[str] = None     # in words, whenever the upstream gave this member progress (not finished)
+    summary: Optional[str] = None      # synopsis, plain text from the adapter (R2-C); the template autoescapes it
     action: Optional[str] = None       # Resume | Open | Watch | Listen | Read: opens the item, never "playing"
     action_href: Optional[str] = None
     action_label: Optional[str] = None
@@ -758,5 +760,6 @@ def build_title(section: dict, service: str, upstream_id: str, raw_term: Optiona
     return TitleVM("ok", label, title=title, medium=medium, kicker=kicker_of(medium, label),
                    line=" · ".join(x for x in (creator, str(year) if year else None) if x) or None,
                    detail=_detail_of(it, creator, year), shape=SHAPE.get(kind, "poster"),
-                   image=_image(it.get("artwork")), progress=progress, action=action, action_href=href,
+                   image=_image(it.get("artwork")), progress=progress,
+                   summary=_plain(it.get("summary") or "", MAX_SUMMARY + 1) or None, action=action, action_href=href,
                    action_label=f"{action} {title} in {label}", back_href=back)

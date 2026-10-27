@@ -27,6 +27,7 @@ from __future__ import annotations
 import contextvars
 import copy
 import enum
+from html.parser import HTMLParser
 import logging
 import re
 import threading
@@ -185,6 +186,56 @@ def clean_text(value: Any, limit: int = MAX_TITLE_LEN) -> Optional[str]:
     return text[:limit] or None
 
 
+MAX_SUMMARY = 1200          # characters of synopsis shown; longer text is cut at a word with an ellipsis
+MAX_SUMMARY_RAW = 20000     # longer upstream input is cut before it is parsed at all
+
+
+class _TextOnly(HTMLParser):
+    """Collects the text of an upstream synopsis. Upstreams store HTML here (Audiobookshelf descriptions, some
+    Jellyfin overviews); tags, attributes, comments, scripts and styles are dropped and entities decoded, so only
+    plain text remains. The template autoescapes that text: no upstream markup is ever rendered."""
+    _BREAKS = frozenset({"br", "p", "div", "li", "ul", "ol", "h1", "h2", "h3", "h4", "h5", "h6", "tr", "blockquote"})
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.parts, self.skip = [], 0
+
+    def handle_starttag(self, tag, attrs):
+        if tag in ("script", "style"):
+            self.skip += 1
+        elif tag in self._BREAKS:
+            self.parts.append(" ")
+
+    def handle_endtag(self, tag):
+        if tag in ("script", "style"):
+            self.skip = max(0, self.skip - 1)
+        elif tag in self._BREAKS:
+            self.parts.append(" ")
+
+    def handle_data(self, data):
+        if not self.skip:
+            self.parts.append(data)
+
+
+def clean_summary(value: Any) -> Optional[str]:
+    """A synopsis as bounded plain text, or None. Never HTML: see `_TextOnly`."""
+    if not isinstance(value, str) or not value.strip():
+        return None
+    raw = value[:MAX_SUMMARY_RAW]
+    if len(value) > MAX_SUMMARY_RAW and raw.rfind("<") > raw.rfind(">"):
+        raw = raw[:raw.rfind("<")]          # never show half a tag that the cut-off split
+    parser = _TextOnly()
+    try:
+        parser.feed(raw)
+        parser.close()
+    except Exception:                       # HTMLParser is lenient; anything it still rejects shows nothing
+        return None
+    text = " ".join("".join(c if c.isprintable() else " " for c in "".join(parser.parts)).split())
+    if len(text) > MAX_SUMMARY:
+        text = text[:MAX_SUMMARY].rsplit(" ", 1)[0].rstrip(" ,;:.-") + "…"
+    return text or None
+
+
 @dataclass(frozen=True)
 class UpstreamUser:
     """The mapped upstream account. `upstream_id` is opaque and never shown to the member."""
@@ -224,6 +275,7 @@ class MediaItem:
     # Validated (scheme, value) pairs the upstream itself returned (media_ids.py, MEDIA-IDENTITY.md). Internal:
     # used to link the same title across a member's own results, never displayed and not in to_dict().
     external_ids: Tuple[Tuple[str, str], ...] = field(default=(), repr=False)
+    summary: Optional[str] = None        # synopsis, plain text (clean_summary); set on title-page lookups only
 
     def to_dict(self) -> dict:
         progress = None
@@ -237,7 +289,7 @@ class MediaItem:
                 "title": self.title, "subtitle": self.subtitle, "series": self.series,
                 "progress": progress,
                 "artwork": self.artwork.to_dict() if self.artwork else None,
-                "creator": self.creator, "year": self.year,
+                "creator": self.creator, "year": self.year, "summary": self.summary,
                 "handoff_url": self.handoff_url}
 
 

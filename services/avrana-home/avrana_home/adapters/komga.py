@@ -32,11 +32,12 @@ Route and field names are recalled from Komga's public API documentation and are
 """
 from __future__ import annotations
 
+import dataclasses
 import re
 from typing import Any, Dict, Optional, Tuple
 
 from ..contract import (ArtworkRef, ArtworkResult, DEFAULT_LIMIT, Kind, MediaItem, SectionResult,
-                        SectionState, Service, UpstreamUser, build_handoff_url, clean_text,
+                        SectionState, Service, UpstreamUser, build_handoff_url, clean_summary, clean_text,
                         valid_upstream_id)
 from .. import media_ids
 from ..principal import MemberPrincipal
@@ -135,7 +136,7 @@ class KomgaAdapter(GuardedAdapter):
                          artwork=ArtworkRef(f"komga/book/{book_id}", f"Cover of {title}"),
                          external_ids=media_ids.from_book_metadata(info)), "ok"
 
-    def _visible_book(self, guard, budget, book_id: str) -> Optional[MediaItem]:
+    def _visible_book(self, guard, budget, book_id: str, summary: bool = False) -> Optional[MediaItem]:
         """The book if the shared account can see it, else None. Komga answers 404 for an unknown book and 403
         for a book in a library or behind a content restriction the account may not use (BookController, from
         the source; UNVERIFIED live). Both are the same "hidden" here, so a title page cannot tell them apart
@@ -156,6 +157,9 @@ class KomgaAdapter(GuardedAdapter):
         item, status = self._book(raw)
         if item is None and status == "bad":
             raise UpstreamMalformed()
+        if item is not None and summary:                   # title page only (R2-C); `metadata` is a dict or absent
+            info = raw.get("metadata") if isinstance(raw.get("metadata"), dict) else {}
+            item = dataclasses.replace(item, summary=clean_summary(info.get("summary")))
         return item
 
     # -- hooks -----------------------------------------------------------------------------
@@ -191,7 +195,7 @@ class KomgaAdapter(GuardedAdapter):
         return SectionResult.of(Service.KOMGA, section, tuple(shown))
 
     def _item(self, user: UpstreamUser, item_id: str) -> SectionResult:
-        found = self._visible_book(self._guard.bind(user.upstream_id), self._budget(), item_id)
+        found = self._visible_book(self._guard.bind(user.upstream_id), self._budget(), item_id, summary=True)
         return SectionResult.of(Service.KOMGA, "item", (found,) if found else ())
 
     def _fetch_artwork(self, user: UpstreamUser, ref: str) -> ArtworkResult:
