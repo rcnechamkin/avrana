@@ -34,8 +34,14 @@ class Stylesheet(unittest.TestCase):
         self.assertIn('.tabbar[data-tabs="2"]{--n:2;}', self.css)
         self.assertIn("transform:translateX(calc(var(--at) * 100%))", self.css)
         self.assertIn(".tabbar:not([data-at]) .lens{display:none;}", self.css)
-        # the lens is the Media yellow (purple's role in Party), with the solid fallback
-        self.assertIn(".k-lens,.tabbar .lens{background:var(--accent-lens);", self.css)
+        # the lens is neutral glass, never the accent (owner, 2026-10-26), with the solid fallback
+        self.assertIn(".k-lens,.tabbar .lens{background:var(--lens);", self.css)
+        self.assertIn("{.k-lens,.tabbar .lens{background:var(--lens-solid);", self.css)
+        lens_rules = re.findall(r"(?:\.k-lens,\.tabbar \.lens|\.tab\[aria-current\])\{[^}]*\}", self.css)
+        self.assertGreaterEqual(len(lens_rules), 3)
+        for rule in lens_rules:
+            self.assertNotIn("accent", rule)
+            self.assertNotIn("234 218 110", rule)
 
     def test_labels_never_break_inside_a_word_and_forced_colours_keep_the_current_tab(self):
         self.assertIn(".tab .tl{overflow-wrap:normal;word-break:normal;}", self.css)

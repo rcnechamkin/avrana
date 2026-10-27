@@ -99,8 +99,8 @@ class BrandFiles(unittest.TestCase):
         for decl in ("isolation:isolate", "overflow:hidden"):
             self.assertIn(decl, glass.group(1))
         # both the prefixed and the unprefixed property, each a declaration of its own
-        self.assertRegex(glass.group(1), r"(^|;)\s*-webkit-backdrop-filter:blur\(28px\)")
-        self.assertRegex(glass.group(1), r"(^|;)\s*backdrop-filter:blur\(28px\)")
+        self.assertRegex(glass.group(1), r"(^|;)\s*-webkit-backdrop-filter:blur\(16px\) saturate\(1\.9\)")
+        self.assertRegex(glass.group(1), r"(^|;)\s*backdrop-filter:blur\(16px\) saturate\(1\.9\)")
         self.assertNotIn("border-image", re.sub(r"/\*.*?\*/", "", css, flags=re.S))
         # the fallbacks only win if they come after the base rule (same specificity)
         for fallback in ("@supports not ((backdrop-filter:blur(1px))", "(prefers-reduced-transparency:reduce)",
