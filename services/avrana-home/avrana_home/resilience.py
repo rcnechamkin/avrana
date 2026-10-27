@@ -309,8 +309,10 @@ class UrllibTransport:
         self._slot = threading.local()        # the abort of the request the calling thread is running
         # Built ONCE: urllib's build_opener costs ~25 ms on Windows (proxy discovery, handler scan), which
         # per request ate a fifth of a 0.6 s section budget that spans a member's sequential calls.
+        # ProxyHandler({}): never a proxy from HTTP(S)_PROXY or the Windows registry, which would receive the
+        # upstream's bearer token (the Audiobookshelf one is admin-capable) over a plain-http base URL.
         self._opener = opener if opener is not None else urllib.request.build_opener(
-            _NoRedirect, _TrackedHTTP(self._slot), _TrackedHTTPS(self._slot))
+            urllib.request.ProxyHandler({}), _NoRedirect, _TrackedHTTP(self._slot), _TrackedHTTPS(self._slot))
 
     def __repr__(self) -> str:
         return "UrllibTransport(<redacted>)"
