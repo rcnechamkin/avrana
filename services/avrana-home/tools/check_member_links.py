@@ -70,7 +70,9 @@ class Refused(Exception):
 def read_usernames(args: argparse.Namespace) -> List[str]:
     names: List[str] = list(args.usernames)
     if args.file:
-        with open(args.file, encoding="utf-8") as fh:
+        # utf-8-sig: a list saved with a byte-order mark (PowerShell 5.1's Out-File, some editors) must not turn
+        # the first username into an "invalid" one with an invisible character in front.
+        with open(args.file, encoding="utf-8-sig") as fh:
             names += [line.strip() for line in fh if line.strip() and not line.lstrip().startswith("#")]
     seen, out = set(), []
     for name in names:
@@ -120,8 +122,10 @@ def check(usernames: Sequence[str], mappers: Mapping) -> List[dict]:
         try:
             principal = principal_from_headers({"X-authentik-username": user, "X-authentik-groups": ALL_GROUPS})
         except PrincipalError:
-            rows.append({"username": user, "service": None, "verdict": "invalid_username",
-                         "fix": FIX["invalid_username"].format(user=user, svc="")})
+            # shown escaped when it is not plain text, so an invisible or control character is visible, not acted on
+            seen = user if user.isprintable() and user.isascii() else ascii(user)[1:-1]
+            rows.append({"username": seen, "service": None, "verdict": "invalid_username",
+                         "fix": FIX["invalid_username"].format(user=seen, svc="")})
             continue
         for service, mapper in mappers.items():
             v = verdict(mapper, principal)
