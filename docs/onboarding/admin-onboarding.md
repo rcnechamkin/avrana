@@ -108,3 +108,10 @@ same group that grants access: so there is no way to pre-create an account for e
 also granting access. If `avrana-comics`/`avrana-books` aren't in `avrana_groups`, no Komga/CWA
 account exists yet; the first login after access is later granted creates it automatically,
 same as any other user.
+
+## Check that Home links a new member (Home 2.0, AVR-375)
+Once Home 2.0 runs, after the invite is accepted, run this where Home's configuration lives:
+`python services/avrana-home/tools/check_member_links.py <their Authentik username>`. Every row should say
+`ok`; a `FIX` row says in plain words what to rename, create or enable in Jellyfin or Audiobookshelf. The member
+never sees or enters an API key. It reads the libraries' user lists with Home's service keys, so on the live host
+it is an owner-run step.
