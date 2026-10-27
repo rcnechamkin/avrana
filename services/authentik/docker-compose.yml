@@ -141,6 +141,9 @@ networks:
   # outbound access (the Kindle connector and OliveTin reach Audiobookshelf and Jellyfin by LAN IP).
   # Never run `docker compose down` here: it would try to remove these networks while the backends
   # are attached; the outcome was not verified, so do not find out on production.
-  portal: {name: authentik_portal}
-  kindle: {name: authentik_kindle}
-  olivetin: {name: authentik_olivetin}
+  # Explicit subnets (AVR-356 preflight, 2026-10-27): the host holds 30 networks, so these three do
+  # not ask Docker's default address pools for room. 10.220.29-31 had no Docker network and no host
+  # route on 2026-10-27; scripts/g1-preflight.sh re-checks that before the window.
+  portal: {name: authentik_portal, ipam: {config: [{subnet: 10.220.29.0/24}]}}
+  kindle: {name: authentik_kindle, ipam: {config: [{subnet: 10.220.30.0/24}]}}
+  olivetin: {name: authentik_olivetin, ipam: {config: [{subnet: 10.220.31.0/24}]}}

@@ -11,7 +11,7 @@ Evidence is labelled by where it comes from, and only one kind counts for each c
 | Label | Means | Can show |
 |---|---|---|
 | **Local** | Offline tests on a development machine | The code and the scripts behave as written |
-| **CI** | GitHub Actions on the pull request | The same, reproducibly. **None yet**: Actions are blocked by account billing |
+| **CI** | GitHub Actions on the pull request | The same, reproducibly (the offline workflow runs on every PR since #90 fixed its YAML; it was never billing) |
 | **Production** | Read-only output from the host, run by the owner | The real state. Required for every G1 claim |
 
 ## Step 1. Read-only preflight (approval: run read-only commands on the host)
@@ -30,7 +30,7 @@ is sent and nothing changes. Leave it out if even that is not wanted.
 
 | Check | Pass means | A STOP means |
 |---|---|---|
-| Address pool | network count + 3 ≤ 32 (VOID if `daemon.json` is unreadable or sets its own pools) | Decide on explicit `ipam` subnets or on freeing networks: a **separate** approval |
+| Subnets | `10.220.29-31.0/24` overlap no Docker network and no host route (the networks use explicit subnets, not the address pools; `daemon.json` is information only) | Pick other free `10.220.x.0/24` in the compose file and `G1_SUBNETS`, re-run |
 | G1 state | none of the three private networks exists | Investigate before anything else |
 | Namespace sharing | non-zero inspected count, no `net=container:` | A G1 bypass exists today: report it, do not apply |
 | Containers | `authentik-server` and the three backends running and healthy | Fix that first |
