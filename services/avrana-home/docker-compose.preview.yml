@@ -5,8 +5,8 @@
 # password (preview/gate.py); every inbound identity header is replaced by the owner's fixed identity.
 #
 # Network: its own bridge network only. It joins NO authentik_* network: nothing that holds a member
-# session or forwards identity can reach it, and it reaches the media services by their LAN or host
-# addresses (preview.env).
+# session or forwards identity can reach it, and it reaches the media services by Docker service names on
+# shared networks or Docker's host-gateway alias (preview.env); never plain http to a LAN address.
 #
 # Secrets: files under ./secrets/ (gitignored, mode 0600, created by the owner at a hidden prompt), read
 # through the existing *_FILE settings. Non-secret settings: ./preview.env (gitignored; copy
@@ -26,6 +26,8 @@ services:
     container_name: avrana-home-preview
     ports: ["10.0.0.218:8197:8096"]
     networks: [preview]
+    # HTTPS across machines: Jellyfin (host network) is reached as host.docker.internal, never the LAN address.
+    extra_hosts: ["host.docker.internal:host-gateway"]
     env_file: [preview.env]
     environment:
       - HOME_OWNER_PREVIEW=yes

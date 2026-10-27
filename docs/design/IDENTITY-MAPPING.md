@@ -146,7 +146,7 @@ failing (`webtests/test_web_isolation_h2.py`).
    or (b) that mapping table alone, keyed by username but written by the owner at onboarding and removed at
    offboarding, so a reused username maps to nothing until the owner links it. Both replace the owner's
    2026-10-15 decision (match by username, no link table) and touch the identity path that PR #52 changes, so
-   neither is implemented here; it is an **owner decision** before members whose accounts may be recycled.
+   neither is implemented here. **Owner decision 2026-10-27: no username reuse** (docs/DECISIONS.md); no link table.
 
    **What offboarding must do today** (add to `docs/runbooks/offboarding.md` when the owner approves):
    1. In Authentik, deactivate the member (do not delete and recreate under the same username).

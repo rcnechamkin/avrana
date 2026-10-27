@@ -345,6 +345,16 @@ Before the first real use, run Steps 1 to 5 once with a disposable account (the 
 rehearsal used an account named `zz-offboard-test`, `scripts/test_offboard.py:1-7`), with the owner's
 explicit approval, and complete every UNGROUNDED line above from what actually works.
 
+## Usernames are never reused (owner decision 2026-10-27)
+
+Home links a member to their Jellyfin and Audiobookshelf accounts by username alone (no stable id,
+`docs/design/IDENTITY-MAPPING.md` section 5.6). So:
+
+1. Deactivate the Authentik user; never delete it and create a new person under the same name.
+2. Keep the member's Jellyfin and Audiobookshelf accounts disabled (Step 3 above), never renamed back.
+   `services/avrana-home/tools/check_member_links.py <username>` should then report `disabled` for both.
+3. Before inviting someone, check the name was never used: Authentik shows deactivated users in Directory → Users.
+
 ## Sources
 
 `scripts/offboard.py`; `scripts/test_offboard.py`; `AGENTS.md`; `docs/SECURITY.md`;

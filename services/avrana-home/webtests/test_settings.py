@@ -59,7 +59,7 @@ class SettingsTests(unittest.TestCase):
 
     def test_real_mode_needs_every_explicit_step(self):
         full = {"HOME_UPSTREAM_MODE": "real", "HOME_GATES_VERIFIED": "yes",
-                "JELLYFIN_BASE_URL": "http://jellyfin.internal:8096", "JELLYFIN_API_KEY": "fake-key-for-test"}
+                "JELLYFIN_BASE_URL": "http://jellyfin:8096", "JELLYFIN_API_KEY": "fake-key-for-test"}
         self.assertTrue(Settings.from_mapping(full).uses_real_upstream)
         for missing in ("HOME_GATES_VERIFIED", "JELLYFIN_BASE_URL", "JELLYFIN_API_KEY"):
             env = {k: v for k, v in full.items() if k != missing}
@@ -67,6 +67,27 @@ class SettingsTests(unittest.TestCase):
                 Settings.from_mapping(env)
         with self.assertRaises(SettingsError):
             Settings.from_mapping(dict(full, HOME_GATES_VERIFIED="true"))
+
+    def test_plain_http_never_crosses_machines_in_real_mode(self):
+        # Owner decision 2026-10-27 (HTTPS across machines; Docker's isolated networking exempt).
+        base = {"HOME_UPSTREAM_MODE": "real", "HOME_GATES_VERIFIED": "yes", "JELLYFIN_API_KEY": "sentinel-key"}
+        for url in ("http://jellyfin:8096", "http://calibre-web:8083", "http://host.docker.internal:8096",
+                    "http://127.0.0.1:8096", "http://[::1]:8096", "https://10.0.0.218:8096",
+                    "https://jellyfin.example.test"):
+            with self.subTest(allowed=url):
+                Settings.from_mapping(dict(base, JELLYFIN_BASE_URL=url))
+        for url in ("http://10.0.0.218:8096", "http://172.17.0.1:8096", "http://203.0.113.9",
+                    "http://jellyfin.lan:8096", "http://watch.avrana.net"):
+            with self.subTest(refused=url), self.assertRaises(SettingsError) as cm:
+                Settings.from_mapping(dict(base, JELLYFIN_BASE_URL=url))
+            self.assertIn("HTTPS across machines", str(cm.exception))
+            self.assertNotIn("sentinel-key", str(cm.exception))
+        # Every upstream, not only Jellyfin; mock mode is loopback-only already and unaffected.
+        with self.assertRaises(SettingsError):
+            Settings.from_mapping(dict(base, JELLYFIN_BASE_URL="http://jellyfin:8096",
+                                       KOMGA_BASE_URL="http://10.0.0.218:25600", KOMGA_TOKEN="t",
+                                       KOMGA_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS="yes"))
+        Settings.from_mapping({"HOME_UPSTREAM_MODE": "mock", "JELLYFIN_BASE_URL": "http://127.0.0.1:18096"})
 
     def test_url_shape(self):
         base = {"HOME_UPSTREAM_MODE": "real", "HOME_GATES_VERIFIED": "yes", "JELLYFIN_API_KEY": "k-fake"}
@@ -79,7 +100,7 @@ class SettingsTests(unittest.TestCase):
             key = Path(d) / "jf_key"
             key.write_text("fake-key-from-file\n", encoding="utf-8")
             env = {"HOME_UPSTREAM_MODE": "real", "HOME_GATES_VERIFIED": "yes",
-                   "JELLYFIN_BASE_URL": "http://jellyfin.internal:8096", "JELLYFIN_API_KEY_FILE": str(key)}
+                   "JELLYFIN_BASE_URL": "http://jellyfin:8096", "JELLYFIN_API_KEY_FILE": str(key)}
             self.assertEqual("fake-key-from-file", Settings.from_mapping(env).jellyfin_api_key)
             with self.assertRaises(SettingsError):
                 Settings.from_mapping(dict(env, JELLYFIN_API_KEY="also-set"))
@@ -89,7 +110,7 @@ class SettingsTests(unittest.TestCase):
     def test_secret_values_never_appear_in_repr_or_errors(self):
         secret = "fake-key-DO-NOT-LEAK-12345"
         env = {"HOME_UPSTREAM_MODE": "real", "HOME_GATES_VERIFIED": "yes",
-               "JELLYFIN_BASE_URL": "http://jellyfin.internal:8096", "JELLYFIN_API_KEY": secret}
+               "JELLYFIN_BASE_URL": "http://jellyfin:8096", "JELLYFIN_API_KEY": secret}
         s = Settings.from_mapping(env)
         self.assertNotIn(secret, repr(s))
         self.assertNotIn(secret, str(s))

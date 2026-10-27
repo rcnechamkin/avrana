@@ -99,8 +99,13 @@ Edit `preview.env` and replace every `<...>` placeholder:
   `KOMGA_BASE_URL` to that address and `KOMGA_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS=yes`.
 - Do not add `HOME_GATES_VERIFIED`. The preview refuses to start with it.
 
-The base URLs come from `deploy/host/cloudflared/config.yml`: Jellyfin is on the host network (:8096),
-Audiobookshelf is `10.0.0.218:13378` and Calibre-Web is `10.0.0.218:8083`.
+**HTTPS across machines (owner decision 2026-10-27).** Home refuses plain `http://` to a LAN address in real
+mode, so the service keys never cross the Wi-Fi in clear text. Jellyfin is on the host network (:8096) and is
+reached as `http://host.docker.internal:8096` (the compose file maps it to the host gateway). Audiobookshelf
+and Calibre-Web are reached by their Docker service names: before building, add each one's existing Docker
+network to the preview service as an `external` network (`docker inspect audiobookshelf --format
+'{{json .NetworkSettings.Networks}}'` shows the name; the container port, not the published one, goes in the
+URL). Until that is done, leave those lines out. The old `http://10.0.0.218:…` values are refused at start.
 
 ## 3. Build and start
 
@@ -113,7 +118,7 @@ docker compose -p avrana-home-preview -f docker-compose.preview.yml up -d
 
 `config` prints the resolved file, so use `--quiet`: it would otherwise show values from `preview.env`.
 The dry run should create one network (`avrana-home-preview`) and one container
-(`avrana-home-preview`), and touch nothing else. If it shows anything else, stop.
+(`avrana-home-preview`), join only the external networks you added, and touch nothing else. If it shows anything else, stop.
 
 ## 4. Check it
 
@@ -130,7 +135,7 @@ The logs must not contain `refusing to start`. They never contain the password.
 Check that the upstreams can be reached from inside the container (no key is sent):
 
 ```sh
-for u in http://10.0.0.218:8096 http://10.0.0.218:13378 http://10.0.0.218:8083; do
+for u in http://host.docker.internal:8096 http://audiobookshelf:80 http://calibre-web:8083; do
   docker exec avrana-home-preview python3 -c "import sys,urllib.request,urllib.error
 try: print(sys.argv[1], urllib.request.urlopen(sys.argv[1], timeout=3).status)
 except urllib.error.HTTPError as e: print(sys.argv[1], e.code)

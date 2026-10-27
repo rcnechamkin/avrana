@@ -212,3 +212,15 @@ tiers and issue IDs are in [`design/MEDIA-STATE-REGISTER.md`](design/MEDIA-STATE
 | Q3: Komga shared view unchanged; Q4: books and comics handoffs only | No member Komga API keys |
 | Q5: minimal OpenAPI facts with hashes and provenance | Legal disposition still open |
 | Q6: social deferred (AVR-749); AVR-723 NextUp not approved | No prototype |
+
+## Owner decisions, 2026-10-27: Media security locks for the beta
+
+Recorded from the owner's instruction of 2026-10-27 ("Lock security decisions: JWT-required for Audiobookshelf,
+HTTPS across machines (isolated Docker networking exempt), and no username reuse"). Enforced in code where Home
+can enforce it; the rest is operator policy.
+
+| Decision | Consequence |
+|---|---|
+| **JWT required with the Audiobookshelf admin token** | Real mode with `AUDIOBOOKSHELF_BASE_URL` refuses to start unless `HOME_IDENTITY_MODE=jwt_required` (`settings.py`). Mock mode and the sealed owner preview are unaffected |
+| **HTTPS across machines; Docker's isolated networking exempt** | In real mode every upstream URL is `https://`, or plain `http://` only to loopback, `host.docker.internal` or a single-label Docker service name (`settings.plain_http_allowed`). Every non-loopback IP literal and dotted name over http is refused. The owner preview's example moves to Docker names (`preview.env.example`, `docs/runbooks/home-owner-preview.md`) |
+| **No username reuse** | An Authentik username, once used, is never given to another person. Offboarding deactivates (never deletes and recreates) and disables the member's Jellyfin and Audiobookshelf accounts (`scripts/offboard.py`), so the name maps to `disabled` in Home. Home has no stable account id (IDENTITY-MAPPING.md section 5.6), so this policy is what keeps a new person away from a former member's libraries. No link table |
