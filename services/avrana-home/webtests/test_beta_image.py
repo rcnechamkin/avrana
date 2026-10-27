@@ -155,3 +155,42 @@ class BetaApp(unittest.TestCase):
             with self.subTest(headers=[h[0] for h in headers]):
                 self.assertEqual(404, self.client.get("/home.json", headers=headers).status_code)
                 self.assertEqual(404, self.client.get("/watch", headers=headers).status_code)
+
+
+class TesterGetsSyntheticAccounts(unittest.TestCase):
+    """The owner signs in for real as akadmin (HOME_ALLOWED_USERS): the mocks lend akadmin member-a's synthetic
+    accounts, so the beta shows synthetic Continue lists instead of "not set up". member-a itself is gone."""
+
+    @classmethod
+    def setUpClass(cls):
+        require_framework()
+        from fastapi.testclient import TestClient
+        ports = dict(zip(run_beta.MOCK_PORTS, free_ports(4)))
+        app, cls.settings, cls.mocks = run_beta.build(dict(GOOD, HOME_ALLOWED_USERS="akadmin"), ports=ports)
+        cls.client = TestClient(app, base_url="http://beta.test", follow_redirects=False,
+                                raise_server_exceptions=False)
+
+    @classmethod
+    def tearDownClass(cls):
+        for mock in getattr(cls, "mocks", ()):
+            mock.stop()
+
+    def sections(self, username):
+        r = self.client.get("/home.json", headers=[(JWT, mint(preferred_username=username,
+                            groups=["avrana-users", "avrana-videos", "avrana-audiobooks"]))])
+        return r.status_code, {(x["service"], x["section"]): x["state"] for x in r.json()["sections"]}             if r.status_code == 200 else {}
+
+    def test_the_allowed_tester_sees_synthetic_continue_lists(self):
+        status, got = self.sections("akadmin")
+        self.assertEqual(200, status)
+        self.assertEqual("ok", got[("jellyfin", "continue")])
+        self.assertEqual("ok", got[("audiobookshelf", "continue")])
+
+    def test_nobody_else_gets_past_the_allow_list(self):
+        self.assertEqual(404, self.sections("member-a")[0])
+
+    def test_only_allowed_names_are_lent_and_only_two(self):
+        self.assertEqual(run_beta.lend_synthetic_accounts([], ("akadmin", "member-b", "x", "y")),
+                         {"akadmin": "member-a", "x": "member-b"})
+        self.assertEqual(run_beta.lend_synthetic_accounts([], ()), {})
+

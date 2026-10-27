@@ -21,7 +21,7 @@ import urllib.error
 import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from beta.smoke import mint  # noqa: E402
+from beta.smoke import mint, read_secret  # noqa: E402
 
 APP = os.environ.get("BETA_URL", "http://127.0.0.1:8096").rstrip("/")
 MOCK = os.environ.get("JELLYFIN_MOCK_URL", "http://127.0.0.1:18096").rstrip("/")
@@ -41,7 +41,7 @@ def mock_mode(mode: str) -> None:
 
 
 def main() -> int:
-    token = mint(os.environ["HOME_JWT_SECRET"], os.environ["HOME_JWT_ISSUER"], os.environ["HOME_JWT_AUDIENCE"],
+    token = mint(read_secret(), os.environ["HOME_JWT_ISSUER"], os.environ["HOME_JWT_AUDIENCE"],
                  groups=GROUPS)
     t0 = time.monotonic()
     log = lambda msg: print(f"{time.monotonic() - t0:6.1f}s  {msg}", flush=True)   # noqa: E731

@@ -77,10 +77,36 @@ def build(environ, *, start: bool = True, ports=None):
              MockAudiobookshelf("127.0.0.1", ports["AUDIOBOOKSHELF"], "ok", 5.0),
              MockKomga("127.0.0.1", ports["KOMGA"], "ok", 5.0),
              MockCalibreWeb("127.0.0.1", ports["CALIBRE_WEB"], "ok", 5.0)]
+    lend_synthetic_accounts(mocks, settings.allowed_users)
     if start:
         for mock in mocks:
             mock.start()
     return create_app(settings), settings, mocks
+
+
+SYNTHETIC_MEMBERS = ("member-a", "member-b")
+
+
+def lend_synthetic_accounts(mocks, allowed_users) -> dict:
+    """Give each allowed tester (HOME_ALLOWED_USERS, for example akadmin) a synthetic member's FAKE accounts in the
+    mock Jellyfin and Audiobookshelf, renamed to the tester's username, so the owner signed in for real sees
+    synthetic Continue lists instead of "not set up". Only the mocks' in-memory user lists change; every item is
+    still a hand-written fixture. Returns {tester: synthetic member}."""
+    lent = {}
+    for tester, member in zip([u for u in (allowed_users or ()) if u not in SYNTHETIC_MEMBERS], SYNTHETIC_MEMBERS):
+        lent[tester] = member
+    if not lent:
+        return lent
+    rename = {member: tester for tester, member in lent.items()}
+    for mock in mocks:
+        users = getattr(mock, "users", None)
+        if isinstance(users, list):                                   # mock Jellyfin: GET /Users
+            mock.users = [dict(u, Name=rename.get(u.get("Name"), u.get("Name"))) for u in users]
+        doc = getattr(getattr(mock, "fake", None), "users_doc", None)
+        if isinstance(doc, dict) and isinstance(doc.get("users"), list):   # mock Audiobookshelf: GET /api/users
+            mock.fake.users_doc = dict(doc, users=[dict(u, username=rename.get(u.get("username"), u.get("username")))
+                                                   for u in doc["users"]])
+    return lent
 
 
 def main() -> int:
