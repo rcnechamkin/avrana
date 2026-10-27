@@ -10,6 +10,9 @@ sign-in with fake data. This repository's part is the verified-JWT identity mode
 section 2), which lets the beta be safe before network isolation (G1): the app trusts a signed token, not
 plain headers.
 
+**Step-by-step commands: [`docs/runbooks/home-beta-deploy.md`](../runbooks/home-beta-deploy.md)** (compose file, Authentik
+blueprint, network, secret, smoke and undo for each step; recommended hostname `media-beta.avrana.net`).
+
 Placeholders: `<beta-host>` is the new hostname you choose, `<client-id>`, `<client-secret>` and
 `<issuer>` are read in the Authentik admin UI. They are never written into Git, a ticket or a chat.
 

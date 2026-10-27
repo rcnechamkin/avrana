@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Smoke-test a running fixture-only beta container (standard library only).
 
-    BETA_URL=http://127.0.0.1:18096 HOME_JWT_ISSUER=... HOME_JWT_AUDIENCE=... HOME_JWT_SECRET=... \
+    BETA_URL=http://127.0.0.1:18096 HOME_JWT_ISSUER=... HOME_JWT_AUDIENCE=... HOME_JWT_SECRET[_FILE]=... \
         python3 services/avrana-home/beta/smoke.py
 
 Mints HS256 tokens over the SAME synthetic secret the container was started with (never a real Authentik
@@ -37,6 +37,16 @@ def mint(secret: str, issuer: str, audience: str, username: str = "member-a",
     return f"{head}.{body}.{b64(mac)}"
 
 
+def read_secret() -> str:
+    """HOME_JWT_SECRET, or the file HOME_JWT_SECRET_FILE names (inside the beta container, where the secret is
+    mounted as a file and never in the environment). The value is never printed."""
+    path = os.environ.get("HOME_JWT_SECRET_FILE", "").strip()
+    if path:
+        with open(path, encoding="utf-8") as fh:
+            return fh.read().strip()
+    return os.environ["HOME_JWT_SECRET"]
+
+
 def status(url: str, headers: dict) -> int:
     req = urllib.request.Request(url, headers=headers)
     try:
@@ -48,8 +58,11 @@ def status(url: str, headers: dict) -> int:
 
 def main() -> int:
     base = os.environ.get("BETA_URL", "http://127.0.0.1:18096").rstrip("/")
-    iss, aud, key = (os.environ[n] for n in ("HOME_JWT_ISSUER", "HOME_JWT_AUDIENCE", "HOME_JWT_SECRET"))
-    good = mint(key, iss, aud)
+    iss, aud = os.environ["HOME_JWT_ISSUER"], os.environ["HOME_JWT_AUDIENCE"]
+    key = read_secret()
+    # Behind HOME_ALLOWED_USERS (the deployed beta) only an allowed name gets the member view: use the first one.
+    allowed = [u.strip() for u in os.environ.get("HOME_ALLOWED_USERS", "").split(",") if u.strip()]
+    good = mint(key, iss, aud, username=os.environ.get("SMOKE_USERNAME") or (allowed[0] if allowed else "member-a"))
     wrong = mint("SMOKE-WRONG-KEY-not-the-container-one-0123456789", iss, aud)
     forged = {"X-authentik-username": "member-a", "X-authentik-groups": "avrana-users|avrana-videos"}
     checks = [

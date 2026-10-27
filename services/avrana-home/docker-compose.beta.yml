@@ -1,0 +1,55 @@
+# Avrana Home BETA (AVR-373 phase 1): real Authentik sign-in, SYNTHETIC data only. Runbook:
+# docs/runbooks/home-beta-deploy.md. Owner-applied; nothing deploys this automatically.
+#
+# Topology (same as the portal): cloudflared (<beta-host>) -> Authentik embedded outpost (authenticates, gated by
+# the avrana-beta group) -> HERE, with the signed X-authentik-jwt. The container runs beta/run_beta.py: Home in
+# jwt_required mode plus the four library MOCKS on its own loopback. It refuses any real-library, preview or
+# development variable at start (exit 2), so it cannot read a real library or real member data.
+#
+# Network: only `authentik_home_beta`, a private network shared with authentik-server alone (G1 pattern, like
+# authentik_portal). No host port is published: nothing reaches it except through the outpost. It joins no
+# library network.
+#
+# Secret: ./secrets/home_jwt_secret (the beta proxy provider's client secret; mode 0600, gitignored, typed by the
+# owner at a hidden prompt). Non-secret settings: ./beta.env (gitignored; copy beta.env.example).
+services:
+  avrana-home-beta:
+    build:
+      context: .
+      dockerfile: Dockerfile.beta
+      additional_contexts:
+        portal: ../avrana-portal
+    image: avrana-home-beta:local
+    container_name: avrana-home-beta
+    networks: [authentik_home_beta]
+    env_file: [beta.env]
+    environment:
+      - HOME_IDENTITY_MODE=jwt_required
+      - HOME_JWT_SECRET_FILE=/run/secrets/home_jwt_secret
+      - HOME_HEALTH_DETAIL=off
+      - HOME_SECTIONS=on
+    secrets: [home_jwt_secret]
+    read_only: true
+    tmpfs: ["/tmp:size=16m,mode=1777"]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    pids_limit: 128
+    mem_limit: 256m
+    cpus: 0.5
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8096/healthz',timeout=3).status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging: {driver: json-file, options: {max-size: "10m", max-file: "3"}}
+    restart: unless-stopped
+
+networks:
+  # Created by the owner once (runbook step 2), then shared with authentik-server only.
+  authentik_home_beta:
+    external: true
+
+secrets:
+  home_jwt_secret:
+    file: ./secrets/home_jwt_secret

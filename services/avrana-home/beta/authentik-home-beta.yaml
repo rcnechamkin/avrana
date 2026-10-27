@@ -1,0 +1,53 @@
+version: 1
+metadata:
+  name: Avrana - Home beta (synthetic data, AVR-373)
+  labels:
+    # NOT auto-applied: this file lives outside services/authentik/blueprints/ on purpose. The owner applies it
+    # once (docs/runbooks/home-beta-deploy.md step 3) and removes it on rollback.
+    blueprints.goauthentik.io/instantiate: "false"
+# A separate proxy provider for the beta hostname, with its OWN client secret (a leak of the portal's cannot forge
+# the beta's, and the other way round). The outpost sends the signed X-authentik-jwt (HS256, this provider's client
+# secret) to the beta container, which accepts nothing else (jwt_required). Gated by the avrana-beta group only.
+# Adding the provider to the embedded outpost is done in the UI after apply (the importer chokes on the outpost
+# providers m2m, as with the portal).
+entries:
+  - model: authentik_core.group
+    id: beta-group
+    identifiers:
+      name: avrana-beta
+    attrs:
+      users:
+        - !Find [authentik_core.user, [username, akadmin]]
+
+  - model: authentik_providers_proxy.proxyprovider
+    id: beta-provider
+    identifiers:
+      name: avrana-home-beta-proxy
+    attrs:
+      mode: proxy
+      external_host: !Env [AVRANA_HOME_BETA_EXTERNAL_HOST, https://media-beta.avrana.net]
+      internal_host: http://avrana-home-beta:8096
+      internal_host_ssl_validation: false
+      authorization_flow: !Find [authentik_flows.flow, [slug, default-provider-authorization-implicit-consent]]
+      invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]
+      signing_key: !Find [authentik_crypto.certificatekeypair, [name, authentik Self-signed Certificate]]
+      access_token_validity: hours=24
+
+  - model: authentik_core.application
+    id: beta-app
+    identifiers:
+      slug: avrana-home-beta
+    attrs:
+      name: Avrana Media (beta)
+      provider: !KeyOf beta-provider
+      meta_launch_url: !Env [AVRANA_HOME_BETA_EXTERNAL_HOST, https://media-beta.avrana.net]
+      meta_description: Avrana Media beta, synthetic data
+
+  # The only binding: the avrana-beta group (akadmin only). No "all users", no authentik Admins.
+  - model: authentik_policies.policybinding
+    identifiers:
+      target: !KeyOf beta-app
+      group: !KeyOf beta-group
+      order: 0
+    attrs:
+      enabled: true
