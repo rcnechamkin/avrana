@@ -1,0 +1,16 @@
+# Build context of services/avrana-home for Dockerfile.live (BuildKit reads <Dockerfile>.dockerignore).
+# Deny everything, then allow exactly the two inputs the live image copies.
+*
+!requirements.lock
+!avrana_home/
+# Never in an image, even if a rule above changes: shims, mocks, the preview gate, tests, secrets, env files.
+dev/
+preview/
+beta/
+tests/
+webtests/
+contracts/
+secrets/
+*.env
+**/__pycache__/
+**/*.pyc
