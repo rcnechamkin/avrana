@@ -96,10 +96,12 @@ are watching, listening to or reading, it asks each library for your own items w
   covers), so the next page loads quickly. It lasts between 30 seconds and 5 minutes, is filed under a
   scrambled form of your username, is never written to disk, and is gone when the home page restarts.
   Another member's page never uses it.
-- **Written to the operations log:** one line per page load with the kind of page, whether it worked and how
-  long it took. It never contains your username, e-mail, groups, a title, a search or an address.
+- **Written to the operations log:** for each page load, one line with the kind of page, whether it worked and
+  how long it took, and on the home page one more line for each library section it showed (the library's
+  name and whether it answered). It never contains your username, e-mail, groups, a title, a search or an
+  address.
 - **Not recorded:** your history, your searches or which titles you opened.
-<!-- src: docs/design/HOME-APP.md section 6 (logging fields, LogContractTests); services/avrana-home/avrana_home/cache.py (in-memory, per-member HMAC key); docs/design/IDENTITY-MAPPING.md section 5 items 1-3 (30 s to 300 s lifetimes) -->
+<!-- src: docs/design/HOME-APP.md section 6 (logging fields, LogContractTests); services/avrana-home/avrana_home/app/main.py (the `section` event per section); services/avrana-home/avrana_home/cache.py (in-memory, per-member HMAC key); docs/design/IDENTITY-MAPPING.md section 5 items 1-3 (30 s to 300 s lifetimes) -->
 
 When you use the Avrana Media pages, your browser keeps a few of their own files (the program, the letters
 they use, the icons and a page that says there is no connection). These files are the same for everyone and hold
