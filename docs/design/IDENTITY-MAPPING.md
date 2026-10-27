@@ -21,6 +21,14 @@ Nothing here has been run against Authentik, a real member, or a real upstream u
 4. **Binding.** The mapped upstream id is bound into the guarded transport; every user-scoped route must
    carry exactly that id (`_base.check_request`), so a request can never name another user.
 
+### Checking it for real members (owner, one command)
+
+`services/avrana-home/tools/check_member_links.py alice bob` (or `--file members.txt`, `--json`) runs the
+mapping hook above with Home's own settings for each username and prints `ok` or a plain-words fix per
+library (`unmapped`, `case_or_unicode_mismatch`, `ambiguous`, `disabled`, `unreachable`). It prints no
+upstream id and no other account's name, reads only the user lists, and exits 1 when any member needs a fix.
+Offline against the dev mocks; against real libraries it is an owner-run read (`tests/test_check_member_links.py`).
+
 ## 2. Edge cases and what the code does
 
 | Case | Result | Evidence (offline tests) |
