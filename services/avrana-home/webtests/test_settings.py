@@ -139,5 +139,21 @@ class SettingsTests(unittest.TestCase):
         self.assertFalse([f for f in vars(s) if "dev" in f])
 
 
+
+class NoticeFileSetting(unittest.TestCase):
+    """AVR-365: HOME_NOTICE_FILE is optional; when set it must be absolute. The file itself may be absent (no notice)."""
+
+    def test_unset_is_no_notices_and_absolute_is_accepted_even_if_absent(self):
+        from pathlib import Path
+        from avrana_home.app.settings import Settings
+        self.assertIsNone(Settings.from_mapping({}).notice_file)
+        absent = Path(__file__).resolve().parent / "no-such-dir" / "current.json"
+        self.assertEqual(absent, Settings.from_mapping({"HOME_NOTICE_FILE": str(absent)}).notice_file)
+
+    def test_a_relative_path_refuses_to_start(self):
+        from avrana_home.app.settings import Settings, SettingsError
+        with self.assertRaises(SettingsError):
+            Settings.from_mapping({"HOME_NOTICE_FILE": "state/current.json"})
+
 if __name__ == "__main__":
     unittest.main()

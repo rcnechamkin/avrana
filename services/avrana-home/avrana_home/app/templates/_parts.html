@@ -93,3 +93,15 @@
   {% if verb %}<span class="go"><span class="sr">, </span>{% if c.action_label %}<span aria-hidden="true">{{ c.action }}</span><span class="sr">{{ c.action_label }}</span>{% else %}{{ c.action }}{% endif %}</span>{% endif +%}
 </a></li>
 {%- endmacro %}
+
+{# ---- The operator notice (AVR-365, notice.py). Words come only from notice.NOTICES. A <details> so a member can fold
+   it to its heading on this page with JS off; the browser announces expanded/collapsed, so the Hide/Show words are
+   decoration. Amber edge and glyph, never the yellow (the warning rule in home.css). #}
+{% macro notice_banner(active) -%}
+  <aside class="k-notice" aria-label="Notice from Avrana">
+    <details class="k-warn" open>
+      <summary><svg class="k-warn-ic" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false"><path d="M12 4.5 2.75 19.5h18.5z"/><path d="M12 10v4.25M12 16.9v.1"/></svg><span class="k-notice-h">{{ active.notice.heading }}</span><span class="k-notice-t" aria-hidden="true"><span class="k-notice-hide">Hide</span><span class="k-notice-show">Show</span></span></summary>
+      <p>{{ active.notice.body }}</p>
+    </details>
+  </aside>
+{%- endmacro %}

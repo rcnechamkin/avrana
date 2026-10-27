@@ -43,9 +43,9 @@ accessControlLists:
       kill: true
 
 # --- actions --------------------------------------------------------------------------------
-# Every action is on the ACL above. No action takes free-form input: the only parameter anywhere
-# is the service name, and it is constrained to a fixed `choices` list AND re-validated against a
-# hardcoded allowlist inside the script.
+# Every action is on the ACL above. No action takes free-form input: the only parameters anywhere
+# are the service name and the member notice ID, each constrained to a fixed `choices` list AND
+# re-validated against a hardcoded allowlist inside its script.
 actions:
   # 1. DIAGNOSTICS ---------------------------------------------------------------------------
   - id: health_report
@@ -148,6 +148,41 @@ actions:
       - limit: 4
         duration: 1h
     acls: [avrana-admins]
+
+  # 6. MEMBER NOTICE ------------------------------------------------------------------------
+  # One banner on Avrana Home (AVR-365). The script writes an ID and a time to state/home-notice/, which Home mounts
+  # read-only; the member-facing words live in Home (avrana_home/app/notice.py), so nothing chosen here can put text,
+  # a link or a container name on a member's screen. Same rule as restart_service: fixed choices, re-checked by an
+  # allowlist in the script. Members never reach this console (default deny above).
+  - id: home_notice
+    title: Member notice on Home
+    icon: 📣
+    shell: /opt/avrana/scripts/home-notice.sh {{ notice }}
+    timeout: 30
+    onclick: execution-dialog
+    acls: [avrana-admins]
+    arguments:
+      - name: notice
+        title: Notice
+        type: choices
+        default: clear
+        choices:
+          - value: clear
+            title: Clear the notice
+          - value: video-unavailable
+            title: Movies and TV are down
+          - value: audiobooks-unavailable
+            title: Audiobooks are down
+          - value: comics-unavailable
+            title: Comics are down
+          - value: books-unavailable
+            title: Books are down
+          - value: requests-unavailable
+            title: Requests are paused
+          - value: slow
+            title: Things may be slow
+          - value: maintenance
+            title: Maintenance in progress
     arguments:
       - type: confirmation
         title: Restart the tunnel? Every avrana.net page drops for a few seconds, including this one.
