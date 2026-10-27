@@ -1,0 +1,31 @@
+# Avrana Home FIXTURE-ONLY BETA image (AVR-373 phase 1). NOT DEPLOYED; building it changes nothing live.
+# Checklist: docs/design/BETA-CHECKLIST.md. Entry point: beta/run_beta.py (jwt identity modes only, loopback
+# mocks only, every real-upstream variable refused).
+#
+# Build (from the repository root; the named context "portal" supplies the portal's route tables):
+#   docker build -f services/avrana-home/Dockerfile.beta --build-context portal=services/avrana-portal \
+#     -t avrana-home-beta:local services/avrana-home
+#
+# Base image: the SAME pinned digest as Dockerfile.preview and services/avrana-portal/Dockerfile.
+# Contents (Dockerfile.beta.dockerignore denies everything else): the hash-checked dependencies, avrana_home/,
+# beta/, the four mock upstreams and their synthetic fixtures. Never dev/dev_identity.py or dev/run_dev.py (the
+# development identity shim), never tests/__init__.py, webtests/, contracts/, preview/ or secrets.
+FROM python:3.12-slim@sha256:dd29372629eeba2dd003fd9e9d35a5b8236c44727875a0364254b5127af88e65
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_DISABLE_PIP_VERSION_CHECK=1
+WORKDIR /app
+COPY requirements.lock /app/requirements.lock
+RUN pip install --no-cache-dir --require-hashes --only-binary=:all: -r /app/requirements.lock
+COPY avrana_home/ /app/avrana_home/
+COPY beta/ /app/beta/
+COPY dev/__init__.py dev/synthetic_art.py dev/mock_jellyfin.py dev/mock_audiobookshelf.py dev/mock_komga.py \
+     dev/mock_calibre_web.py /app/dev/
+COPY tests/fake_abs.py tests/fake_komga.py tests/fake_calibre_web.py /app/tests/
+COPY tests/fixtures/ /app/tests/fixtures/
+COPY --from=portal portal.py /app/catalogue/portal.py
+# Binds 0.0.0.0 INSIDE the container only; whoever runs it publishes the port to the outpost's network alone.
+ENV HOME_HOST=0.0.0.0 HOME_PORT=8096 HOME_CATALOGUE_PATH=/app/catalogue/portal.py HOME_HEALTH_DETAIL=off
+USER 1000:1000
+EXPOSE 8096
+HEALTHCHECK --interval=30s --timeout=4s --start-period=10s --retries=3 \
+  CMD python3 -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8096/healthz',timeout=3).status==200 else 1)"
+CMD ["python3", "-m", "beta.run_beta"]

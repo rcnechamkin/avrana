@@ -15,10 +15,17 @@ Placeholders: `<beta-host>` is the new hostname you choose, `<client-id>`, `<cli
 
 ## 0. Preconditions (offline)
 
-- [ ] The PR "avrana-home: verified-JWT identity modes, default headers" is reviewed and merged. Its tests
-      passed locally only (GitHub Actions is unavailable because of billing).
-- [ ] A container image for the Home app exists (`serve.py`, `HOME_HOST=0.0.0.0` set deliberately inside
-      the container). Building it is a separate unit; this checklist does not create one.
+- [x] The PR "avrana-home: verified-JWT identity modes, default headers" is merged (AVR-498). GitHub Actions
+      was never blocked by billing: the workflow file was invalid YAML until #90.
+- [ ] A container image for the Home app exists. **Prepared 2026-10-27, not deployed:**
+      `services/avrana-home/Dockerfile.beta` runs `beta/run_beta.py`, which accepts only `jwt_required` or
+      `jwt_log_only`, starts the four loopback mocks (synthetic fixtures) and refuses every real-upstream,
+      preview, development-identity and unknown `HOME_*` variable (exit 2, nothing bound). `HOME_HOST=0.0.0.0`
+      is set inside the image only. Build it on the host with:
+      `docker build -f services/avrana-home/Dockerfile.beta --build-context portal=services/avrana-portal -t avrana-home-beta:local services/avrana-home`.
+      CI (`.github/workflows/beta-image.yml`) builds it and runs `beta/smoke.py` against the container on every
+      change; run the same smoke on the host before section 5 (it needs the same throwaway or real
+      issuer/audience/secret the container was started with).
 - [ ] Decide the hostname. Tester list (owner decision, 2026-10-15): **`akadmin` only**.
 - [ ] Phase 1 uses **mock upstreams only**. Real mode additionally needs `HOME_GATES_VERIFIED=yes` and G1/G2,
       and is refused by the app otherwise. Do not set it.

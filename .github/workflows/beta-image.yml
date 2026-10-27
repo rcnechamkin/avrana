@@ -1,0 +1,68 @@
+# Build and smoke-test the FIXTURE-ONLY beta image (AVR-373 phase 1). It builds services/avrana-home/Dockerfile.beta
+# locally on the runner and never pushes it anywhere: no registry login, no secrets, no deployment, nothing that
+# touches the host. The JWT key is a throwaway made on the runner for this job only.
+# Merging this file is the approval (like D-8). tests/test_ci_workflow.py checks every workflow's permissions
+# and triggers.
+name: beta-image
+
+on:
+  pull_request:
+    paths:
+      - "services/avrana-home/**"
+      - "services/avrana-portal/portal.py"
+      - ".github/workflows/beta-image.yml"
+  push:
+    branches: [main]
+    paths:
+      - "services/avrana-home/**"
+      - "services/avrana-portal/portal.py"
+      - ".github/workflows/beta-image.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: beta-image-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-smoke:
+    name: docker build Dockerfile.beta and smoke-test it
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      HOME_JWT_ISSUER: "https://auth.example.test/application/o/beta-ci/"
+      HOME_JWT_AUDIENCE: "beta-ci"
+    steps:
+      # actions/checkout v4.2.2
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Build the image (local only, never pushed)
+        run: >-
+          docker build -f services/avrana-home/Dockerfile.beta
+          --build-context portal=services/avrana-portal
+          -t avrana-home-beta:ci services/avrana-home
+      - name: The image refuses plain identity headers
+        run: |
+          set +e
+          docker run --rm -e HOME_IDENTITY_MODE=headers avrana-home-beta:ci
+          code=$?
+          test "$code" -eq 2
+      - name: The image refuses a real upstream variable
+        run: |
+          set +e
+          docker run --rm -e HOME_IDENTITY_MODE=jwt_required -e JELLYFIN_BASE_URL=http://203.0.113.9 avrana-home-beta:ci
+          code=$?
+          test "$code" -eq 2
+      - name: Run it and smoke-test it from outside the container
+        run: |
+          HOME_JWT_SECRET="$(openssl rand -hex 32)"
+          export HOME_JWT_SECRET
+          docker run -d --name beta -p 127.0.0.1:18096:8096 -e HOME_IDENTITY_MODE=jwt_required \
+            -e HOME_JWT_ISSUER -e HOME_JWT_AUDIENCE -e HOME_JWT_SECRET avrana-home-beta:ci
+          for i in $(seq 1 30); do curl -fs -o /dev/null http://127.0.0.1:18096/healthz && break; sleep 1; done
+          BETA_URL=http://127.0.0.1:18096 python3 -B services/avrana-home/beta/smoke.py
+      - name: Container log (synthetic data only)
+        if: always()
+        run: docker logs beta || true
