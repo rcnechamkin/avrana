@@ -1,0 +1,249 @@
+{
+ "_comparison": "Entries other than the deployed 10.11.11 are a published-interface comparison only: they imply no compatibility guarantee and no upgrade is authorised (owner question Q1).",
+ "_licence": {
+  "kept": "route paths, query-parameter names, schema-property names with JSON types, enum-member names, response envelope names, authenticated/deprecated flags, and source provenance; no descriptions, examples or other prose",
+  "openapi_document": "no separate licence statement was found for the published OpenAPI document",
+  "status": "UNRESOLVED: whether extracting interface names and types from it is free of the GPL-2.0 (or any other) licence has not been determined; awaits owner/legal disposition (owner question Q5). No clearance is asserted.",
+  "upstream_code": "GPL-2.0 (Jellyfin server, jellyfin/jellyfin; the OpenAPI document is generated from it)"
+ },
+ "_status": "Minimal interface facts (names and types only) extracted from Jellyfin's published OpenAPI files by tools/extract_openapi_subset.py (R2-A, AVR-747): only the routes, query keys, schema properties and enum members the Home adapter calls, sends or reads. The full spec is not vendored.",
+ "versions": {
+  "10.11.11": {
+   "enums": {
+    "BaseItemKind": [
+     "Episode",
+     "Movie",
+     "Series"
+    ],
+    "ImageType": [
+     "Primary"
+    ],
+    "ItemFields": [
+     "Overview",
+     "PrimaryImageAspectRatio",
+     "ProviderIds"
+    ],
+    "MediaType": [
+     "Video"
+    ]
+   },
+   "paths": {
+    "/Items": {
+     "authenticated": true,
+     "deprecated": false,
+     "query": [
+      "enableImageTypes",
+      "enableUserData",
+      "fields",
+      "ids",
+      "includeItemTypes",
+      "limit",
+      "recursive",
+      "searchTerm",
+      "userId"
+     ],
+     "response": "BaseItemDtoQueryResult"
+    },
+    "/Items/Latest": {
+     "authenticated": true,
+     "deprecated": false,
+     "query": [
+      "enableImageTypes",
+      "enableUserData",
+      "fields",
+      "groupItems",
+      "includeItemTypes",
+      "limit",
+      "userId"
+     ],
+     "response": "array:BaseItemDto"
+    },
+    "/Items/{itemId}/Images/{imageType}": {
+     "authenticated": false,
+     "deprecated": false,
+     "query": [
+      "maxWidth",
+      "quality"
+     ],
+     "response": "string"
+    },
+    "/UserItems/Resume": {
+     "authenticated": true,
+     "deprecated": false,
+     "query": [
+      "enableImageTypes",
+      "enableTotalRecordCount",
+      "enableUserData",
+      "fields",
+      "limit",
+      "mediaTypes",
+      "userId"
+     ],
+     "response": "BaseItemDtoQueryResult"
+    },
+    "/Users": {
+     "authenticated": true,
+     "deprecated": false,
+     "query": [],
+     "response": "array:UserDto"
+    }
+   },
+   "retrieved": "unknown (on or before 2026-10-26)",
+   "schemas": {
+    "BaseItemDto": {
+     "Id": "string",
+     "ImageTags": "object",
+     "IndexNumber": "integer",
+     "Name": "string",
+     "Overview": "string",
+     "ParentIndexNumber": "integer",
+     "ProductionYear": "integer",
+     "ProviderIds": "object",
+     "RunTimeTicks": "integer",
+     "SeriesName": "string",
+     "Type": "ref:BaseItemKind",
+     "UserData": "ref:UserItemDataDto"
+    },
+    "BaseItemDtoQueryResult": {
+     "Items": "array"
+    },
+    "UserDto": {
+     "Id": "string",
+     "Name": "string",
+     "Policy": "ref:UserPolicy"
+    },
+    "UserItemDataDto": {
+     "ItemId": "string",
+     "PlaybackPositionTicks": "integer",
+     "Played": "boolean",
+     "PlayedPercentage": "number"
+    },
+    "UserPolicy": {
+     "IsDisabled": "boolean"
+    }
+   },
+   "sha256": "e29fc369ecae54676caeb50cbbc006b5c4ee959906c00f1e02f6f83db9c227fb",
+   "source_url": "https://repo.jellyfin.org/files/openapi/stable/jellyfin-openapi-10.11.11.json",
+   "version": "10.11.11"
+  },
+  "12.3.0": {
+   "enums": {
+    "BaseItemKind": [
+     "Episode",
+     "Movie",
+     "Series"
+    ],
+    "ImageType": [
+     "Primary"
+    ],
+    "ItemFields": [
+     "Overview",
+     "PrimaryImageAspectRatio",
+     "ProviderIds"
+    ],
+    "MediaType": [
+     "Video"
+    ]
+   },
+   "paths": {
+    "/Items": {
+     "authenticated": true,
+     "deprecated": false,
+     "query": [
+      "enableImageTypes",
+      "enableUserData",
+      "fields",
+      "ids",
+      "includeItemTypes",
+      "limit",
+      "recursive",
+      "searchTerm",
+      "userId"
+     ],
+     "response": "BaseItemDtoQueryResult"
+    },
+    "/Items/Latest": {
+     "authenticated": true,
+     "deprecated": false,
+     "query": [
+      "enableImageTypes",
+      "enableUserData",
+      "fields",
+      "groupItems",
+      "includeItemTypes",
+      "limit",
+      "userId"
+     ],
+     "response": "array:BaseItemDto"
+    },
+    "/Items/{itemId}/Images/{imageType}": {
+     "authenticated": false,
+     "deprecated": false,
+     "query": [
+      "maxWidth",
+      "quality"
+     ],
+     "response": "string"
+    },
+    "/UserItems/Resume": {
+     "authenticated": true,
+     "deprecated": false,
+     "query": [
+      "enableImageTypes",
+      "enableTotalRecordCount",
+      "enableUserData",
+      "fields",
+      "limit",
+      "mediaTypes",
+      "userId"
+     ],
+     "response": "BaseItemDtoQueryResult"
+    },
+    "/Users": {
+     "authenticated": true,
+     "deprecated": false,
+     "query": [],
+     "response": "array:UserDto"
+    }
+   },
+   "retrieved": "2026-10-26",
+   "schemas": {
+    "BaseItemDto": {
+     "Id": "string",
+     "ImageTags": "object",
+     "IndexNumber": "integer",
+     "Name": "string",
+     "Overview": "string",
+     "ParentIndexNumber": "integer",
+     "ProductionYear": "integer",
+     "ProviderIds": "object",
+     "RunTimeTicks": "integer",
+     "SeriesName": "string",
+     "Type": "ref:BaseItemKind",
+     "UserData": "ref:UserItemDataDto"
+    },
+    "BaseItemDtoQueryResult": {
+     "Items": "array"
+    },
+    "UserDto": {
+     "Id": "string",
+     "Name": "string",
+     "Policy": "ref:UserPolicy"
+    },
+    "UserItemDataDto": {
+     "ItemId": "string",
+     "PlaybackPositionTicks": "integer",
+     "Played": "boolean",
+     "PlayedPercentage": "number"
+    },
+    "UserPolicy": {
+     "IsDisabled": "boolean"
+    }
+   },
+   "sha256": "c17ce3d626214900034de40a2f014622d17393b4d2bb0dfcce09aa81ec69fd8e",
+   "source_note": "source_url is a moving alias (it now serves whatever is current), so the sha256 is what pins the file that was read",
+   "source_url": "https://repo.jellyfin.org/files/openapi/jellyfin-openapi-stable.json",
+   "version": "12.3.0"
+  }
+ }
+}
