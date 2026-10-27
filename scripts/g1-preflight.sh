@@ -18,7 +18,7 @@ set -u
 
 backups="${AVRANA_BACKUPS_DIR:-/mnt/avrana_media/.backups}"
 daemon_json="${AVRANA_DOCKER_DAEMON_JSON:-/etc/docker/daemon.json}"
-pool_limit="${AVRANA_POOL_LIMIT:-32}"
+ip_bin="${AVRANA_IP:-ip}"
 py="${AVRANA_PYTHON:-python3}"
 curl_bin="${AVRANA_CURL:-curl}"
 rollback=""
@@ -43,7 +43,7 @@ BACKENDS="avrana-portal avrana-kindle-connector olivetin"
 PRIVATE="authentik_portal authentik_kindle authentik_olivetin"
 
 # --- 0. tools --------------------------------------------------------------------------------------
-for tool in docker "$py" awk sha256sum grep sed sort cut; do
+for tool in docker "$py" "$ip_bin" awk sha256sum grep sed sort cut; do
   command -v "$tool" >/dev/null 2>&1 || say VOID "tool missing: $tool"
 done
 if [ "$voids" -gt 0 ]; then
@@ -57,41 +57,58 @@ else
   say INFO "docker server $server on $(hostname 2>/dev/null || echo unknown) at $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 fi
 
-# --- 1. address-pool headroom (runbook: Address-pool headroom) --------------------------------------
-case "$pool_limit" in ''|*[!0-9]*) say VOID "address pool: AVRANA_POOL_LIMIT '$pool_limit' is not a number"; pool_limit="" ;; esac
+# --- 1. subnets for the three private networks (runbook: Address room) ----------------------------
+# The private networks carry explicit subnets (services/authentik/docker-compose.yml), so Docker's default
+# address pools are not asked for room (the host held 30 networks on 2026-10-27, near the 32 the August
+# incident hit). What matters is that each subnet overlaps no existing Docker network and no host route.
+# tests/test_network_isolation.py keeps this list equal to the compose file.
+G1_SUBNETS="10.220.29.0/24 10.220.30.0/24 10.220.31.0/24"
 net_ids=$(docker network ls -q 2>/dev/null) || net_ids=""
-if [ -z "$pool_limit" ]; then
-  :
-elif [ -z "$net_ids" ]; then
-  say VOID "address pool: docker network ls returned nothing"
+routes=$("$ip_bin" -4 route show 2>/dev/null) || routes=""
+if [ -z "$net_ids" ]; then
+  say VOID "subnets: docker network ls returned nothing"
 else
-  count=$(printf '%s\n' "$net_ids" | grep -c .)
   subnets=$(docker network inspect --format '{{.Name}} {{range .IPAM.Config}}{{.Subnet}} {{end}}' $net_ids 2>/dev/null) || subnets=""
   if [ -z "$subnets" ]; then
-    say VOID "address pool: docker network inspect returned nothing"
+    say VOID "subnets: docker network inspect returned nothing"
+  elif [ -z "$routes" ]; then
+    say VOID "subnets: '$ip_bin -4 route show' returned nothing; host routes unchecked"
   else
     printf '%s\n' "$subnets" | sort | sed 's/^/INFO  subnet: /'
-    if [ $((count + 3)) -gt "$pool_limit" ]; then
-      say STOP "address pool: $count networks + 3 new exceeds $pool_limit (omnibus note); owner decides explicit ipam subnets or freeing networks, each separately approved"
+    say INFO "address pools: $(printf '%s\n' "$net_ids" | grep -c .) networks; not used by G1 (explicit subnets)"
+    # One line per clash: "<want> <owner>", where owner is a Docker network name or "route:<prefix>".
+    clashes=$(G1_WANT="$G1_SUBNETS" G1_NETS="$subnets" G1_ROUTES="$routes" "$py" -c '
+import ipaddress, os
+want = [ipaddress.ip_network(w) for w in os.environ["G1_WANT"].split()]
+have = []
+for line in os.environ["G1_NETS"].splitlines():
+    name, *cidrs = line.split()
+    have += [(c, name) for c in cidrs if ":" not in c]
+for line in os.environ["G1_ROUTES"].splitlines():
+    first = line.split()[0] if line.split() else ""
+    if first and first != "default" and first[0].isdigit():
+        have.append((first if "/" in first else first + "/32", "route:" + first))
+for w in want:
+    for cidr, owner in have:
+        if w.overlaps(ipaddress.ip_network(cidr, strict=False)):
+            print(w, owner)
+') || clashes="(error)"
+    if [ "$clashes" = "(error)" ]; then
+      say VOID "subnets: overlap check could not run"
+    elif [ -n "$clashes" ]; then
+      # A clash with one of G1's own networks means it already exists; check 2 reports that.
+      printf '%s\n' "$clashes" | while read -r want owner; do
+        say STOP "subnets: $want overlaps $owner; pick another free 10.220.x.0/24 in the compose file"
+      done
+      stops=$((stops + $(printf '%s\n' "$clashes" | grep -c .)))
     else
-      say PASS "address pool: $count networks + 3 new <= $pool_limit"
+      say PASS "subnets: $G1_SUBNETS overlap no Docker network and no host route"
     fi
   fi
 fi
-# The limit of 32 holds only for Docker's default pools, so a daemon.json that cannot be read, cannot be
-# parsed or sets its own pools voids the pool check instead of leaving it a PASS.
-if [ ! -e "$daemon_json" ]; then
-  say INFO "daemon.json absent at $daemon_json: Docker's default address pools apply"
-elif [ ! -r "$daemon_json" ]; then
-  say VOID "address pool: $daemon_json exists but is not readable; the limit is unverified"
-else
+if [ -r "$daemon_json" ]; then
   keys=$("$py" -c 'import json,sys; d=json.load(open(sys.argv[1])); assert isinstance(d, dict); print(" ".join(sorted(d)))' "$daemon_json" 2>/dev/null) || keys="(unparseable)"
-  if [ "$keys" = "(unparseable)" ]; then
-    say VOID "address pool: $daemon_json is not a JSON object; the limit is unverified"
-  else
-    say INFO "daemon.json keys: ${keys:-none} (expect data-root only; do not edit)"
-    case " $keys " in *" default-address-pools "*) say VOID "address pool: daemon.json sets default-address-pools, so the default limit does not apply; recompute it by hand" ;; esac
-  fi
+  say INFO "daemon.json keys: ${keys:-none} (do not edit)"
 fi
 
 # --- 2. current G1 state --------------------------------------------------------------------------

@@ -381,6 +381,19 @@ class ComposeDeclarationTests(unittest.TestCase):
             self.assertFalse(definition.get("external"), key)
         self.assertEqual(networks["backend"], {"internal": True})  # unchanged from before G1
 
+    def test_private_networks_have_the_explicit_subnets_the_preflight_checks(self):
+        # The host's default address pools are nearly full (AVR-356 preflight, 2026-10-27), so each
+        # private network names its own /24, and scripts/g1-preflight.sh checks exactly these are free.
+        networks = self.compose("authentik")["networks"]
+        subnets = [networks[key]["ipam"]["config"][0]["subnet"] for key in ("portal", "kindle", "olivetin")]
+        for key in ("portal", "kindle", "olivetin"):
+            self.assertEqual(len(networks[key]["ipam"]["config"]), 1, key)
+        self.assertEqual(len(set(subnets)), 3, subnets)
+        script = (ROOT / "scripts/g1-preflight.sh").read_text(encoding="utf-8")
+        listed = re.search(r'^G1_SUBNETS="([^"]+)"$', script, re.M)
+        self.assertIsNotNone(listed, "G1_SUBNETS missing from g1-preflight.sh")
+        self.assertEqual(listed.group(1).split(), subnets)
+
     def test_authentik_server_networks_are_exactly_the_expected_set(self):
         networks = self.compose("authentik")["services"]["server"]["networks"]
         self.assertEqual(sorted(networks), sorted(["frontend", "backend", "portal", "kindle", "olivetin"]))

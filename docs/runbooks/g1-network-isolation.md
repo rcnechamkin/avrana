@@ -36,37 +36,38 @@ the host routes to every bridge IP, and ufw is off. See "D-3" below.
    unreachable for a few seconds while recreated. Jellyfin, Audiobookshelf, Komga and the arr stack are not
    touched. Tell members beforehand if anyone is mid-enrolment.
 2. The commit is merged or at least pushed. Export it: `git archive <sha> | tar -x -C <dir>`; `drift-check.py`
-   runs from that export.
+   runs from that export, and needs `git ls-files` there, so in the export run
+   `git init -q && git add -A && git -c user.name=x -c user.email=x@x commit -qm export` first (the export
+   is a scratch copy, never the production tree).
 3. Rollback material staged, and the owner has seen it:
    `/mnt/avrana_media/.backups/batch<N>-<date>/rollback/` holding the four **production** compose files
    (`services/authentik`, `avrana-portal`, `avrana-kindle-connector`, `olivetin`) plus
    `scripts/services-health.sh`, each with its SHA-256 (`sha256sum`), and the state record below.
 4. Last backup clean (`LAST_RUN.json` status ok, under 26 h) and off-host sync clean.
 5. No other Authentik work in flight (worker blueprint runs, enrolments).
-6. Address-pool headroom (below) shows room for three more bridge networks.
+6. The three private subnets are free (below).
 
-## Address-pool headroom (read-only, before anything)
+## Address room (read-only, before anything)
 
-Creating three bridges can fail on this host. `services/omnibus/docker-compose.yml` (comment above its
-`networks:` block) records that the host reached Docker's default address-pool limit (32 networks, `daemon.json`
-sets only `data-root`) and that a further subnet failed with "all predefined address pools have been fully
-subnetted". The August address-pool work caused a day of outages
+Creating three bridges from Docker's default pools can fail on this host.
+`services/omnibus/docker-compose.yml` (comment above its `networks:` block) records that the host reached the
+default address-pool limit and that a further subnet failed with "all predefined address pools have been fully
+subnetted"; the preflight on 2026-10-27 counted 30 networks. So the three private networks carry **explicit
+subnets** in `services/authentik/docker-compose.yml`: `authentik_portal` `10.220.29.0/24`, `authentik_kindle`
+`10.220.30.0/24`, `authentik_olivetin` `10.220.31.0/24` (next to `avrana-ldap` `10.220.25`, the authentik
+networks `10.220.26`/`27` and `avrana-imax-verify_default` `10.220.28`). They do not use the pools.
+The August address-pool work caused a day of outages
 ([incident 2026-08-29](../incidents/2026-08-29-docker-address-pools.md)): **do not touch `daemon.json` or
-the pools, and do not prune networks, to make room.**
+the pools, and do not prune networks.**
 
 ```sh
-docker network ls | tail -n +2 | wc -l                                   # current count
 docker network inspect $(docker network ls -q) --format '{{.Name}} {{range .IPAM.Config}}{{.Subnet}} {{end}}' | sort > $B/subnets-before.txt
-docker info 2>/dev/null | grep -i -A4 'address pool'                      # pools, if this Docker prints them
-cat /etc/docker/daemon.json                                               # expect data-root only
+ip -4 route show                                                          # no route may overlap 10.220.29-31
 ```
-Stop if the count plus 3 exceeds what the pools allow (the omnibus comment says 32). If it does not fit,
-the change cannot be applied as written; the owner decides between giving the three networks explicit
-`ipam` subnets from a free range (BOOTSTRAP uses `10.220.25.0/24` for `avrana-ldap`; the incident moved
-`avrana-imax-verify_default` to `10.220.28.0/24`; pick only subnets absent from `subnets-before.txt`) and
-freeing networks that nothing uses, each its own approved change. The dry run below does not prove the
-allocator will succeed; the real `up` is where "fully subnetted" appears. Compose creates networks before
-it recreates the container, so the server should be left running if it fails (check that
+`scripts/g1-preflight.sh` does this check (subnet overlap against every Docker network and every host route)
+and STOPs on any clash; then pick other free `10.220.x.0/24` subnets in the compose file and in `G1_SUBNETS`
+in the script (a test keeps them equal). Free on 2026-10-27: no Docker network, no host route. Compose creates
+networks before it recreates the container, so if creation fails the server should be left running (check that
 `docker inspect authentik-server --format '{{.State.StartedAt}}'` is unchanged) - expected, not verified.
 
 ## Health timer during the window
@@ -275,7 +276,7 @@ during rollback: **[CHANGES PRODUCTION: state file]** `rm -f ~/.local/state/avra
 health timer stopped until the end. Then choose the branch by how far the apply got
 (`docker inspect <app> --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}'` for each app):
 
-**Branch 1: the apps were never recreated** (failure at or before step 2: address-pool error, dry run
+**Branch 1: the apps were never recreated** (failure at or before step 2: subnet or network-creation error, dry run
 surprise, `authentik-server` unhealthy, SSO down). Every app is still on `authentik_frontend`; do not
 recreate them and do not wait for the three hostnames, which cannot answer while the server is down.
 1. **[CHANGES PRODUCTION]** Restore `services/authentik/docker-compose.yml` from `$B/rollback/`; verify the
@@ -305,7 +306,7 @@ decides; record that in the ledger.
 ## Stop conditions
 
 Stop, do not improvise, and roll back or hold as stated:
-- Address-pool check shows no room, or `docker compose up` reports "fully subnetted" / any allocator error
+- Subnet check STOPs (overlap), or `docker compose up` reports a network-creation or allocator error
   (Branch 1; server untouched).
 - Dry run shows any container other than the one intended being recreated.
 - `authentik-server` not healthy within 3 minutes, or an Authentik hostname not answering after step 2

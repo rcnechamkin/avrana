@@ -69,6 +69,8 @@ HEALTHY = {
     "containers": {c: "running healthy 2026-10-01T00:00:00Z nets=authentik_frontend,"
                    for c in ("authentik-server", "avrana-portal", "avrana-kindle-connector", "olivetin")},
 }
+ROUTES = ("default via 10.0.0.1 dev br0 proto dhcp\n10.0.0.0/24 dev br0 proto kernel scope link src 10.0.0.218\n"
+          "10.220.28.0/24 dev br-1 proto kernel scope link src 10.220.28.1")
 FOUR_IDS = "c1\nc2\nc3\nc4"
 READ_ONLY_CALLS ={("version",), ("network", "ls"), ("network", "inspect"), ("ps",), ("inspect",)}
 ROLLBACK_FILES = ["authentik/docker-compose.yml", "avrana-portal/docker-compose.yml",
@@ -92,6 +94,7 @@ class PreflightTests(unittest.TestCase):
         self.curl_log = self.root / "curl.log"
         self.stub("curl-stub", f'echo "$@" >> "{self.curl_log.as_posix()}"\n'
                                'printf "%s" "${G1_CURL-302 https://auth.avrana.net/application/o/authorize/}"\n')
+        self.stub("ip-stub", 'printf "%s\\n" "$G1_ROUTES"\n')
         self.calls = self.root / "calls.log"
         self.backups = self.root / "backups"
         (self.backups / "avrana").mkdir(parents=True)
@@ -126,7 +129,8 @@ class PreflightTests(unittest.TestCase):
                         "G1_SCENARIO": (self.root / "scenario.json").as_posix(), "G1_CALLS": self.calls.as_posix(),
                         "AVRANA_BACKUPS_DIR": self.backups.as_posix(),
                         "AVRANA_DOCKER_DAEMON_JSON": (self.root / "absent-daemon.json").as_posix(),
-                        "AVRANA_CURL": (self.bin / "curl-stub").as_posix()})
+                        "AVRANA_CURL": (self.bin / "curl-stub").as_posix(),
+                        "AVRANA_IP": (self.bin / "ip-stub").as_posix(), "G1_ROUTES": ROUTES})
         # Belt and braces: any real HTTP client that slips through goes to a dead local proxy.
         for var in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "all_proxy"):
             environ[var] = "http://127.0.0.1:9"
@@ -143,7 +147,7 @@ class PreflightTests(unittest.TestCase):
         rc, out = self.run_preflight()
         self.assertEqual(rc, 0, out)
         self.assertIn("PREFLIGHT: 0 STOP, 0 VOID", out)
-        for needle in ("address pool: 20 networks + 3 new <= 32", "not applied", "no net=container: among 3",
+        for needle in ("subnets: 10.220.29.0/24 10.220.30.0/24 10.220.31.0/24 overlap no", "not applied", "no net=container: among 3",
                        "rollback material: 5 files present", "local backup: ok", "off-host backup: ok"):
             self.assertIn(needle, out)
         self.assertIn("host-network containers (D-3 residual): /jellyfin", out)
@@ -183,23 +187,24 @@ class PreflightTests(unittest.TestCase):
         self.assertEqual(rc, 0, out)
         self.assertIn("not applied", out)
 
-    def test_pool_limit_and_daemon_json_fail_closed(self):
-        rc, out = self.run_preflight(env={"AVRANA_POOL_LIMIT": "lots"})
-        self.assertEqual(rc, 1)
-        self.assertTrue(any("not a number" in l for l in self.lines(out, "VOID")), out)
-        self.assertFalse(any("address pool" in l for l in self.lines(out, "PASS")), out)
+    def test_daemon_json_is_information_only(self):
+        # Explicit subnets do not use the address pools, so daemon.json neither passes nor fails anything.
         daemon = self.root / "daemon.json"
-        for content, expect in (('{"data-root": "/x", "default-address-pools": []}', "default-address-pools"),
-                                ("not json", "not a JSON object"), ('["data-root"]', "not a JSON object")):
+        for content, expect in (('{"data-root": "/mnt/x"}', "daemon.json keys: data-root"),
+                                ("not json", "daemon.json keys: (unparseable)")):
             with self.subTest(content=content):
                 daemon.write_text(content, encoding="utf-8")
                 rc, out = self.run_preflight(env={"AVRANA_DOCKER_DAEMON_JSON": daemon.as_posix()})
-                self.assertEqual(rc, 1, out)
-                self.assertTrue(any(expect in l for l in self.lines(out, "VOID")), out)
-        daemon.write_text('{"data-root": "/mnt/x"}', encoding="utf-8")
-        rc, out = self.run_preflight(env={"AVRANA_DOCKER_DAEMON_JSON": daemon.as_posix()})
+                self.assertEqual(rc, 0, out)
+                self.assertIn(expect, out)
+        rc, out = self.run_preflight()  # absent or unreadable: silent
         self.assertEqual(rc, 0, out)
-        self.assertIn("daemon.json keys: data-root", out)
+        self.assertNotIn("daemon.json", out)
+
+    def test_many_networks_no_longer_stop(self):
+        rc, out = self.run_preflight({"net_ids": "\n".join(f"n{i}" for i in range(30))})
+        self.assertEqual(rc, 0, out)
+        self.assertIn("address pools: 30 networks; not used by G1", out)
 
     def test_short_container_line_is_void_not_a_crash(self):
         containers = dict(HEALTHY["containers"], olivetin="running")
@@ -208,10 +213,27 @@ class PreflightTests(unittest.TestCase):
         self.assertTrue(any("olivetin: inspect output not understood" in l for l in self.lines(out, "VOID")), out)
         self.assertIn("PREFLIGHT:", out)
 
-    def test_pool_without_room_stops(self):
-        rc, out = self.run_preflight({"net_ids": "\n".join(f"n{i}" for i in range(30))})
-        self.assertEqual(rc, 1)
-        self.assertTrue(any("address pool: 30 networks + 3 new exceeds 32" in l for l in self.lines(out, "STOP")), out)
+    def test_subnet_taken_by_a_docker_network_stops(self):
+        subnets = HEALTHY["subnets"] + "\nimposter 10.220.30.0/24 "
+        rc, out = self.run_preflight({"subnets": subnets})
+        self.assertEqual(rc, 1, out)
+        stops = self.lines(out, "STOP")
+        self.assertEqual(len(stops), 1, out)
+        self.assertIn("10.220.30.0/24 overlaps imposter", stops[0])
+        self.assertIn("PREFLIGHT: 1 STOP", out)
+
+    def test_subnet_overlapping_a_host_route_stops(self):
+        for route, owner in (("10.220.0.0/16 dev virbr1 proto kernel", "route:10.220.0.0/16"),
+                             ("10.220.31.7 via 10.0.0.1 dev br0", "route:10.220.31.7")):
+            with self.subTest(route=route):
+                rc, out = self.run_preflight(env={"G1_ROUTES": "default via 10.0.0.1 dev br0\n" + route})
+                self.assertEqual(rc, 1, out)
+                self.assertTrue(any(owner in l for l in self.lines(out, "STOP")), out)
+
+    def test_unreadable_routes_are_void(self):
+        rc, out = self.run_preflight(env={"G1_ROUTES": ""})
+        self.assertEqual(rc, 1, out)
+        self.assertTrue(any("host routes unchecked" in l for l in self.lines(out, "VOID")), out)
 
     def test_network_namespace_borrower_stops_and_is_named(self):
         rc, out = self.run_preflight({"ps": FOUR_IDS,
@@ -228,7 +250,7 @@ class PreflightTests(unittest.TestCase):
 
     def test_unreadable_docker_is_void_never_pass(self):
         for broken, label in (({"ps": None}, "namespace sharing"), ({"modes": None}, "namespace sharing"),
-                              ({"net_ids": None}, "address pool"), ({"subnets": None}, "address pool"),
+                              ({"net_ids": None}, "subnets"), ({"subnets": None}, "subnets"),
                               ({"server": None}, "docker daemon"), ({"frontend": None}, "authentik_frontend")):
             with self.subTest(broken=broken):
                 rc, out = self.run_preflight(broken)
