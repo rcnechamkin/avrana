@@ -29,9 +29,9 @@ from typing import Optional
 from fastapi import Request
 
 from ..outpost_jwt import OutpostJwtVerifier
-from ..principal import (EMAIL_HEADER, GROUPS_HEADER, JWT_HEADER, MODE_HEADERS, MODE_JWT_REQUIRED,
-                         NAME_HEADER, USERNAME_HEADER, MemberPrincipal, PrincipalError, decode_raw_headers,
-                         principal_for_request)
+from ..principal import (EMAIL_HEADER, GROUPS_HEADER, JWT_HEADER, MAX_GROUPS_HEADER_LEN, MAX_OPTIONAL_LEN,
+                         MAX_USERNAME_LEN, MODE_HEADERS, MODE_JWT_REQUIRED, NAME_HEADER, USERNAME_HEADER,
+                         MemberPrincipal, PrincipalError, decode_raw_headers, principal_for_request)
 from .logsafe import app_log, log_event
 from .settings import IDENTITY_MODES, Settings, SettingsError
 
@@ -64,13 +64,17 @@ def _report(code: str) -> None:
 
 
 def _without_malformed_jwt(raw: list) -> list:
-    """Drops a non-ASCII token header (reported as `malformed_header`) so it cannot take the plain
-    header identity down with it in log-only mode. In jwt_required the request then simply has no
-    token and fails closed exactly as a missing token does."""
+    """Drops a non-ASCII token header (reported as `malformed_header`) or one longer than
+    MAX_JWT_HEADER_LEN (`oversized_header`) so it cannot take the plain header identity down with it
+    in log-only mode. In jwt_required the request then simply has no token and fails closed exactly as
+    a missing token does."""
     jwt = JWT_HEADER.lower().encode("ascii")
     kept = []
     for name, value in raw:
         if name == jwt:
+            if len(value) > MAX_JWT_HEADER_LEN:
+                _report("oversized_header")
+                continue
             try:
                 value.decode("ascii")
             except UnicodeDecodeError:
@@ -174,6 +178,39 @@ def search_term_from_scope(scope) -> Optional[str]:
         if key == "q":
             return value[:_MAX_SEARCH_TERM]
     return None
+
+
+# h11's default (max_incomplete_event_size): the same limit, now independent of how the bytes were read. Counted as
+# name + value + ": " and CRLF per header line, close to the wire size (AVR-732).
+MAX_HEADER_BYTES = 16 * 1024
+# Home's own ceiling for the X-authentik-jwt header (AVR-732). Tighter than outpost_jwt.MAX_TOKEN_LEN (16384), which
+# stays as it is because services/avrana-portal vendors that verifier byte for byte (tests/test_portal_jwt.py). A
+# longer token header is dropped before verification (`oversized_header`): no token, so jwt_required fails closed.
+# Real outpost ID tokens are a few KiB; a groups claim mirroring the 4096-byte groups header is ~5.5 KiB in base64.
+MAX_JWT_HEADER_LEN = 8192
+# The one budget inside that limit (owner, 2026-10-26: keep 16 KiB; token plus other headers must fit). Each identity
+# header at its own parser maximum (principal.py, outpost_jwt.py), the token included; whatever is left is for every
+# other header (Host, Cookie, User-Agent, Accept...). A request inside this budget is never refused as too large.
+IDENTITY_HEADER_BUDGET = {
+    JWT_HEADER: MAX_JWT_HEADER_LEN,
+    USERNAME_HEADER: MAX_USERNAME_LEN,
+    GROUPS_HEADER: MAX_GROUPS_HEADER_LEN,
+    EMAIL_HEADER: MAX_OPTIONAL_LEN,
+    NAME_HEADER: MAX_OPTIONAL_LEN,
+}
+OTHER_HEADERS_BUDGET = MAX_HEADER_BYTES - sum(len(name) + size + 4 for name, size in IDENTITY_HEADER_BUDGET.items())
+if OTHER_HEADERS_BUDGET < 3 * 1024:                    # checked at import: a parser limit raised alone fails loudly
+    raise RuntimeError("identity header limits leave under 3 KiB of the 16 KiB header budget")
+
+
+def header_bytes(headers) -> int:
+    return sum(len(k) + len(v) + 4 for k, v in headers)
+
+
+def header_block_too_large(scope) -> bool:
+    """AVR-732: the request's whole header block is over MAX_HEADER_BYTES (the middleware answers 431 before
+    routing or identity). Sizes only: no header is decoded or interpreted."""
+    return header_bytes(scope.get("headers", ())) > MAX_HEADER_BYTES
 
 
 def has_identity_headers(scope) -> bool:
