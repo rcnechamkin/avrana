@@ -123,7 +123,9 @@ COMMITMENT = re.compile(
 ALLOWED_COMMITMENTS = {
     'welcome.md': {'30 days': 1, '180 days': 1, 'straight away': 1},
     'help.md': {'at once': 1},
-    'house-rules-and-privacy.md': {'30 days': 2, '180 days': 1, 'every night': 1, '90 days': 1},
+    'house-rules-and-privacy.md': {'30 days': 2, '180 days': 1, 'every night': 1, '90 days': 1,
+                                   # Home's member cache: contract.cache_ttl (continue 30 s) to ARTWORK_TTL (300 s)
+                                   '30 seconds': 1, '5 minutes': 1},
 }
 
 # Citations whose line CONTENT matters to a statement in a document: (document, literal citation as

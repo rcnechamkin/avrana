@@ -131,10 +131,12 @@ Each names what it needs before it can start. None of these is approved work.
   that read the banner and the tabs unchanged.
 - **F-14 The hero repeats the first Continue card.** MK-4 kept the Continue rail whole so the rail's accessibility
   contract and its tests stay as they are. Owner to say whether the rail should start from the second item.
-- **F-16 Check the house rules' "stores nothing" wording.** `docs/member/house-rules-and-privacy.md` says the home
+- **F-16 Check the house rules' "stores nothing" wording.** *Done (AVR-737): the section now says what Home keeps in
+  memory (30 s to 5 min, per member), what the log holds and what is not recorded.* `docs/member/house-rules-and-privacy.md` says the home
   page "stores nothing about you and writes no per-visit log". That predates MK-7 and was written for the portal;
   check it against Home's logging (HOME-APP.md section 6) and its short per-member cache before it is published.
-- **F-15 "Getting back to Avrana" help text.** `recovery.py` tells members to "choose AVRANA at the top of any Avrana
+- **F-15 "Getting back to Avrana" help text.** *Done (AVR-736): "choose Back to home at the bottom of this page",
+  true with and without the shell.* `recovery.py` tells members to "choose AVRANA at the top of any Avrana
   page"; shell pages now show the Avrana Media lockup on Home and the Home button or Home tab elsewhere.
 
 ## 3. Questions for the owner

@@ -105,7 +105,7 @@ def build_trouble(groups) -> TroubleVM:
             f"change on your side: ask {WHO} to link it.",
         )),
         TroubleSection("back", "Getting back to Avrana", (
-            "Use your browser's back button, or choose AVRANA at the top of any Avrana page.",
+            "Use your browser's back button, or choose Back to home at the bottom of this page.",
             "If the library opened in a separate window or tab, close it. If you opened Avrana from your Home "
             "Screen, you can also open it again from its icon.",
         )),
