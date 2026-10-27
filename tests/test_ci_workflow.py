@@ -1,19 +1,28 @@
 """Static checks on the GitHub Actions workflows (decision D-8).
 
-Standard library only: the workflow is read as text, comments are removed, and the rest is matched.
+The workflow is read as text, comments are removed, and the rest is matched (standard library only). It is
+also parsed as YAML when PyYAML is installed, which CI requires (AVRANA_REQUIRE_YAML=1): from 2026-10-14 to
+2026-10-27 the text checks passed while GitHub rejected the file as invalid YAML.
 Nothing here runs a workflow or contacts GitHub.
 """
 from pathlib import Path
+import os
 import re
 import unittest
+
+try:
+    import yaml
+except ImportError:  # the parse test reports NOT RUN, or fails when AVRANA_REQUIRE_YAML=1
+    yaml = None
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / '.github' / 'workflows'
 MAIN = WORKFLOWS / 'offline-tests.yml'
 REQUIREMENTS = ROOT / '.github' / 'requirements-ci.txt'
 HOME_LOCK = ROOT / 'services' / 'avrana-home' / 'requirements.lock'
-INSTALL = ('run: python -m pip install --disable-pip-version-check --no-cache-dir --no-deps '
-           '--only-binary=:all: --require-hashes -r .github/requirements-ci.txt')
+INSTALL_COMMAND = ('python -m pip install --disable-pip-version-check --no-cache-dir --no-deps '
+                   '--only-binary=:all: --require-hashes -r .github/requirements-ci.txt')
+INSTALL = f"run: '{INSTALL_COMMAND}'"   # quoted: the command holds ": ", which ends a plain YAML scalar
 
 
 def code_of(path):
@@ -53,6 +62,38 @@ class EveryWorkflowTests(unittest.TestCase):
     def test_no_line_endings_surprise(self):
         for path in self.workflows():
             self.assertNotIn(b'\r', path.read_bytes(), path.name)
+
+    def test_plain_run_values_are_valid_yaml_scalars(self):
+        """Standard library: a one-line `run:` value that is not quoted or a block scalar may not hold ": " or
+        " #" (YAML reads a mapping or a comment there), and may not start with a YAML indicator."""
+        for path in self.workflows():
+            for number, line in enumerate(path.read_text(encoding='utf-8').splitlines(), 1):
+                match = re.match(r'\s*(?:- )?run: (.*)$', line)
+                if not match or match.group(1)[:1] in ("'", '"', '|', '>'):
+                    continue
+                with self.subTest(workflow=path.name, line=number):
+                    self.assertNotIn(': ', match.group(1))
+                    self.assertNotIn(' #', match.group(1))
+                    self.assertNotRegex(match.group(1), r'^[-?:,\[\]{}&*!%@`]')
+
+
+@unittest.skipIf(yaml is None and os.environ.get('AVRANA_REQUIRE_YAML', '') in ('', '0'),
+                 'PyYAML missing: workflow YAML parse NOT RUN (AVRANA_REQUIRE_YAML=1 makes this fail)')
+class WorkflowParsesTests(unittest.TestCase):
+    def test_every_workflow_parses_and_the_install_step_is_the_reviewed_command(self):
+        self.assertIsNotNone(yaml, 'PyYAML is required here (AVRANA_REQUIRE_YAML=1)')
+        for path in sorted(WORKFLOWS.glob('*.y*ml')):
+            with self.subTest(workflow=path.name):
+                doc = yaml.safe_load(path.read_text(encoding='utf-8'))
+                self.assertIsInstance(doc, dict)
+                self.assertIsInstance(doc.get('jobs'), dict)
+                for job in doc['jobs'].values():
+                    self.assertIsInstance(job.get('steps'), list)
+        doc = yaml.safe_load(MAIN.read_text(encoding='utf-8'))
+        self.assertEqual(set(doc['jobs']), {'offline-tests', 'content-gate'})
+        runs = [step.get('run') for step in doc['jobs']['offline-tests']['steps']]
+        self.assertIn(INSTALL_COMMAND, runs)
+        self.assertIn('python -B tests/run_offline.py', runs)
 
 
 class OfflineTestsWorkflow(unittest.TestCase):

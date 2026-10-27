@@ -1,6 +1,8 @@
 # Offline tests and the content gate. Decision D-8 (Media 2.0 Sprint 1), amended by D-8a (owner, 2026-10-14)
 # and D-8b (owner, 2026-10-26, AVR-757).
-# Actions billing is blocked (2026-10-15): this workflow has not run on GitHub; local runs are the evidence.
+# From D-8a (9122c0c, 2026-10-14) until 2026-10-27 this file was not valid YAML (an unquoted ": " inside the pip
+# line), so GitHub rejected every run as a workflow file issue; it was not a billing block. The run: values that
+# hold ": " are quoted now, and tests/test_ci_workflow.py parses the file (PyYAML) and checks every plain run: value.
 # Merging this file is the approval. It reads the repository and runs the offline suites;
 # it uses no secrets, has no network dependency beyond fetching the two pinned actions, Python and the
 # hash-pinned wheels in .github/requirements-ci.txt (D-8a: PyYAML; D-8b: pytest, FastAPI and the other web
@@ -49,7 +51,7 @@ jobs:
       # D-8a/D-8b: only the hash-pinned wheels in requirements-ci.txt (and the avrana-home lock it includes);
       # pip refuses anything unhashed, a source build or an unlisted dependency.
       - name: Install the hash-pinned test dependencies
-        run: python -m pip install --disable-pip-version-check --no-cache-dir --no-deps --only-binary=:all: --require-hashes -r .github/requirements-ci.txt
+        run: 'python -m pip install --disable-pip-version-check --no-cache-dir --no-deps --only-binary=:all: --require-hashes -r .github/requirements-ci.txt'
       - name: Run every offline suite
         run: python -B tests/run_offline.py
       # Second run inside an empty network namespace (loopback only). If any suite quietly needs the
