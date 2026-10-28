@@ -39,10 +39,14 @@ from . import artwork as artwork_mod
 from . import install as install_mod
 from . import notice as notice_mod
 from . import pwa as pwa_mod
-from .identity import (IdentityResolver, Viewer, get_viewer, has_identity_headers, home_filter_from_scope,
-                       library_chip_from_scope, library_view_from_scope, new_tab_from_scope, search_term_from_scope)
+from . import bookrequests as bookreq_mod
+from ..requests.forms import FormSigner, RequestGuard
+from ..requests.shelfarr import FORMAT_GROUP, ShelfarrRequests, member_username
+from .identity import (IdentityResolver, Viewer, broker_form, get_viewer, has_identity_headers, home_filter_from_scope,
+                       library_chip_from_scope, library_view_from_scope, new_tab_from_scope, same_origin_post,
+                       search_term_from_scope)
 from .logsafe import app_log, log_event, silence_uvicorn_access
-from .middleware import HygieneMiddleware
+from .middleware import MAX_FORM_BODY, HygieneMiddleware
 from . import recovery
 from .routing import (ME_ROUTE, AccountFacts, Decision, chooser_intro, decide, library_decision, me_decision,
                       normalise_target, not_found, parse_title_route, search_decision, title_decision, trouble_decision)
@@ -147,13 +151,23 @@ def build_adapters(settings: Settings, cache: MemberCache) -> list:
     return adapters
 
 
+def build_book_requests(settings: Settings) -> Optional[ShelfarrRequests]:
+    """The Shelfarr request client, or None when HOME_BOOK_REQUESTS is off (settings.py validates the rest)."""
+    if not (settings.home_sections and settings.book_requests and settings.shelfarr_base_url):
+        return None
+    transport = UrllibTransport(settings.shelfarr_base_url, {"Authorization": f"Bearer {settings.shelfarr_token}"})
+    return ShelfarrRequests(transport, timeout=settings.timeout)
+
+
 def _is_loopback_peer(request: Request) -> bool:
     client = request.client
     return client is not None and client.host in ("127.0.0.1", "::1")
 
 
-def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]] = None) -> FastAPI:
-    """`adapters` lets tests inject fakes; otherwise they are built from `settings`."""
+def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]] = None,
+               book_requests: Optional[ShelfarrRequests] = None) -> FastAPI:
+    """`adapters` and `book_requests` let tests inject fakes; otherwise they are built from `settings`. Book requests
+    exist only when HOME_BOOK_REQUESTS is on (an injected client is ignored otherwise)."""
     silence_uvicorn_access()      # whoever serves this app, uvicorn must not log raw query strings
     cat = catalogue_mod.load(settings.catalogue_path)
     env = make_environment()
@@ -169,6 +183,10 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
     cache = MemberCache(SystemClock())
     adapter_list = list(adapters) if adapters is not None else build_adapters(settings, cache)
     notices = notice_mod.NoticeBoard(settings.notice_file)          # AVR-365: read-only; None = no notices
+    broker = None
+    if settings.home_sections and settings.book_requests:
+        broker = book_requests if book_requests is not None else build_book_requests(settings)
+    signer, guard = FormSigner(), RequestGuard()                    # per process: a restart expires open forms
 
     @contextlib.asynccontextmanager
     async def lifespan(_app):
@@ -245,11 +263,30 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
                 log_event(app_log, logging.INFO, "section", service=s.service.value,
                           section=s.section, state=s.state.value, reason=s.reason or "")
             decision = search_decision(build_search(result.search_view(), term, title_services=title_services,
-                                                    request_hosts=request_hosts(viewer)))
+                                                    request_hosts=request_hosts(viewer),
+                                                    book_requests=bool(broker_formats(viewer))))
             scope["avrana_route"] = decision.label
             # Search's no-results group may offer Contribute (memo section 2), only from the member's own tiles.
             return respond(decision, scope, shell=shell_for(viewer, "search"),
                            contribute=place_link(tiles_for(viewer), CONTRIBUTE_PATH))
+
+        if route == bookreq_mod.PATH and broker is not None:
+            # Ask for a book (request broker): a shell page for a member holding Books or Audiobooks; anyone else gets
+            # the standard 404, exactly as an unknown route. Shelfarr is searched as Home's service account; nothing
+            # is asked for on a GET.
+            formats = broker_formats(viewer)
+            if not formats:
+                scope["avrana_route"] = "not_found"
+                return respond(not_found())
+            term = search_term_from_scope(scope)
+            state, offers = ("form", ())
+            if term is not None:
+                state, offers = await run_in_threadpool(broker.search, term)
+                log_event(app_log, logging.INFO, "book_search", service="shelfarr", state=state)
+            page = bookreq_mod.build_results(state, offers, term, formats, broker_user(viewer), signer)
+            scope["avrana_route"] = bookreq_mod.PATH
+            mark_shell(scope, shell_for(viewer, "search"))
+            return render("request_books.html", page=page, shell=shell_for(viewer, "search"))
 
         if route == "/library" and settings.home_sections and adapter_list:
             # The Library page (Concept K MK-5a, AVR-719): a shell page like /search, only with the shell on and for a
@@ -368,6 +405,50 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
                 extra["shell_warning"] = INTERSTITIAL_SHELL.get(path)
         return respond(decision, scope, **extra)
 
+    @app.post(bookreq_mod.PATH, include_in_schema=False, response_model=None)
+    async def ask_for_book(request: Request, viewer: Viewer = Depends(get_viewer)) -> Response:
+        """One request for one format of one book, as the verified member. Only reachable when the broker is on (the
+        middleware answers 501 to every other POST). Who asks is the principal, never a form field; the fields must
+        be the ones this process signed for this member, unexpired."""
+        scope = request.scope
+        formats = broker_formats(viewer) if broker is not None else ()
+        if not formats:
+            scope["avrana_route"] = "not_found"
+            return respond(not_found())
+        scope["avrana_route"] = bookreq_mod.PATH
+        shell = shell_for(viewer, "search")
+        mark_shell(scope, shell)
+        username = broker_user(viewer)
+        fields = await broker_form(request, MAX_FORM_BODY) if same_origin_post(scope) else None
+        token = fields.pop("token") if fields is not None else None
+        if (fields is None or username is None or fields.get("book_type") not in formats
+                or not signer.verify(token, username, fields)):
+            log_event(app_log, logging.INFO, "book_request", service="shelfarr", state="refused_form")
+            page = bookreq_mod.build_said(None, "expired", {}, None, formats)
+            return render("request_books.html", 403, page=page, shell=shell)
+        blocked = guard.check(username, fields["work_id"] + "|" + fields["book_type"])
+        if blocked is not None:
+            log_event(app_log, logging.INFO, "book_request", service="shelfarr", state=blocked)
+            return render("request_books.html", 429 if blocked == "rate" else 200,
+                          page=bookreq_mod.build_said(None, blocked, fields, None, formats), shell=shell)
+        outcome = await run_in_threadpool(broker.create, username, fields["work_id"], fields["book_type"],
+                                          fields["title"], fields["author"])
+        log_event(app_log, logging.INFO, "book_request", service="shelfarr", state=outcome.value,
+                  reason=fields["book_type"])
+        place = "/requestabook" if cat.service("requestabook") is not None and \
+            cat.service("requestabook").allows(viewer.groups) else None
+        return render("request_books.html", page=bookreq_mod.build_said(outcome, None, fields, place, formats),
+                      shell=shell)
+
+    def broker_formats(viewer: Viewer) -> tuple:
+        """The formats this member may ask for through the broker; () when the broker is off or nobody verified."""
+        if broker is None or viewer.principal is None or not adapter_list:
+            return ()
+        return bookreq_mod.formats_for(viewer.groups)
+
+    def broker_user(viewer: Viewer) -> Optional[str]:
+        return member_username(viewer.principal.username) if viewer.principal is not None else None
+
     def mark_shell(scope, shell) -> None:
         """Tell the middleware this response is a shell page: only these pages link the manifest and load the brand
         font and the page script (base.html), so only these get `SHELL_SOURCES` in their CSP (middleware.py). Every other
@@ -441,6 +522,7 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
         return render("error.html", 422)
 
     app.add_middleware(HygieneMiddleware, render_error=lambda: env.get_template("error.html")
-                       .render().encode("utf-8"))
+                       .render().encode("utf-8"),
+                       post_paths=frozenset({bookreq_mod.PATH}) if broker is not None else frozenset())
     log_event(app_log, logging.INFO, "app_created")
     return app

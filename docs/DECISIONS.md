@@ -275,3 +275,17 @@ multiple options for views ... Go at it").
 | **Home's top row is filters** | For a member with two library places or more, the row under the lockup is All, Watch, Listen, Read (each only if the member has it), a ledger like the Library's, via `/?for=<place>`; it narrows Home to that place's libraries and never leaves Avrana. The chosen place's own site is one link at the foot of the filtered Home. Request stays on the Library and Help under Me. A member with one place keeps the places bar. Replaces the places bar of D16 for those members. |
 | **Watch has Up next, Movies and TV shows** | The Watch filter shows Continue, then Up next (the next unwatched episode of each series the member watches, from the library's own Next Up list, minus what Continue already shows), then Recently added split into Movies and TV shows. Up next is a new read-only, user-scoped Jellyfin route (`/Shows/NextUp`), added to the allow-list, the contract and the OpenAPI subset (regenerated from the same two spec files, hashes unchanged). It is asked for only on the Watch filter, after the other sections, so a member never holds more than two calls to that library at once. |
 | **The Library has four layouts** | Large artwork (the default), small artwork, details (a small cover beside the words) and a plain list, chosen with `?view=` from four icon links; the chosen library and the chosen layout keep each other. Not remembered between visits (the page script stores nothing). |
+
+## Proposed, 2026-10-28: Home asks Shelfarr for books on the member's behalf
+
+Recorded from the owner's chat of 2026-10-27 ("Upgrade Shelfarr and proceed with implementing that part even").
+Proposed in a draft PR; nothing is deployed and the switch is off by default.
+
+| Decision | Consequence |
+|---|---|
+| **Shelfarr 2026.10.19.1 is the API** | The upgrade (PR #122) adds `/api/v1` with scoped tokens. Home holds ONE owner-minted token with `search:read requests:write requests:admin`; `requests:admin` is what lets it name the member. Members never mint keys. |
+| **The member is the principal** | The request names the verified principal's username, lower-cased. A form never carries a person; a member Shelfarr does not know is "not set up" (sign in to the request website once), never a request as someone else. |
+| **One signed form, no script** | Each format button is a small POST form whose fields Home signed for that member (HMAC, 15 minutes, per-process key), behind a same-origin check and a 4 KiB body limit. It is the first POST Home answers; every other path stays 501. |
+| **Formats follow library groups** | Ask for the ebook needs `avrana-books`; Ask for the audiobook needs `avrana-audiobooks`. A member with neither gets the standard 404. |
+| **Nothing is promised** | The words say a request was sent and where the book appears once it arrives; never that it has arrived, and never a queue position. |
+

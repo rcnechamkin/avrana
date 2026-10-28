@@ -108,6 +108,9 @@ class Settings:
     calibre_web_base_url: str = ""               # "" = the Calibre-Web adapter is not built
     calibre_web_credential: str = field(default="", repr=False)    # "user:password" of the viewer account
     calibre_web_owner_confirms: bool = False     # the owner's statement that no member is restricted
+    book_requests: bool = False                  # HOME_BOOK_REQUESTS=on: ask Shelfarr for books on the member's behalf
+    shelfarr_base_url: str = ""                  # required with book_requests
+    shelfarr_token: str = field(default="", repr=False)  # search:read requests:write requests:admin, never more
     timeout: float = 2.0
     section_limit: int = 12
     health_detail: str = "loopback"              # "loopback" | "off"
@@ -230,6 +233,18 @@ class Settings:
         cw_url = get("CALIBRE_WEB_BASE_URL")
         cw_cred = _read_key(env, problems, "CALIBRE_WEB_CREDENTIAL")
         cw_confirms = boolean("CALIBRE_WEB_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS", False)
+        book_requests = boolean("HOME_BOOK_REQUESTS", False)
+        shelfarr_url = get("SHELFARR_BASE_URL")
+        shelfarr_token = _read_key(env, problems, "SHELFARR_TOKEN")
+        # The request broker (requests/shelfarr.py) is off unless switched on, needs the shell, and its two
+        # settings travel together; with it off, a Shelfarr setting is an error so nobody believes it is in use.
+        if book_requests:
+            if not sections:
+                problems.append("HOME_BOOK_REQUESTS needs HOME_SECTIONS=on")
+            if not shelfarr_url:
+                problems.append("HOME_BOOK_REQUESTS needs SHELFARR_BASE_URL")
+        elif shelfarr_url or shelfarr_token:
+            problems.append("SHELFARR_BASE_URL or SHELFARR_TOKEN is set but HOME_BOOK_REQUESTS is off")
 
         preview_env = get("HOME_OWNER_PREVIEW").lower() == "yes"
         sealed = owner_preview_seal is _OWNER_PREVIEW_SEAL
@@ -288,6 +303,12 @@ class Settings:
                 problems.append("CALIBRE_WEB_BASE_URL must be a loopback address in mock mode")
             cw_cred = "viewer:" + MOCK_API_KEY if cw_url else ""
             cw_confirms = False                  # a real-mode statement; mock mode passes its own constant
+            if shelfarr_token:
+                problems.append("a Shelfarr token is set but HOME_UPSTREAM_MODE is mock "
+                                "(mock mode never sends a real token; unset it or choose real)")
+            if shelfarr_url and not is_loopback_host(url_host(shelfarr_url) or ""):
+                problems.append("SHELFARR_BASE_URL must be a loopback address in mock mode")
+            shelfarr_token = MOCK_API_KEY if shelfarr_url else ""
         else:
             if not owner_preview and get("HOME_GATES_VERIFIED").lower() != "yes":
                 problems.append("HOME_UPSTREAM_MODE=real needs HOME_GATES_VERIFIED=yes "
@@ -323,12 +344,15 @@ class Settings:
             if bool(abs_url) != bool(abs_token):
                 problems.append("AUDIOBOOKSHELF_BASE_URL and AUDIOBOOKSHELF_TOKEN (or _FILE) must be "
                                 "set together, or both left unset")
+            if book_requests and not shelfarr_token:
+                problems.append("HOME_BOOK_REQUESTS needs SHELFARR_TOKEN (or _FILE) in real mode")
         # HTTPS across machines (owner decision 2026-10-27, ABS admin-token review HIGH): in real mode a plain-http
         # upstream must stay on this machine or inside Docker's isolated networking, so a service key never
         # crosses the LAN in clear text. See `plain_http_allowed`.
         if mode == "real":
             for name, value in (("JELLYFIN_BASE_URL", base_url), ("AUDIOBOOKSHELF_BASE_URL", abs_url),
-                                ("KOMGA_BASE_URL", komga_url), ("CALIBRE_WEB_BASE_URL", cw_url)):
+                                ("KOMGA_BASE_URL", komga_url), ("CALIBRE_WEB_BASE_URL", cw_url),
+                                ("SHELFARR_BASE_URL", shelfarr_url)):
                 if value and urlsplit(value).scheme == "http" and not plain_http_allowed(url_host(value) or ""):
                     problems.append(f"{name} uses plain http to another machine: use https, or a Docker service "
                                     "name on a shared network (HTTPS across machines)")
@@ -340,6 +364,8 @@ class Settings:
             _check_url(komga_url, problems, "KOMGA_BASE_URL")
         if cw_url:
             _check_url(cw_url, problems, "CALIBRE_WEB_BASE_URL")
+        if shelfarr_url:
+            _check_url(shelfarr_url, problems, "SHELFARR_BASE_URL")
 
         # Identity mode (AVR-498). The default keeps today's behaviour exactly; an unknown or empty
         # value is an error, never a silent fallback. The JWT modes need the provider's issuer,
@@ -387,7 +413,9 @@ class Settings:
                    audiobookshelf_token=abs_token, komga_base_url=komga_url,
                    komga_token=komga_token, komga_owner_confirms=komga_confirms,
                    calibre_web_base_url=cw_url,
-                   calibre_web_credential=cw_cred, calibre_web_owner_confirms=cw_confirms, timeout=timeout, section_limit=limit,
+                   calibre_web_credential=cw_cred, calibre_web_owner_confirms=cw_confirms,
+                   book_requests=book_requests, shelfarr_base_url=shelfarr_url, shelfarr_token=shelfarr_token,
+                   timeout=timeout, section_limit=limit,
                    health_detail=detail, pwa_sw=pwa_sw, motion_proposal=motion_proposal, catalogue_path=catalogue, notice_file=notice_file, log_level=level,
                    host=host, port=port, owner_preview=owner_preview, owner_preview_username=owner_name,
                    jellyfin_member_username=jf_member, audiobookshelf_member_username=abs_member,

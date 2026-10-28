@@ -172,6 +172,62 @@ def library_view_from_scope(scope) -> Optional[str]:
     return _choice_from_scope(scope, "view")
 
 
+FORM_FIELDS = frozenset({"work_id", "book_type", "title", "author", "token"})
+
+
+def content_length_from_scope(scope) -> Optional[int]:
+    """The request's single, plain-decimal Content-Length, or None (absent, repeated, chunked, malformed). Read by the
+    middleware's POST gate only (middleware.py)."""
+    found = [v for k, v in scope.get("headers", ()) if bytes(k).lower() == b"content-length"]
+    chunked = any(bytes(k).lower() == b"transfer-encoding" for k, _ in scope.get("headers", ()))
+    if len(found) != 1 or chunked or not bytes(found[0]).isdigit() or len(found[0]) > 9:
+        return None
+    return int(found[0])
+
+
+def same_origin_post(scope) -> bool:
+    """True when the browser says this POST came from a page of this site: `Sec-Fetch-Site: same-origin`, or, from a
+    browser that does not send it, an `Origin` whose host equals the `Host` header. Anything else (cross-site, no
+    signal at all, repeated headers) is refused. A CSRF check only; it confers no identity."""
+    def one(name: bytes) -> Optional[str]:
+        found = [v for k, v in scope.get("headers", ()) if bytes(k).lower() == name]
+        return bytes(found[0]).decode("latin-1").strip() if len(found) == 1 else None
+    site = one(b"sec-fetch-site")
+    if site is not None:
+        return site == "same-origin"
+    origin, host = one(b"origin"), one(b"host")
+    if not origin or not host or origin == "null":
+        return False
+    from urllib.parse import urlsplit
+    try:
+        return urlsplit(origin).netloc.lower() == host.lower() and urlsplit(origin).scheme in ("https", "http")
+    except ValueError:
+        return False
+
+
+async def broker_form(request, limit: int) -> Optional[dict]:
+    """The request broker's confirmation form (application/x-www-form-urlencoded, at most `limit` bytes; the
+    middleware already refused a missing or larger Content-Length): exactly FORM_FIELDS, each once, ASCII-decodable
+    after percent-decoding as UTF-8, or None. The fields name a book, never a person: who asks is the verified
+    principal only."""
+    from urllib.parse import parse_qsl
+    ctype = [v for k, v in request.scope.get("headers", ()) if bytes(k).lower() == b"content-type"]
+    if len(ctype) != 1 or bytes(ctype[0]).split(b";")[0].strip().lower() != b"application/x-www-form-urlencoded":
+        return None
+    raw = await request.body()
+    if len(raw) > limit:
+        return None
+    try:
+        pairs = parse_qsl(raw.decode("ascii"), keep_blank_values=True, strict_parsing=True,
+                          max_num_fields=len(FORM_FIELDS), encoding="utf-8", errors="strict")
+    except (ValueError, UnicodeDecodeError):
+        return None
+    fields = dict(pairs)
+    if len(pairs) != len(FORM_FIELDS) or set(fields) != FORM_FIELDS:
+        return None
+    return fields
+
+
 def _choice_from_scope(scope, name: str) -> Optional[str]:
     from urllib.parse import parse_qsl
     raw = scope.get("query_string") or b""

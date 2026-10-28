@@ -832,6 +832,8 @@ REQUEST_FOR = {"jellyfin": ("requests", "a film or show"), "audiobookshelf": ("r
 # Request services with a DOCUMENTED search address that takes the term (Seerr/Jellyseerr web route
 # `/search?query=`, UNVERIFIED live). Every other request service gets its home through our own route.
 REQUEST_SEARCH = {"requests": "/search?query="}
+# The request broker's own ask page (bookrequests.py), used instead of the Shelfarr home when the broker is on.
+BOOK_REQUEST_FROM, BOOK_REQUEST_PATH = "requestabook", "/request/books"
 _HOST = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+")
 TITLE_PREFIX = "/title/"
 
@@ -944,11 +946,13 @@ def _result_vm(it: dict, service: str, label: str, term: Optional[str], title_se
     return ResultVM(title, href, medium, line, SHAPE.get(kind, "poster"), _image(it.get("artwork")), opens)
 
 
-def request_options(empty_services, term: Optional[str], request_hosts) -> Tuple[RequestVM, ...]:
+def request_options(empty_services, term: Optional[str], request_hosts,
+                    book_requests: bool = False) -> Tuple[RequestVM, ...]:
     """"Request this title" for each library that answered with no match, ONLY where the member's catalogue holds
     the request service that fills it (`request_hosts`: request path -> host, already group-filtered by the
     caller). Seerr gets the term through its documented search address (allowlisted host, percent-encoded); the
-    others get their own home through our route. Nothing is ever submitted."""
+    others get their own home through our route. Nothing is ever submitted. `book_requests` (the broker is on and the
+    member may use it): books and audiobooks go to Home's own ask page with the term instead."""
     by_href: dict = {}
     for service in empty_services:
         path, noun = REQUEST_FOR.get(service, (None, None))
@@ -957,6 +961,8 @@ def request_options(empty_services, term: Optional[str], request_hosts) -> Tuple
             continue
         if path in REQUEST_SEARCH and term:
             href, leaves = f"https://{host}{REQUEST_SEARCH[path]}{quote(term, safe='')}", True
+        elif path == BOOK_REQUEST_FROM and book_requests:
+            href, leaves = BOOK_REQUEST_PATH + (f"?q={quote(term, safe='')}" if term else ""), False
         else:
             href, leaves = "/" + path, False
         nouns = by_href.setdefault(href, (leaves, [], path))[1]
@@ -972,7 +978,7 @@ def _names(labels) -> str:
 
 
 def build_search(view: dict, raw_term: Optional[str], *, title_services=frozenset(),
-                 request_hosts=None) -> SearchVM:
+                 request_hosts=None, book_requests: bool = False) -> SearchVM:
     """`view` is `SearchResults.search_view()`; `raw_term` the bounded text from the address (or None).
     Libraries the member cannot use are not in `view`, and nothing here can name them.
 
@@ -1030,7 +1036,7 @@ def build_search(view: dict, raw_term: Optional[str], *, title_services=frozense
                             result_state="unsearchable", outcome="Not searched", **base)
         return SearchVM("results", message="Search is not set up for your account yet.",
                         result_state="not_set_up", outcome="Not searched", **base)
-    reqs = request_options(empty, clean, request_hosts)
+    reqs = request_options(empty, clean, request_hosts, book_requests)
     if down:
         msg = (f"No matches in {_names(SERVICE_LABEL[s] for s in empty)}. "
                f"{_names(down)} could not be searched right now, so it may still be there.")

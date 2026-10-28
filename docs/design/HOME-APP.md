@@ -442,6 +442,42 @@ held long enough for active devices. Turning sections off or reverting the image
 behaviour, the iOS Home Screen cookie jar, `Clear-Site-Data` on Safari and bfcache with `no-store` on Safari are
 research findings, not tests. The device review (AVR-585, D17) runs on the Concept K build.
 
+## 5b. Asking for a book (request broker, Shelfarr)
+
+Status: proposed, not deployed; off unless `HOME_BOOK_REQUESTS=on` (section 7). Design and the owner decisions:
+`docs/design/UNIVERSAL-SEARCH-AND-REQUESTS.md`.
+
+`GET /request/books` (a shell page) searches Shelfarr (2026.10.19.1, `/api/v1/search`, `content_kind=book`) as Home's
+own token and lists the matches with one button per format the member may ask for: Ask for the ebook only for a
+member holding `avrana-books`, Ask for the audiobook only for `avrana-audiobooks`. A member holding neither, an
+unverified viewer, and every viewer while the switch is off get the standard 404. Upstream cover and source URLs are
+dropped; nothing on the page loads from elsewhere.
+
+`POST /request/books` creates one request in Shelfarr (`/api/v1/requests`) **for the verified member**: the username
+is the principal's, lower-cased, never a form field. It is the only POST Home answers, and only while the switch is
+on; every other POST stays 501. The rules, in order:
+
+1. The middleware: an exact path match and a single `Content-Length` of at most 4096 bytes, else 411 or 413 (fixed
+   text) before the application runs.
+2. The member holds Books or Audiobooks, else 404.
+3. CSRF: `Sec-Fetch-Site: same-origin`, or, from a browser without it, an `Origin` equal to the `Host`; else 403.
+4. The body is `application/x-www-form-urlencoded` with exactly `work_id`, `book_type`, `title`, `author`, `token`.
+5. The token is an HMAC (per-process random key) over the member, those four fields and an expiry 15 minutes out:
+   only fields this process rendered for this member can be posted, unchanged. A restart expires open pages.
+6. The format belongs to one of the member's libraries.
+7. A guard per member: the same book and format twice within a minute is answered "You just asked" without a call;
+   more than 10 attempts an hour is refused (429).
+
+Outcomes, in fixed words: asked for (Shelfarr 201 or 202: "It appears in Books once it arrives"); could not be asked
+for (422: already asked for or owned); not set up (404: the member has never signed in to Shelfarr, with a link to
+the member's own request place); could not be reached (anything else, including a lost token scope, which also
+counts toward the breaker). A timeout is never retried. Log lines carry the service, a fixed state and the format
+only. Search's empty-results fallback links books and audiobooks to this page (with the term) instead of the
+Shelfarr site while the broker is on.
+
+The token can name any Shelfarr user (`requests:admin`); that is why the username comes only from the verified
+principal and why the client can send exactly the two allow-listed calls (no listing, cancel, users or settings).
+
 ## 6. Logging
 
 Structured JSON, one object per line, to stderr. Fields: `route` (the route **template** such as
@@ -473,6 +509,7 @@ variables (never the values).
 | `AUDIOBOOKSHELF_BASE_URL` | unset (adapter not built) | Optional. Same URL rules as Jellyfin. Mock mode: loopback only. Real mode: needs the token too, and the same gates. |
 | `AUDIOBOOKSHELF_TOKEN` / `AUDIOBOOKSHELF_TOKEN_FILE` | none | Real mode only, with the URL, exactly one of the two; a token in mock mode is an error. It is an admin token, so real mode also needs `HOME_IDENTITY_MODE=jwt_required` (ABS admin-token review 2026-10-27, HIGH; the sealed owner preview is exempt). Never in a repr, log line or error message. |
 | `KOMGA_BASE_URL` / `KOMGA_TOKEN` (`_FILE`) / `KOMGA_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS` | unset (adapter not built) | Optional. Mock mode: loopback URL, the token is fixed and fake, the flag is ignored. Real mode (owner decision 2026-10-15, ADAPTER-CONTRACT 12.2): needs `HOME_GATES_VERIFIED=yes`, the URL, a REGULAR (non-admin) account's key and `KOMGA_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS=yes`; otherwise a startup error. |
+| `HOME_BOOK_REQUESTS` / `SHELFARR_BASE_URL` / `SHELFARR_TOKEN` (`_FILE`) | `off` / unset / unset | The request broker (section 5b). `on` needs `HOME_SECTIONS=on` and the URL; the URL or token without the switch is a startup error. Mock mode: loopback URL, the token is fixed and fake, a real token is an error. Real mode: the token is required; the same URL rules as the adapters (plain http only to loopback or a single-label Docker name). The token is minted by the owner in Shelfarr with exactly `search:read requests:write requests:admin`. Never in a repr, log line or error message. |
 | `CALIBRE_WEB_BASE_URL` / `CALIBRE_WEB_CREDENTIAL` (`_FILE`) / `CALIBRE_WEB_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS` | unset / unset / `off` | Optional. Mock mode: loopback URL, fixed fake credential. Real mode is refused unless the owner setting is `yes` (default off; Calibre-Web is a shared view, ADAPTER-CONTRACT 13.2), and then also needs `HOME_GATES_VERIFIED=yes`, the URL and a `user:password` credential together. The constructor's `owner_confirms_no_member_restrictions` is `True` only in mock mode or from that setting. |
 | `HOME_IDENTITY_MODE` | `headers` | `headers`, `jwt_log_only` or `jwt_required` (section 2). Unknown, empty or miscased: refuses to start. |
 | `HOME_JWT_ISSUER`, `HOME_JWT_AUDIENCE` | unset | Required in a JWT mode (the provider's issuer URL and client id); refused in `headers` mode. |

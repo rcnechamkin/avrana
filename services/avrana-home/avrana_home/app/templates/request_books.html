@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% from "_rows.html" import glyph %}
+{% block title %}{% if page.outcome %}{{ page.outcome }} · {% endif %}Ask for a book · Avrana{% endblock %}
+{% block body %}
+{# Ask for a book or an audiobook (request broker, docs/design/UNIVERSAL-SEARCH-AND-REQUESTS.md). A plain GET search
+   form, then one small POST form per format, each carrying only the fields Home rendered from Shelfarr's own search
+   and a signed token; no script needed. Nothing here claims a book has arrived: an accepted request says it appears
+   in the library once it arrives. Styling reuses Search's classes; the UX pass owns the look. #}
+  <section class="shelf" aria-labelledby="h-ask">
+    <h2 id="h-ask">Ask for a book</h2>
+{% if page.mode == "said" %}
+    <p class="said{% if page.warn %} kwarn{% endif %}" role="status">{% if page.warn %}{{ glyph("warn", "kic kwarn-ic") }}<span class="kwarn-t">{% endif %}{{ page.message }}{% if page.place_href %} <a class="link" href="{{ page.place_href }}">Open the request website<span class="sr">, opens another website</span></a>{% endif %}{% if page.warn %}</span>{% endif %}</p>
+{% endif %}
+    <form class="srch" method="get" action="/request/books" role="search">
+      <label for="q">Title or author</label>
+      <div class="ask">
+        <span class="ask-field">{{ glyph("search", "kic ask-ic") }}<input id="q" name="q" type="search" value="{{ page.term }}" maxlength="100" autocomplete="off" spellcheck="false"
+          {%- if page.mode == "invalid" %} aria-invalid="true" aria-describedby="q-error q-hint"{% else %} aria-describedby="q-hint"{% endif %}></span>
+        <button type="submit">Search</button>
+      </div>
+{% if page.mode == "invalid" %}
+      <p class="err" id="q-error" role="alert">{{ page.message }}</p>
+{% endif %}
+      <p class="hint" id="q-hint">Books not in your libraries yet. Asking sends a request; it does not add the book straight away.</p>
+    </form>
+  </section>
+{% if page.mode in ("results", "empty", "unavailable") %}
+  <section class="shelf" aria-labelledby="h-found">
+    <h2 id="h-found">{{ page.outcome }}</h2>
+{% if page.mode == "unavailable" %}
+    <p class="said kwarn" role="status">{{ glyph("warn", "kic kwarn-ic") }}<span class="kwarn-t">{{ page.message }}</span></p>
+{% elif page.mode == "empty" %}
+    <p class="said" role="status">{{ page.message }}</p>
+{% else %}
+    <ul class="hits asks-list">
+{% for o in page.offers %}
+      <li><span class="meta"><span class="t">{{ o.title }}</span>{% if o.line %}<span class="d">{{ o.line }}</span>{% endif %}{% if o.unavailable %}<span class="d">{{ o.unavailable }}</span>{% endif %}</span>
+{% for a in o.asks %}
+        <form method="post" action="/request/books" class="ask-f">{% for k, v in a.fields %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}<input type="hidden" name="token" value="{{ a.token }}"><button type="submit">{{ a.label }}<span class="sr"> of {{ o.title }}</span></button></form>
+{% endfor %}
+      </li>
+{% endfor %}
+    </ul>
+{% endif %}
+  </section>
+{% endif %}
+{% endblock %}
+{% block footer %}    {% if not shell %}<a class="link" href="/">Back to home</a>{% endif %}{% endblock %}
