@@ -41,8 +41,8 @@ from . import notice as notice_mod
 from . import pwa as pwa_mod
 from . import security as security_mod
 from .identity import (IdentityResolver, Viewer, get_viewer, has_identity_headers, home_filter_from_scope,
-                       library_chip_from_scope, library_view_from_scope, new_tab_from_scope, search_term_from_scope,
-                       security_state_from_scope)
+                       if_none_match_from_scope, library_chip_from_scope, library_view_from_scope, new_tab_from_scope,
+                       search_term_from_scope, security_state_from_scope)
 from .logsafe import app_log, log_event, silence_uvicorn_access
 from .middleware import HygieneMiddleware
 from . import recovery
@@ -308,8 +308,10 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
                 scope["avrana_route"] = "not_found"          # trouble: one and the same 404
                 return respond(not_found())
             scope["avrana_route"] = "/art/{ref}"
-            return Response(result.data, media_type=result.content_type,
-                            headers={"Cache-Control": artwork_mod.CACHE_CONTROL})
+            headers = {"Cache-Control": artwork_mod.CACHE_CONTROL, "ETag": artwork_mod.etag_for(result.data)}
+            if artwork_mod.not_modified(if_none_match_from_scope(scope), headers["ETag"]):
+                return Response(status_code=304, headers=headers)     # checked above like any fetch
+            return Response(result.data, media_type=result.content_type, headers=headers)
 
         # Installable Home and the approved brand files (install.py, brand.py): only where the shell can render, so
         # with sections off these paths stay the portal's 404. Static bytes, the same for every viewer, so no
@@ -449,15 +451,19 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
     async def _gather(viewer: Viewer, extras: tuple = ()) -> dict:
         """The sections for the verified member, via the adapters' own principal checks and
         bounded timeouts. One failing adapter costs its own section only. `extras` (Up next for Watch, the shelves for
-        Listen and the Audiobooks chip) are asked of the libraries that offer them, AFTER the others: a member holds at
-        most two upstream calls per library at once (contract.DEFAULT_MAX_IN_FLIGHT_PER_MEMBER), so a third
-        alongside them would only be refused as busy."""
+        Listen and the Audiobooks chip, New releases for Comics and Read) are (library, section) pairs, asked of those
+        libraries only, AFTER the others: a member holds at most two upstream calls per library at once
+        (contract.DEFAULT_MAX_IN_FLIGHT_PER_MEMBER), so a third alongside them would only be refused as busy."""
         result = await run_in_threadpool(gather, viewer.principal, adapter_list, ("continue", "recent"),
                                         settings.section_limit)
         sections = list(result.sections)
         view = result.member_view()
         if extras:
-            more = await run_in_threadpool(gather, viewer.principal, adapter_list, tuple(extras), settings.section_limit)
+            wanted = {service for service, _section in extras}
+            more = await run_in_threadpool(gather, viewer.principal,
+                                           [a for a in adapter_list if a.service.value in wanted],
+                                           tuple(dict.fromkeys(section for _service, section in extras)),
+                                           settings.section_limit)
             sections += more.sections
             view["sections"] += more.member_view()["sections"]
         for s in sections:

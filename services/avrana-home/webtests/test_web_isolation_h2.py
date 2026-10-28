@@ -132,7 +132,7 @@ class Covers(Fixture):
                     r = c.get(path, headers=headers)                     # warms the owner's cache
                     self.assertEqual(200, r.status_code, (rnd, path))
                     self.assertTrue(r.headers["content-type"].startswith("image/"))
-                    self.assertEqual("private, no-store", r.headers["cache-control"])
+                    self.assertEqual("private, no-cache", r.headers["cache-control"])
                 for path in sorted(other):
                     r = c.get(path, headers=headers)
                     self.assertEqual((404, nf), (r.status_code, r.text), (rnd, path))

@@ -17,7 +17,7 @@ import unittest
 from pathlib import Path
 
 from avrana_home.app.catalogue import Trusted
-from avrana_home.app.viewmodel import NOTHING_NEW, SERVICE_LABEL, build_library
+from avrana_home.app.viewmodel import NOTHING_NEW, SERVICE_LABEL, build_home, build_library
 
 TEMPLATES = Path(__file__).resolve().parents[1] / "avrana_home" / "app" / "templates"
 MARKER = "  /* ---- MK-5a Library and title (AVR-719) ---- */\n"
@@ -56,6 +56,50 @@ def av_view(**states):
 
 
 class ViewModel(unittest.TestCase):
+    def test_listen_without_anything_added_in_two_months_says_recently_released(self):
+        """Owner decision 2026-10-27: no old additions dressed up as recent; the newest releases take that row."""
+        released = dict(item("audiobookshelf", "li_book000021", "Synthetic Fresh Release", "audiobook"), shelf="new")
+        epic = dict(item("audiobookshelf", "li_book000023", "Synthetic Grand Epic", "audiobook"), shelf="epic")
+        v = view(sec("jellyfin", "recent", "ok", [item("jellyfin", "a" * 32, "Synthetic Film")]),
+                 sec("audiobookshelf", "continue", "empty"), sec("audiobookshelf", "recent", "empty"),
+                 sec("audiobookshelf", "shelves", "ok", [released, epic]))
+        home = build_home(v, TILES_AV, focus="listen")
+        self.assertEqual([("new", "Recently released"), ("epic", "Epic listens")], [(r.key, r.heading) for r in home.rows])
+        self.assertEqual(["Synthetic Fresh Release"], [c.title for c in home.rows[0].items])
+        v["sections"][2] = sec("audiobookshelf", "recent", "ok", [item("audiobookshelf", "li_book000020", "Synthetic New")])
+        heads = [r.heading for r in build_home(v, TILES_AV, focus="listen").rows]
+        self.assertEqual(["Recently added", "New releases", "Epic listens"], heads)
+
+    def test_comics_without_anything_added_in_two_months_says_recently_released(self):
+        """Owner decision 2026-10-28: Komga follows Audiobooks; one row alone still keeps the Recently released name."""
+        released = dict(item("komga", "BOOKREL000001", "Synthetic Cover Date Issue", "comic"), shelf="new")
+        v = view(sec("komga", "recent", "empty"), sec("komga", "shelves", "ok", [released]))
+        home = build_home(v, TILES_AV[:2] + [("comics", Trusted("Comics"), Trusted(""))], focus="comics")
+        self.assertEqual([("new", "Recently released")], [(r.key, r.heading) for r in home.rows])
+        self.assertFalse(home.show_new)
+        v["sections"][0] = sec("komga", "recent", "ok", [item("komga", "BOOKNEW000001", "Synthetic New Issue", "comic")])
+        home = build_home(v, TILES_AV[:2] + [("comics", Trusted("Comics"), Trusted(""))], focus="comics")
+        self.assertEqual(["Recently added", "New releases"], [r.heading for r in home.rows])
+        self.assertEqual(["Synthetic New Issue"], [c.title for c in home.rows[0].items])
+
+    def test_read_falls_back_to_recently_released_comics_beside_books(self):
+        released = dict(item("komga", "BOOKREL000001", "Synthetic Cover Date Issue", "comic"), shelf="new")
+        books = [item("calibre-web", "17", "Synthetic Novel", "ebook")]
+        v = view(sec("komga", "recent", "empty"), sec("komga", "shelves", "ok", [released]),
+                 sec("calibre-web", "recent", "ok", books))
+        home = build_home(v, TILES_ALL, focus="read")
+        self.assertEqual([("komga", "Recently released comics"), ("calibreweb", "Books")],
+                         [(r.key, r.heading) for r in home.rows])
+
+    def test_extra_sections_are_asked_of_their_own_library_only(self):
+        from avrana_home.app.viewmodel import extra_sections_for, library_extra_sections
+        self.assertEqual(extra_sections_for("listen"), (("audiobookshelf", "shelves"),))
+        self.assertEqual(extra_sections_for("comics"), (("komga", "shelves"),))
+        self.assertEqual(extra_sections_for("read"), (("komga", "shelves"),))
+        self.assertEqual(extra_sections_for("watch"), (("jellyfin", "next_up"),))
+        self.assertEqual(extra_sections_for(None), ())
+        self.assertEqual(library_extra_sections("komga"), ())
+
     def test_layouts_are_a_fixed_list_and_keep_the_chosen_library(self):
         page = build_library(av_view(), TILES_AV, chip="jellyfin", view_mode="list")
         self.assertEqual(("list", "List", "lib-grid lib-v-list"), (page.view, page.view_label, page.list_class))
@@ -351,16 +395,17 @@ class LibraryPage(Fixture):
             for href in re.findall(r'<a class="chip[^"]*" href="([^"]*)"', first):
                 self.assertTrue(href.startswith("/library"), href)
 
-    def test_the_tab_bar_marks_library_and_the_utility_holds_search(self):
+    def test_the_tab_bar_marks_library_and_the_top_right_holds_only_the_layout_button(self):
         c = self.client()
         t = c.get("/library?lib=jellyfin", headers=A).text
         self.assertIn('<nav class="tabbar glass" aria-label="Sections" data-tabs="4" data-at="1">', t)
         self.assertIn('<a class="tab" href="/library" aria-current="page">', t)
         self.assertNotIn('class="homebtn', t)
-        self.assertIn('<div class="utility glass"><a class="util" href="/search"><svg class="ic"', t)
-        self.assertIn('<span class="sr">Search</span></a></div>', t)
-        # the tab bar, the utility, and the layout button with its menu (owner decision 2026-10-27)
-        self.assertEqual(4, len(re.findall(r'class="[^"]*\bglass\b', t)))
+        # owner review 2026-10-27: Search is already a tab, so the Library no longer repeats it
+        self.assertNotIn('class="utility', t)
+        self.assertEqual(1, t.count('href="/search"'))
+        # the tab bar, and the layout button with its menu
+        self.assertEqual(3, len(re.findall(r'class="[^"]*\bglass\b', t)))
         for path in ("/", "/search", "/account"):
             self.assertIn('<a class="tab" href="/library"', c.get(path, headers=A).text, path)
 
@@ -503,7 +548,8 @@ class LibraryLayouts(Fixture):
         c = self.client()
         shelves = c.get("/library", headers=A).text
         self.assertEqual(1, shelves.count('<details class="lib-layout" data-layout="shelves">'))
-        self.assertIn('<span class="sr">Layout: </span><span class="lib-layout-t">Shelves</span>', shelves)
+        # the icon names the layout; the words are for screen readers only (owner review 2026-10-27)
+        self.assertIn('<span class="sr">Layout: <span class="lib-layout-t">Shelves</span></span></summary>', shelves)
         self.assertEqual(["/library", "/library?view=grid", "/library?view=compact", "/library?view=list"],
                          re.findall(r'<a class="lib-view" href="([^"]*)"', shelves))
         self.assertIn('<a class="lib-view" href="/library" data-view="shelves" aria-current="true">', shelves)

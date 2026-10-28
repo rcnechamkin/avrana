@@ -4,6 +4,7 @@ FakeTransport / FakeOpener the Jellyfin tests use."""
 import base64
 import copy
 import json
+import re
 import time
 from pathlib import Path
 
@@ -37,7 +38,10 @@ class FakeAudiobookshelf:
             self.records[rec["id"]] = rec
         self.items = load("items.json")
         year = str(time.gmtime().tm_year)
-        self.lists = json.loads(json.dumps(load("library_items.json")).replace('"@this_year"', f'"{year}"'))
+        now = int(time.time() * 1000)
+        text = json.dumps(load("library_items.json")).replace('"@this_year"', f'"{year}"')
+        text = re.sub(r'"@days_ago:(\d+)"', lambda m: str(now - int(m.group(1)) * 86_400_000), text)
+        self.lists = json.loads(text)
         # A listed item that items.json lacks is still found by id (item and cover routes; not search).
         self.listed = {it["id"]: it for entries in self.lists.values() for it in entries}
         self.libraries_doc = load("libraries.json")

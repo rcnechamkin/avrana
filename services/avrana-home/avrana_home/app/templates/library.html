@@ -10,7 +10,8 @@
    THIS member: a library the member cannot use is never named. The chips are plain links; the chosen one carries
    the yellow tint, rim and a check glyph, and aria-current="true" (the tab bar's Library tab is the page). A library
    that is down is a warning (rectangle, glyph, words, amber edge) with Home's own sentence and no items. The
-   top-right glass utility holds Search only: sorting is not built (no honest order without new data). #}
+   top right holds only the layout button (owner review 2026-10-27: Search is already a tab, and the icon names the
+   layout without words). #}
   <div class="lib-head">
     <h2 class="topic" id="h-library">Library</h2>
     <div class="lib-tools">
@@ -19,16 +20,13 @@
    chosen one aria-current. With the page script, choosing one rearranges the cards in place (they glide to their new
    places) and updates the address; without it, each is an ordinary link. #}
       <details class="lib-layout" data-layout="{{ page.view }}">
-        <summary class="lib-layout-btn glass">{{ layout_icon(page.view) }}<span class="sr">Layout: </span><span class="lib-layout-t">{{ page.view_label }}</span><svg class="chev" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="m4 6 4 4 4-4"/></svg></summary>
+        <summary class="lib-layout-btn glass">{{ layout_icon(page.view) }}<span class="sr">Layout: <span class="lib-layout-t">{{ page.view_label }}</span></span></summary>
         <ul class="lib-layout-menu glass">
 {% for key, label, href, current in page.views %}
           <li><a class="lib-view" href="{{ href }}" data-view="{{ key }}"{% if current %} aria-current="true"{% endif %}>{{ layout_icon(key) }}<span class="lib-view-t">{{ label }}</span></a></li>
 {% endfor %}
         </ul>
       </details>
-{% endif %}
-{% if shell and shell.can_search %}
-    <div class="utility glass"><a class="util" href="/search"><svg class="ic" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false"><circle cx="10.5" cy="10.5" r="6"/><path d="m15 15 5 5"/></svg><span class="sr">Search</span></a></div>
 {% endif %}
     </div>
   </div>

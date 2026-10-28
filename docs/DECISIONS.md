@@ -287,3 +287,35 @@ view types ... categories for Listen ... flip the switch for doing comics and eb
 | **Layouts reworked** | Shelves (rows that scroll sideways, the default; a page with one row shows it as a grid), Grid (large covers), Compact (a dense wall of small covers, one line of title) and List (a small cover beside its words). The text-only list was dropped: covers are how people find media. `large`, `small` and `details` still open the layouts that replaced them. Choosing one library now shows its own rows (Movies and TV shows; Audiobooks' Recently added and shelves). |
 | **Audiobooks lead with what the library holds** | Audiobooks now has Recently added (it had none, so the Library said "Nothing recently added"), from each of the member's own libraries, every item checked against the member's own permissions exactly as search. Listen (Home) and the Audiobooks chip add four shelves: New releases (published this year or last), Classics (the library's own genres named "classic"), Short listens (30 minutes to 5 hours) and Epic listens (20 hours or more). No "trending" shelf: the upstream has no listening signal that is not another member's own history. Read shows one row per library (Comics, Books). |
 | **Comics and ebooks on the live beta** | The live beta compose adds Komga (`http://komga:25600`) and Calibre-Web (`http://calibre-web-automated:8083`) as shared views with the owner preview's existing secret files, on the owner's no-restriction statement of 2026-10-15 (recorded here: no member is restricted in either). A member still needs `avrana-comics` or `avrana-books`. Runbook: `docs/runbooks/home-beta-live.md`. |
+
+## Owner decisions, 2026-10-27: Recently added window, Library top right, artwork corners
+
+Recorded from the owner's chat of 2026-10-27 ("don't add just any old recently added books ... 'Search' feels
+redundant ... too rounded of corners ... a balance that's based on genuinely intelligent design principles").
+
+| Decision | Consequence |
+|---|---|
+| **Recently added means the last two months** | Audiobooks' Recently added keeps only items added in the last 60 days (`RECENT_DAYS`), however few. When none were, Listen's first row is titled Recently released and shows the newest releases instead; the separate New releases row is then not repeated. |
+| **Library top right is one icon button** | The Search utility is gone from the Library (Search is already a tab) and the layout button shows only the current layout's icon; its name stays for screen readers. The Library is otherwise left as it is for now. |
+| **Artwork corners scale with the art** | Cover and poster corners are about 5% of the frame's width, clamped to 4–12px (a 180px cover gets 9px, a rail poster 6px, a list thumbnail 4px, wide backdrops 12px), replacing one 20px radius. Containers keep their larger radii, so an inner curve is always the tighter one. |
+
+## Owner decision, 2026-10-28: comics Recently added
+
+Recorded from the owner's chat of 2026-10-28 ("the 'recent comics added' ... are not accurate what so ever"; agreed
+plan: "this works for now", may change later).
+
+| Decision | Consequence |
+|---|---|
+| **Comics Recently added is by date added, one per series, last two months** | Komga's Recently added reads `GET /api/v1/books?sort=created,desc` instead of `/api/v1/books/latest`: live, that route orders by last modification, so one new issue lifted its whole series, and 1,214 of 1,788 books share the 2025-07-26 bulk-scan second. Only books added in the last 60 days count, one book (the newest) per series. |
+| **Comics fall back to Recently released** | A New releases shelf (sorted by `metadata.releaseDate`, one per series; release dates more than 92 days ahead are ignored, since comics carry cover dates about two months ahead) follows Recently added on Comics. With nothing added in 60 days, Comics shows Recently released instead, and Read shows "Recently released comics" in the Comics row. The Library page is unchanged. |
+
+## Owner decision, 2026-10-27: artwork may be revalidated from the browser cache
+
+Recorded from the owner's chat of 2026-10-27 ("Do 3 and then 4", 4 being "artwork caching": artwork was
+`private, no-store`, so the phone fetched every cover again on every page).
+
+| Decision | Consequence |
+|---|---|
+| **`/art` is `private, no-cache` with an `ETag`** (amends D11 for `/art` only) | The browser may keep a cover but must ask before each use. The request runs the full check (group, then per-member visibility for Jellyfin and Audiobookshelf); only a member allowed to see it gets `304 Not Modified`, everyone else the same 404. No proxy may keep it (`private`). The ETag is a digest of the image bytes. Every other response stays `no-store` |
+| **No `max-age`** | A `max-age` would let the browser show a cover without asking, past a removed group or a hidden item. Revalidation saves the bytes over the tunnel, not the round trip |
+| Sign-out unchanged | `/signout`'s `Clear-Site-Data: "cache", "storage"` (D10) still clears the kept covers on that device |

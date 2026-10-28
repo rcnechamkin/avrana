@@ -480,19 +480,23 @@ NOTHING_UP_NEXT = "Nothing up next. The next episode of a show you are watching 
 # The Audiobooks shelves (owner decision 2026-10-27), in this order after Recently added. Keys are the adapter's.
 SHELF_ROWS = (("new", "New releases"), ("classics", "Classics"), ("short", "Short listens"),
               ("epic", "Epic listens"))
-_EXTRA_FOR = {"jellyfin": "next_up", "audiobookshelf": "shelves"}
+_EXTRA_FOR = {"jellyfin": "next_up", "audiobookshelf": "shelves", "komga": "shelves"}
+# Libraries whose Recently added gives way to Recently released when nothing was added in the last two months
+# (owner decisions 2026-10-27 Audiobookshelf, 2026-10-28 Komga).
+RELEASED_FALLBACK = ("audiobookshelf", "komga")
 
 
-def extra_sections_for(raw_focus) -> Tuple[str, ...]:
-    """The extra sections a Home filter needs (Watch: Up next; Listen: the shelves), so the caller gathers them too.
+def extra_sections_for(raw_focus) -> Tuple[Tuple[str, str], ...]:
+    """The (library, section) pairs a Home filter needs beyond Continue and Recently added (Watch: Up next; Listen:
+    the shelves; Comics and Read: Komga's New releases), so the caller gathers them too, from that library only.
     It only decides what to ask for; `build_home` still checks the member's own places."""
     services = _PLACE_SERVICES.get(raw_focus, ()) if isinstance(raw_focus, str) else ()
-    return tuple(_EXTRA_FOR[s] for s in services if s in _EXTRA_FOR) if len(services) == 1 else ()
+    return tuple((s, _EXTRA_FOR[s]) for s in services if s in _EXTRA_FOR)
 
 
-def library_extra_sections(raw_chip) -> Tuple[str, ...]:
-    """The extra sections a Library chip needs: the Audiobooks shelves when that library is chosen."""
-    return ("shelves",) if raw_chip == "audiobookshelf" else ()
+def library_extra_sections(raw_chip) -> Tuple[Tuple[str, str], ...]:
+    """The extra (library, section) pairs a Library chip needs: the Audiobooks shelves when that library is chosen."""
+    return (("audiobookshelf", "shelves"),) if raw_chip == "audiobookshelf" else ()
 
 
 def shelf_rows(shelved, limit: int, title_services, rows_of=SHELF_ROWS) -> list:
@@ -693,20 +697,35 @@ def build_home(view: dict, tiles, *, new_tab: Optional[str] = None, limit: int =
         # Listen (owner decision 2026-10-27): Recently added, then the library's shelves, so the page leads with what
         # the library holds. Read (two libraries): one row per library. A single row keeps the plain section.
         services = [s for s in _PLACE_SERVICES[focus] if s in held]
-        built = []
+        built, released_only = [], False
         if len(services) > 1:
             for s in services:
                 cards = _cards(items_of("recent", s)[:limit], lambda it: it.detail or KIND_LABEL.get(it.kind),
                                title_services=title_services)
-                if cards:
+                if not cards and s in RELEASED_FALLBACK:      # nothing new in two months: the newest releases
+                    released = shelf_rows(items_of("shelves", s), limit, title_services,
+                                          (("new", f"Recently released {SERVICE_LABEL[s].lower()}"),))
+                    built += [RowVM(s.replace("-", ""), r.heading, r.items) for r in released]
+                    released_only = released_only or bool(released)
+                elif cards:
                     built.append(RowVM(s.replace("-", ""), SERVICE_LABEL[s], cards))
         elif services:
             s = services[0]
             cards = _cards(items_of("recent", s)[:limit], lambda it: it.detail or KIND_LABEL.get(it.kind),
                            title_services=title_services)
-            built.append(RowVM("new", "Recently added", cards, None if cards else NOTHING_NEW))
-            built += shelf_rows(items_of("shelves", s), limit, title_services)
-        rows = tuple(built) if len(built) > 1 else ()
+            shelved = items_of("shelves", s)
+            if cards or s not in RELEASED_FALLBACK:
+                built.append(RowVM("new", "Recently added", cards, None if cards else NOTHING_NEW))
+                built += shelf_rows(shelved, limit, title_services)
+            else:
+                # Nothing added in the last two months (owner decision 2026-10-27): the row says Recently released and
+                # shows the newest releases instead of old additions; New releases is then that row.
+                released = shelf_rows(shelved, limit, title_services, (("new", "Recently released"),))
+                built += [RowVM("new", r.heading, r.items) for r in released]
+                built += shelf_rows(shelved, limit, title_services, SHELF_ROWS[1:])
+                released_only = bool(released)
+        # One row alone is the plain Recently added section, unless it is Recently released (it must keep its name).
+        rows = tuple(built) if len(built) > 1 or released_only else ()
 
     # The hero (memo section 4, Actual states only): the member's own next thing. H1: the first Continue item that
     # is not from a library said to be down (a stale card stays in its rail, but is never the one big promise).
