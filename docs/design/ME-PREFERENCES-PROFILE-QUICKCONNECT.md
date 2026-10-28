@@ -1,13 +1,14 @@
 # Me: account-wide Home preferences, profile and Quick Connect (proposals)
 
-Status, 2026-10-27: **proposals for owner decision. Nothing here is built.** Companion to
+Status, 2026-10-27: **proposals for owner decision. Nothing here is built.** Quick Connect direction chosen by the owner
+the same day: the admin key with guardrails (§4). Companion to
 [ME-ACCOUNT-SECURITY.md](ME-ACCOUNT-SECURITY.md). Covers the three Media 2.0 Me items that need a decision before code:
 HOME-02 (account-wide Home preferences), ME-06 plus the supplement's profile (photo, display name, optional bio), and
 ME-05 (embedded Jellyfin Quick Connect). Decisions to make are collected in §5; build order is in §6.
 
 The three share one root problem. Home is deliberately stateless and read-only today (HOME-APP.md §9: no volume, GET
-only, an in-memory disposable cache). Each feature needs **something durable per member** and **a first write route**,
-so the foundation in §1 is decided once and reused.
+only, an in-memory disposable cache). Preferences and profile need **something durable per member**; all three need **a first write route**. The
+foundation in §1 is decided once and reused.
 
 ## 1. Shared foundation
 
@@ -32,7 +33,7 @@ CREATE TABLE member_home_prefs (member TEXT PRIMARY KEY, schema_version INTEGER 
 CREATE TABLE member_profile (member TEXT PRIMARY KEY, version INTEGER NOT NULL, bio TEXT NOT NULL DEFAULT '',
   avatar BLOB, avatar_etag TEXT, updated_at INTEGER NOT NULL);
 CREATE TABLE member_jellyfin_link (member TEXT PRIMARY KEY, jellyfin_user_id TEXT NOT NULL, token BLOB NOT NULL,
-  device_id TEXT NOT NULL, linked_at INTEGER NOT NULL);      -- only if C3 (§4) is chosen
+  device_id TEXT NOT NULL, linked_at INTEGER NOT NULL);      -- only if the optional C3 hardening (§4) is built
 ```
 
 - **Key:** the verified Authentik username, the same key the adapters use. This is safe because usernames are never
@@ -40,7 +41,7 @@ CREATE TABLE member_jellyfin_link (member TEXT PRIMARY KEY, jellyfin_user_id TEX
   store moves to it in one migration. `scripts/offboard.py` would also delete the member's rows.
 - **Tension to resolve:** the same decision row ends "No link table" (it meant: no username-to-upstream mapping table).
   `member_jellyfin_link` (C3) is a credential record, not a mapping; the mapping stays exact-username, and the stored
-  Jellyfin user id is checked against that mapping on every use. Confirm you're happy with this reading before C3.
+  Jellyfin user id is checked against that mapping on every use. Only relevant if C3 is ever built.
 - **Container:** a named volume (`avrana_home_members`) mounted at `/data`. The root filesystem stays `read_only: true`
   and the tmpfs stays. WAL mode; one uvicorn worker (already the case).
 - **Operations:** add the volume to the B2 backup set and the completeness gate; update HOME-APP.md §9 ("no volume to
@@ -152,49 +153,64 @@ Lighter alternative: keep initials and let the member pick one of the brand colo
   therefore *already* authorize any code as any user. That's exactly the shortcut ME-05 forbids, and it's worth knowing
   that Home holds this power today.
 
-### Options
+### Why the admin key is acceptable here (owner decision, 2026-10-27)
 
-| | How | For | Against |
-| --- | --- | --- | --- |
-| **C1. Hand-off** | The guide's step opens Jellyfin's own Quick Connect page at `watch.avrana.net` (user menu → Quick Connect); the member types the TV's code there | No new credential or write in Home; works today | Needs the member's Jellyfin password in a browser once; it's a second site, not embedded |
-| **C2. Admin key + `userId`** | Home maps the verified username to the Jellyfin user (as the adapter already does) and calls Authorize with the API key | Smallest build; no storage | **Forbidden by ME-05 as written.** A mapping bug or a forged identity would hand out a TV session for *any* account, admins included; it turns a read key into an account-granting write |
-| **C3. Member-linked token** (recommended) | One-time **Link TV and Movies** in Me: Home starts its own Quick Connect request (device name "Avrana Media"); the member approves it once from any Jellyfin app or the web; Home receives the member's own token and stores it (§1). Later TV codes are approved **with that token and no `userId`**, so Jellyfin itself enforces that a member can only approve for themself | Least privilege; meets ME-05; the link appears in the member's own Jellyfin device list and can be revoked there; unlinking calls `POST /Sessions/Logout` with the token | Needs the member store, a one-time link step (and a signed-in Jellyfin client for it), and a decision on encrypting tokens at rest (C4) |
+ME-05 says not to approve codes with an administrator credential. The owner chose to anyway, for a concrete reason:
+Home **already** reads every member's viewing history with this same key, passing `userId` for the member matched from
+the verified username. Approving a Quick Connect code is the same key, the same username match and the same trust in
+who is signed in. A compromise of Home exposes the key whichever design is used, so a member-linked token would only
+protect against Home's own logic bugs.
 
-A side benefit of C3: POST-M3-VALIDATION-PLANS.md notes that in-browser playback needs a member Jellyfin token
-("Quick Connect or password; R1 §7"). The linked token is exactly that, so C3 also unblocks that later work.
+What *is* different is the consequence, and the guardrails below exist for exactly that:
 
-**Recommendation:** ship **C1 now** as the guide step and the permanent fallback. Build **C3** on the member store.
-Choose C2 only if you explicitly override ME-05 for speed; if you do, require `HOME_IDENTITY_MODE=jwt_required`, refuse
-Jellyfin administrator accounts, and log every approval.
+| | Reading history (today) | Approving a code (planned) |
+| --- | --- | --- |
+| A wrong member | One member sees another's viewing; ends when the bug is fixed | A device gets a lasting Jellyfin login as someone else until revoked; for a Jellyfin admin, control of the server |
+| Input from outside | None | A 6-digit code that points at whichever device is waiting; a typo or a guess can attach the account to a stranger's TV |
 
-### The embedded approve step (C3; most of it applies to C2 too)
+### Options considered
 
-- `POST /me/devices/quick-connect` with `code` (exactly `\d{6}`) and the CSRF token. Explicit submit; no auto-submit
-  on the sixth digit.
-- **Rate limits:** 5 tries per member per 10 minutes, and a small global cap. The code space is only 900,000 with a
-  10-minute life, so a mistyped code can approve a stranger's waiting device. Jellyfin offers no way to show the device
-  name before approving, so the page says plainly which account is being shared, and that the approval only counts for
-  the TV showing that code.
-- **Outcomes and words:**
-  - success: "Approved. Your TV should sign in within a few seconds. If it doesn't, check the code and try again" (this
-    acknowledges the approval; it doesn't verify the sign-in);
-  - not found: "That code didn't work. Codes last 10 minutes";
-  - already approved: "That code was already used";
-  - 401: Quick Connect unavailable, so use the hand-off;
-  - timeout: "We couldn't tell whether it went through. Check your TV before trying again" (no automatic retry, since
-    approving isn't idempotent).
-- The code is never logged, cached, stored or echoed. Not linked yet: the form is replaced by **Link TV and Movies**
-  plus the C1 hand-off.
-- **Physical acceptance** per supported client (Jellyfin on Apple TV, Android TV, Fire TV, Roku, as the ME-03
-  catalogue decides), recording server and client versions.
+| | How | Status |
+| --- | --- | --- |
+| **C1. Hand-off** | The guide opens Jellyfin's own Quick Connect page at `watch.avrana.net` (user menu → Quick Connect); the member types the TV's code there | **Ship now** as the guide step and the permanent fallback |
+| **C2. Admin key + `userId`, with guardrails** | Home matches the verified username to the Jellyfin user (as the adapter already does) and calls Authorize with the API key and that `userId` | **Chosen** (owner, 2026-10-27) |
+| C3. Member-linked token | One-time **Link TV and Movies**: Home receives the member's own Jellyfin token and approves codes with it, with no `userId`, so Jellyfin itself limits a member to their own account | Optional later hardening. It also gives in-browser playback the member token that POST-M3-VALIDATION-PLANS.md asks for ("Quick Connect or password; R1 §7"), so it may come back for that reason |
 
-### C4. Tokens at rest
+### Guardrails (required for C2)
 
-A Jellyfin token doesn't expire until it's revoked. Options:
-1. encrypt with AES-GCM (adds the `cryptography` dependency) under a key file mounted like the other Home secrets;
-2. rely on volume permissions only.
+1. **Verified identity only.** Real mode refuses to start unless `HOME_IDENTITY_MODE=jwt_required`, now that the Jellyfin
+   key is recognised as an admin key, as the Audiobookshelf admin token already was (settings.py; landed in PR #121).
+   The sealed owner preview stays exempt, as before.
+2. **Never for a Jellyfin administrator.** Before approving, Home reads the target user's `Policy` (from `/Users`, which
+   the adapter already reads to match usernames) and refuses when `IsAdministrator` or `IsDisabled` is true. Admins use
+   Jellyfin's own page (C1).
+3. **The exact-username mapping, fail closed.** Missing, ambiguous or disabled mapping: no approval. No override.
+4. **Gate on the server switch.** `GET /QuickConnect/Enabled`; when off, show only the hand-off.
+5. **Rate limits.** 5 tries per member per 10 minutes, and a small global cap. Explicit submit; never auto-submit on the
+   sixth digit.
+6. **CSRF.** The S2 design (same-origin check, per-form HMAC token bound to member, form and expiry,
+   `form-action 'self'`).
+7. **An audit line per approval.** `quick_connect` with a fixed outcome code and the route template only. Never the
+   code, username or device. With the Authentik session log, that is enough to trace an approval in time.
+8. **Honest words.** The page says which account is being shared, and that the approval only counts for the TV showing
+   that code.
 
-Recommended: option 1. A stolen backup then yields nothing without the key, which isn't in the backup set.
+### What Jellyfin answers, and what the member reads
+
+- `POST /me/devices/quick-connect` with `code` (exactly `\d{6}`) and the CSRF token, then 303 back with a status line.
+- Outcomes:
+  - Jellyfin `true`: "Approved. Your TV should sign in within a few seconds. If it doesn't, check the code and try
+    again." This acknowledges the approval; it doesn't verify the sign-in.
+  - not found: "That code didn't work. Codes last 10 minutes."
+  - already approved: "That code was already used."
+  - 401 (switched off): only the hand-off is shown.
+  - timeout: "We couldn't tell whether it went through. Check your TV before trying again." No automatic retry, because
+    approving isn't idempotent.
+- The code is never logged, cached, stored or echoed.
+- **Tests:** a fake Jellyfin covering every outcome; an admin target refused; a disabled or missing mapping refused;
+  rate limit; CSRF refusals; a cross-member attempt impossible (the `userId` comes only from the verified principal);
+  timeout without retry; no code in logs.
+- **Physical acceptance** per supported client (as the ME-03 catalogue decides), recording server and client versions.
 
 ## 5. Decisions for the owner
 
@@ -208,8 +224,8 @@ Recommended: option 1. A stolen backup then yields nothing without the key, whic
 | B2 | Keep the optional bio although only the member sees it | Your call; it's cheap either way |
 | B3 | Photo upload with Pillow + python-multipart, or initials with a colour choice | Initials + colour first; photo later |
 | C1 | Hand-off to Jellyfin's Quick Connect page now | Yes |
-| C2/C3 | Admin key + `userId`, or member-linked token | C3 |
-| C4 | Encrypt Jellyfin tokens at rest (`cryptography`) | Yes |
+| C2 | Admin key + `userId` with the §4 guardrails | **Decided: yes** (owner, 2026-10-27) |
+| C3 | Member-linked token | Later, only if wanted for hardening or browser playback (then also encrypt tokens at rest) |
 
 Also check (not a decision): whether Quick Connect is switched on in the Jellyfin dashboard, and the exact Jellyfin web
 route for its Quick Connect page at 10.11.11.
@@ -217,9 +233,11 @@ route for its Quick Connect page at 10.11.11.
 ## 6. Build order once decided
 
 1. **C1 hand-off** (copy and a link; can land at once).
-2. **S1 + S2 + HOME-02** (store, `forms.py`, `/me/home`, Customize beside Home, account-wide behaviour, tests in §2).
-3. **Profile**: name hand-off, bio, and the colour or photo choice from B3.
-4. **C3** (link, approve, unlink, rate limits, offboarding purge), then the physical device pass.
+2. **S2 + C2**: `forms.py`, the CSRF design and the embedded approve step with every §4 guardrail. It needs no member
+   store, so it can come first. Then the physical device pass.
+3. **S1 + HOME-02** (store, `/me/home`, Customize beside Home, account-wide behaviour, tests in §2).
+4. **Profile**: name hand-off, bio, and the colour or photo choice from B3.
+5. C3 only if it's wanted later (hardening, or browser playback).
 
 Each lands as its own draft PR on the shared foundation, with an owner-approved deploy and a rollback that keeps the
 volume (a rollback never deletes member records).

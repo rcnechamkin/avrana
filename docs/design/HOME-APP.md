@@ -488,7 +488,7 @@ variables (never the values).
 | `LOG_LEVEL` | `INFO` | DEBUG, INFO, WARNING, ERROR. |
 
 Real upstream adapters stay disabled unless `HOME_SECTIONS=on` **and** `HOME_UPSTREAM_MODE=real`
-**and** `HOME_GATES_VERIFIED=yes` **and** an explicit URL and key are present. With the flag off no
+**and** `HOME_GATES_VERIFIED=yes` **and** an explicit URL and key are present **and** (2026-10-27, the Jellyfin key is an admin key) `HOME_IDENTITY_MODE=jwt_required`. With the flag off no
 transport or adapter is even constructed. The development identity is deliberately **not** a
 setting.
 

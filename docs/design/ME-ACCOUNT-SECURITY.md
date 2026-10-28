@@ -128,6 +128,6 @@ Proposed solutions for the first two, with the decisions they need: [ME-PREFEREN
 
 - **Account-wide Home preferences (HOME-02)** and **profile edits** need durable per-member storage. Home has none by
   design (`HOME-APP.md`: a file-backed store is an owner decision). Needs that decision first.
-- **Embedded Jellyfin Quick Connect (ME-05)** needs a member-scoped Jellyfin credential strategy; the admin key must not
-  be used. Needs a design and security review first.
+- **Embedded Jellyfin Quick Connect (ME-05)**: the owner chose (2026-10-27) the admin key with `userId` behind guardrails,
+  the same key that already reads viewing history. Design and guardrails are in the proposals doc, §4.
 - **Device setup card, guides, Help changes**: frontend/content work with open product questions (ME-02..ME-04, ME-07).

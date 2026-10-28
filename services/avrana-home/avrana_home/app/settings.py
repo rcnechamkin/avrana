@@ -389,6 +389,11 @@ class Settings:
         # sealed owner preview is exempt: it strips every inbound identity header and serves only the owner.
         if mode == "real" and abs_url and id_mode != "jwt_required" and not sealed:
             problems.append("AUDIOBOOKSHELF_TOKEN is an admin token: real mode needs HOME_IDENTITY_MODE=jwt_required")
+        # The same holds for Jellyfin: Jellyfin gives every API key the Administrator role (CustomAuthenticationHandler,
+        # 10.11), and Home reads each member's viewing with it through `userId` (owner decision 2026-10-27, with
+        # Quick Connect approval planned on the same key: ME-PREFERENCES-PROFILE-QUICKCONNECT.md section 4).
+        if mode == "real" and id_mode != "jwt_required" and not sealed:
+            problems.append("JELLYFIN_API_KEY is an admin key: real mode needs HOME_IDENTITY_MODE=jwt_required")
 
         # Beta allowlist (AVR-373): a second lock behind the Authentik application binding. It only
         # means something when the username comes from a verified token, so any other mode refuses it.

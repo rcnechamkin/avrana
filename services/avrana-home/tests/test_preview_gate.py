@@ -278,7 +278,8 @@ class SealedSettings(unittest.TestCase):
         for env in (REAL, PREVIEW, dict(PREVIEW, HOME_JELLYFIN_USERNAME="Cody")):
             with self.assertRaises(SettingsError):
                 Settings.from_env(env)
-        self.assertTrue(Settings.from_env(dict(REAL, HOME_GATES_VERIFIED="yes")).uses_real_upstream)
+        jwt = {"HOME_IDENTITY_MODE": "jwt_required", "HOME_JWT_ISSUER": "https://auth.example.test/application/o/t/", "HOME_JWT_AUDIENCE": "t", "HOME_JWT_SECRET": "x" * 48}                          # real mode needs verified identity (Jellyfin admin key)
+        self.assertTrue(Settings.from_env(dict(REAL, HOME_GATES_VERIFIED="yes", **jwt)).uses_real_upstream)
 
     def test_komga_and_calibre_still_need_their_owner_flags_in_the_preview(self):
         komga = dict(PREVIEW, KOMGA_BASE_URL="https://komga.example.test", KOMGA_TOKEN="t")
