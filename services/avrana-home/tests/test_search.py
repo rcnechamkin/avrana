@@ -329,8 +329,9 @@ class ViewShape(Setup):
             self.assertEqual(set(g), {"service", "state", "items"})
             self.assertIn(g["state"], ("ok", "empty", "unavailable", "not_linked"))
             for item in g["items"]:
-                self.assertEqual(set(item), {"id", "service", "kind", "title", "subtitle", "series", "progress",
-                                             "artwork", "creator", "year", "summary", "handoff_url"})
+                self.assertEqual(set(item) - {"released"},       # the release day, only when the upstream gives one
+                                 {"id", "service", "kind", "title", "subtitle", "series", "progress",
+                                  "artwork", "creator", "year", "summary", "handoff_url"})
                 self.assertIsNone(item["summary"])     # a synopsis only on the title page (R2-C)
                 self.assertTrue(item["handoff_url"].startswith("https://"))
         self.assertNotIn("Synthetic", json.dumps({k: v for k, v in view.items() if k != "groups"}))

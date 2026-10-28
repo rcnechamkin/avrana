@@ -104,7 +104,7 @@ class HomeViewModelTests(unittest.TestCase):
                               ("audiobookshelf", "Audiobooks", False)], list(home.new_tabs), bad)
             self.assertEqual(["F1", "F2"], [c.title for c in home.new_items])
         own = build_home(v, TILES, new_tab="audiobookshelf")
-        self.assertEqual("Nothing recently added in Audiobooks.", own.new_said)
+        self.assertEqual("Nothing added to Audiobooks recently.", own.new_said)
         self.assertEqual(NEW_ALL, [k for k, _n, cur in build_home(v, TILES).new_tabs if cur][0])
 
     def test_all_says_which_library_and_a_library_tab_says_what_it_is(self):
@@ -210,7 +210,7 @@ class HomePageTests(unittest.TestCase):
         one = main_of(self.client.get("/?new=jellyfin", headers=A).text)
         # this member has one library: nothing to choose between, so no filter row (owner decision 2026-10-27)
         self.assertNotIn('class="tabs"', one)
-        self.assertIn('<h2 id="h-new">Recently added</h2>', one)
+        self.assertIn('<h2 id="h-new">New to Avrana</h2>', one)
 
     def test_a_member_cannot_select_a_library_they_cannot_use(self):
         r = self.client.get("/?new=audiobookshelf", headers=A)

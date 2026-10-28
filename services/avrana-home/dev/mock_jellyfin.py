@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import datetime
 import json
 import socket
 import socketserver
@@ -261,6 +262,13 @@ class MockJellyfin:
             return self._json(h, self._per_user("latest", name))
         if path == "/Shows/NextUp":
             return self._json(h, self._per_user("nextup", name))
+        if path == "/Items" and "sortBy" in query:          # New releases: a premiere date per item (SYNTHETIC)
+            kinds = set(query.get("includeItemTypes", "").split(","))
+            today = datetime.date.today()
+            found = [dict(i, PremiereDate=(today - datetime.timedelta(days=4 * n + 1)).isoformat() + "T00:00:00Z")
+                     for n, i in enumerate(i for i in self._visible(name).values() if i.get("Type") in kinds)]
+            found = found[:int(query.get("limit", "50"))]
+            return self._json(h, {"Items": found, "TotalRecordCount": len(found)})
         if path == "/Items":
             vis = self._visible(name)
             found = [vis[i] for i in query.get("ids", "").split(",") if i in vis]

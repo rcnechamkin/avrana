@@ -32,7 +32,7 @@ from ..adapters.komga import KomgaAdapter
 from ..aggregate import gather, health_summary, search as run_search
 from urllib.parse import urlencode
 
-from ..contract import REQUIRED_GROUP, MediaAdapter, Service, build_handoff_url
+from ..contract import REQUIRED_GROUP, MediaAdapter, SectionState, Service, build_handoff_url
 from ..cache import MemberCache
 from ..provision import Provisioner, build_provisioner
 from ..quickconnect import OUTCOMES as QC_OUTCOMES, QuickConnect
@@ -325,7 +325,7 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
                 scope["avrana_route"] = "not_found"
                 return respond(not_found())
             scope["avrana_route"] = "/home.json"
-            return JSONResponse(await _gather(viewer))
+            return JSONResponse(await _gather(viewer, extras=extra_sections_for(None)))   # what All shows
 
         if route == "/search" and settings.home_sections:
             if viewer.principal is None:
@@ -787,9 +787,11 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
     async def _gather(viewer: Viewer, extras: tuple = ()) -> dict:
         """The sections for the verified member, via the adapters' own principal checks and
         bounded timeouts. One failing adapter costs its own section only. `extras` (Up next for Watch, the shelves for
-        Listen and the Audiobooks chip, New releases for Comics and Read) are (library, section) pairs, asked of those
-        libraries only, AFTER the others: a member holds at most two upstream calls per library at once
-        (contract.DEFAULT_MAX_IN_FLIGHT_PER_MEMBER), so a third alongside them would only be refused as busy."""
+        Listen and the Audiobooks chip, New releases for All, Watch, Comics and Read) are (library, section) pairs,
+        asked of those libraries only, AFTER the others: a member holds at most two upstream calls per library at once
+        (contract.DEFAULT_MAX_IN_FLIGHT_PER_MEMBER), so a third alongside them would only be refused as busy. A library
+        whose own sections did not all answer (down, refused, not set up, not permitted) is not asked again on this
+        page: one failed mapping per page (AVR-756), and nothing newer than what Continue was refused."""
         result = await run_in_threadpool(gather, viewer.principal, adapter_list, ("continue", "recent"),
                                         settings.section_limit)
         if provisioner is not None and provisioner.candidates(result.sections):
@@ -804,8 +806,12 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
                                                 settings.section_limit)
         sections = list(result.sections)
         view = result.member_view()
-        if extras:
-            wanted = {service for service, _section in extras}
+        answered = {}
+        for s in sections:
+            answered[s.service.value] = answered.get(s.service.value, True) and s.state in (SectionState.OK,
+                                                                                         SectionState.EMPTY)
+        if extras and any(answered.get(service) for service, _section in extras):
+            wanted = {service for service, _section in extras if answered.get(service)}
             more = await run_in_threadpool(gather, viewer.principal,
                                            [a for a in adapter_list if a.service.value in wanted],
                                            tuple(dict.fromkeys(section for _service, section in extras)),

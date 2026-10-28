@@ -289,6 +289,10 @@ class MediaItem:
     # Which shelf of a "shelves" section the item belongs to ("new", "classics", "short", "epic"); a fixed key set
     # by the adapter, never upstream text. In to_dict() only when present.
     shelf: Optional[str] = None
+    # The release day, ISO "YYYY-MM-DD", when the upstream gives a full date (Jellyfin PremiereDate, Komga
+    # releaseDate, Audiobookshelf publishedDate). Home's New releases sorts on it across libraries (owner decision
+    # 2026-10-28). In to_dict() only when present.
+    released: Optional[str] = None
 
     def to_dict(self) -> dict:
         progress = None
@@ -308,6 +312,8 @@ class MediaItem:
             out["backdrop"] = self.backdrop.to_dict()
         if self.shelf:
             out["shelf"] = self.shelf
+        if self.released:
+            out["released"] = self.released
         return out
 
 
@@ -315,7 +321,7 @@ class MediaItem:
 class SectionResult:
     """One home-page section from one service. Stable data contract for the UI."""
     service: Service
-    section: str                  # "continue" | "recent" | "next_up" | "shelves" | "item" | "search"
+    section: str                  # "continue" | "recent" | "next_up" | "shelves" | "released" | "item" | "search"
     state: SectionState
     items: Tuple[MediaItem, ...] = ()
     reason: Optional[str] = None  # fixed diagnostic code for operators; NOT for display
@@ -504,6 +510,10 @@ class MediaAdapter:
     def _shelves_items(self, user: UpstreamUser, limit: int) -> SectionResult:
         raise NotImplementedError
 
+    def _released_items(self, user: UpstreamUser, limit: int) -> SectionResult:
+        """New releases: the newest release dates first, nothing dated in the future."""
+        raise NotImplementedError
+
     def _item(self, user: UpstreamUser, item_id: str) -> SectionResult:
         raise NotImplementedError
 
@@ -541,6 +551,9 @@ class MediaAdapter:
 
     def shelves_items(self, principal: MemberPrincipal, limit: int = DEFAULT_LIMIT) -> SectionResult:
         return self._extra(principal, "shelves", limit, self._shelves_items)
+
+    def released_items(self, principal: MemberPrincipal, limit: int = DEFAULT_LIMIT) -> SectionResult:
+        return self._extra(principal, "released", limit, self._released_items)
 
     def _extra(self, principal: MemberPrincipal, section: str, limit: int, hook) -> SectionResult:
         limit = _limit(limit)
@@ -943,7 +956,8 @@ class MediaAdapter:
         return result
 
     def cache_ttl(self, section: str) -> float:
-        return {"continue": 30.0, "recent": 120.0, "next_up": 30.0, "shelves": 300.0, "item": 120.0}.get(section, 30.0)
+        return {"continue": 30.0, "recent": 120.0, "next_up": 30.0, "shelves": 300.0, "released": 300.0,
+                "item": 120.0}.get(section, 30.0)
 
 
 def _limit(limit: Any) -> int:

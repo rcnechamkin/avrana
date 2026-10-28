@@ -73,8 +73,8 @@ from .. import media_ids
 from ..principal import MemberPrincipal
 from ..resilience import (DEFAULT_TIMEOUT, FanOutSpent, ItemGone, RouteMissing, Transport, UpstreamMalformed,
                           UpstreamMisbehaved, UpstreamTimeout, UserGone)
-from ._base import (GuardedAdapter, Route, bounded_int, lookup_username, match_exactly_one, member_override,
-                    year_from)
+from ._base import (GuardedAdapter, Route, bounded_int, iso_day, lookup_username, match_exactly_one,
+                    member_override, year_from)
 from ._base import GuardedTransport as _Guard
 
 _UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
@@ -210,7 +210,7 @@ def _left(budget) -> float:
 class AudiobookshelfAdapter(GuardedAdapter):
     service = Service.AUDIOBOOKSHELF
     artwork_rechecks_visibility = True     # visibility is per member: re-checked before any cached cover
-    extra_sections = frozenset({"shelves"})
+    extra_sections = frozenset({"shelves", "released"})
 
     def __init__(self, transport: Transport, timeout: float = DEFAULT_TIMEOUT, *,
                  member_username: Optional[Tuple[str, str]] = None, **kw):
@@ -424,6 +424,30 @@ class AudiobookshelfAdapter(GuardedAdapter):
         found = sorted((t for t in found if t[0] >= since), key=lambda t: t[0], reverse=True)
         return SectionResult.of(Service.AUDIOBOOKSHELF, "recent", tuple(_unique(m for _a, _y, m in found)[:limit]))
 
+    def _released_items(self, user: UpstreamUser, limit: int) -> SectionResult:
+        """New releases on Home (owner decision 2026-10-28): the New releases shelf alone, published this year or
+        last, newest first (by day where the book gives one)."""
+        uid = user.upstream_id
+        guard = self._guard.bind(uid)
+        budget = self._budget()
+        _record, access = self._member_access(guard, budget, uid)
+        libraries = self._libraries(guard, budget, access)[:MAX_LIBRARIES]
+        counts = [0, 0]
+        found: List[Tuple[int, int, MediaItem]] = []
+        _shelf, sort, desc, ask = SHELVES[0]
+        for library_id in libraries:
+            found += self._list(guard, budget, access, library_id,
+                                {"sort": sort, "desc": "1" if desc else "0",
+                                 "limit": str(min(MAX_LIST_PAGE, limit * ask))}, counts)
+        if libraries and not counts[0]:
+            raise RouteMissing(404)
+        if not found and counts[1]:
+            raise UpstreamMalformed()
+        year = _this_year()
+        kept = sorted((t for t in found if _shelf_keep("new", t[2], year)),
+                      key=lambda t: (t[1], t[2].released or "", t[0]), reverse=True)
+        return SectionResult.of(Service.AUDIOBOOKSHELF, "released", tuple(_unique(m for _a, _y, m in kept)[:limit]))
+
     def _shelves_items(self, user: UpstreamUser, limit: int) -> SectionResult:
         """Every shelf's items in one section, each item marked with its shelf. Cut short by the request budget, the
         shelves already read are shown (reason TRUNCATED), never an empty or unfiltered list."""
@@ -607,7 +631,8 @@ class AudiobookshelfAdapter(GuardedAdapter):
                          progress_fraction=fraction, position_seconds=position,
                          duration_seconds=duration, artwork=artwork,
                          creator=clean_text(meta.get("authorName")), year=year_from(meta.get("publishedYear")),
-                         external_ids=media_ids.from_book_metadata(meta)), "ok"
+                         external_ids=media_ids.from_book_metadata(meta),
+                         released=iso_day(meta.get("publishedDate"))), "ok"
 
 
 def _encode(value: str) -> str:

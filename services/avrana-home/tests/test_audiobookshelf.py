@@ -976,6 +976,12 @@ class Shelves(Base):
         self.assertEqual({"new", "classics", "short", "epic"}, {i.shelf for i in r.items})
         self.assertTrue(all(i.to_dict()["shelf"] == i.shelf for i in r.items))
 
+    def test_home_new_releases_is_the_new_releases_shelf_alone(self):
+        r = self.adapter.released_items(self.a)
+        self.assertEqual((r.section, [i.title for i in r.items]), ("released", ["Synthetic Fresh Release"]))
+        self.assertIsNone(r.items[0].shelf)
+        self.assertFalse(any("filter" in q for _m, p, q in self.fake.requests if p.endswith("/items")))
+
     def test_the_classics_filter_carries_only_genres_the_library_listed(self):
         self.adapter.shelves_items(self.a)
         filters = sorted(q["filter"] for _m, p, q in self.fake.requests if p.endswith("/items") and "filter" in q)
