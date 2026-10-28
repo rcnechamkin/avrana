@@ -181,7 +181,7 @@ class AccountPage(Stub):
         self.assertIn('<a class="link" href="/help">Help</a>', main)
         self.assertIn(f'<a class="krow-a" href="{self.cat.account_url}">', main)
         self.assertIn('<a class="krow-a" href="/signout">', main)
-        self.assertEqual(['<a class="link" href="/">'], re.findall(r"<a [^>]*>", footer_of(text)))   # rows moved up
+        self.assertEqual([], re.findall(r"<a [^>]*>", footer_of(text)))   # rows moved up; the Home tab is the way back
         off = footer_of(self.off.get("/account", headers=ALL).text)
         self.assertIn(">Manage account</a>", off)
         self.assertIn(">Sign out</a>", off)

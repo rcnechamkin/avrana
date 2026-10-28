@@ -3,8 +3,10 @@
      1. the navigation lens slide (sets data-at on the tab bar; the browser still navigates normally),
      2. registration of the service worker (/sw.js) and an update banner,
      3. a reload when a page comes back from the back/forward cache, so it goes through sign-in again,
-     4. the art flight into a title page during a page-to-page transition, and 5. where the browser exposes the
-        active transition, ending it on the first press, so a touch tap then reaches the page (MK-6, AVR-720).
+     4. the art flight into a title page during a page-to-page transition, 5. where the browser exposes the
+        active transition, ending it on the first press, so a touch tap then reaches the page (MK-6, AVR-720), and
+     6. art that fades in once it has loaded, and the letter back in its frame if an image fails (owner review
+        2026-10-27).
    It reads no member data, uses no browser storage, builds no HTML from text and does nothing when its elements
    are absent. Inline preview behaviour (MK-4) is not here yet. */
 (function () {
@@ -182,9 +184,29 @@
     }, { capture: true, passive: true });
   }
 
+  /* 6. Art arrival. An image not yet loaded gets the stylesheet's k-wait class (hidden) until it loads, so it fades
+     in; one already loaded is left alone. An image that fails is taken out of its frame, so the frame's letter shows
+     again (the stylesheet hides the letter only while the frame holds an image). Lazy images below the fold are
+     covered too: they are simply incomplete until the browser fetches them. */
+  function arrive() {
+    var images = document.querySelectorAll('img.art');
+    Array.prototype.forEach.call(images, function (img) {
+      function done() { img.classList.remove('k-wait'); }
+      function failed() { if (img.parentNode) img.parentNode.removeChild(img); }
+      if (img.complete) {
+        if (img.getAttribute('src') && img.naturalWidth === 0) failed();
+        return;
+      }
+      img.classList.add('k-wait');
+      img.addEventListener('load', done);
+      img.addEventListener('error', failed);
+    });
+  }
+
   lens();
   bfcache();
   worker();
   flight();
   interrupt();
+  arrive();
 })();

@@ -59,4 +59,4 @@
 {% endif %}
 {% endblock %}
 {% block footer %}{% if page.back_href %}    <a class="link" href="{{ page.back_href }}">Back to search</a>
-{% endif %}    <a class="link" href="/">Back to home</a>{% endblock %}
+{% endif %}    {% if not shell %}<a class="link" href="/">Back to home</a>{% endif %}{% endblock %}

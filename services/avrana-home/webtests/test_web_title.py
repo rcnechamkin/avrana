@@ -118,10 +118,10 @@ class TitlePage(Fixture):
         self.assertIn("left", r.text)                                    # progress in words
         self.assertIn('<p class="kicker">Movies and TV</p>', r.text)      # not "Movie · Movies and TV" (#13)
         self.assertNotIn("Movie · Movies and TV", r.text)
-        # Return navigation like the other shell pages (#4): Back to home, no extra Help (it is in the places bar);
+        # Return navigation like the other shell pages (#4): the Home tab and button, no extra Help (it is in the places bar);
         # the hint is an inline link to the trouble topic, not a padded block before an orphaned full stop.
         foot = r.text.split("<footer>", 1)[1]
-        self.assertIn('<a class="link" href="/">Back to home</a>', foot)
+        self.assertNotIn(">Back to home</a>", foot)
         self.assertNotIn('href="/help"', foot)
         self.assertIn('see <a class="inline" href="/help/trouble">If something doesn&#x27;t open</a>.</p>', r.text)
         self.assertNotIn("playing", r.text.lower())

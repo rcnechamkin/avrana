@@ -43,4 +43,4 @@
     </ul>
   </section>
 {% endblock %}
-{% block footer %}    <a class="link" href="/">Back to home</a>{% endblock %}
+{% block footer %}    {% if not shell %}<a class="link" href="/">Back to home</a>{% endif %}{% endblock %}

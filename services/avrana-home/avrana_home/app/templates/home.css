@@ -700,6 +700,26 @@
     .kask{grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"t go" "d go";}.kask:not(:has(.hint)){grid-template-areas:"t go";}
     .me-av{width:56px;height:56px;font-size:1.5rem;}}
   @media (forced-colors:active){.said.kwarn{border-color:CanvasText;}}
+  /* ---- Art arrival and press feedback (owner review 2026-10-27) ---- */
+  /* While art the server promised is on its way, the frame is a quiet surface, not a letter: the letter is kept for an
+     item with no art at all (no img in the frame), and comes back if the image fails, because the page script then
+     takes the img out. The script marks an image still loading (k-wait) and clears the mark on load, so the picture
+     fades in instead of appearing in one frame; without the script, images simply show as they arrive. */
+  .frame:has(> img.art) .ph{visibility:hidden;}
+  .frame:has(> img.art){background:var(--raised);}
+  img.art.k-wait{opacity:0;}
+  /* A press answers at once (the 150 ms press tier): a card's art and the hero, place, chip, filter, tile and row
+     controls give a little under the finger. Transform only, so nothing reflows. */
+  .card .frame,.hero-go,.hero-details,.places a,.chip,.tabs a,.tile,.krow-a,.homebtn,.shelf-open{
+    transition-property:transform,border-color,background-color,box-shadow;transition-duration:var(--motion-1);
+    transition-timing-function:var(--ease-responsive);}
+  .card:active .frame{transform:scale(0.97);}
+  .hero-go:active,.hero-details:active,.places a:active,.chip:active,.tabs a:active,.homebtn:active,.shelf-open:active{
+    transform:scale(0.96);}
+  .tile:active,.krow-a:active{transform:scale(0.985);background-color:var(--raised);}
+  @media (prefers-reduced-motion:no-preference){img.art{transition:opacity var(--motion-3) var(--ease-responsive);}}
+  @media (prefers-reduced-motion:reduce){.card:active .frame,.hero-go:active,.hero-details:active,.places a:active,
+    .chip:active,.tabs a:active,.homebtn:active,.shelf-open:active,.tile:active,.krow-a:active{transform:none;}}
   /* ---- MK-6 Motion (AVR-720) ---- */
   /* Page-to-page motion (memo section 10; the motion tiers above). One block, appended last. Everything that moves is
      inside the no-preference query: with Reduce Motion there is no transition at all, not even a fade, and the
@@ -709,16 +729,34 @@
      600 ms token is a Proposal: off by default, and only a server setting adds it (never this file).
      Names are unique on every page: the lens (one per tab bar), and the art, which only the title page's one frame
      carries; on the page being left, the page script names the one frame beside the link that was followed, only
-     while the old page is captured. The tab bar itself is not named: it is the same on both pages, so it stays put
-     and readable in the page fade; only its lens travels. Interruptible: keys and the browser's own navigation still
+     while the old page is captured. The tab bar is named too (k-dock, below), so it holds still while the pages
+     change; only its lens travels. Interruptible: keys and the browser's own navigation still
      navigate; where the browser exposes the active transition, the page script ends it on the first press, so a
      touch tap then reaches the page (a mouse click during the 200 ms may be lost). */
+  /* Owner review 2026-10-27 (motion pass): the old page and the new one never show at once, so no text ghosts over
+     text. Arriving on a tab page (Home, Library, Search, Me: its tab is aria-current) the page changes at once and
+     only the lens travels, the way a system tab bar behaves. Arriving anywhere else, the old page leaves in 90 ms and
+     the new one rises 6px into place once it has gone (it waits out the first 45% of its 200 ms, --motion-3, so the
+     whole change stays inside tier 3), while the art flies. The tab bar is
+     named so it holds still through both, its lens above it. The pseudo-elements belong to the arriving page, so
+     its own markup picks the motion; no script and no storage. */
   @media (prefers-reduced-motion:no-preference){
     @view-transition{navigation:auto;}
     ::view-transition-group(*),::view-transition-old(*),::view-transition-new(*){animation-duration:var(--motion-3);
       animation-timing-function:var(--ease-meaningful);}
+    ::view-transition-old(root){animation-name:k-leave;animation-duration:90ms;
+      animation-timing-function:cubic-bezier(0.4,0,1,1);animation-fill-mode:both;}
+    ::view-transition-new(root){animation-name:k-arrive;animation-fill-mode:both;}
+    html:has(.tabbar a.tab[aria-current="page"])::view-transition-old(root),
+    html:has(.tabbar a.tab[aria-current="page"])::view-transition-new(root){animation:none;}
+    html:has(.tabbar a.tab[aria-current="page"])::view-transition-old(root){opacity:0;}
+    .tabbar{view-transition-name:k-dock;}
+    ::view-transition-group(k-dock),::view-transition-old(k-dock),::view-transition-new(k-dock){animation:none;}
+    ::view-transition-old(k-dock){opacity:0;}
     .title-page .frame,.frame.k-flight{view-transition-name:k-art;}
     .tabbar .lens{view-transition-name:k-lens;}
+    @keyframes k-leave{to{opacity:0;}}
+    @keyframes k-arrive{0%,45%{opacity:0;transform:translateY(6px);}}
   }
   /* Belt and braces: should any transition ever start under Reduce Motion, it ends at once. */
   @media (prefers-reduced-motion:reduce){::view-transition-group(*),::view-transition-old(*),::view-transition-new(*){

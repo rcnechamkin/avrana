@@ -24,4 +24,4 @@
 {% endfor %}
 {% endblock %}
 {% block footer %}    <a class="link" href="/help">All help</a>
-    <a class="link" href="/">Back to home</a>{% endblock %}
+    {% if not shell %}<a class="link" href="/">Back to home</a>{% endif %}{% endblock %}
