@@ -261,7 +261,7 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
             tiles = decide("/", viewer.groups, cat).context["tiles"]
             view = await _gather(viewer) if has_library(tiles) else {"sections": []}
             page = build_library(view, tiles, chip=library_chip_from_scope(scope), limit=settings.section_limit,
-                                 open_paths=place_paths(viewer))
+                                 open_paths=place_paths(viewer), title_services=title_services)
             decision = library_decision(page)
             scope["avrana_route"] = decision.label
             return respond(decision, scope, shell=shell_for(viewer, "library"))

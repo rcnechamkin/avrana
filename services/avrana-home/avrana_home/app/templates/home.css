@@ -700,7 +700,7 @@
     .kask{grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"t go" "d go";}.kask:not(:has(.hint)){grid-template-areas:"t go";}
     .me-av{width:56px;height:56px;font-size:1.5rem;}}
   @media (forced-colors:active){.said.kwarn{border-color:CanvasText;}}
-  /* ---- Art arrival and press feedback (owner review 2026-10-27) ---- */
+  /* ---- MK-7a Art arrival and press feedback (owner review 2026-10-27) ---- */
   /* While art the server promised is on its way, the frame is a quiet surface, not a letter: the letter is kept for an
      item with no art at all (no img in the frame), and comes back if the image fails, because the page script then
      takes the img out. The script marks an image still loading (k-wait) and clears the mark on load, so the picture
@@ -720,6 +720,46 @@
   @media (prefers-reduced-motion:no-preference){img.art{transition:opacity var(--motion-3) var(--ease-responsive);}}
   @media (prefers-reduced-motion:reduce){.card:active .frame,.hero-go:active,.hero-details:active,.places a:active,
     .chip:active,.tabs a:active,.homebtn:active,.shelf-open:active,.tile:active,.krow-a:active{transform:none;}}
+  /* ---- MK-7b Title sheet and backdrop (owner decision 2026-10-27) ---- */
+  /* With a wide backdrop the title page leads with the wide picture, full column width, a soft shade at its foot. */
+  .title-page.has-backdrop .title-stage{padding-bottom:1rem;}
+  .title-page.has-backdrop .frame{width:100%;aspect-ratio:16/9;border-radius:var(--radius-preview);box-shadow:none;}
+  .title-page.has-backdrop .art{object-fit:cover;}
+  .title-page.has-backdrop .frame::after{content:"";position:absolute;left:0;right:0;bottom:0;height:40%;pointer-events:none;
+    background:linear-gradient(to top,rgb(0 0 0 / 0.45),rgb(0 0 0 / 0));}
+  @media (forced-colors:active){.title-page.has-backdrop .frame::after{display:none;}}
+  /* The title sheet (page script, part 8): a modal dialog that fills the screen, transparent, holding a scrim that dims
+     and blurs the page behind and a card that rises nearly to the top and scrolls on its own. The script moves the
+     card (Web Animations); everything about its look is here. The page behind does not scroll while it is open. */
+  html:has(dialog.k-sheet[open]){overflow:hidden;}
+  dialog.k-sheet{position:fixed;inset:0;width:100%;height:100%;max-width:none;max-height:none;margin:0;padding:0;border:0;
+    background:transparent;color:var(--fg);overflow:hidden;}
+  dialog.k-sheet::backdrop{background:transparent;}
+  .k-sheet-scrim{position:absolute;inset:0;background:rgb(0 0 0 / 0.55);
+    -webkit-backdrop-filter:blur(12px) saturate(0.9);backdrop-filter:blur(12px) saturate(0.9);}
+  .k-sheet-card{position:absolute;left:0;right:0;bottom:0;top:max(0.75rem,env(safe-area-inset-top));transform-origin:0 0;
+    overflow-y:auto;overscroll-behavior:contain;background:var(--bg);border-radius:20px 20px 0 0;
+    box-shadow:0 -10px 40px rgb(0 0 0 / 0.5);}
+  @media (min-width:48rem){.k-sheet-card{left:calc(50% - min(22.5rem,50% - 1.5rem));right:calc(50% - min(22.5rem,50% - 1.5rem));top:2rem;}}
+  .k-sheet .k-sheet-close{position:sticky;top:0.75rem;z-index:3;float:right;display:flex;align-items:center;
+    justify-content:center;width:2.75rem;height:2.75rem;margin:0.75rem 0.75rem -3.5rem auto;padding:0;border-radius:50%;
+    color:var(--cream);cursor:pointer;}
+  .k-sheet-close svg{display:block;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;}
+  .k-sheet-close:focus-visible{outline:2px solid var(--focus);outline-offset:2px;}
+  .k-sheet-body{padding:0.75rem max(1.25rem,env(safe-area-inset-right)) calc(2.5rem + env(safe-area-inset-bottom))
+    max(1.25rem,env(safe-area-inset-left));}
+  dialog.k-sheet .title-page .title-stage{margin-top:0;}
+  /* In the sheet the title keeps its display size (Home's own shelf-heading rule would otherwise win), and a backdrop
+     runs edge to edge across the top of the card, under the close button, the card's corners rounding it. */
+  dialog.k-sheet .title-page .title-meta h2.t{font-size:min(var(--text-display),calc(0.5rem + 12.5vw));font-weight:300;}
+  dialog.k-sheet .title-page.has-backdrop .title-stage{margin:-0.75rem calc(0rem - max(1.25rem,env(safe-area-inset-right)))
+    0 calc(0rem - max(1.25rem,env(safe-area-inset-left)));}
+  dialog.k-sheet .title-page.has-backdrop .frame{border:0;border-radius:0;}
+  .k-sheet-standin{position:absolute;inset:0;z-index:2;overflow:hidden;pointer-events:none;background:var(--raised);}
+  .k-sheet-standin img{width:100%;height:100%;object-fit:cover;filter:blur(14px) brightness(0.65);transform:scale(1.1);}
+  @media (prefers-reduced-transparency:reduce),(prefers-contrast:more){.k-sheet-scrim{background:rgb(0 0 0 / 0.8);
+    -webkit-backdrop-filter:none;backdrop-filter:none;}}
+  @media (forced-colors:active){.k-sheet-card{border:1px solid CanvasText;}.k-sheet-scrim{background:Canvas;}}
   /* ---- MK-6 Motion (AVR-720) ---- */
   /* Page-to-page motion (memo section 10; the motion tiers above). One block, appended last. Everything that moves is
      inside the no-preference query: with Reduce Motion there is no transition at all, not even a fade, and the

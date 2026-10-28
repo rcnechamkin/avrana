@@ -237,3 +237,16 @@ Owner approved the preflight, apply and validation in chat on 2026-10-27, window
 | Preflight 0 STOP / 0 VOID after the B2 off-host cap was raised (uploads had failed since 2026-10-10 with `storage_cap_exceeded`; alerts undelivered, AVR-346) | Off-host backups caught up the same day (13 runs remote) |
 | Checks: namespace sharing none (41/41); A 6/6 `200` from `authentik-server`; C controls pass; B 6/6 blocked with forged headers (`curl_rc` 6 names, 28 IPs); E1 6/6 redirected; **E2 passed (owner, member session)**: forged groups gave no Operations tile and `/ops` 404, forged username on Kindle showed only the member's own data | Finding F3 (outpost overwrites client headers) verified on Authentik 2026.5.6 |
 | Residuals unchanged | Host namespace (Jellyfin, Home Assistant, Beszel agent) and host shell still reach backend IPs (check D: `200`); D-3 remains the owner's decision. `avrana-boot-verify.service` failed unit since 2026-10-23 is unrelated and still open |
+
+## Owner decisions, 2026-10-27: Media title sheet (live-beta review)
+
+Recorded from the owner's chat of 2026-10-27, after reviewing a streaming app's details view: "1. Okay, do your best.
+2. Yes that's fine." (1: the sheet's open and close may run longer than the 200 ms tier; 2: the page script may fetch
+the title page from Home's own origin.)
+
+| Decision | Consequence |
+|---|---|
+| **Title sheet** | On shell pages a title link opens the title page as a modal sheet over the page (`home.js` part 8): it grows out of the tapped art (380 ms open, 300 ms close, one iOS sheet curve), the URL becomes the title's own, Back, Escape, the close button, a press outside or a downward pull close it, and focus returns to the link. With Reduce Motion it opens and closes at once. Without script, or on anything unexpected, the link navigates as before. Page-to-page transitions stay tier 3 (200 ms). |
+| **`connect-src 'self'` on shell pages** | Replaces D13's "no requests of its own" for one request: the same-origin title page the member opened, with the member's cookies, no redirect followed, parsed inert and stripped of script, frames, objects and forms. The worker's own `connect-src` (D12) is unchanged; other routes still have none. |
+| **Recently added cards open the title page** | Where the library offers the permission-checked item lookup; Continue cards still open the item where it plays. |
+| **Backdrop on the title page** | A Jellyfin item with a backdrop leads its title page (and the sheet) with it, full width. |

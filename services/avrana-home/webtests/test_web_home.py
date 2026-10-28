@@ -246,7 +246,8 @@ class HomePageTests(unittest.TestCase):
         self.assertIn("a&amp;b", page)
         hrefs = re.findall(r'class="card" href="([^"]*)"', main_of(page))
         self.assertTrue(hrefs)
-        self.assertTrue(all(h.startswith("https://") for h in hrefs), hrefs)
+        # the contract's https hand-off, or (Recently added, owner decision 2026-10-27) the item's own title page
+        self.assertTrue(all(h.startswith("https://") or re.match(r"^/title/(jellyfin|audiobookshelf|komga|calibre-web)/[A-Za-z0-9_-]+$", h) for h in hrefs), hrefs)
 
 
 if __name__ == "__main__":

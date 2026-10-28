@@ -174,7 +174,8 @@ class SectionRenderingTests(Fixture):
         found = cards(region(page))
         self.assertTrue(found)
         for _cls, href in found:
-            self.assertTrue(href.startswith("https://watch.avrana.net/web/#/details?id="), href)
+            self.assertTrue(href.startswith("https://watch.avrana.net/web/#/details?id=")
+                            or re.match(r"^/title/jellyfin/[0-9a-f]{32}$", href), href)
 
     def test_account_page_escapes_identity_fields(self):
         hostile = [(USER, "m<script>alert(1)</script>"), (GROUPS, "avrana-users"),
@@ -287,6 +288,7 @@ class JsonViewTests(Fixture):
         doc = self.on.get("/home.json", headers=A).json()
         page = self.on.get("/", headers=A).text
         urls = {it["handoff_url"] for s in doc["sections"] for it in s["items"]}
+        urls |= {"/title/" + it["id"].replace(":", "/", 1) for s in doc["sections"] for it in s["items"]}
         shown = [href for _cls, href in cards(page)]
         self.assertTrue(shown)
         self.assertTrue(set(shown) <= urls)           # the page is a bounded subset of the JSON, never more

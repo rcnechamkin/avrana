@@ -73,7 +73,9 @@ class RecentComicsTests(Fixture):
             self.assertIn(it["title"], r.text)
             self.assertEqual("komga", it["service"])
             self.assertTrue(it["handoff_url"].startswith("https://"))
-            self.assertIn(f'href="{it["handoff_url"]}"', r.text)
+            # the hand-off, or the item's own title page where the library has one (owner decision 2026-10-27)
+            self.assertTrue(f'href="{it["handoff_url"]}"' in r.text
+                            or f'href="/title/{it["id"].replace(":", "/", 1)}"' in r.text, it["id"])
         # Komga offers no "continue": empty in the JSON, nothing in the HTML
         self.assertNotIn("Continue reading", r.text)
 

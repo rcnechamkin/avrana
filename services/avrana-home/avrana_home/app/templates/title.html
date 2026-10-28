@@ -9,15 +9,21 @@
    crisp at its natural shape over a blurred, dimmed copy (CSS only); with no art, the letter frame and no backdrop.
    The title takes the display role; progress stays in words, with the 3px Cream rule beside them (decoration, hidden
    from assistive technology, never the yellow). One Cream action. The synopsis (R2-C, R3-A AVR-748), when the library
-   has one, sits last under "About" as plain, autoescaped text at a reading measure. #}
+   has one, sits last under "About" as plain, autoescaped text at a reading measure.
+   With a Jellyfin backdrop (owner review 2026-10-27) the wide picture leads the page instead, full width, as the
+   details view of a streaming app does; the same page is what the title sheet shows over Home. #}
 {% if page.state == "ok" %}
-  <section class="shelf title-page w-{{ page.shape }}{% if not page.image %} no-art{% endif %}" aria-labelledby="h-title">
+  <section class="shelf title-page w-{% if page.backdrop %}still has-backdrop{% else %}{{ page.shape }}{% endif %}{% if not page.image and not page.backdrop %} no-art{% endif %}" aria-labelledby="h-title">
+{% if page.backdrop %}
+    <div class="title-stage">{{ frame(page.backdrop, page.title) }}</div>
+{% else %}
     <div class="title-stage">
 {% if page.image %}
       <span class="hero-glow" aria-hidden="true"><img class="art" src="{{ page.image }}" alt="" width="160" height="240" loading="lazy"></span>
 {% endif %}
       {{ frame(page.image, page.title) }}
     </div>
+{% endif %}
     <p class="kicker">{{ page.kicker }}</p>
     <div class="title-meta">
       <h2 id="h-title" class="t">{{ page.title }}</h2>

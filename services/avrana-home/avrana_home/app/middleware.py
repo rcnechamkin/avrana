@@ -44,7 +44,9 @@ CSP_SEARCH = CSP.replace(b"form-action 'none'", b"form-action 'self'")
 # the brand font, Plus Jakarta Sans (brand.py, home.css; AVR-584, AVR-715), and load the one first-party page script (pwa.py; MK-3, AVR-717, owner
 # decision O1); they alone may load those from their own origin, and register the worker from it. Nothing else
 # changes: no inline script, no other source. Every other route keeps CSP, except the two below.
-SHELL_SOURCES = b"; manifest-src 'self'; font-src 'self'; script-src 'self'; worker-src 'self'"
+# `connect-src 'self'`: the page script's title sheet fetches the title page a member opens, from this origin only
+# (owner decision 2026-10-27; it replaces "no requests of its own", D13, for that one request).
+SHELL_SOURCES = b"; manifest-src 'self'; font-src 'self'; script-src 'self'; worker-src 'self'; connect-src 'self'"
 # The worker takes its CSP from the /sw.js response: without `connect-src` its own fetch() and cache writes would
 # fall under `default-src 'none'`. Same origin only, and only on that one response (owner decision D12).
 WORKER_SOURCES = b"; connect-src 'self'"

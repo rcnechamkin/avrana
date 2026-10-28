@@ -408,12 +408,12 @@ class TitlePage(Fixture):
         c = self.client()
         t = c.get("/title/jellyfin/" + FILM_A, headers=A).text
         main = main_of(t)
-        self.assertIn('<section class="shelf title-page w-poster" aria-labelledby="h-title">', main)
+        # this film has a wide backdrop, so the page leads with it, full width (owner review 2026-10-27)
+        self.assertIn('<section class="shelf title-page w-still has-backdrop" aria-labelledby="h-title">', main)
         art = re.findall(r'<img class="art" src="([^"]*)"', main)
-        self.assertEqual(2, len(art))                                  # crisp, and its own blurred copy
-        self.assertEqual(1, len(set(art)))
-        self.assertTrue(art[0].startswith("/art/jellyfin/primary/"))
-        self.assertIn('<span class="hero-glow" aria-hidden="true">', main)
+        self.assertEqual(1, len(art))                                  # the backdrop alone, no blurred copy
+        self.assertTrue(art[0].startswith("/art/jellyfin/backdrop/"))
+        self.assertNotIn('class="hero-glow"', main)
         self.assertLess(main.index('class="title-stage"'), main.index('<p class="kicker">'))
         self.assertLess(main.index('<p class="kicker">'), main.index('<h2 id="h-title" class="t">'))
         self.assertIn('<p class="d p">70 minutes left</p>', main)
@@ -441,6 +441,37 @@ class TitlePage(Fixture):
         self.assertIn("<p>The Movies and TV library is unavailable right now. This usually passes within a minute.</p>", t)
         self.assertIn(f'<a class="k-warn-act" href="/title/jellyfin/{FILM_A}">Try again</a>', t)
         self.assertNotIn("Synthetic Film", t)
+
+
+class TitleSheetLinks(Fixture):
+    """Owner decision 2026-10-27 (the title sheet): a Recently added card opens the item's own title page (the page
+    script shows it as a sheet over the page), where the library has one; a Continue card still opens the item where
+    it plays. Every title link is this member's own item and is a page the member may open."""
+
+    def test_recent_cards_link_to_title_pages_and_continue_cards_play(self):
+        c = self.client()
+        home = main_of(c.get("/", headers=A).text)
+        cont = home.split('id="h-continue"', 1)[1].split("</section>", 1)[0]
+        recent = home.split('id="h-new"', 1)[1].split("</section>", 1)[0]
+        cont_hrefs = re.findall(r'class="card" href="([^"]*)"', cont)
+        recent_hrefs = re.findall(r'class="card" href="([^"]*)"', recent)
+        self.assertTrue(cont_hrefs and recent_hrefs)
+        self.assertTrue(all(h.startswith("https://") for h in cont_hrefs), cont_hrefs)
+        titles = [h for h in recent_hrefs if h.startswith("/title/")]
+        self.assertTrue(titles, recent_hrefs)
+        for h in titles:
+            self.assertRegex(h, r"^/title/jellyfin/[0-9a-f]{32}$")
+            self.assertEqual(200, c.get(h, headers=A).status_code, h)
+        lib = main_of(c.get("/library", headers=A).text)
+        self.assertRegex(lib, r'class="card" href="/title/jellyfin/[0-9a-f]{32}"')
+
+    def test_another_members_title_link_is_the_standard_404(self):
+        c = self.client()
+        recent = main_of(c.get("/", headers=A).text).split('id="h-new"', 1)[1].split("</section>", 1)[0]
+        own = [h for h in re.findall(r'class="card" href="(/title/[^"]*)"', recent) if "/aaaa0000" in h]
+        self.assertTrue(own)                                  # cccc0000 items are shared by both members in the mock
+        for h in own:
+            self.assertEqual(404, c.get(h, headers=B).status_code, h)
 
 
 if __name__ == "__main__":
