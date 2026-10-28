@@ -44,6 +44,7 @@ _spec.loader.exec_module(EXTRACT)
 
 # adapter route name -> the spec path template it corresponds to
 SPEC_PATH = {"users": "/Users", "resume": "/UserItems/Resume", "latest": "/Items/Latest", "items": "/Items",
+             "next_up": "/Shows/NextUp",
              "image": "/Items/{itemId}/Images/{imageType}"}
 # contract entity -> spec schema
 SPEC_SCHEMA = {"item": "BaseItemDto", "item.UserData": "UserItemDataDto", "user": "UserDto",
@@ -179,6 +180,7 @@ class SentValueTests(unittest.TestCase):
         member = make_principal("member-a", ("avrana-users", "avrana-videos"))
         adapter.continue_items(member)
         adapter.recent_items(member)
+        adapter.next_up_items(member)
         adapter.search(member, "synthetic")
         resume = load("resume_member_a.json")["Items"]
         first = next(i["Id"] for i in resume if not i["Id"].startswith("../")).replace("-", "").lower()
@@ -189,7 +191,7 @@ class SentValueTests(unittest.TestCase):
 
     def test_every_operation_was_exercised(self):
         paths = {path for _method, path, _query in self.requests}
-        for wanted in ("/Users", "/UserItems/Resume", "/Items/Latest", "/Items"):
+        for wanted in ("/Users", "/UserItems/Resume", "/Items/Latest", "/Shows/NextUp", "/Items"):
             self.assertIn(wanted, paths)
         self.assertTrue(any(p.endswith("/Images/Primary") for p in paths), paths)
 

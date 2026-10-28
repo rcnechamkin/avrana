@@ -169,6 +169,19 @@ def if_none_match_from_scope(scope) -> Optional[str]:
     return bytes(found[0]).decode("latin-1")
 
 
+def home_filter_from_scope(scope) -> Optional[str]:
+    """Home's filter (owner decision 2026-10-27): `?for=<place>` shows Home for one library place only (Watch,
+    Listen, Read). Exactly as `?new=`: bounded text only, checked by the view-model against the member's own places,
+    never echoed. It confers no identity and no access."""
+    return _choice_from_scope(scope, "for")
+
+
+def library_view_from_scope(scope) -> Optional[str]:
+    """The Library's layout (owner decision 2026-10-27): `?view=<large|small|details|list>`. Bounded text only,
+    checked by the view-model against its fixed list, never echoed. It confers no identity and no access."""
+    return _choice_from_scope(scope, "view")
+
+
 def _choice_from_scope(scope, name: str) -> Optional[str]:
     from urllib.parse import parse_qsl
     raw = scope.get("query_string") or b""

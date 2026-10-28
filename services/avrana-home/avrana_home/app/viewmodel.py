@@ -144,6 +144,7 @@ class ItemVM:
     item_id: Optional[str] = None  # the contract id ("jellyfin:<id>"), for the hero's Details link only
     fraction: Optional[float] = None  # 0 to 1, for the progress rule beside the words (progress_fraction)
     backdrop: Optional[str] = None # same-origin /art/... URL of a wide backdrop, for the hero only
+    shelf: Optional[str] = None    # a "shelves" item's shelf (SHELF_ROWS key); never upstream text
 
 
 @dataclass(frozen=True)
@@ -188,7 +189,8 @@ def _item_vm(it: dict) -> Optional[ItemVM]:
     return ItemVM(_plain(it.get("title") or "") or "Untitled", href, str(it.get("kind", "")), detail,
                   progress_words(it.get("kind", ""), it.get("progress")), _image(it.get("artwork")),
                   service=service, resumable=resumable, finished=finished, item_id=item_id,
-                  fraction=progress_fraction(it.get("progress")), backdrop=_image(it.get("backdrop")))
+                  fraction=progress_fraction(it.get("progress")), backdrop=_image(it.get("backdrop")),
+                  shelf=it.get("shelf") if it.get("shelf") in dict(SHELF_ROWS) else None)
 
 
 def build_sections(view: dict) -> Tuple[SectionVM, ...]:
@@ -235,6 +237,27 @@ class PlaceVM:
     href: str
     label: object          # catalogue text (Trusted): the template renders it with |trusted
     up: bool               # False: kept in place, struck through, ", unavailable" for screen readers
+
+
+@dataclass(frozen=True)
+class FilterVM:
+    """One of Home's filters (owner decision 2026-10-27): All, or one library place (Watch, Listen, Read). It narrows
+    Home to that place's libraries; the place itself (its own site) stays one tap away on the filtered Home."""
+    key: str               # "all" or the catalogue place path ("watch"); never anything from the address
+    label: object          # "All", or the catalogue text (Trusted): the template renders it with |trusted
+    href: str              # "/" or "/?for=<place>"
+    current: bool
+    up: bool = True        # False: the place's libraries are all down (struck, ", unavailable" for screen readers)
+
+
+@dataclass(frozen=True)
+class RowVM:
+    """A titled rail of cards on a filtered Home (Watch: Up next, Movies, TV shows)."""
+    key: str               # the heading id suffix: "next", "movies", "shows"
+    heading: str
+    items: Tuple["CardVM", ...]
+    said: Optional[str] = None
+    tall: bool = True      # posters (a tall rail), or False for episode stills
 
 
 @dataclass(frozen=True)
@@ -295,6 +318,10 @@ class HomeVM:
     all_unset: bool = False              # every library is not set up yet: one block with the next step
     setup_href: Optional[str] = None     # "What to do": a library is not set up for this member
     hero: Optional[HeroVM] = None        # Concept K hero (AVR-718); None on every state with nothing of the member's
+    filters: Tuple[FilterVM, ...] = ()   # All, Watch, Listen, Read: only when the member has two places or more
+    focus: Optional[str] = None          # the chosen place ("watch"), None for All
+    rows: Tuple[RowVM, ...] = ()         # Watch: Up next, Movies, TV shows (in place of Recently added)
+    focus_open: Optional[Tuple[object, str]] = None   # (place label, "/watch"): the chosen place's own site
 
 
 @dataclass(frozen=True)
@@ -307,6 +334,7 @@ class ShellVM:
     can_search: bool                      # only a member with a library is offered Library and Search
     current: str                          # home | library | search | me | account | help | help-topic | place | title
     notice: Optional[object] = None       # the operator notice this member sees (notice.ActiveNotice), AVR-365
+    filters: Tuple["FilterVM", ...] = ()  # Home only: the filters that take the places bar's row (HomeVM.filters)
 
 
 @dataclass(frozen=True)
@@ -426,8 +454,9 @@ def library_down(secs) -> bool:
     """One rule for "this library is unavailable", shared by the notice and the places bar (HOME-APP.md section 5):
     ANY of its sections said unavailable. During an outage a section may still answer from the cache for up to
     two minutes; the library is still not answering, so the place is struck and the notice says that what is
-    shown may be out of date, rather than a notice that contradicts a live-looking place."""
-    return any(sec["state"] == "unavailable" for sec in secs)
+    shown may be out of date, rather than a notice that contradicts a live-looking place. Up next (Watch) and the
+    shelves (Listen) are left out: when one alone fails, its rows are simply not shown and the library still answers."""
+    return any(sec["state"] == "unavailable" for sec in secs if sec.get("section") not in ("next_up", "shelves"))
 
 
 def build_places(tiles, view: dict) -> Tuple[PlaceVM, ...]:
@@ -441,6 +470,58 @@ def build_places(tiles, view: dict) -> Tuple[PlaceVM, ...]:
         down = bool(services) and all(library_down(held[s]) for s in services)
         out.append(PlaceVM("/" + path, label, not down))
     return tuple(out)
+
+
+HOME_ALL = "all"
+WATCH_ROWS = (("movies", "Movies", ("movie",)), ("shows", "TV shows", ("series", "episode")))
+NOTHING_UP_NEXT = "Nothing up next. The next episode of a show you are watching appears here."
+
+
+# The Audiobooks shelves (owner decision 2026-10-27), in this order after Recently added. Keys are the adapter's.
+SHELF_ROWS = (("new", "New releases"), ("classics", "Classics"), ("short", "Short listens"),
+              ("epic", "Epic listens"))
+_EXTRA_FOR = {"jellyfin": "next_up", "audiobookshelf": "shelves", "komga": "shelves"}
+# Libraries whose Recently added gives way to Recently released when nothing was added in the last two months
+# (owner decisions 2026-10-27 Audiobookshelf, 2026-10-28 Komga).
+RELEASED_FALLBACK = ("audiobookshelf", "komga")
+
+
+def extra_sections_for(raw_focus) -> Tuple[Tuple[str, str], ...]:
+    """The (library, section) pairs a Home filter needs beyond Continue and Recently added (Watch: Up next; Listen:
+    the shelves; Comics and Read: Komga's New releases), so the caller gathers them too, from that library only.
+    It only decides what to ask for; `build_home` still checks the member's own places."""
+    services = _PLACE_SERVICES.get(raw_focus, ()) if isinstance(raw_focus, str) else ()
+    return tuple((s, _EXTRA_FOR[s]) for s in services if s in _EXTRA_FOR)
+
+
+def library_extra_sections(raw_chip) -> Tuple[Tuple[str, str], ...]:
+    """The extra (library, section) pairs a Library chip needs: the Audiobooks shelves when that library is chosen."""
+    return (("audiobookshelf", "shelves"),) if raw_chip == "audiobookshelf" else ()
+
+
+def shelf_rows(shelved, limit: int, title_services, rows_of=SHELF_ROWS) -> list:
+    """One RowVM per non-empty shelf, in SHELF_ROWS order."""
+    out = []
+    for key, heading in rows_of:
+        cards = _cards([it for it in shelved if it.shelf == key][:limit],
+                       lambda it: it.detail or KIND_LABEL.get(it.kind), title_services=title_services)
+        if cards:
+            out.append(RowVM(key, heading, cards))
+    return out
+
+
+def build_filters(places, focus: Optional[str]):
+    """Home's filters and the chosen place. One per library place the member has, in the catalogue's order, after All;
+    none at all for a member with fewer than two (one place is the same list as All). An unknown or foreign `focus`
+    falls back to All and is never echoed."""
+    libs = [p for p in places if p.href[1:] in _PLACE_SERVICES]
+    if len(libs) < 2:
+        return (), None
+    keys = {p.href[1:] for p in libs}
+    chosen = focus if isinstance(focus, str) and focus in keys else None
+    out = [FilterVM(HOME_ALL, "All", "/", chosen is None)]
+    out.extend(FilterVM(p.href[1:], p.label, "/?for=" + p.href[1:], p.href[1:] == chosen, p.up) for p in libs)
+    return tuple(out), chosen
 
 
 def _round_robin(lists, limit: int):
@@ -516,16 +597,22 @@ def hero_of(it: ItemVM, state: str, title_services=frozenset()) -> Optional[Hero
 
 
 def build_home(view: dict, tiles, *, new_tab: Optional[str] = None, limit: int = RAIL_MOST,
-               member_name: str = "", title_services=frozenset()) -> HomeVM:
+               member_name: str = "", title_services=frozenset(), focus: Optional[str] = None) -> HomeVM:
     """Home as display data. Retry links point at `/` (the new tab is kept), the same page again.
     `title_services`: libraries with a title page (main.py's set), for the hero's Details link and the Recently added
     cards (which open the title page; Continue cards open the item where it plays)."""
     limit = max(1, min(int(limit), RAIL_MOST))
     held = _sections_by_service(view)
     places = build_places(tiles, view)
+    filters, focus = build_filters(places, focus)
+    focus_open = None
+    if focus is not None:      # Home for one place: only its libraries' sections, and its own site one tap away
+        held = {s: v for s, v in held.items() if s in _PLACE_SERVICES[focus]}
+        focus_open = next(((p.label, p.href) for p in places if p.href == "/" + focus and p.up), None)
     has_lib = has_library(tiles)
     name = _plain(member_name) or "Member"
-    base = dict(member_name=name, initial=initial_of(name), places=places)
+    base = dict(member_name=name, initial=initial_of(name), places=places, filters=filters, focus=focus,
+                focus_open=focus_open)
     if not has_lib:
         return HomeVM(**base, no_library=True, notices=(), show_continue=False, continue_items=(),
                       continue_said=None, show_new=False, new_tabs=(), new_items=(), new_said=None)
@@ -540,7 +627,8 @@ def build_home(view: dict, tiles, *, new_tab: Optional[str] = None, limit: int =
         elif any(sec["state"] == "not_linked" for sec in secs):
             notices.append(service_notice(service, "not_linked"))
             unset = True
-    retry_href = ("/" + (f"?new={new_tab}" if new_tab in SERVICE_LABEL else "")) if retry else None
+    keep = ([f"for={focus}"] if focus else []) + ([f"new={new_tab}"] if new_tab in SERVICE_LABEL else [])
+    retry_href = ("/" + ("?" + "&".join(keep) if keep else "")) if retry else None
     setup_href = SETUP_HELP if unset else None
     all_secs = [sec for secs in held.values() for sec in secs]
     if all_secs and not any(sec["state"] in ("ok", "empty") for sec in all_secs):
@@ -588,6 +676,57 @@ def build_home(view: dict, tiles, *, new_tab: Optional[str] = None, limit: int =
                      title_services=title_services)
         new_said = None if new else (NOTHING_NEW if len(libs) == 1 else f"Nothing recently added in {SERVICE_LABEL[tab]}.")
 
+    # Watch (owner decision 2026-10-27): Up next, then Recently added split into Movies and TV shows, in place of the
+    # one Recently added rail. Up next leaves out what Continue already shows.
+    rows = ()
+    if focus is not None and _PLACE_SERVICES[focus] == ("jellyfin",) and "jellyfin" in held:
+        shown = {it.item_id for it in cont}
+        built = []
+        if any(x["section"] == "next_up" and x["state"] in ("ok", "empty") for x in held["jellyfin"]):
+            nxt = [it for it in items_of("next_up", "jellyfin") if it.item_id not in shown][:limit]
+            built.append(RowVM("next", "Up next", _cards(nxt, lambda it: it.detail, title_services=title_services),
+                               None if nxt else NOTHING_UP_NEXT, tall=False))
+        recent = items_of("recent", "jellyfin")
+        for key, heading, kinds in WATCH_ROWS:
+            cards = _cards([it for it in recent if it.kind in kinds][:limit],
+                           lambda it: it.detail or KIND_LABEL.get(it.kind), title_services=title_services)
+            if cards:
+                built.append(RowVM(key, heading, cards))
+        rows = tuple(built)
+    elif focus is not None:
+        # Listen (owner decision 2026-10-27): Recently added, then the library's shelves, so the page leads with what
+        # the library holds. Read (two libraries): one row per library. A single row keeps the plain section.
+        services = [s for s in _PLACE_SERVICES[focus] if s in held]
+        built, released_only = [], False
+        if len(services) > 1:
+            for s in services:
+                cards = _cards(items_of("recent", s)[:limit], lambda it: it.detail or KIND_LABEL.get(it.kind),
+                               title_services=title_services)
+                if not cards and s in RELEASED_FALLBACK:      # nothing new in two months: the newest releases
+                    released = shelf_rows(items_of("shelves", s), limit, title_services,
+                                          (("new", f"Recently released {SERVICE_LABEL[s].lower()}"),))
+                    built += [RowVM(s.replace("-", ""), r.heading, r.items) for r in released]
+                    released_only = released_only or bool(released)
+                elif cards:
+                    built.append(RowVM(s.replace("-", ""), SERVICE_LABEL[s], cards))
+        elif services:
+            s = services[0]
+            cards = _cards(items_of("recent", s)[:limit], lambda it: it.detail or KIND_LABEL.get(it.kind),
+                           title_services=title_services)
+            shelved = items_of("shelves", s)
+            if cards or s not in RELEASED_FALLBACK:
+                built.append(RowVM("new", "Recently added", cards, None if cards else NOTHING_NEW))
+                built += shelf_rows(shelved, limit, title_services)
+            else:
+                # Nothing added in the last two months (owner decision 2026-10-27): the row says Recently released and
+                # shows the newest releases instead of old additions; New releases is then that row.
+                released = shelf_rows(shelved, limit, title_services, (("new", "Recently released"),))
+                built += [RowVM("new", r.heading, r.items) for r in released]
+                built += shelf_rows(shelved, limit, title_services, SHELF_ROWS[1:])
+                released_only = bool(released)
+        # One row alone is the plain Recently added section, unless it is Recently released (it must keep its name).
+        rows = tuple(built) if len(built) > 1 or released_only else ()
+
     # The hero (memo section 4, Actual states only): the member's own next thing. H1: the first Continue item that
     # is not from a library said to be down (a stale card stays in its rail, but is never the one big promise).
     # H0, nothing in progress: the first Recently added item, newest of each library in library order, whichever
@@ -602,7 +741,7 @@ def build_home(view: dict, tiles, *, new_tab: Optional[str] = None, limit: int =
         hero = hero_of(recent[0], "recent", title_services) if recent else None
     return HomeVM(**base, no_library=False, notices=tuple(notices), show_continue=bool(cont_services),
                   continue_items=_cards(cont, lambda it: it.detail, progress=True),
-                  continue_said=continue_said, show_new=True,
+                  continue_said=continue_said, show_new=not rows, rows=rows,
                   new_tabs=tuple((k, n, k == tab) for k, n in tabs), new_items=new, new_said=new_said,
                   retry_href=retry_href, setup_href=setup_href, hero=hero)
 
@@ -637,6 +776,7 @@ class ShelfVM:
     message: Optional[str] = None
     open_href: Optional[str] = None   # the member's own place route for this library, or None (no link)
     open_app: Optional[str] = None    # "Jellyfin": the app that place opens (HERO_APP)
+    rows: Tuple[RowVM, ...] = ()      # one library chosen: its rows (Movies and TV shows; Recently added and shelves)
 
 
 @dataclass(frozen=True)
@@ -652,6 +792,10 @@ class LibraryVM:
     setup_href: Optional[str] = None       # "What to do next": a library is not set up for this member
     asks: Tuple[Tuple[str, object, object], ...] = ()   # (href, label, description): catalogue text (Trusted)
     asks_heading: str = "Requests"         # "Request or contribute" when both rows are there; contributing is no request
+    view: str = "large"                    # the layout (LIBRARY_VIEWS); never anything from the address
+    views: Tuple[Tuple[str, str, str, bool], ...] = ()   # (key, label, href, current): the layout switcher
+    view_label: str = "Shelves"            # the chosen layout's name, on the layout button
+    list_class: str = "rail"               # the class every list of cards on this page takes (LIBRARY_LIST_CLASS)
 
 
 def asks_heading_of(asks) -> str:
@@ -661,17 +805,39 @@ def asks_heading_of(asks) -> str:
     return "Requests"
 
 
-def library_href(key: str) -> str:
-    return "/library" + ("" if key == LIBRARY_ALL else f"?lib={key}")
+# The Library's layouts (owner decisions 2026-10-27; reworked the same day): Shelves (rows that scroll sideways,
+# the default; a page with one row shows it as a grid), Grid (large covers), Compact (a dense wall of small covers)
+# and List (a small cover beside its words). A text-only list was dropped: covers are how people find media. Chosen
+# with `?view=`; the chosen library chip is kept, and the reverse. The first names stay readable as aliases.
+LIBRARY_VIEWS = (("shelves", "Shelves"), ("grid", "Grid"), ("compact", "Compact"), ("list", "List"))
+LIBRARY_VIEW_DEFAULT = "shelves"
+LIBRARY_VIEW_ALIAS = {"large": "grid", "small": "compact", "details": "list"}
+# The class each layout gives a list of cards (the page script mirrors this when it switches in place).
+LIBRARY_LIST_CLASS = {"grid": "lib-grid", "compact": "lib-grid lib-v-compact", "list": "lib-grid lib-v-list"}
+
+
+def list_class_of(layout: str, shelves) -> str:
+    """Shelves are rows that scroll sideways, except that a page with only one row shows it as a grid."""
+    if layout != "shelves":
+        return LIBRARY_LIST_CLASS[layout]
+    lists = sum(len(sh.rows) or 1 for sh in shelves if sh.items)
+    return "rail" if lists > 1 else "lib-grid"
+
+
+def library_href(key: str, view: str = LIBRARY_VIEW_DEFAULT) -> str:
+    query = ([] if key == LIBRARY_ALL else [f"lib={key}"]) + ([] if view == LIBRARY_VIEW_DEFAULT else [f"view={view}"])
+    return "/library" + ("?" + "&".join(query) if query else "")
 
 
 def build_library(view: dict, tiles, *, chip: Optional[str] = None, limit: int = RAIL_MOST,
-                  open_paths=None, title_services=frozenset()) -> LibraryVM:
+                  open_paths=None, title_services=frozenset(), view_mode: Optional[str] = None) -> LibraryVM:
     """The Library page as display data. `chip` is the bounded `?lib=` text (identity.library_chip_from_scope): it is
     matched against THIS member's own libraries only and is never echoed; anything else is All. `open_paths`:
     service -> the member's own place route (already group-filtered by the caller). A library is named only when
     this member's sections hold it (`member_view()` omits a library the member cannot use)."""
     limit = max(1, min(int(limit), RAIL_MOST))
+    view_mode = LIBRARY_VIEW_ALIAS.get(view_mode, view_mode) if isinstance(view_mode, str) else None
+    layout = view_mode if view_mode in dict(LIBRARY_VIEWS) else LIBRARY_VIEW_DEFAULT
     asks = tuple(("/" + path, label, desc) for path, label, desc in tiles if path in LIBRARY_ASKS)
     if not has_library(tiles):
         return LibraryVM(no_library=True, asks=asks, asks_heading=asks_heading_of(asks))
@@ -679,8 +845,9 @@ def build_library(view: dict, tiles, *, chip: Optional[str] = None, limit: int =
     mine = [s for s in SERVICE_ORDER if s in held]
     down = {s for s in mine if library_down(held[s])}
     chosen = chip if isinstance(chip, str) and chip in mine else LIBRARY_ALL
-    chips = (LibraryChipVM(LIBRARY_ALL, "All", library_href(LIBRARY_ALL), chosen == LIBRARY_ALL),) + tuple(
-        LibraryChipVM(s, SERVICE_LABEL[s], library_href(s), chosen == s, s in down) for s in mine)
+    chips = (LibraryChipVM(LIBRARY_ALL, "All", library_href(LIBRARY_ALL, layout), chosen == LIBRARY_ALL),) + tuple(
+        LibraryChipVM(s, SERVICE_LABEL[s], library_href(s, layout), chosen == s, s in down) for s in mine)
+    views = tuple((k, label, library_href(chosen, k), k == layout) for k, label in LIBRARY_VIEWS)
     shown = mine if chosen == LIBRARY_ALL else [chosen]
     paths = open_paths or {}
 
@@ -705,8 +872,23 @@ def build_library(view: dict, tiles, *, chip: Optional[str] = None, limit: int =
         cards = _cards(recent_of(s)[:limit], lambda it: it.detail or KIND_LABEL.get(it.kind),
                        title_services=title_services)
         app = HERO_APP[s] if open_href else None
+        rows = ()
+        if chosen != LIBRARY_ALL:              # one library: its own rows, where it has more than one
+            recent = recent_of(s)
+            if s == "jellyfin":
+                built = [RowVM(key, heading, _cards([it for it in recent if it.kind in kinds][:limit],
+                                                    lambda it: it.detail or KIND_LABEL.get(it.kind),
+                                                    title_services=title_services))
+                         for key, heading, kinds in WATCH_ROWS]
+                built = [r for r in built if r.items]
+            else:
+                built = [RowVM("new", "Recently added", cards)] if cards else []
+                shelved = [vm for sec in held[s] if sec["section"] == "shelves" and sec["state"] == "ok"
+                           for vm in (_item_vm(it) for it in sec.get("items", ())) if vm is not None]
+                built += shelf_rows(shelved, limit, title_services)
+            rows = tuple(built) if len(built) > 1 else ()
         if cards:
-            shelves.append(ShelfVM(s, label, "ok", cards, open_href=open_href, open_app=app))
+            shelves.append(ShelfVM(s, label, "ok", cards, open_href=open_href, open_app=app, rows=rows))
         else:
             shelves.append(ShelfVM(s, label, "empty", message=f"Nothing recently added in {label}.",
                                    open_href=open_href, open_app=app))
@@ -717,9 +899,10 @@ def build_library(view: dict, tiles, *, chip: Optional[str] = None, limit: int =
         said = NOTHING_NEW                     # nothing anywhere: one honest line, not a column of empty shelves
     return LibraryVM(no_library=False, chips=chips, chosen=chosen,
                      chosen_label=None if chosen == LIBRARY_ALL else SERVICE_LABEL[chosen],
-                     warnings=tuple(warnings), retry_href=library_href(chosen) if warnings else None,
+                     warnings=tuple(warnings), retry_href=library_href(chosen, layout) if warnings else None,
                      shelves=tuple(shelves), said=said, setup_href=SETUP_HELP if unset else None, asks=asks,
-                     asks_heading=asks_heading_of(asks))
+                     asks_heading=asks_heading_of(asks), view=layout, views=views,
+                     view_label=dict(LIBRARY_VIEWS)[layout], list_class=list_class_of(layout, shelves))
 
 
 # ---- search page (AVR-383) --------------------------------------------------------------------------------

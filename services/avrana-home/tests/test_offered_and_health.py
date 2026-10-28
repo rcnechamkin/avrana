@@ -44,7 +44,7 @@ class NotOffered(Setup):
         self.assertIn(("jellyfin", "recent"), pairs)
         self.assertIn(("audiobookshelf", "continue"), pairs)
         self.assertIn(("komga", "recent"), pairs)
-        self.assertNotIn(("audiobookshelf", "recent"), pairs)
+        self.assertIn(("audiobookshelf", "recent"), pairs)                 # offered since 2026-10-27
         self.assertNotIn(("komga", "continue"), pairs)
         self.assertEqual(set(view), {"sections"})                          # the member_view keys are unchanged
         for s in view["sections"]:
@@ -66,8 +66,10 @@ class NotOffered(Setup):
 
     def test_the_declarations(self):
         self.assertEqual(self.jellyfin.not_offered, frozenset())
-        self.assertEqual(self.abs.not_offered, frozenset({"recent"}))
+        self.assertEqual(self.abs.not_offered, frozenset())
+        self.assertEqual(self.abs.extra_sections, frozenset({"shelves"}))
         self.assertEqual(self.komga.not_offered, frozenset({"continue"}))
+        self.assertEqual(self.komga.extra_sections, frozenset({"shelves"}))          # New releases, since 2026-10-28
         cwa = CalibreWebAdapter(FakeTransport(FakeKomga(self.clock)), clock=self.clock,
                                 owner_confirms_no_member_restrictions=True)
         self.assertEqual(cwa.not_offered, frozenset({"continue", "item"}))
@@ -78,7 +80,7 @@ class NotOffered(Setup):
 class NotOfferedHelper(Setup):
     def test_the_shared_helper_gates_on_the_group_first(self):
         outsider = make_principal("member-a", ("avrana-users",))
-        for call in (self.abs.recent_items, self.komga.continue_items):
+        for call in (self.abs.next_up_items, self.komga.continue_items):
             self.assertEqual(call(outsider).state, SectionState.NOT_PERMITTED)
             self.assertEqual(call(self.p).state, SectionState.EMPTY)
         with self.assertRaises(TypeError):
@@ -97,7 +99,7 @@ class Health(Setup):
         self.assertEqual(health_summary([])["libraries"], "ok")
 
     def test_one_failing_adapter_degrades_the_summary_and_the_others_stay_ok(self):
-        self.kg.overrides["/api/v1/books/latest"] = ("status", 500)
+        self.kg.overrides["/api/v1/books"] = ("status", 500)
         for name in ("member-a", "member-b", "member-c"):
             self.komga.recent_items(make_principal(name, ALL))
         h = health_summary(self.adapters)

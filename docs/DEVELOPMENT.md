@@ -71,7 +71,7 @@ One test: add `-k name` to a `unittest discover` command.
 
 Not run by `run_offline.py` today (a gap, not a design): `services/avrana-imax-verify/tests/test_server.py`
 (standard library, passes; run it with the command above), `scripts/test_epub_audiobook_matcher.py` and
-`scripts/test-storage-log-check.py` (standard library), the Audible connector tests under
+`scripts/test-storage-log-check.py` and `scripts/test_api_caps_monitor.py` (standard library), the Audible connector tests under
 `services/avrana-audible-connector/connector/tests/` (their `pytest` and `fastapi` are in the pinned set,
 but the suite itself is not wired in; the UI harness renders its pages), and
 `services/calibre-web-automated/tests/` (needs the patched image). **Do not run

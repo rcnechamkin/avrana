@@ -1,5 +1,8 @@
 {% extends "base.html" %}
 {% from "_parts.html" import card %}
+{% macro layout_icon(key) -%}
+<svg class="ic" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">{% if key == "shelves" %}<rect x="3.5" y="4.5" width="5" height="6.5" rx="1"/><rect x="10" y="4.5" width="5" height="6.5" rx="1"/><path d="M16.5 4.5h4M16.5 11h4"/><rect x="3.5" y="13.5" width="5" height="6.5" rx="1"/><rect x="10" y="13.5" width="5" height="6.5" rx="1"/><path d="M16.5 13.5h4M16.5 20h4"/>{% elif key == "grid" %}<rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/>{% elif key == "compact" %}<rect x="4" y="4" width="4" height="4" rx="1"/><rect x="10" y="4" width="4" height="4" rx="1"/><rect x="16" y="4" width="4" height="4" rx="1"/><rect x="4" y="10" width="4" height="4" rx="1"/><rect x="10" y="10" width="4" height="4" rx="1"/><rect x="16" y="10" width="4" height="4" rx="1"/><rect x="4" y="16" width="4" height="4" rx="1"/><rect x="10" y="16" width="4" height="4" rx="1"/><rect x="16" y="16" width="4" height="4" rx="1"/>{% else %}<rect x="4" y="4.5" width="4" height="5" rx="1"/><rect x="4" y="14.5" width="4" height="5" rx="1"/><path d="M11 6h9M11 8.5h6M11 16h9M11 18.5h6"/>{% endif %}</svg>
+{%- endmacro %}
 {% block title %}{% if page.chosen_label %}{{ page.chosen_label }} · {% endif %}Library · Avrana{% endblock %}
 {% block body %}
 {# The Library page (Concept K MK-5a, AVR-719; memo sections 2, 3 and 6). Server-rendered, no script, no form (the
@@ -7,12 +10,25 @@
    THIS member: a library the member cannot use is never named. The chips are plain links; the chosen one carries
    the yellow tint, rim and a check glyph, and aria-current="true" (the tab bar's Library tab is the page). A library
    that is down is a warning (rectangle, glyph, words, amber edge) with Home's own sentence and no items. The
-   top-right glass utility holds Search only: sorting is not built (no honest order without new data). #}
+   top right holds only the layout button (owner review 2026-10-27: Search is already a tab, and the icon names the
+   layout without words). #}
   <div class="lib-head">
     <h2 class="topic" id="h-library">Library</h2>
-{% if shell and shell.can_search %}
-    <div class="utility glass"><a class="util" href="/search"><svg class="ic" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false"><circle cx="10.5" cy="10.5" r="6"/><path d="m15 15 5 5"/></svg><span class="sr">Search</span></a></div>
+    <div class="lib-tools">
+{% if page.views and page.shelves and not page.said %}
+{#- The layout button (owner decision 2026-10-27): one small control that opens a menu of four plain links, the
+   chosen one aria-current. With the page script, choosing one rearranges the cards in place (they glide to their new
+   places) and updates the address; without it, each is an ordinary link. #}
+      <details class="lib-layout" data-layout="{{ page.view }}">
+        <summary class="lib-layout-btn glass">{{ layout_icon(page.view) }}<span class="sr">Layout: <span class="lib-layout-t">{{ page.view_label }}</span></span></summary>
+        <ul class="lib-layout-menu glass">
+{% for key, label, href, current in page.views %}
+          <li><a class="lib-view" href="{{ href }}" data-view="{{ key }}"{% if current %} aria-current="true"{% endif %}>{{ layout_icon(key) }}<span class="lib-view-t">{{ label }}</span></a></li>
+{% endfor %}
+        </ul>
+      </details>
 {% endif %}
+    </div>
   </div>
 {% if page.no_library %}
   <section class="shelf" aria-labelledby="h-none">
@@ -58,7 +74,7 @@
 {% endif %}
     </div>
 {% if sh.items %}
-    <ul class="rail">
+    <ul class="{{ page.list_class }}" data-lib-list>
 {% for c in sh.items %}{{ card(c) }}
 {% endfor %}
     </ul>
@@ -71,8 +87,18 @@
 {% for sh in page.shelves %}
   <section class="shelf lib-shelf lib-one" aria-labelledby="l-{{ loop.index }}">
     <h2 class="sr" id="l-{{ loop.index }}">{{ sh.label }}</h2>
-{% if sh.items %}
-    <ul class="lib-grid">
+{% if sh.rows %}
+{% for row in sh.rows %}
+    <div class="lib-row">
+      <h3 class="lib-row-h" id="l-{{ loop.index }}-{{ row.key }}">{{ row.heading }}</h3>
+      <ul class="{{ page.list_class }}" data-lib-list aria-labelledby="l-{{ loop.index }}-{{ row.key }}">
+{% for c in row.items %}{{ card(c) }}
+{% endfor %}
+      </ul>
+    </div>
+{% endfor %}
+{% elif sh.items %}
+    <ul class="{{ page.list_class }}" data-lib-list>
 {% for c in sh.items %}{{ card(c) }}
 {% endfor %}
     </ul>

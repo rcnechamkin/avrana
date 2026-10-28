@@ -13,7 +13,9 @@
         this script makes and the one place it prevents the browser's navigation: it fetches the same-origin title
         page the link names, with the member's own cookies, and shows that page's title section. Anything unexpected
         (a redirect, an error, an older browser) and the link simply navigates, as it does with the script off, and
-     9. chrome that follows the scroll: two marks on <html> the stylesheet reads (part 9).
+     9. chrome that follows the scroll: two marks on <html> the stylesheet reads (part 9), and
+     10. the Library's layout menu: choosing a layout rearranges the cards in place, each gliding from where it was
+        to where it now is, and puts the choice in the address (owner decision 2026-10-27).
    It uses no browser storage, writes no HTML from text and does nothing when its elements are absent; only the
    title sheet (8) reads member data, and only the title page the member asked for. Inline preview behaviour (MK-4) is not here yet. */
 (function () {
@@ -580,6 +582,106 @@
     update();
   }
 
+  /* 10. The Library's layout menu. Contract: <details class="lib-layout"> holds <a class="lib-view" data-view="...">
+     links (each a full page address that works on its own), and every list of cards carries data-lib-list. A plain
+     click on a layout gives each list the class that layout's page would print (the same rule as viewmodel.py
+     LIBRARY_LIST_CLASS and list_class_of), replaces the address, moves aria-current, keeps the chosen layout in the
+     library links, closes the menu and returns focus to its button. Each card then glides from its old box to its
+     new one (Web Animations on transform only: first, last, invert, play); with reduced motion it simply changes.
+     A click outside the open menu, or Escape, closes it. Without this, each layout is an ordinary link. */
+  var LIST_CLASS = { grid: 'lib-grid', compact: 'lib-grid lib-v-compact', list: 'lib-grid lib-v-list' };
+  var GLIDE = { duration: 420, easing: 'cubic-bezier(0.32, 0.72, 0, 1)' };
+
+  function boxes(lists) {
+    var out = [];
+    for (var i = 0; i < lists.length; i += 1) {
+      var items = lists[i].children;
+      for (var j = 0; j < items.length; j += 1) {
+        var frame = items[j].querySelector('.frame');
+        out.push({ li: items[j], frame: frame, at: items[j].getBoundingClientRect(),
+                   art: frame ? frame.getBoundingClientRect() : null });
+      }
+    }
+    return out;
+  }
+
+  function onScreen(rect) {
+    return rect.bottom > -200 && rect.top < window.innerHeight + 200 && rect.right > -200 && rect.left < window.innerWidth + 200;
+  }
+
+  function glide(before) {
+    for (var i = 0; i < before.length; i += 1) {
+      var b = before[i];
+      var now = b.li.getBoundingClientRect();
+      if (!onScreen(now) && !onScreen(b.at)) continue;
+      var dx = b.at.left - now.left, dy = b.at.top - now.top;
+      if (typeof b.li.animate !== 'function') return;
+      b.li.animate([{ transform: 'translate(' + dx + 'px, ' + dy + 'px)' }, { transform: 'none' }], GLIDE);
+      var art = b.frame ? b.frame.getBoundingClientRect() : null;
+      if (art && b.art && art.width > 0 && b.art.width > 0) {
+        var tx = (b.art.left - art.left) - dx, ty = (b.art.top - art.top) - dy;
+        b.frame.animate([
+          { transform: 'translate(' + tx + 'px, ' + ty + 'px) scale(' + (b.art.width / art.width) + ', ' +
+            (b.art.height / art.height) + ')', transformOrigin: '0 0' },
+          { transform: 'none', transformOrigin: '0 0' }], GLIDE);
+      }
+    }
+  }
+
+  function withView(href, view) {
+    var url = new URL(href, window.location.href);
+    if (view === 'shelves') url.searchParams.delete('view');
+    else url.searchParams.set('view', view);
+    return url.pathname + url.search + url.hash;
+  }
+
+  function layout() {
+    var menu = document.querySelector('details.lib-layout');
+    if (!menu || !window.history || typeof window.history.replaceState !== 'function') return;
+    var button = menu.querySelector('summary');
+
+    function close(refocus) {
+      if (!menu.hasAttribute('open')) return;
+      menu.removeAttribute('open');
+      if (refocus && button) button.focus();
+    }
+
+    menu.addEventListener('click', function (event) {
+      var link = event.target && event.target.closest ? event.target.closest('a.lib-view') : null;
+      if (!link || event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey ||
+          event.altKey) return;
+      var view = link.getAttribute('data-view');
+      var lists = document.querySelectorAll('[data-lib-list]');
+      if (!view || !lists.length || (view !== 'shelves' && !LIST_CLASS[view])) return;
+      event.preventDefault();
+      var cls = view === 'shelves' ? (lists.length > 1 ? 'rail' : 'lib-grid') : LIST_CLASS[view];
+      var motion = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      var before = motion ? boxes(lists) : null;
+      for (var i = 0; i < lists.length; i += 1) lists[i].setAttribute('class', cls);
+      menu.setAttribute('data-layout', view);
+      var links = menu.querySelectorAll('a.lib-view');
+      for (var j = 0; j < links.length; j += 1) {
+        if (links[j] === link) links[j].setAttribute('aria-current', 'true');
+        else links[j].removeAttribute('aria-current');
+      }
+      var icon = link.querySelector('svg.ic'), shown = button && button.querySelector('svg.ic');
+      if (icon && shown) button.replaceChild(icon.cloneNode(true), shown);
+      var words = link.querySelector('.lib-view-t'), label = button && button.querySelector('.lib-layout-t');
+      if (words && label) label.textContent = words.textContent;
+      window.history.replaceState(window.history.state, '', link.getAttribute('href'));
+      var keep = document.querySelectorAll('nav.chips a.chip, a.k-warn-act');
+      for (var k = 0; k < keep.length; k += 1) keep[k].setAttribute('href', withView(keep[k].getAttribute('href'), view));
+      close(true);
+      if (before) glide(before);
+    });
+    document.addEventListener('click', function (event) {
+      if (menu.hasAttribute('open') && !menu.contains(event.target)) close(false);
+    });
+    document.addEventListener('keydown', function (event) {
+      if (event.key === 'Escape' && menu.hasAttribute('open')) close(true);
+    });
+  }
+
   lens();
   bfcache();
   worker();
@@ -589,4 +691,5 @@
   press();
   sheet();
   chrome();
+  layout();
 })();

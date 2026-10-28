@@ -1,4 +1,4 @@
-"""Komga read-only catalogue adapter: one section, "Recently added" (comics). A SHARED REGULAR-ACCOUNT VIEW.
+"""Komga read-only catalogue adapter: "Recently added" and one shelf, New releases (comics). A SHARED REGULAR-ACCOUNT VIEW.
 
 Status: proposed, not deployed. Standard library only. Proven only against HAND-WRITTEN fixtures that
 are unverified against the deployed Komga; a recorded, read-only contract check is a separate,
@@ -19,8 +19,13 @@ ever have Komga restrictions, so there is nothing per member to enforce. What th
     can never be shown as a member's own. "Continue" is not offered. The `ondeck`, read-list, collection and
     per-user routes are not in the route table.
   * The credential lives only inside the transport (a header, never a URL). Every request goes through
-    `GuardedTransport`: GET only, an explicit four-route list (latest, book, search, thumbnail), no query
-    keys beyond the list.
+    `GuardedTransport`: GET only, an explicit three-route list (books, book, thumbnail), no query keys
+    beyond the list.
+  * Recently added (owner decision 2026-10-28) is the book list sorted by `created` (when Komga first
+    scanned the file), only books added in the last RECENT_DAYS, one book per series (its newest). It is NOT
+    `/api/v1/books/latest`: live, that route orders by last modification, so one new issue lifted its whole
+    series, and a 2025 bulk scan shares one `created` second. The New releases shelf is the same list sorted
+    by `metadata.releaseDate`, one book per series; Home shows it as Recently released when nothing is new.
   * Hand-off and artwork never use an upstream URL: the contract builder makes the hand-off URL from the
     validated book id.
 
@@ -34,6 +39,7 @@ from __future__ import annotations
 
 import dataclasses
 import re
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, Optional, Tuple
 
 from ..contract import (ArtworkRef, ArtworkResult, DEFAULT_LIMIT, Kind, MediaItem, SectionResult,
@@ -51,11 +57,15 @@ _BOUND_ID = re.compile(SHARED_VIEWER)
 _ID = r"[A-Za-z0-9]{6,32}"
 _ARTWORK_REF = re.compile(r"komga/book/(" + _ID + r")")
 MAX_PAGE = 100                   # books asked for in one page, whatever the limit
+# Recently added means added in the last two months (owner decision 2026-10-28, as Audiobookshelf's of 2026-10-27).
+RECENT_DAYS = 60
+# Comics carry cover dates about two months ahead of sale; a release date further out than this is not "new".
+RELEASE_AHEAD_DAYS = 92
+ADDED_SORT, RELEASED_SORT = "created,desc", "metadata.releaseDate,desc"     # fixed values, never member input
 
 ALLOWED_ROUTES = (
-    Route("latest", r"/api/v1/books/latest", ("page", "size"), user_scoped=False, not_found=RouteMissing),
+    Route("books", r"/api/v1/books", ("search", "sort", "page", "size"), user_scoped=False, not_found=RouteMissing),
     Route("book", r"/api/v1/books/(?!(?:latest|updated|ondeck)$)" + _ID, (), user_scoped=False, not_found=ItemGone),
-    Route("search", r"/api/v1/books", ("search", "page", "size"), user_scoped=False, not_found=RouteMissing),
     Route("thumbnail", r"/api/v1/books/(?!(?:latest|updated|ondeck)/)" + _ID + r"/thumbnail", (), user_scoped=False,
           not_found=ItemGone),
 )
@@ -88,9 +98,37 @@ def _creator(authors: Any) -> Optional[str]:
     return clean_text(pick.get("name")) if pick else None
 
 
+def _today() -> date:
+    return datetime.now(timezone.utc).date()
+
+
+def _created(raw: dict) -> Optional[datetime]:
+    """When Komga first scanned the book (`created`, ISO 8601), or None: a book without one is never "recent"."""
+    value = raw.get("created")
+    if not isinstance(value, str) or len(value) > 40:
+        return None
+    try:
+        when = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return when if when.tzinfo else when.replace(tzinfo=timezone.utc)
+
+
+def _released(raw: dict) -> Optional[date]:
+    info = raw.get("metadata") if isinstance(raw.get("metadata"), dict) else {}
+    value = info.get("releaseDate")
+    if not isinstance(value, str) or len(value) > 40:
+        return None
+    try:
+        return date.fromisoformat(value.strip()[:10])
+    except ValueError:
+        return None
+
+
 class KomgaAdapter(GuardedAdapter):
     service = Service.KOMGA
     not_offered = frozenset({"continue"})
+    extra_sections = frozenset({"shelves"})
 
     def __init__(self, transport: Transport, timeout: float = DEFAULT_TIMEOUT, *,
                  owner_confirms_no_member_restrictions: bool = False, **kw):
@@ -164,32 +202,58 @@ class KomgaAdapter(GuardedAdapter):
 
     # -- hooks -----------------------------------------------------------------------------
     def _recent_items(self, user: UpstreamUser, limit: int) -> SectionResult:
-        return self._listing(user, limit, "/api/v1/books/latest", {}, "recent")
+        since = datetime.now(timezone.utc) - timedelta(days=RECENT_DAYS)
+
+        def keep(raw):
+            when = _created(raw)
+            return when is not None and when >= since
+        return self._listing(user, limit, "/api/v1/books", {"sort": ADDED_SORT}, "recent", keep=keep,
+                             per_series=True, size=MAX_PAGE)
+
+    def _shelves_items(self, user: UpstreamUser, limit: int) -> SectionResult:
+        """One shelf, New releases: the newest release dates, one book per series. Shown as Recently released when
+        nothing was added in the last RECENT_DAYS."""
+        latest = _today() + timedelta(days=RELEASE_AHEAD_DAYS)
+
+        def keep(raw):
+            day = _released(raw)
+            return day is not None and day <= latest
+        return self._listing(user, limit, "/api/v1/books", {"sort": RELEASED_SORT}, "shelves", keep=keep,
+                             per_series=True, size=MAX_PAGE, shelf="new")
 
     def _search(self, user: UpstreamUser, query: str, limit: int) -> SectionResult:
         """Search is the SAME shared-account listing as recent (contract 12.2): Komga applies the one regular
         account's library sharing to the answer; there is no per-member filter. The term is a query parameter only."""
         return self._listing(user, limit, "/api/v1/books", {"search": query}, "search")
 
-    def _listing(self, user: UpstreamUser, limit: int, path: str, params: Dict[str, str],
-                 section: str) -> SectionResult:
+    def _listing(self, user: UpstreamUser, limit: int, path: str, params: Dict[str, str], section: str, *,
+                 keep=None, per_series: bool = False, size: Optional[int] = None,
+                 shelf: Optional[str] = None) -> SectionResult:
+        """One page of books, in the upstream's order. `keep` drops a book legitimately (not drift); `per_series`
+        keeps only the first (newest) book of each series."""
         guard, budget = self._guard.bind(user.upstream_id), self._budget()
-        size = min(MAX_PAGE, limit * 3)
+        size = min(MAX_PAGE, size or limit * 3)
         body = self._get_json(guard, budget, path, dict(params, page="0", size=str(size)))
         raws = body.get("content") if isinstance(body, dict) else None
         if not isinstance(raws, list):
             raise UpstreamMalformed()
         if len(raws) > size:
             raise UpstreamMisbehaved()                         # the page size was ignored
-        shown = []
+        shown, series = [], set()
         bad = 0
         for raw in raws:
             if len(shown) >= limit:
                 break
             item, status = self._book(raw)
             bad += status == "bad"
-            if item is not None and all(item.id != s.id for s in shown):
-                shown.append(item)
+            if item is None or (keep is not None and not keep(raw)) or any(item.id == s.id for s in shown):
+                continue
+            if per_series:
+                key = raw.get("seriesId") if isinstance(raw.get("seriesId"), str) else item.id
+                if key in series:
+                    continue
+                series.add(key)
+            shown.append(dataclasses.replace(item, shelf=shelf) if shelf else item)
         if not shown and bad:
             raise UpstreamMalformed()                          # nothing usable and some drift: never "empty"
         return SectionResult.of(Service.KOMGA, section, tuple(shown))

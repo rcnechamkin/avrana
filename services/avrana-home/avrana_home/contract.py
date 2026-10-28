@@ -286,6 +286,9 @@ class MediaItem:
     # A wide 16:9 backdrop (Jellyfin's Backdrop image; an episode borrows its series'), for Home's hero only. Same
     # opaque, member-checked artwork path as `artwork`; in to_dict() only when present.
     backdrop: Optional[ArtworkRef] = None
+    # Which shelf of a "shelves" section the item belongs to ("new", "classics", "short", "epic"); a fixed key set
+    # by the adapter, never upstream text. In to_dict() only when present.
+    shelf: Optional[str] = None
 
     def to_dict(self) -> dict:
         progress = None
@@ -303,6 +306,8 @@ class MediaItem:
                "handoff_url": self.handoff_url}
         if self.backdrop:
             out["backdrop"] = self.backdrop.to_dict()
+        if self.shelf:
+            out["shelf"] = self.shelf
         return out
 
 
@@ -310,7 +315,7 @@ class MediaItem:
 class SectionResult:
     """One home-page section from one service. Stable data contract for the UI."""
     service: Service
-    section: str                  # "continue" | "recent" | "item" | "search"
+    section: str                  # "continue" | "recent" | "next_up" | "shelves" | "item" | "search"
     state: SectionState
     items: Tuple[MediaItem, ...] = ()
     reason: Optional[str] = None  # fixed diagnostic code for operators; NOT for display
@@ -436,6 +441,9 @@ class MediaAdapter:
     # request them at all, so the member view carries no empty noise; the methods still answer
     # (EMPTY, reason `not_offered`) for a direct caller.
     not_offered: frozenset = frozenset()
+    # Sections beyond Continue and Recently added that this adapter DOES offer ("next_up": Jellyfin only). `gather`
+    # asks only the adapters that list one, so no other adapter is ever called for it.
+    extra_sections: frozenset = frozenset()
     # True for a service whose upstream decides item visibility PER MEMBER (Jellyfin, Audiobookshelf): the
     # artwork hook then takes `cached=` and re-checks visibility before it may return cached bytes. False for
     # a shared view (Komga, Calibre-Web), where the group is the whole permission. See `fetch_artwork`.
@@ -490,6 +498,12 @@ class MediaAdapter:
     def _recent_items(self, user: UpstreamUser, limit: int) -> SectionResult:
         raise NotImplementedError
 
+    def _next_up_items(self, user: UpstreamUser, limit: int) -> SectionResult:
+        raise NotImplementedError
+
+    def _shelves_items(self, user: UpstreamUser, limit: int) -> SectionResult:
+        raise NotImplementedError
+
     def _item(self, user: UpstreamUser, item_id: str) -> SectionResult:
         raise NotImplementedError
 
@@ -521,6 +535,21 @@ class MediaAdapter:
         limit = _limit(limit)
         return self._section(principal, "recent", f"recent:{limit}",
                              lambda user: self._recent_items(user, limit))
+
+    def next_up_items(self, principal: MemberPrincipal, limit: int = DEFAULT_LIMIT) -> SectionResult:
+        return self._extra(principal, "next_up", limit, self._next_up_items)
+
+    def shelves_items(self, principal: MemberPrincipal, limit: int = DEFAULT_LIMIT) -> SectionResult:
+        return self._extra(principal, "shelves", limit, self._shelves_items)
+
+    def _extra(self, principal: MemberPrincipal, section: str, limit: int, hook) -> SectionResult:
+        limit = _limit(limit)
+        if section not in self.extra_sections:         # no upstream call, no cache access
+            self._require_principal(principal)
+            if not principal.has_group(self.required_group):
+                return self._not_permitted(section)
+            return SectionResult(self.service, section, SectionState.EMPTY, reason="not_offered")
+        return self._section(principal, section, f"{section}:{limit}", lambda user: hook(user, limit))
 
     def item(self, principal: MemberPrincipal, item_id: str, fresh: bool = False) -> SectionResult:
         """One item for this member. `fresh=True` (the title page) skips the member cache entirely, no read and no
@@ -914,7 +943,7 @@ class MediaAdapter:
         return result
 
     def cache_ttl(self, section: str) -> float:
-        return {"continue": 30.0, "recent": 120.0, "item": 120.0}.get(section, 30.0)
+        return {"continue": 30.0, "recent": 120.0, "next_up": 30.0, "shelves": 300.0, "item": 120.0}.get(section, 30.0)
 
 
 def _limit(limit: Any) -> int:

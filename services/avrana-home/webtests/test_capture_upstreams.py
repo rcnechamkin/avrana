@@ -58,7 +58,7 @@ BODIES = {
                                "path": "/audiobooks/Secret Author/Secret Book",
                                "media": {"metadata": {"title": "Secret Book", "authorName": "Jane Secret", "explicit": False}}},
     "/api/v2/users": [{"id": KG_USER, "email": EMAIL, "sharedAllLibraries": True}],
-    "/api/v1/books/latest": {"content": [{"id": KG_BOOK, "seriesId": KG_SERIES, "name": "Secret Comic",
+    "/api/v1/books": {"content": [{"id": KG_BOOK, "seriesId": KG_SERIES, "name": "Secret Comic",
                                           "url": "/data/comics/Secret Comic.cbz"}]},
     f"/api/v1/books/{KG_BOOK}": {"id": KG_BOOK, "seriesId": KG_SERIES, "name": "Secret Comic",
                                  "url": "/data/comics/Secret Comic.cbz", "number": 3},
@@ -97,7 +97,7 @@ class Stub:
                 auth = self.headers.get("Authorization", "") + "|" + self.headers.get("X-API-Key", "")
                 good = any(t in auth for t in (JF_KEY, ABS_TOKEN, KOMGA_TOKEN)) or "Basic" in auth
                 stub.hits.append((self.command, path, query, good))
-                if stub.redirect_users and path == "/api/v1/books/latest":
+                if stub.redirect_users and path == "/api/v1/books":
                     self.send_response(302)
                     self.send_header("Location", "/redirect-target")
                     self.end_headers()
@@ -376,7 +376,7 @@ class Runs(unittest.TestCase):
                 self.assertNotIn(bad, text)
             self.assertIn("DRY RUN", out)
             for line in ("GET /Users", "GET /UserItems/Resume", "GET /api/users",
-                         "GET /api/v1/books/latest", "GET /opds/new"):
+                         "GET /api/v1/books", "GET /opds/new"):
                 self.assertIn(line, out)
             self.assertNotIn("/api/v2/users", out)               # Komga is a shared view: no admin-only call
 
@@ -405,7 +405,7 @@ class Runs(unittest.TestCase):
             allowed = set(BODIES) | {"/opds/cover_240_240/9999", f"/api/users/{ABS_BOB}"}
             self.assertTrue({h[1] for h in stub.hits} <= allowed, {h[1] for h in stub.hits} - allowed)
             self.assertNotIn("/api/v2/users", {h[1] for h in stub.hits})
-            for must in ("/Users", "/api/users", "/api/v1/books/latest", "/opds/new", f"/api/users/{ABS_ALICE}",
+            for must in ("/Users", "/api/users", "/api/v1/books", "/opds/new", f"/api/users/{ABS_ALICE}",
                          f"/api/items/{ABS_ITEM}", f"/api/v1/books/{KG_BOOK}"):
                 self.assertIn(must, {h[1] for h in stub.hits})
             files = outputs(target)
@@ -435,7 +435,7 @@ class Runs(unittest.TestCase):
         with Stub(redirect_users=True) as stub, tempfile.TemporaryDirectory() as d:
             code, out, err = run(["--out", str(Path(d) / "c"), "--services", "komga"], stub.env())
             self.assertEqual(0, code)
-            self.assertEqual(["/api/v1/books/latest"], [h[1] for h in stub.hits])
+            self.assertEqual(["/api/v1/books"], [h[1] for h in stub.hits])
             m = json.loads((Path(d) / "c" / "manifest.json").read_text())
             self.assertEqual(302, m["entries"][0]["status"])
             self.assertEqual("redirect_refused", m["entries"][0]["error"])
@@ -443,7 +443,7 @@ class Runs(unittest.TestCase):
 
     def test_a_body_over_the_cap_is_refused(self):
         big = {"x": "a" * (cap.MAX_JSON_BYTES + 10)}
-        with Stub(overrides={"/api/v1/books/latest": big}) as stub, tempfile.TemporaryDirectory() as d:
+        with Stub(overrides={"/api/v1/books": big}) as stub, tempfile.TemporaryDirectory() as d:
             code, out, err = run(["--out", str(Path(d) / "c"), "--services", "komga"], stub.env())
             self.assertEqual(0, code)
             m = json.loads((Path(d) / "c" / "manifest.json").read_text())
@@ -469,7 +469,7 @@ class Runs(unittest.TestCase):
     def test_final_scan_refusal_gives_exit_3_and_no_file(self):
         leak = "Zx9Qw8Er7Ty6Ui5Op4As3Df2Gh1Jk0LmNb"
         body = {"content": [{"id": KG_BOOK, "seriesId": KG_SERIES, "metadata": {"number": leak}}]}
-        with Stub(overrides={"/api/v1/books/latest": body}) as stub, tempfile.TemporaryDirectory() as d:
+        with Stub(overrides={"/api/v1/books": body}) as stub, tempfile.TemporaryDirectory() as d:
             code, out, err = run(["--out", str(Path(d) / "c"), "--services", "komga"], stub.env())
             self.assertEqual(3, code)
             self.assertIn("REFUSED", err)
@@ -620,7 +620,7 @@ class Allowlist(unittest.TestCase):
                                         "tags": ["anns-shelf"], "isbn": "9780306406157"}}]}
         built = [_built("jellyfin", "items", "/Items", jf), _built("jellyfin", "users", "/Users", users),
                  _built("audiobookshelf", "users", "/api/users", absu), _built("audiobookshelf", "item", "/api/items/{id}", absi),
-                 _built("komga", "latest", "/api/v1/books/latest", kg)]
+                 _built("komga", "latest", "/api/v1/books", kg)]
         blob = "\n".join(v for files, _, _ in built for v in files.values())
         self.assertTrue(blob)
         for bad in LEAKS + ["en.wikipedia.org", "wikipedia.org", EMAIL, "SENTINEL-ABS-USERTOKEN", "lastSeen",
@@ -655,7 +655,7 @@ class Allowlist(unittest.TestCase):
             self.assertEqual(0, code, err)
             paths = {h[1] for h in stub.hits}
             self.assertNotIn("/api/v2/users", paths)
-            self.assertTrue({"/api/v1/books/latest", f"/api/v1/books/{KG_BOOK}"} <= paths)
+            self.assertTrue({"/api/v1/books", f"/api/v1/books/{KG_BOOK}"} <= paths)
             self.assertFalse(any(x.startswith("/api/v1/series") for x in paths), paths)
             self.assertNotIn("komga-users-01.json", outputs(Path(d) / "c"))
 
@@ -720,7 +720,8 @@ def _search_routes():
         "audiobookshelf": (Route("libraries", r"/api/libraries", (), user_scoped=False, not_found=RouteMissing),
                            Route("search", r"/api/libraries/" + lib + r"/search", ("q", "limit"), user_scoped=False,
                                  not_found=ItemGone)),
-        "komga": (Route("search", r"/api/v1/books", ("search", "page", "size"), user_scoped=False,
+        # The one /api/v1/books route also carries Recently added's `sort` since 2026-10-28; it is matched first.
+        "komga": (Route("search", r"/api/v1/books", ("search", "sort", "page", "size"), user_scoped=False,
                         not_found=RouteMissing),),
         "calibre-web": (Route("search", r"/opds/search", ("query",), user_scoped=False, not_found=RouteMissing),
                         Route("cover", r"/opds/cover_240_240/[0-9]{1,9}", (), user_scoped=False, not_found=ItemGone)),
@@ -829,7 +830,7 @@ class SearchCapture(unittest.TestCase):
             code, out, err = run(["--services", "komga", "--search-term", "otherword", "--out", str(Path(d) / "c")],
                                  stub.env(AVRANA_CAPTURE_SEARCH_TERM=TERM))
             self.assertEqual(0, code, err)
-            sent = [h for h in stub.hits if h[1] == "/api/v1/books"]
+            sent = [h for h in stub.hits if h[1] == "/api/v1/books" and "search=" in h[2]]   # not Recently added
             self.assertEqual(1, len(sent))
             self.assertIn("search=" + TERM, sent[0][2])                 # the environment wins over the argument
             files = outputs(Path(d) / "c")

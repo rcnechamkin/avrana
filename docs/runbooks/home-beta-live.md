@@ -4,9 +4,10 @@ Status: prepared 2026-10-27, **nothing applied**. Owner decision 2026-10-27: the
 instead of synthetic. Every step on host `avrana` needs the owner's yes at the time (`AGENTS.md`).
 
 What you get: `https://media-beta.avrana.net` behind Authentik, open to one tester, showing that tester's own
-Jellyfin and Audiobookshelf (Continue, Recently added, search, title pages, hand-offs), read-only. Komga and
-Calibre-Web are left out for now: they are shared views that need the owner's no-restriction confirmations
-(ADAPTER-CONTRACT 12.2, 13.2); add them later as their own change.
+Jellyfin and Audiobookshelf (Continue, Recently added, search, title pages, hand-offs), read-only, plus comics
+(Komga) and ebooks (Calibre-Web) since 2026-10-27. Those two are shared views (ADAPTER-CONTRACT 12.2, 13.2): one
+regular Komga account's API key and one Calibre-Web viewer account, allowed because the owner confirmed on
+2026-10-15 that no member is restricted in either (`docs/DECISIONS.md`). See "Comics and ebooks" below.
 
 What it does not touch: the portal at `avrana.net`, every library's data and settings, every other member, the
 owner preview. No host port is published. The app only reads.
@@ -64,12 +65,29 @@ docker inspect --format '{{.State.Health.Status}}' avrana-home-beta             
 docker port avrana-home-beta                                                         # (empty: no host port)
 docker logs --tail 20 avrana-home-beta                                               # no "refusing"
 docker inspect avrana-home-beta --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}'
-# exactly: audiobookshelf_default authentik_home_beta
+# exactly: audiobookshelf_default authentik_home_beta calibre-web-automated_default komga_default
 ```
 
 If the synthetic beta is running, stop it first (`docker compose -p avrana-home-beta -f docker-compose.beta.yml
 down`): the two use the same container name. **Undo:** `docker compose -p avrana-home-beta -f
 docker-compose.beta-live.yml down` (removes only this container; the external networks stay).
+
+## Comics and ebooks (added 2026-10-27)
+
+The compose file reads two more secret files, `secrets/komga_token` (a REGULAR, non-admin Komga account's API key,
+never an admin key) and `secrets/calibre_web_credential` (`user:password` of the Calibre-Web viewer account). Both
+already exist in `~/avrana/services/avrana-home/secrets/` from the owner preview (checked 2026-10-27 by name and
+mode only, contents not read); the export deploy links that folder. Create them only if they are missing, with the
+same `read -rs` lines as step 2. It also joins `komga_default` and `calibre-web-automated_default`, the two
+libraries' own compose networks (both exist; checked read-only 2026-10-27).
+
+A member sees comics only with the Authentik group `avrana-comics` and ebooks only with `avrana-books`. Add the
+tester to those groups in the Authentik admin UI if they should see them. Without a group, the library is simply
+absent, never an error.
+
+If either upstream refuses the account, Home shows that library as unavailable and everything else as usual.
+**Undo:** redeploy the previous image, or remove the six `KOMGA_`/`CALIBRE_WEB_` lines, the two networks and the
+two secrets from the compose file and run `up -d` again.
 
 ## 4. Check it
 
@@ -78,7 +96,8 @@ docker-compose.beta-live.yml down` (removes only this container; the external ne
 3. An account inside `avrana-beta` but not in `HOME_ALLOWED_USERS`, if you have one: Home treats it as having
    no identity (`identity.py`, "not_allowed"): no library content, no username on Me.
 4. The tester: Home with their own Continue and Recently added; Me shows their username; a title opens and its
-   hand-off goes to Jellyfin or Audiobookshelf.
+   hand-off goes to Jellyfin or Audiobookshelf. With the groups: Read shows a Comics row and a Books row, and the
+   Library's Comics and Books chips list them.
 5. Degraded: no library is stopped for this check (that would be a production change). Library-down
    behaviour is rehearsed in CI (`beta/rehearse_degraded.py`, `.github/workflows/beta-image.yml`).
 6. On the iPhone: the same as 4, then AVR-585 (Safari, Add to Home Screen, VoiceOver, text size, reduced motion,

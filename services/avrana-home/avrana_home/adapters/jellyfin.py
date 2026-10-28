@@ -57,6 +57,11 @@ ALLOWED_ROUTES = (
     Route("latest", r"/Items/Latest",
           ("userId", "limit", "includeItemTypes", "groupItems", "fields", "enableImageTypes",
            "enableUserData"), user_scoped=True, not_found=UserGone),
+    # Up next (owner decision 2026-10-27, Home's Watch filter): the next unwatched episode of each series the member
+    # is watching, user-scoped through the `userId` QUERY parameter like the others.
+    Route("next_up", r"/Shows/NextUp",
+          ("userId", "limit", "fields", "enableUserData", "enableImageTypes", "enableTotalRecordCount"),
+          user_scoped=True, not_found=UserGone),
     # One route for the item lookup (`ids`) and search (`searchTerm`): both are user-scoped through the
     # `userId` QUERY parameter. Search moved here from the legacy `/Users/{id}/Items`, which Jellyfin 10.9+
     # keeps only as an obsolete, hidden alias (doc-verified against the 10.11 ItemsController source,
@@ -91,6 +96,7 @@ class GuardedTransport(_base.GuardedTransport):
 class JellyfinAdapter(GuardedAdapter):
     service = Service.JELLYFIN
     artwork_rechecks_visibility = True     # visibility is per member: re-checked before any cached cover
+    extra_sections = frozenset({"next_up"})
 
     def __init__(self, transport: Transport, timeout: float = DEFAULT_TIMEOUT, *,
                  member_username: Optional[Tuple[str, str]] = None, **kw):
@@ -232,6 +238,18 @@ class JellyfinAdapter(GuardedAdapter):
         items = self._parse_list(body, user.upstream_id, limit, ("Movie", "Series", "Episode"),
                                  want_progress=False, require_progress=False)
         return SectionResult.of(Service.JELLYFIN, "recent", items)
+
+    def _next_up_items(self, user: UpstreamUser, limit: int) -> SectionResult:
+        guard = self._guard.bind(user.upstream_id)
+        body = self._get_json(guard, self._budget(), "/Shows/NextUp", {
+            "userId": user.upstream_id, "limit": str(limit), "fields": _ITEM_FIELDS, "enableUserData": "true",
+            "enableImageTypes": _IMAGE_TYPES, "enableTotalRecordCount": "false"})
+        if not isinstance(body, dict):
+            raise UpstreamMalformed()
+        # user data is requested only so the scope tripwire can run; an episode's own progress belongs to Continue
+        items = self._parse_list(body.get("Items"), user.upstream_id, limit, ("Episode",),
+                                 want_progress=False, require_progress=False)
+        return SectionResult.of(Service.JELLYFIN, "next_up", items)
 
     def _search(self, user: UpstreamUser, query: str, limit: int) -> SectionResult:
         guard = self._guard.bind(user.upstream_id)
