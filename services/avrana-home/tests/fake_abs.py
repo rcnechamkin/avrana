@@ -1,8 +1,10 @@
 """A fake Audiobookshelf served from HAND-WRITTEN synthetic fixtures (written from recollection of the
 public API; unverified against any real server). No sockets: it is a router behind the same
 FakeTransport / FakeOpener the Jellyfin tests use."""
+import base64
 import copy
 import json
+import time
 from pathlib import Path
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "audiobookshelf"
@@ -34,6 +36,10 @@ class FakeAudiobookshelf:
             rec = load(f"user_{name}.json")
             self.records[rec["id"]] = rec
         self.items = load("items.json")
+        year = str(time.gmtime().tm_year)
+        self.lists = json.loads(json.dumps(load("library_items.json")).replace('"@this_year"', f'"{year}"'))
+        # A listed item that items.json lacks is still found by id (item and cover routes; not search).
+        self.listed = {it["id"]: it for entries in self.lists.values() for it in entries}
         self.libraries_doc = load("libraries.json")
         self.requests = []
         self.overrides = {}        # path -> ("status", int) | ("body", bytes) | ("raise", exc)
@@ -68,13 +74,23 @@ class FakeAudiobookshelf:
             return self._json(self.libraries_doc)
         if path.startswith("/api/libraries/") and path.endswith("/search"):
             return self._search(path[len("/api/libraries/"):-len("/search")], query)
+        if path.startswith("/api/libraries/") and path.endswith("/items"):
+            return self._list(path[len("/api/libraries/"):-len("/items")], query)
+        if path.startswith("/api/libraries/") and path.endswith("/filterdata"):
+            lid = path[len("/api/libraries/"):-len("/filterdata")]
+            if lid not in {x["id"] for x in self.libraries_doc["libraries"]}:
+                return 404, b"{}", "application/json"
+            genres = sorted({g for it in self.lists.get(lid, ()) for g in it["media"]["metadata"].get("genres", ())})
+            return self._json({"authors": [], "genres": genres, "tags": [], "series": [], "narrators": [],
+                               "languages": [], "publishers": []})
         if path.startswith("/api/items/") and path.endswith("/cover"):
-            it = self.items.get(path[len("/api/items/"):-len("/cover")])
+            iid = path[len("/api/items/"):-len("/cover")]
+            it = self.items.get(iid) or self.listed.get(iid)
             if it is None or it["media"].get("coverPath") is None:
                 return 404, b"{}", "application/json"      # unknown item, or no cover
             return self.image
         if path.startswith("/api/items/"):
-            it = self.items.get(path[len("/api/items/"):])
+            it = self.items.get(path[len("/api/items/"):]) or self.listed.get(path[len("/api/items/"):])
             return self._json(it) if it is not None else (404, b"{}", "application/json")
         return 404, b"{}", "application/json"
 
@@ -93,6 +109,28 @@ class FakeAudiobookshelf:
                      or term in (it["media"]["metadata"].get("authorName") or "").casefold())]
         return self._json({"book": hits[:int(query.get("limit", "12"))], "tags": [], "authors": [],
                            "series": [], "narrators": [], "genres": []})
+
+    def _list(self, library_id, query):
+        """A library list, synthesised from library_items.json: sorted by `sort` (addedAt, publishedYear or duration),
+        `desc`, filtered by `filter=genres.<base64>`, cut to `limit`."""
+        lib = next((x for x in self.libraries_doc["libraries"] if x["id"] == library_id), None)
+        if lib is None:
+            return 404, b"{}", "application/json"
+        entries = list(self.lists.get(library_id, ()))
+        flt = query.get("filter", "")
+        if flt.startswith("genres."):
+            genre = base64.b64decode(flt[len("genres."):]).decode("utf-8")
+            entries = [it for it in entries if genre in it["media"]["metadata"].get("genres", ())]
+        key = {"addedAt": lambda it: it.get("addedAt") or 0,
+               "media.metadata.publishedYear": lambda it: int(it["media"]["metadata"].get("publishedYear") or 0),
+               "media.duration": lambda it: it["media"].get("duration") or 0}.get(query.get("sort"))
+        if key is not None:
+            entries.sort(key=key, reverse=query.get("desc") == "1")
+        limit = int(query.get("limit", "0") or 0)
+        results = entries[:limit] if limit else entries
+        return self._json({"results": results, "total": len(entries), "limit": limit, "page": 0,
+                           "sortBy": query.get("sort"), "sortDesc": query.get("desc") == "1",
+                           "filterBy": flt or None, "mediaType": lib["mediaType"], "minified": True})
 
     @staticmethod
     def _json(obj):

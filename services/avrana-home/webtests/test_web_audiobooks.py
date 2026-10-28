@@ -120,11 +120,10 @@ class ContinueListeningTests(Fixture):
         text = self.client().get("/", headers=BOTH_A).text
         for it in books["items"]:
             self.assertIn(f'href="{it["handoff_url"]}"', text)
-        # the adapter declares "recent" not offered (AVR-385): gather does not request it, so the member view
-        # has no audiobookshelf recent entry at all, and the HTML renders nothing for it
-        self.assertEqual([], [s for s in view["sections"]
-                              if s["service"] == "audiobookshelf" and s["section"] == "recent"])
-        self.assertNotIn("Recently added to Audiobooks", text)
+        # Recently added is offered since 2026-10-27 (owner decision): the member's own libraries, newest first
+        recent = [s for s in view["sections"] if s["service"] == "audiobookshelf" and s["section"] == "recent"]
+        self.assertEqual(1, len(recent))
+        self.assertIn(recent[0]["state"], ("ok", "empty"))
 
     def test_a_video_only_member_has_no_audiobook_trace_in_html_or_json_and_no_call(self):
         c = self.client()

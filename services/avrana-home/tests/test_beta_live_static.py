@@ -35,8 +35,9 @@ class Compose(unittest.TestCase):
         c = code(COMPOSE)
         self.assertNotRegex(c, r"(?m)^\s*ports\s*:")
         self.assertNotIn("network_mode", c)
-        self.assertIn("networks: [authentik_home_beta, audiobookshelf_default]", c)
-        for net in ("authentik_home_beta", "audiobookshelf_default"):
+        self.assertIn("networks: [authentik_home_beta, audiobookshelf_default, komga_default, "
+                      "calibre-web-automated_default]", c)
+        for net in ("authentik_home_beta", "audiobookshelf_default", "komga_default", "calibre-web-automated_default"):
             self.assertRegex(c, rf"{net}:\s*\n\s*external: true")
         self.assertNotRegex(c, r"authentik_(frontend|backend|portal|kindle|olivetin)\b")
 
@@ -49,17 +50,23 @@ class Compose(unittest.TestCase):
         self.assertEqual(env["HOME_UPSTREAM_MODE"], "real")
         self.assertEqual(env["HOME_GATES_VERIFIED"], "yes")
         self.assertEqual(env["HOME_IDENTITY_MODE"], "jwt_required")
-        for name in ("HOME_JWT_SECRET", "JELLYFIN_API_KEY", "AUDIOBOOKSHELF_TOKEN"):
+        for name in ("HOME_JWT_SECRET", "JELLYFIN_API_KEY", "AUDIOBOOKSHELF_TOKEN", "KOMGA_TOKEN",
+                     "CALIBRE_WEB_CREDENTIAL"):
             self.assertNotIn(name, env)                       # never inline; only the _FILE form
             self.assertTrue(env[name + "_FILE"].startswith("/run/secrets/"))
         for forbidden in ("HOME_OWNER_PREVIEW", "PREVIEW_", "HOME_DEV_", "HOME_JELLYFIN_USERNAME",
-                          "HOME_AUDIOBOOKSHELF_USERNAME", "KOMGA_", "CALIBRE_WEB_"):
+                          "HOME_AUDIOBOOKSHELF_USERNAME"):
             self.assertFalse([k for k in env if k.startswith(forbidden)], forbidden)
 
     def test_upstreams_are_docker_names_or_the_host_gateway_never_a_lan_address(self):
         env = compose_env()
         self.assertEqual(env["JELLYFIN_BASE_URL"], "http://host.docker.internal:8096")
         self.assertEqual(env["AUDIOBOOKSHELF_BASE_URL"], "http://audiobookshelf:80")
+        self.assertEqual(env["KOMGA_BASE_URL"], "http://komga:25600")
+        self.assertEqual(env["CALIBRE_WEB_BASE_URL"], "http://calibre-web-automated:8083")
+        # shared views: only with the owner's no-restriction statement (2026-10-15, docs/DECISIONS.md)
+        self.assertEqual(env["KOMGA_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS"], "yes")
+        self.assertEqual(env["CALIBRE_WEB_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS"], "yes")
         self.assertIn('extra_hosts: ["host.docker.internal:host-gateway"]', code(COMPOSE))
         self.assertNotRegex(code(COMPOSE), r"\b10\.0\.0\.\d+")
 
@@ -82,7 +89,7 @@ class Compose(unittest.TestCase):
             for name, value in list(env.items()):
                 if name.endswith("_FILE"):
                     path = Path(tmp) / Path(value).name
-                    path.write_text("x" * 40, encoding="utf-8")
+                    path.write_text(("viewer:" if "CREDENTIAL" in name else "") + "x" * 40, encoding="utf-8")
                     env[name] = str(path)
             env.update(HOME_JWT_ISSUER="https://auth.example.test/application/o/avrana-home-beta/",
                        HOME_JWT_AUDIENCE="client-id", HOME_ALLOWED_USERS="tester")
