@@ -129,6 +129,7 @@ class WatchRequest:
     asked_on: str                  # "2026-10-28" or ""
     jellyfin_id: Optional[str]
     cancellable: bool              # the member's own, still waiting for approval
+    changed_on: str = ""           # when it came into the library (`mediaAddedAt`), else the request's last change
 
 
 class CancelOutcome(enum.Enum):
@@ -196,8 +197,12 @@ def _state(request_status: Any, media_status: Any) -> Optional[RequestState]:
     return RequestState.PARTIAL if media_status == 4 else RequestState.COMING
 
 
+def _day(value: Any) -> str:
+    return value[:10] if isinstance(value, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", value[:10]) else ""
+
+
 def _mine_row(item: Any, seerr_id: int) -> Optional[tuple]:
-    """(request id, media type, tmdb id, state, asked on, jellyfin id) for a request OF THIS MEMBER, else None."""
+    """(request id, media type, tmdb id, state, asked on, jellyfin id, changed on) for a request OF THIS MEMBER."""
     if not isinstance(item, dict):
         return None
     by, media = item.get("requestedBy"), item.get("media")
@@ -211,9 +216,8 @@ def _mine_row(item: Any, seerr_id: int) -> Optional[tuple]:
     state = _state(item.get("status"), media.get("status"))
     if state is None:
         return None
-    created = item.get("createdAt")
-    asked_on = created[:10] if isinstance(created, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", created[:10]) else ""
-    return rid, mtype, tmdb, state, asked_on, _hex32(media.get("jellyfinMediaId"))
+    changed = _day(media.get("mediaAddedAt")) or _day(item.get("updatedAt"))
+    return rid, mtype, tmdb, state, _day(item.get("createdAt")), _hex32(media.get("jellyfinMediaId")), changed
 
 
 class SeerrRequests:
@@ -397,12 +401,13 @@ class SeerrRequests:
             return "unavailable", ()
         rows = [r for r in (_mine_row(item, seerr_id) for item in results[:MINE_LIMIT]) if r is not None]
         started, out = self._clock.now(), []
-        for rid, mtype, tmdb, state, asked_on, jf in rows:
+        for rid, mtype, tmdb, state, asked_on, jf, changed in rows:
             named = self._title(mtype, tmdb)
             if named is None and self._clock.now() - started < TITLE_BUDGET:
                 named = self._look_up(seerr_id, mtype, tmdb)
             title, year = named or ("", None)
-            out.append(WatchRequest(rid, mtype, tmdb, title, year, state, asked_on, jf, state is RequestState.AWAITING))
+            out.append(WatchRequest(rid, mtype, tmdb, title, year, state, asked_on, jf, state is RequestState.AWAITING,
+                                    changed))
         return ("ok" if out else "empty"), tuple(out)
 
     def cancel(self, seerr_id: Any, request_id: Any) -> CancelOutcome:

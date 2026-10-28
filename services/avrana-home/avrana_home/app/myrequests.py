@@ -64,6 +64,7 @@ COMIC_COPY = {
     SeriesState.ARRIVED: ("Arrived", "", True),
 }
 LIMITED = "You have looked a lot in the last few minutes. Try again shortly."
+NEW_DAYS = 3                       # an arrival this recent is marked New (no state kept: it is about the date only)
 
 
 @dataclass(frozen=True)
@@ -77,6 +78,8 @@ class RowVM:
     open: Optional[OwnedVM] = None
     cancel: Optional[AskVM] = None
     asked_on: str = ""             # sort key, ISO date
+    new: bool = False              # arrived in the last NEW_DAYS days
+    changed_on: str = ""           # Done is sorted by this (newest arrivals first)
 
 
 @dataclass(frozen=True)
@@ -109,6 +112,13 @@ def asked_label(iso: str, today: dt.date) -> str:
     return text if day.year == today.year else f"{text} {day.year}"
 
 
+def is_new(iso: str, today: dt.date) -> bool:
+    try:
+        return 0 <= (today - dt.date.fromisoformat(iso)).days < NEW_DAYS
+    except ValueError:
+        return False
+
+
 def _line(noun: str, iso: str, today: dt.date) -> str:
     return " · ".join(p for p in (noun, asked_label(iso, today)) if p)
 
@@ -128,8 +138,10 @@ def book_rows(rows, username: str, signer: FormSigner, today: dt.date) -> Tuple[
             if r.cancellable else None
         found = OwnedVM(LIBRARY_LABEL[r.book_type], search_href(r.title), False) if r.state is BookState.ARRIVED \
             else None
+        arrived = r.state is BookState.ARRIVED
         out.append(RowVM(r.title, _line(FORMAT_NOUN[r.book_type], r.asked_on, today), status, note, done,
-                         "ok" if r.state is BookState.ARRIVED else "", found, cancel, r.asked_on))
+                         "ok" if arrived else "", found, cancel, r.asked_on, arrived and is_new(r.changed_on, today),
+                         r.changed_on))
     return tuple(out)
 
 
@@ -153,7 +165,9 @@ def watch_rows(rows, username: str, signer: FormSigner, today: dt.date, opens=No
                                                 else None)
         tone = "ok" if r.state is WatchState.ARRIVED else ("warn" if r.state in (WatchState.DECLINED,
                                                                                    WatchState.FAILED) else "")
-        out.append(RowVM(title, line, status, note, done, tone, found, cancel, r.asked_on))
+        landed = r.state in (WatchState.ARRIVED, WatchState.PARTIAL)
+        out.append(RowVM(title, line, status, note, done, tone, found, cancel, r.asked_on,
+                         landed and is_new(r.changed_on, today), r.changed_on))
     return tuple(out)
 
 
@@ -169,7 +183,8 @@ def comic_rows(rows, today: dt.date) -> Tuple[RowVM, ...]:
         note = " ".join(p for p in (count, note) if p)
         found = OwnedVM("Comics", search_href(r.name), False) if r.arrived else None
         out.append(RowVM(r.name, _line("Comic series", r.asked_on, today), status, note, done,
-                         "ok" if done else ("warn" if r.state is SeriesState.STUCK else ""), found, None, r.asked_on))
+                         "ok" if done else ("warn" if r.state is SeriesState.STUCK else ""), found, None, r.asked_on,
+                         bool(r.arrived) and is_new(r.changed_on, today), r.changed_on))
     return tuple(out)
 
 
@@ -195,8 +210,10 @@ def build_page(books=None, watch=None, comics=None, *, ask_books: Optional[str] 
             problems.append(SaidVM(UNAVAILABLE[service] + " Try again later.", True))
     rows.sort(key=lambda r: r.asked_on, reverse=True)          # stable: each service's own order breaks ties
     coming = tuple(r for r in rows if not r.done)
-    done = tuple(r for r in rows if r.done)
-    outcome = f"{len(coming)} on the way" if coming else ("Nothing on the way" if rows else "")
+    done = tuple(sorted((r for r in rows if r.done), key=lambda r: r.changed_on or r.asked_on, reverse=True))
+    fresh = sum(1 for r in rows if r.new)
+    outcome = (f"{fresh} new" + (f", {len(coming)} on the way" if coming else "")) if fresh else \
+        (f"{len(coming)} on the way" if coming else ("Nothing on the way" if rows else ""))
     return MinePageVM(coming, done, tuple(problems), ask_books, ask_watch, ask_comics, outcome=outcome)
 
 

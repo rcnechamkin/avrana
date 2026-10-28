@@ -536,7 +536,10 @@ differences:
 page ("Search and ask here") instead of the request website; otherwise the row is unchanged.
 
 The fork plan (`REQUEST-FORKS-PLAN.md`, Seerr E-S1..E-S3) replaces the global key with a scoped key that cannot act as
-an administrator at all; until then the rules above are the lock.
+an administrator at all; until then the rules above are the lock. The Avrana fork's patch is ready locally
+(`avrana/v3.4.1`, not yet published): `ON_BEHALF_API_KEY` acts only as a non-administrator member on search, title
+details, request list/create and deleting that member's own request, and without a member reaches only the user
+directory and the Jellyfin import. Home needs no change to use it: it goes in `SEERR_API_KEY`.
 
 ## 5d. My requests
 
@@ -577,7 +580,58 @@ The answer is a 303 back to `/request/mine` with a one-shot outcome ("Cancelled 
 reached", never "not set up" (which would send them off to sign in). This uses the contract's `member_link`, which
 is `resolve_user` with the reason kept; the watch ask page uses it too.
 
-Each view reads both lists fresh and counts against the member's search allowance (section 5b); HEAD reads nothing.
+**Arrivals.** A request that arrived in the last three days is marked **New**, and Done lists the newest arrivals
+first; the page title counts them ("2 new, 1 on the way"). This is worked out from the upstream dates alone (Shelfarr
+`updated_at`, Seerr `mediaAddedAt`, the latest imported Omnibus issue): Home keeps no state and reads no cookie, so
+"seen" cannot be remembered. A "just arrived" card on Home itself is a design and owner decision (it would add the
+brokers to every Home load), not built.
+
+Comic series (section 5e) appear one row per series ("12 of 20 issues arrived"); they have no cancel button, because
+the Omnibus fork's key cannot cancel.
+
+Each view reads the lists fresh and counts against the member's search allowance (section 5b); HEAD reads nothing.
+
+## 5e. Asking for a comic series (request broker, the Omnibus fork)
+
+Status: proposed, not deployed; off unless `HOME_COMIC_REQUESTS=on`. Needs the Avrana fork of Omnibus
+(`rcnechamkin/omnibus`, `avrana/v1.4.4`): an administrator mints an API key and switches on "on behalf". With that key
+and `X-Omnibus-User: <member>`, the fork accepts exactly `GET /api/search` and `GET`/`POST /api/request`, never as an
+administrator, with the member's own Request permission and auto-approve; every use is in Omnibus's audit log.
+
+`GET /request/comics` (a shell page, members holding Comics) searches ComicVine through Omnibus as the member;
+Metron-only results are dropped (ComicVine ids are what the library and the index use). Each series offers **Ask for
+this series** (every issue, and new ones as they come out), or, when the catalogue-id index holds its ComicVine id,
+**Already in Comics. Open** (Komga's own series page; Comics is a shared view, so holding the group is the
+permission) with **Ask for missing issues**. `POST /request/comics` takes exactly `cv_id`, `title`, `year`,
+`publisher`, `q`, `token` and the same locks as books and films. Outcomes: asked for, waits for approval, could not
+be asked for (403/400: no Request permission, manga switched off, unresolvable), not set up (401), could not be
+reached. Results are cached ten minutes (metadata only, the same for every member).
+
+## 5f. Choosing seasons
+
+On `/request/watch`, a show offers **Ask for every season** and **Choose seasons**, which opens
+`/request/watch?show=<TMDB id>`: the show's seasons read from Seerr as the member (`GET /api/v1/tv/<id>`, specials
+left out), each saying what is there (in Movies and TV, partly there, already asked for). Only seasons that may still
+be asked for have a checkbox. The form posts the same signed fields as any watch ask, plus `pick` and one
+`season_<n>` checkbox per chosen season (n from 1 to 60; anything else is refused by the form reader). Nothing chosen
+sends nothing ("Choose at least one season"). Seerr checks the season numbers against the show.
+
+## 5g. Creating a member's request accounts (off by default)
+
+Members never mint keys or sign up anywhere by hand (Media 2.0). Two switches let Home create the account the first
+time a member asks, and nothing else:
+
+- `HOME_SHELFARR_PROVISION=on` (needs the Shelfarr token's `users:write` scope): when an ask answers "not set up",
+  Home creates a **plain** Shelfarr user named after the member (Shelfarr's API takes only name, username and
+  password; never a role), with a random password that is used once and never kept, then asks again once. The member
+  signs in to Shelfarr through Authentik; Shelfarr's **link existing users** setting must be on, so that sign-in joins
+  this account by username. (Shelfarr's own auto-create names users after the e-mail address, which Home could not
+  find.) A member whose username Shelfarr cannot hold (only `a-z`, `0-9`, `_`) is never provisioned.
+- `HOME_SEERR_PROVISION=on`: when a member with a Jellyfin account has no Seerr user, Home runs Seerr's own **Import
+  Jellyfin users** for that one member, from the ask pages only (never from viewing My requests), then maps them
+  again. Seerr gives the user its default permissions; one that comes out an administrator is still refused.
+
+Both are logged as `account_provision` with the service and a fixed state only.
 
 ## 6. Logging
 
@@ -611,6 +665,8 @@ variables (never the values).
 | `AUDIOBOOKSHELF_TOKEN` / `AUDIOBOOKSHELF_TOKEN_FILE` | none | Real mode only, with the URL, exactly one of the two; a token in mock mode is an error. It is an admin token, so real mode also needs `HOME_IDENTITY_MODE=jwt_required` (ABS admin-token review 2026-10-27, HIGH; the sealed owner preview is exempt). Never in a repr, log line or error message. |
 | `KOMGA_BASE_URL` / `KOMGA_TOKEN` (`_FILE`) / `KOMGA_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS` | unset (adapter not built) | Optional. Mock mode: loopback URL, the token is fixed and fake, the flag is ignored. Real mode (owner decision 2026-10-15, ADAPTER-CONTRACT 12.2): needs `HOME_GATES_VERIFIED=yes`, the URL, a REGULAR (non-admin) account's key and `KOMGA_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS=yes`; otherwise a startup error. |
 | `HOME_BOOK_REQUESTS` / `SHELFARR_BASE_URL` / `SHELFARR_TOKEN` (`_FILE`) | `off` / unset / unset | The request broker (section 5b). `on` needs `HOME_SECTIONS=on` and the URL; the URL or token without the switch is a startup error. Mock mode: loopback URL, the token is fixed and fake, a real token is an error. Real mode: the token is required; the same URL rules as the adapters (plain http only to loopback or a single-label Docker name). The token is minted by the owner in Shelfarr with exactly `search:read requests:write requests:admin`. Real mode also needs `HOME_IDENTITY_MODE=jwt_required`. Never in a repr, log line or error message. |
+| `HOME_COMIC_REQUESTS` / `OMNIBUS_BASE_URL` / `OMNIBUS_API_KEY` (`_FILE`) | `off` / unset / unset | The comic request broker (section 5e). Same rules as Seerr's: `on` needs `HOME_SECTIONS=on` and the URL; mock mode loopback with a fixed fake key; real mode needs the key (an on-behalf key from the Omnibus fork) and `HOME_IDENTITY_MODE=jwt_required`. |
+| `HOME_SHELFARR_PROVISION` / `HOME_SEERR_PROVISION` | `off` / `off` | Create a member's Shelfarr account, or import their Jellyfin user into Seerr, on first ask (section 5g). Each needs its broker on. |
 | `HOME_WATCH_REQUESTS` / `SEERR_BASE_URL` / `SEERR_API_KEY` (`_FILE`) | `off` / unset / unset | The film and TV request broker (section 5c). `on` needs `HOME_SECTIONS=on` and the URL; the URL or key without the switch is a startup error. Mock mode: loopback URL, fixed fake key. Real mode: the key is required, and `HOME_IDENTITY_MODE=jwt_required` (the key is full Seerr admin; Home always names the member). Never in a repr, log line or error message. |
 | `HOME_LIBRARY_IDS_FILE` | unset | Absolute path of the catalogue-id index (section 5b), mounted read-only; re-read at most every minute when it changes. Absent or malformed: no "Already in" claims. A relative path refuses to start. |
 | `CALIBRE_WEB_BASE_URL` / `CALIBRE_WEB_CREDENTIAL` (`_FILE`) / `CALIBRE_WEB_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS` | unset / unset / `off` | Optional. Mock mode: loopback URL, fixed fake credential. Real mode is refused unless the owner setting is `yes` (default off; Calibre-Web is a shared view, ADAPTER-CONTRACT 13.2), and then also needs `HOME_GATES_VERIFIED=yes`, the URL and a `user:password` credential together. The constructor's `owner_confirms_no_member_restrictions` is `True` only in mock mode or from that setting. |

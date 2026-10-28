@@ -9,7 +9,7 @@
     <ul class="rq">
 {% for r in list %}
       <li class="rq-row{% if r.tone %} rq-{{ r.tone }}{% endif %}">
-        <span class="rq-meta"><span class="t">{{ r.title }}</span><span class="d">{{ r.line }}</span>
+        <span class="rq-meta"><span class="t">{{ r.title }}{% if r.new %}<span class="rq-new">New</span>{% endif %}</span><span class="d">{{ r.line }}</span>
           <span class="rq-st">{{ r.status }}{% if r.note %}<span class="rq-note"> {{ r.note }}</span>{% endif %}</span></span>
 {% if r.open or r.cancel %}
         <span class="rq-act">

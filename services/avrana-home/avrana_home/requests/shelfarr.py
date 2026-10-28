@@ -109,6 +109,7 @@ class BookRequest:
     asked_on: str                  # "2026-10-28", or "" when Shelfarr sent no usable date
     cancellable: bool
     told: bool                     # Shelfarr flagged it for the owner's attention
+    changed_on: str = ""           # the last change ("2026-10-28"): for an arrived request, about when it arrived
 
 
 class Provisioned(enum.Enum):
@@ -180,10 +181,14 @@ def _request(item: Any, name: str) -> Optional[BookRequest]:
     title = _text(book.get("title"), MAX_TITLE)
     if not title:
         return None
-    created = item.get("created_at")
-    asked_on = created[:10] if isinstance(created, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", created[:10]) else ""
     return BookRequest(rid, title, _text(book.get("author"), MAX_AUTHOR), book["book_type"], _REQUEST_STATE[status],
-                       asked_on, status in CANCELLABLE, item.get("attention_needed") is True)
+                       _day(item.get("created_at")), status in CANCELLABLE, item.get("attention_needed") is True,
+                       _day(item.get("updated_at")))
+
+
+def _day(value: Any) -> str:
+    """The date part of an upstream ISO timestamp, or "" when it is not one."""
+    return value[:10] if isinstance(value, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", value[:10]) else ""
 
 
 def _keys(work_id: str, item: dict) -> Tuple[str, ...]:

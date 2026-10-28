@@ -273,6 +273,21 @@ class Units(unittest.TestCase):
         with self.assertRaises(SeerrForbidden):
             c._send("POST", "/api/v1/request/3/approve", None, None, 5)
 
+    def test_recent_arrivals_are_marked_new_and_lead_done(self):
+        import datetime as dt
+        from avrana_home.app import myrequests as mine
+        from avrana_home.requests.forms import FormSigner
+        from avrana_home.requests.shelfarr import BookRequest, RequestState as BS
+        today = dt.date(2026, 10, 28)
+        old = BookRequest(1, "Old", "", "ebook", BS.ARRIVED, "2026-01-01", False, False, "2026-01-05")
+        fresh = BookRequest(2, "Fresh", "", "ebook", BS.ARRIVED, "2025-12-01", False, False, "2026-10-27")
+        coming = BookRequest(3, "Coming", "", "ebook", BS.COMING, "2026-10-28", False, False, "2026-10-28")
+        rows = mine.book_rows((old, fresh, coming), "m", FormSigner(), today)
+        self.assertEqual([False, True, False], [r.new for r in rows])          # only an ARRIVAL is news
+        page = mine.build_page(("ok", rows))
+        self.assertEqual(["Fresh", "Old"], [r.title for r in page.done])
+        self.assertEqual("1 new, 1 on the way", page.outcome)
+
     def test_seerr_title_budget(self):
         clock = FakeClock()
 

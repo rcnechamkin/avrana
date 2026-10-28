@@ -57,7 +57,8 @@ from . import forms as forms_mod
 from . import security as security_mod
 from .identity import (IdentityResolver, Viewer, get_viewer, has_identity_headers, home_filter_from_scope,
                        if_none_match_from_scope, library_chip_from_scope, library_view_from_scope, new_tab_from_scope,
-                       same_origin_form_post, search_term_from_scope, security_state_from_scope, tv_result_from_scope)
+                       same_origin_form_post, search_term_from_scope, security_state_from_scope, show_from_scope,
+                       tv_result_from_scope)
 from .logsafe import app_log, log_event, silence_uvicorn_access
 from .middleware import MAX_FORM_BODY, NOT_IMPLEMENTED_BODY, HygieneMiddleware
 from . import recovery
@@ -206,6 +207,10 @@ TV_RESULTS = QC_OUTCOMES + ("expired",)
 # The request brokers' signed forms (bookrequests.py, watchrequests.py): exactly these fields, each once.
 BOOK_FIELDS = frozenset({"work_id", "book_type", "title", "author", "q", "token"})
 WATCH_FIELDS = frozenset({"media_type", "media_id", "title", "q", "token"})
+# The season picker posts the same signed fields plus `pick` and one checkbox per chosen season (unsigned: which seasons
+# is the member's choice; each must be a season number Seerr then checks against the show).
+SEASON_FIELDS = frozenset(f"season_{n}" for n in range(1, 61))
+WATCH_PICK_FIELDS = WATCH_FIELDS | SEASON_FIELDS | {"pick"}
 MINE_FIELDS = frozenset({"service", "request_id", "title", "token"})
 COMIC_FIELDS = frozenset({"cv_id", "title", "year", "publisher", "q", "token"})
 OPEN_CHECKS = 5                      # permission-checked Jellyfin lookups on My requests, at most
@@ -390,6 +395,19 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
             mark_shell(scope, shell)
             username = broker_user(viewer)
             said, asked, back = flash.take(username, watch_mod.PATH) or (None, frozenset(), None)
+            show = show_from_scope(scope) if request.method != "HEAD" else None
+            if show is not None:                     # the season picker for one show, read from Seerr as the member
+                linked, seerr_id = await seerr_user(viewer, provision=True)
+                state, detail = (await run_in_threadpool(seerr.show, seerr_id, show) if linked == "ok"
+                                 else (linked, None))
+                log_event(app_log, logging.INFO, "watch_show", service="seerr", state=state)
+                if detail is not None:
+                    page = watch_mod.build_show(detail, search_term_from_scope(scope), username, signer)
+                elif state == "not_linked":
+                    page = watch_mod.not_linked(watch_place(viewer))
+                else:
+                    page = watch_mod.build_results("unavailable", (), search_term_from_scope(scope) or "", "", signer)
+                return render("request_watch.html", page=dataclasses.replace(page, notice=said), shell=shell)
             term = None if request.method == "HEAD" else (search_term_from_scope(scope) or back)   # HEAD never searches
             if term is None:
                 page = watch_mod.build_results("form", (), None, "", signer)
@@ -665,15 +683,24 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
         shell = shell_for(viewer, "search")
         mark_shell(scope, shell)
         username = broker_user(viewer)
-        fields = (await forms_mod.read_form(request, WATCH_FIELDS, MAX_FORM_BODY, exact=True)
+        fields = (await forms_mod.read_form(request, WATCH_PICK_FIELDS, MAX_FORM_BODY)
                   if same_origin_form_post(scope) else None)
+        if fields is not None and not WATCH_FIELDS <= set(fields):
+            fields = None                                             # the signed fields are always all there
+        chosen = tuple(sorted(int(k[7:]) for k in list(fields or ()) if k in SEASON_FIELDS
+                              and fields.pop(k) == "1")) if fields is not None else ()
+        picked = fields.pop("pick", None) == "1" if fields is not None else False
         token = fields.pop("token") if fields is not None else None
         back = clean_term(fields.pop("q")) if fields is not None else None     # navigation only, never signed
         if (fields is None or username is None or not signer.verify(token, username, fields)
                 or fields["media_type"] not in ("movie", "tv") or not fields["media_id"].isdigit()):
             log_event(app_log, logging.INFO, "watch_request", service="seerr", state="refused_form")
             return render("request_watch.html", 403, page=watch_mod.build_said(None, "expired", {}, None), shell=shell)
-        blocked = guard.check(username, "watch|" + fields["media_type"] + "|" + fields["media_id"])
+        if picked and (fields["media_type"] != "tv" or not chosen):
+            return see_other(username, watch_mod.PATH, watch_mod.build_said(None, "no_season", fields, None),
+                             frozenset(), back)
+        blocked = guard.check(username, "watch|" + fields["media_type"] + "|" + fields["media_id"]
+                              + ("|" + ",".join(map(str, chosen)) if chosen else ""))
         key = (fields["media_type"], int(fields["media_id"]))
         if blocked == "rate":
             log_event(app_log, logging.INFO, "watch_request", service="seerr", state=blocked)
@@ -686,7 +713,8 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
         if linked != "ok":
             outcome = watch_mod.Outcome.NOT_LINKED if linked == "not_linked" else watch_mod.Outcome.UNAVAILABLE
         else:
-            outcome = await run_in_threadpool(seerr.create, seerr_id, fields["media_type"], int(fields["media_id"]))
+            outcome = await run_in_threadpool(seerr.create, seerr_id, fields["media_type"], int(fields["media_id"]),
+                                              chosen or None)
         log_event(app_log, logging.INFO, "watch_request", service="seerr", state=outcome.value,
                   reason=fields["media_type"])
         ok = outcome in (watch_mod.Outcome.CREATED, watch_mod.Outcome.AWAITING, watch_mod.Outcome.DUPLICATE)

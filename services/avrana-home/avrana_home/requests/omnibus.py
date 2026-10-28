@@ -82,6 +82,7 @@ class ComicSeriesRequest:
     arrived: int                   # issues imported
     total: int                     # issues asked for
     asked_on: str                  # the first ask, "2026-10-28" or ""
+    changed_on: str = ""           # the latest issue that arrived
 
 
 class ForbiddenCall(Exception):
@@ -140,9 +141,12 @@ def _series(rows) -> Tuple[ComicSeriesRequest, ...]:
         name = re.sub(r"\s*\(\d{4}\)$", "", name).strip()
         created = item.get("createdAt")
         day = created[:10] if isinstance(created, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", created[:10]) else ""
-        g = groups.setdefault(vol, {"name": "", "statuses": [], "first": day})
+        g = groups.setdefault(vol, {"name": "", "statuses": [], "first": day, "arrived": ""})
         g["name"] = g["name"] or name
         g["statuses"].append(status)
+        updated = item.get("updatedAt")
+        if status == "IMPORTED" and isinstance(updated, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", updated[:10]):
+            g["arrived"] = max(g["arrived"], updated[:10])
         if day and (not g["first"] or day < g["first"]):
             g["first"] = day
     out = []
@@ -159,7 +163,8 @@ def _series(rows) -> Tuple[ComicSeriesRequest, ...]:
             state = SeriesState.ARRIVED
         else:
             state = SeriesState.WAITING_RELEASE
-        out.append(ComicSeriesRequest(vol, g["name"] or "A comic series", state, arrived, len(statuses), g["first"]))
+        out.append(ComicSeriesRequest(vol, g["name"] or "A comic series", state, arrived, len(statuses), g["first"],
+                                      g["arrived"]))
     out.sort(key=lambda r: r.asked_on, reverse=True)
     return tuple(out[:MINE_LIMIT])
 
