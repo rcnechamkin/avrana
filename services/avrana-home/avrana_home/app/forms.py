@@ -12,18 +12,21 @@ guard, webtests/test_route_layer_source.py, pins both). A post is accepted only 
 """
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import hmac
+import re
 import secrets
 import time
-from typing import Callable, Dict, FrozenSet, Optional
+from typing import Awaitable, Callable, Dict, FrozenSet, Optional, Tuple
 from urllib.parse import parse_qsl
 
 TV_ROUTE = "/me/tv"
 FORM_ROUTES = frozenset({TV_ROUTE})
 MAX_FORM_BYTES = 1024
 TOKEN_TTL = 30 * 60
+_TOKEN = re.compile(r"([0-9]{1,12})\.([A-Za-z0-9_-]{1,40})\Z")
 
 
 async def read_form(request, fields: FrozenSet[str]) -> Optional[Dict[str, str]]:
@@ -61,12 +64,60 @@ class FormTokens:
         return f"{exp}.{self._sig(form, exp, username)}"
 
     def check(self, token: Optional[str], form: str, username: str) -> bool:
-        if not isinstance(token, str) or len(token) > 64:
+        # The exact ASCII shape issue() writes: a percent-encoded "²" passes str.isdigit() but not int(), and
+        # compare_digest raises on non-ASCII text, so anything looser turned a crafted token into a 500.
+        match = _TOKEN.fullmatch(token) if isinstance(token, str) and len(token) <= 64 else None
+        if match is None or int(match.group(1)) < self._clock():
             return False
-        exp_text, _, sig = token.partition(".")
-        if not exp_text.isdigit() or not sig or int(exp_text) < self._clock():
-            return False
-        return hmac.compare_digest(sig, self._sig(form, int(exp_text), username))
+        return hmac.compare_digest(match.group(2), self._sig(form, int(match.group(1)), username))
+
+
+class Replays:
+    """One upstream write per submitted form. A double-click or a resent page arrives as a second post with the same
+    token and fields; it waits for the first one's answer instead of sending again, and an approval is remembered for
+    the token's life, so a repeat reads "approved" rather than Jellyfin's "already used". Keyed by an HMAC of member,
+    token and fields under a per-process random key, in memory only: the code itself is never kept. Single event
+    loop (one worker), so no lock is needed."""
+
+    def __init__(self, keep: FrozenSet[str], clock: Callable[[], float] = time.monotonic, limit: int = 1024):
+        self._key = secrets.token_bytes(32)
+        self._keep, self._clock, self._limit = keep, clock, limit
+        self._pending: Dict[bytes, "asyncio.Future"] = {}
+        self._done: Dict[bytes, Tuple[float, str]] = {}
+
+    def _digest(self, parts) -> bytes:
+        return hmac.new(self._key, "\x00".join(parts).encode("utf-8"), hashlib.sha256).digest()
+
+    async def once(self, parts, run: Callable[[], Awaitable[str]]) -> str:
+        key, now = self._digest(parts), self._clock()
+        done = self._done.get(key)
+        if done is not None and done[0] > now:
+            return done[1]
+        pending = self._pending.get(key)
+        if pending is not None:
+            return await asyncio.shield(pending)
+        future = asyncio.get_running_loop().create_future()
+        self._pending[key] = future
+        try:
+            outcome = await run()
+        except asyncio.CancelledError:
+            future.cancel()
+            raise
+        except BaseException as exc:
+            future.set_exception(exc)
+            future.exception()             # retrieved: a lone failure never logs "exception was never retrieved"
+            raise
+        else:
+            future.set_result(outcome)
+            if outcome in self._keep:
+                if len(self._done) >= self._limit:
+                    self._done = {k: v for k, v in self._done.items() if v[0] > now}
+                    if len(self._done) >= self._limit:
+                        self._done.clear()
+                self._done[key] = (now + TOKEN_TTL, outcome)
+            return outcome
+        finally:
+            self._pending.pop(key, None)
 
 
 def result_headers(outcome: str, allowed) -> Dict[str, str]:

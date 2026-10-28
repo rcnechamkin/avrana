@@ -21,6 +21,7 @@ Guardrails (docs/design/ME-PREFERENCES-PROFILE-QUICKCONNECT.md section 4):
 """
 from __future__ import annotations
 
+import json
 import re
 import threading
 import time
@@ -36,6 +37,9 @@ from .resilience import (DEFAULT_TIMEOUT, MAX_JSON_BYTES, UpstreamAuthError, Ups
 
 CODE = re.compile(r"[0-9]{6}\Z")
 SMALL = 4096
+STATUS_TTL = 30.0                  # the page's status is reused this long per member (the approval re-checks everything)
+STATUS_TTL_UNAVAILABLE = 5.0       # a failed look is retried sooner, but not on every reload
+STATUS_ENTRIES = 512
 
 # Outcomes, each a fixed id the page turns into words (never upstream text).
 APPROVED = "approved"              # Jellyfin answered true: the approval is acknowledged (not a verified TV sign-in)
@@ -96,11 +100,14 @@ class RateLimit:
 
 class QuickConnect:
     def __init__(self, transport, *, timeout: float = DEFAULT_TIMEOUT, limit: Optional[RateLimit] = None,
-                 member_username: Optional[Tuple[str, str]] = None):
+                 member_username: Optional[Tuple[str, str]] = None, clock: Callable[[], float] = time.monotonic):
         self._transport = transport
         self._timeout = timeout
-        self._limit = limit or RateLimit()
+        self._limit = limit or RateLimit(clock=clock)
         self._member_username = member_override(member_username)
+        self._clock = clock
+        self._status: Dict[str, Tuple[float, str]] = {}      # username -> (expires, status); never a code
+        self._status_lock = threading.Lock()
 
     def __repr__(self) -> str:
         return "QuickConnect(<redacted>)"
@@ -118,7 +125,6 @@ class QuickConnect:
     def _member_id(self, principal) -> Optional[str]:
         """The member's Jellyfin id (32 hex), or None when they must not be approved for: unmatched, ambiguous,
         disabled or a Jellyfin administrator."""
-        import json
         users = json.loads(self._call("GET", "/Users", None, MAX_JSON_BYTES).body)
         if not isinstance(users, list):
             raise ValueError("users")
@@ -142,9 +148,31 @@ class QuickConnect:
         return is_minted_principal(principal) and REQUIRED_GROUP[Service.JELLYFIN] in principal.groups
 
     def status(self, principal) -> str:
-        """READY, OFF, NOT_ELIGIBLE or UNAVAILABLE, for the page. Read-only; the approval checks everything again."""
+        """READY, OFF, NOT_ELIGIBLE or UNAVAILABLE, for the page. Read-only, and the approval checks everything again, so
+        the answer is reused for STATUS_TTL per member: reloading /me/tv costs no upstream calls, and a slow Jellyfin
+        holds the page up at most once per member and window."""
         if not self._eligible_principal(principal):
             return NOT_ELIGIBLE
+        now = self._clock()
+        with self._status_lock:
+            hit = self._status.get(principal.username)
+        if hit is not None and hit[0] > now:
+            return hit[1]
+        result = self._look(principal)
+        ttl = STATUS_TTL_UNAVAILABLE if result == UNAVAILABLE else STATUS_TTL
+        with self._status_lock:
+            if len(self._status) >= STATUS_ENTRIES:
+                self._status = {k: v for k, v in self._status.items() if v[0] > now}
+                if len(self._status) >= STATUS_ENTRIES:
+                    self._status.clear()
+            self._status[principal.username] = (now + ttl, result)
+        return result
+
+    def _forget(self, principal) -> None:
+        with self._status_lock:
+            self._status.pop(principal.username, None)
+
+    def _look(self, principal) -> str:
         try:
             if not self._enabled():
                 return OFF
@@ -153,6 +181,12 @@ class QuickConnect:
             return UNAVAILABLE
 
     def approve(self, principal, code: str) -> str:
+        outcome = self._approve(principal, code)
+        if outcome in (OFF, NOT_ELIGIBLE, UNAVAILABLE):
+            self._forget(principal)         # the page after the redirect looks again rather than offer a stale form
+        return outcome
+
+    def _approve(self, principal, code: str) -> str:
         if not self._eligible_principal(principal):
             return NOT_ELIGIBLE
         if not isinstance(code, str) or not CODE.fullmatch(code):
@@ -173,8 +207,10 @@ class QuickConnect:
             return UNKNOWN                  # sent, outcome unknown: never retried
         except UpstreamNotFound:
             return NOT_FOUND
-        except UpstreamAuthError:
-            return OFF                      # switched off between the check and the approval
+        except UpstreamAuthError as exc:
+            # 401: switched off between the check and the approval (10.11 answers a disabled Quick Connect with an
+            # authentication error). 403: the key lacks the rights, which no retry fixes.
+            return OFF if exc.status == 401 else UNAVAILABLE
         except UpstreamHTTPError:
             return NOT_ACCEPTED             # e.g. Jellyfin's "already authorized" (an unhandled 500 upstream)
         except UpstreamError:

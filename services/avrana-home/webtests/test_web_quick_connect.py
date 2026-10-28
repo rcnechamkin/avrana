@@ -89,10 +89,11 @@ class Gating(unittest.TestCase):
                 nope = client.get("/nope", headers=headers)
                 r = client.get("/me/tv", headers=headers)
                 self.assertEqual((404, nope.text), (r.status_code, r.text))
-                if not (qc and sections):
-                    other = client.post("/nope", headers=headers)
-                    post = client.post("/me/tv", content="code=123456", headers=headers + SAME)
-                    self.assertEqual((501, other.text), (post.status_code, post.text))
+                # Wired or not, someone without TV and Movies gets the same 501 as a POST anywhere else.
+                other = client.post("/nope", content="code=123456", headers=headers + SAME)
+                post = client.post("/me/tv", content="code=123456", headers=headers + SAME)
+                self.assertEqual((501, other.text, other.headers["content-type"]),
+                                 (post.status_code, post.text, post.headers["content-type"]))
                 self.assertEqual([], fake.approvals())
 
     def test_only_the_exact_path_takes_a_post(self):
@@ -160,12 +161,22 @@ class Post(TvBase):
         self.assertEqual([], self.fake.approvals())
 
     def test_origin_equal_to_host_is_accepted_for_browsers_without_fetch_metadata(self):
-        r = self.post({"t": self.token(), "code": "123456"},
-                      extra=[("Content-Type", "application/x-www-form-urlencoded"), ("Origin", "http://portal.test")])
-        self.assertEqual("/me/tv?r=approved", r.headers["location"])
+        for origin in ("http://portal.test", "http://Portal.TEST"):                 # host names ignore case
+            with self.subTest(origin=origin):
+                r = self.post({"t": self.token(), "code": "123456"},
+                              extra=[("Content-Type", "application/x-www-form-urlencoded"), ("Origin", origin)])
+                self.assertEqual("/me/tv?r=approved", r.headers["location"])
+
+    def test_a_double_submit_approves_once_and_both_read_approved(self):
+        body = {"t": self.token(), "code": "123456"}
+        first, second = self.post(body), self.post(body)
+        self.assertEqual(["/me/tv?r=approved"] * 2, [first.headers["location"], second.headers["location"]])
+        self.assertEqual(1, len(self.fake.approvals()))
+        self.post({"t": body["t"], "code": "654321"})                           # another code is another approval
+        self.assertEqual(2, len(self.fake.approvals()))
 
     def test_tokens_bind_to_the_member(self):
-        for token in ("", "nope", "1.x", self.token(OTHER)):
+        for token in ("", "nope", "1.x", "².x", "99999999999.é", "1.x.y", self.token(OTHER)):
             with self.subTest(token=token[:8]):
                 r = self.post({"t": token, "code": "123456"})
                 self.assertEqual("/me/tv?r=expired", r.headers["location"])
@@ -196,6 +207,31 @@ class Post(TvBase):
         self.assertIn("quick_connect", text)
         self.assertNotIn("987654", text)
         self.assertNotIn("member-a", text)
+
+
+class ReplayTests(unittest.TestCase):
+    def test_concurrent_repeats_share_one_run_and_only_kept_outcomes_are_remembered(self):
+        import asyncio
+        from avrana_home.app.forms import Replays
+        runs = []
+
+        async def slow(outcome):
+            runs.append(outcome)
+            await asyncio.sleep(0.01)
+            return outcome
+
+        async def scenario():
+            replays = Replays(keep=frozenset({"approved"}))
+            together = await asyncio.gather(*(replays.once(("m", "t", "1"), lambda: slow("approved")) for _ in range(3)))
+            later = await replays.once(("m", "t", "1"), lambda: slow("never"))
+            first = await replays.once(("m", "t", "2"), lambda: slow("not_found"))
+            again = await replays.once(("m", "t", "2"), lambda: slow("not_found"))
+            return together, later, first, again
+        together, later, first, again = asyncio.run(scenario())
+        self.assertEqual(["approved"] * 3, together)
+        self.assertEqual("approved", later)                       # remembered: no second upstream write
+        self.assertEqual(("not_found", "not_found"), (first, again))
+        self.assertEqual(["approved", "not_found", "not_found"], runs)   # a not-kept outcome may be tried again
 
 
 if __name__ == "__main__":

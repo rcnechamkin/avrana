@@ -199,7 +199,7 @@ def same_origin_form_post(scope) -> bool:
     site = seen.get(b"sec-fetch-site")
     if site is not None:
         return site == "same-origin"
-    origin, host = seen.get(b"origin", ""), seen.get(b"host", "")
+    origin, host = seen.get(b"origin", "").lower(), seen.get(b"host", "").lower()      # host names ignore case
     for scheme in ("https://", "http://"):
         if origin.startswith(scheme):
             return bool(host) and origin[len(scheme):] == host

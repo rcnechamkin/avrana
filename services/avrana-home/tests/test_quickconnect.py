@@ -103,6 +103,7 @@ class ApproveTests(unittest.TestCase):
         self.assertEqual(qc.OFF, self.run_with(fake))
         self.assertEqual([], fake.authorizations())
         self.assertEqual(qc.OFF, self.run_with(Fake(authorize=UpstreamAuthError(401))))   # turned off in between
+        self.assertEqual(qc.UNAVAILABLE, self.run_with(Fake(authorize=UpstreamAuthError(403))))   # key lacks rights
 
     def test_upstream_answers_map_to_fixed_outcomes(self):
         for answer, outcome in ((UpstreamNotFound(404), qc.NOT_FOUND), (UpstreamHTTPError(500), qc.NOT_ACCEPTED),
@@ -172,6 +173,32 @@ class StatusTests(unittest.TestCase):
         fake = Fake()
         qc.QuickConnect(fake).status(a)
         self.assertEqual([], fake.authorizations())                       # the page never approves anything
+
+    def test_status_is_reused_per_member_for_a_short_while(self):
+        clock, fake = FakeClock(), Fake()
+        connect = qc.QuickConnect(fake, clock=clock.now)
+        a, b = make_principal("member-a", VIDEO), make_principal("member-b", VIDEO)
+        connect.status(a)
+        connect.status(a)
+        self.assertEqual(2, len(fake.calls))                              # one look: Enabled + Users
+        connect.status(b)
+        self.assertEqual(4, len(fake.calls))                              # each member has their own
+        clock.advance(qc.STATUS_TTL + 1)
+        connect.status(a)
+        self.assertEqual(6, len(fake.calls))
+
+    def test_an_unavailable_look_is_retried_sooner_and_a_failed_approval_forgets_the_status(self):
+        clock = FakeClock()
+        a = make_principal("member-a", VIDEO)
+        connect = qc.QuickConnect(Fake(users_error=UpstreamTimeout()), clock=clock.now)
+        self.assertEqual(qc.UNAVAILABLE, connect.status(a))
+        connect._transport = Fake()
+        self.assertEqual(qc.UNAVAILABLE, connect.status(a))               # still within the short window
+        clock.advance(qc.STATUS_TTL_UNAVAILABLE + 1)
+        self.assertEqual(qc.READY, connect.status(a))
+        connect._transport = Fake(enabled=b"false")
+        self.assertEqual(qc.OFF, connect.approve(a, "123456"))
+        self.assertEqual(qc.OFF, connect.status(a))                       # looked again, not the cached READY
 
     def test_repr_is_redacted(self):
         self.assertEqual("QuickConnect(<redacted>)", repr(qc.QuickConnect(Fake())))

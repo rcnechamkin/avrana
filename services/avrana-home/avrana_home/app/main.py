@@ -46,7 +46,7 @@ from .identity import (IdentityResolver, Viewer, get_viewer, has_identity_header
                        library_chip_from_scope, library_view_from_scope, new_tab_from_scope, search_term_from_scope,
                        same_origin_form_post, security_state_from_scope, tv_result_from_scope)
 from .logsafe import app_log, log_event, silence_uvicorn_access
-from .middleware import HygieneMiddleware
+from .middleware import NOT_IMPLEMENTED_BODY, HygieneMiddleware
 from . import recovery
 from .routing import (ME_ROUTE, AccountFacts, Decision, chooser_intro, decide, library_decision, me_decision,
                       normalise_target, not_found, parse_title_route, search_decision, title_decision, trouble_decision)
@@ -201,6 +201,7 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
     if not (settings.home_sections and adapter_list):
         qc = None
     form_tokens = forms_mod.FormTokens()
+    tv_replays = forms_mod.Replays(keep=frozenset({"approved"}))
     watch = cat.service("watch")
     # Jellyfin's own Quick Connect page (jellyfin-web 10.11 route `quickconnect`), from the catalogue's fixed host.
     tv_handoff = f"https://{watch.host}/web/#/quickconnect" if watch is not None else None
@@ -514,16 +515,21 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
             scope = request.scope
             p = viewer.principal
             if p is None or not tv_member(viewer):
-                scope["avrana_route"] = "not_found"
-                return respond(not_found())
+                # The same 501 as a POST to any other path (middleware.py): nobody without TV and Movies can tell
+                # from outside that this path takes a form.
+                scope["avrana_route"] = "method_not_supported"
+                return Response(NOT_IMPLEMENTED_BODY, status_code=501, media_type="text/html; charset=utf-8")
             scope["avrana_route"] = forms_mod.TV_ROUTE
             if not same_origin_form_post(scope):
                 return render("error.html", 403)
             form = await forms_mod.read_form(request, TV_FIELDS)
             if form is None:
                 return render("error.html", 400)
-            if form_tokens.check(form.get("t"), "tv", p.username):
-                outcome = await run_in_threadpool(qc.approve, p, form.get("code", ""))
+            token, code = form.get("t"), form.get("code", "")
+            if form_tokens.check(token, "tv", p.username):
+                # A double-click or a resent page shares the first post's answer: one approval per form (forms.Replays).
+                outcome = await tv_replays.once((p.username, token, code),
+                                                lambda: run_in_threadpool(qc.approve, p, code))
             else:
                 outcome = "expired"
             log_event(app_log, logging.INFO, "quick_connect", state=outcome)       # never the code or the member
