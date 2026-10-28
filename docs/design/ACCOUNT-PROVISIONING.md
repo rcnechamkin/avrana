@@ -14,7 +14,7 @@ library already creates that account by itself, but only on the member's first s
 
 | Library | Account appears when | Today's Home result before that |
 |---|---|---|
-| Jellyfin | first sign-in to Jellyfin (LDAP plugin, `CreateUsersFromLdap=true`, group `avrana-videos`) | "not set up yet" (`NOT_LINKED`, `upstream_user_not_found`) |
+| Jellyfin | first sign-in to Jellyfin (LDAP plugin, `CreateUsersFromLdap=true`, group `avrana-videos`) | "not set up yet" (`NOT_LINKED`, `unmapped`) |
 | Audiobookshelf | first "Sign in with Avrana" (OIDC auto-register, matches an existing account by email) | same |
 | Komga, Calibre-Web | not needed by Home: shared view (ADAPTER-CONTRACT 12.2, 13.2) | works from the first visit |
 
@@ -23,7 +23,7 @@ On 2026-10-28 one member with `avrana-videos` had no Jellyfin account and six me
 
 ## 2. Proposal: create the account on the member's first Home visit
 
-When a Jellyfin or Audiobookshelf section comes back `NOT_LINKED` with reason `upstream_user_not_found`
+When a Jellyfin or Audiobookshelf section comes back `NOT_LINKED` with reason `unmapped`
 (exactly zero accounts with that name, so never `ambiguous`, `disabled` or a case mismatch), and the member
 holds the library's group, Home creates the account once and re-reads the section.
 
@@ -66,7 +66,7 @@ The sync can come later without undoing anything here.
 
 A separate `avrana_home/provision.py` holds the two create calls. The read adapters stay read-only, and their
 guarded transports keep refusing every non-GET. It is called from one place, after the section gather, only
-for `upstream_user_not_found`. This changes Home from read-only to "read-only plus account creation", so the
+for `unmapped`. This changes Home from read-only to "read-only plus account creation", so the
 ADAPTER-CONTRACT read-only clause gets an amendment naming exactly these two writes.
 
 ## 5. Proof before it goes live
