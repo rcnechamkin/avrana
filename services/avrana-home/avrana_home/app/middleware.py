@@ -68,7 +68,7 @@ TOO_LARGE_BODY = NOT_IMPLEMENTED_BODY.replace(b"501", b"413").replace(b"Unsuppor
 MAX_FORM_BODY = 4096          # the broker's form: a work id, a format, a title, an author and a token
 # Routes with a form that submits to this origin (form-action 'self'): /search (GET to itself) and the request
 # broker's confirmation page.
-FORM_ROUTES = frozenset({"/search", "/request/books"})
+FORM_ROUTES = frozenset({"/search", "/request/books", "/request/watch"})
 
 HEADERS_TOO_LARGE_BODY = (b"<!DOCTYPE HTML>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n"
                           b"<title>Error response</title>\n</head>\n<body>\n<h1>Error response</h1>\n"

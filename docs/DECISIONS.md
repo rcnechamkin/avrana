@@ -289,3 +289,20 @@ Proposed in a draft PR; nothing is deployed and the switch is off by default.
 | **Formats follow library groups** | Ask for the ebook needs `avrana-books`; Ask for the audiobook needs `avrana-audiobooks`. A member with neither gets the standard 404. |
 | **Nothing is promised** | The words say a request was sent and where the book appears once it arrives; never that it has arrived, and never a queue position. |
 
+## Decided by the delegate, 2026-10-28: request brokers, matching and forks
+
+Recorded from the owner's chat of 2026-10-28 ("Proceed building this, make your own decisions, but do it
+intelligently and weigh the scope and philosophy of the rest of the project"). Each is the delegate's call under that
+instruction; the owner can reverse any of them.
+
+| Decision | Consequence |
+|---|---|
+| **Brokers need verified identity in real mode (F-D5, extended)** | Seerr's global key is accepted for the beta, on the same terms as the Audiobookshelf admin token: real mode only with `HOME_IDENTITY_MODE=jwt_required`. The rule also covers Shelfarr, whose token can name any member. The Seerr fork (scoped keys) stays the long-term fix. |
+| **Home never acts as an administrator** | Seerr user 1 and any user with ADMIN or MANAGE_* bits are refused; the owner asks in Seerr itself. |
+| **No approval step in Shelfarr for now (F-D2)** | Members' book requests go straight through, behind Home's per-member guard (no repeat within a minute, at most 10 asks an hour across books and films). Seerr keeps its own per-user approval and quotas. Revisit if downloads become a problem. |
+| **Exact matches only are claimed (M-3)** | "Already in Books / Audiobooks / Movies and TV" only from a shared id, and for per-member libraries only after the member's own lookup. A title-only match is a hint ("may already have this. Check") linking to Home's own search. |
+| **The index reads the databases read-only now (M-2)** | `tools/build_catalogue_index.py` reads Calibre, Shelfarr, Omnibus and Komga databases with `mode=ro`; fork API routes can replace it later. |
+| **Cap monitor installed (M-1)** | `api-caps-monitor.timer` runs on avrana from `~/.local/share/avrana-api-caps` (outside the canonical tree, so drift stays clean until #125 lands). Alert mail is not configured on the host (`services/backups/.env.alert` absent), so incidents go to the journal only. |
+| **Forks are prepared locally, not published (F-D1)** | Patches for Shelfarr and Omnibus are written and committed in local clones; nothing is pushed to GitHub or proposed upstream without the owner, since that publishes under the owner's name. |
+| **Credentials left in place (F-D3, F-D4)** | The Omnibus `JobLog` row and Shelfarr's legacy `api_token` are not touched: deleting rows in a live database or clearing a token whose consumer is unknown could break something for little gain (both are visible only to the owner). The fork fixes the leak at its source. |
+

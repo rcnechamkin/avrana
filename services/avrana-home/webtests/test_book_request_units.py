@@ -10,7 +10,9 @@ from avrana_home.resilience import MAX_REQUEST_BODY, TransportResponse, Upstream
 ON = {"HOME_SECTIONS": "on", "HOME_BOOK_REQUESTS": "on", "SHELFARR_BASE_URL": "http://127.0.0.1:18300"}
 REAL = {"HOME_UPSTREAM_MODE": "real", "HOME_GATES_VERIFIED": "yes", "HOME_SECTIONS": "on",
         "JELLYFIN_BASE_URL": "http://jellyfin:8096", "JELLYFIN_API_KEY": "fake-key-for-test",
-        "HOME_BOOK_REQUESTS": "on", "SHELFARR_BASE_URL": "http://shelfarr:80", "SHELFARR_TOKEN": "fake-token-for-test"}
+        "HOME_BOOK_REQUESTS": "on", "SHELFARR_BASE_URL": "http://shelfarr:80", "SHELFARR_TOKEN": "fake-token-for-test",
+        "HOME_IDENTITY_MODE": "jwt_required", "HOME_JWT_ISSUER": "https://auth.example.test/application/o/home/",
+        "HOME_JWT_AUDIENCE": "home", "HOME_JWT_SECRET": "x" * 40}
 
 
 class BrokerSettings(unittest.TestCase):
@@ -71,12 +73,51 @@ class Signing(unittest.TestCase):
         self.assertIsNone(g.check("a", "other"))
 
 
+class SeerrClient(unittest.TestCase):
+    def test_user_map_ttl_and_refusals(self):
+        from avrana_home.requests.seerr import MAP_TTL, MISS_TTL, SeerrRequests
+        from avrana_home.resilience import FakeClock
+        users = {"results": [{"id": 5, "permissions": 32, "jellyfinUserId": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"},
+                             {"id": 7, "permissions": 32, "jellyfinUserId": "c" * 32},
+                             {"id": 8, "permissions": 32, "jellyfinUserId": "c" * 32},
+                             {"id": 9, "permissions": "lots", "jellyfinUserId": "d" * 32}]}
+        rec = Recorder(TransportResponse(200, json.dumps(users).encode()))
+        clock = FakeClock()
+        c = SeerrRequests(rec, clock=clock)
+        self.assertEqual(("ok", 5), c.user_for("a" * 32))                 # dashes and case folded
+        self.assertEqual(("not_linked", None), c.user_for("c" * 32))      # two Seerr users, one Jellyfin id
+        self.assertEqual(("not_linked", None), c.user_for("d" * 32))      # unreadable permissions
+        self.assertEqual(("not_linked", None), c.user_for("not-hex"))
+        self.assertEqual(1, len(rec.calls))                               # a miss inside MISS_TTL does not re-read
+        clock.advance(MISS_TTL + 1)
+        c.user_for("e" * 32)
+        self.assertEqual(2, len(rec.calls))
+        rec.raises = UpstreamTimeout()
+        clock.advance(MAP_TTL + 1)
+        self.assertEqual(("unavailable", None), c.user_for("a" * 32))
+
+    def test_search_and_request_always_as_a_member(self):
+        from avrana_home.requests.seerr import ForbiddenCall as SeerrForbidden, Outcome as SO, SeerrRequests
+        rec = Recorder(TransportResponse(201, b'{"status": 2}'))
+        c = SeerrRequests(rec)
+        with self.assertRaises(SeerrForbidden):
+            c._send("GET", "/api/v1/search", {"query": "x"}, None, None)
+        with self.assertRaises(SeerrForbidden):
+            c._send("GET", "/api/v1/settings/main", None, None, 5)
+        self.assertIs(SO.REFUSED, c.create(1, "movie", 1))                # never user 1
+        self.assertIs(SO.REFUSED, c.create(5, "person", 1))
+        self.assertEqual([], rec.calls)
+        self.assertIs(SO.CREATED, c.create(5, "movie", 42))
+        self.assertEqual("5", rec.calls[0][4])
+        self.assertNotIn("key", repr(c).lower())
+
+
 class Recorder:
     def __init__(self, answer=None, raises=None):
         self.calls, self.answer, self.raises = [], answer, raises
 
-    def request(self, method, path, query, timeout, max_bytes, *, json_body=None):
-        self.calls.append((method, path, query, json_body))
+    def request(self, method, path, query, timeout, max_bytes, *, json_body=None, act_as=None):
+        self.calls.append((method, path, query, json_body, act_as))
         if self.raises:
             raise self.raises
         return self.answer

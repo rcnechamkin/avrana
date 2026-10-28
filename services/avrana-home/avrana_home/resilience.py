@@ -135,8 +135,10 @@ class Transport(Protocol):
     results and logs never see them."""
 
     def request(self, method: str, path: str, query: Optional[Mapping[str, str]],
-                timeout: float, max_bytes: int, *, json_body: Optional[bytes] = None) -> TransportResponse: ...
-    # `json_body` is used only by the request broker's one POST (requests/shelfarr.py); every adapter sends none.
+                timeout: float, max_bytes: int, *, json_body: Optional[bytes] = None,
+                act_as: Optional[str] = None) -> TransportResponse: ...
+    # `json_body` is used only by the request brokers' POSTs (requests/shelfarr.py, requests/seerr.py) and `act_as`
+    # (Seerr's `X-API-User`, a numeric user id) only by requests/seerr.py; every adapter sends neither.
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -319,7 +321,7 @@ class UrllibTransport:
     def __repr__(self) -> str:
         return "UrllibTransport(<redacted>)"
 
-    def request(self, method, path, query, timeout, max_bytes, *, json_body=None):
+    def request(self, method, path, query, timeout, max_bytes, *, json_body=None, act_as=None):
         from urllib.parse import urlencode
         url = self._base + path + (("?" + urlencode(query)) if query else "")
         headers = dict(self._headers)
@@ -327,6 +329,10 @@ class UrllibTransport:
             if method != "POST" or not isinstance(json_body, bytes) or len(json_body) > MAX_REQUEST_BODY:
                 raise UpstreamMisbehaved()               # a programming error, never sent
             headers["Content-Type"] = "application/json"
+        if act_as is not None:
+            if not isinstance(act_as, str) or not act_as.isdigit() or not 0 < len(act_as) <= 9:
+                raise UpstreamMisbehaved()               # a programming error, never sent
+            headers["X-API-User"] = act_as
         req = urllib.request.Request(url, data=json_body, method=method, headers=headers)
         if (not isinstance(timeout, (int, float)) or isinstance(timeout, bool) or not math.isfinite(timeout)
                 or not timeout > 0):

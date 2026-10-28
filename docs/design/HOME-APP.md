@@ -493,6 +493,34 @@ edition ISBNs) and the ids CWA and Shelfarr's Audiobookshelf mirror stamped on t
 - No file, an unreadable or malformed file, or a wrong version: no claims at all. The file holds catalogue ids and
   folded title keys only, no member data.
 
+## 5c. Asking for a film or show (request broker, Seerr)
+
+Status: proposed, not deployed; off unless `HOME_WATCH_REQUESTS=on`. Same shape and gates as section 5b, with these
+differences:
+
+- **Who Home acts as.** Seerr has one global key (full admin). Every search and request is sent with `X-API-User` set
+  to the member's own Seerr user, so Seerr's per-user permissions, quotas and auto-approve apply. That user is found
+  by the Jellyfin user Home already maps the member to (the Jellyfin adapter), matched against Seerr's
+  `jellyfinUserId` (user list read with the key, at most 2,000 users, cached 10 minutes; a miss re-reads at most
+  once a minute). User 1, any user with ADMIN or MANAGE_* permission bits, and a Jellyfin id shared by two Seerr users
+  are refused: the member reads "Requests are not set up for your account yet", and nothing is searched.
+- **Real mode needs verified identity.** As for the Audiobookshelf token, `HOME_WATCH_REQUESTS` (and
+  `HOME_BOOK_REQUESTS`) in real mode require `HOME_IDENTITY_MODE=jwt_required`: their credentials can act as any
+  member, so a forged username must be impossible.
+- **Allow-list.** `GET /api/v1/search`, `GET /api/v1/user` (mapping only, never as a member) and
+  `POST /api/v1/request`. Search and request without a member are refused in the client before anything is sent.
+- **What the member reads, per title** (people are dropped): *Ask for this film* / *Ask for this show* (a show asks
+  for every season); *Already in Movies and TV. Open* (Home's own title page) when Seerr knows the library item AND
+  this member's own Jellyfin lookup finds it (at most three lookups a page); *Ask for the missing seasons* for a show
+  that is partly there; *Already asked for* (never by whom); *Not available to ask for* (blocklisted or removed).
+- **Outcomes.** Asked for (201; "it waits for approval first" when Seerr holds it for approval); already asked for
+  (409); could not be asked for (403 quota or permission, 202 nothing left); not set up; could not be reached.
+- **Search fallback.** "Ask for a film or show" on Search's no-results group goes to `/request/watch?q=` instead of
+  the Seerr site while the broker is on and the member may use it.
+
+The fork plan (`REQUEST-FORKS-PLAN.md`, Seerr E-S1..E-S3) replaces the global key with a scoped key that cannot act as
+an administrator at all; until then the rules above are the lock.
+
 ## 6. Logging
 
 Structured JSON, one object per line, to stderr. Fields: `route` (the route **template** such as
@@ -524,7 +552,8 @@ variables (never the values).
 | `AUDIOBOOKSHELF_BASE_URL` | unset (adapter not built) | Optional. Same URL rules as Jellyfin. Mock mode: loopback only. Real mode: needs the token too, and the same gates. |
 | `AUDIOBOOKSHELF_TOKEN` / `AUDIOBOOKSHELF_TOKEN_FILE` | none | Real mode only, with the URL, exactly one of the two; a token in mock mode is an error. It is an admin token, so real mode also needs `HOME_IDENTITY_MODE=jwt_required` (ABS admin-token review 2026-10-27, HIGH; the sealed owner preview is exempt). Never in a repr, log line or error message. |
 | `KOMGA_BASE_URL` / `KOMGA_TOKEN` (`_FILE`) / `KOMGA_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS` | unset (adapter not built) | Optional. Mock mode: loopback URL, the token is fixed and fake, the flag is ignored. Real mode (owner decision 2026-10-15, ADAPTER-CONTRACT 12.2): needs `HOME_GATES_VERIFIED=yes`, the URL, a REGULAR (non-admin) account's key and `KOMGA_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS=yes`; otherwise a startup error. |
-| `HOME_BOOK_REQUESTS` / `SHELFARR_BASE_URL` / `SHELFARR_TOKEN` (`_FILE`) | `off` / unset / unset | The request broker (section 5b). `on` needs `HOME_SECTIONS=on` and the URL; the URL or token without the switch is a startup error. Mock mode: loopback URL, the token is fixed and fake, a real token is an error. Real mode: the token is required; the same URL rules as the adapters (plain http only to loopback or a single-label Docker name). The token is minted by the owner in Shelfarr with exactly `search:read requests:write requests:admin`. Never in a repr, log line or error message. |
+| `HOME_BOOK_REQUESTS` / `SHELFARR_BASE_URL` / `SHELFARR_TOKEN` (`_FILE`) | `off` / unset / unset | The request broker (section 5b). `on` needs `HOME_SECTIONS=on` and the URL; the URL or token without the switch is a startup error. Mock mode: loopback URL, the token is fixed and fake, a real token is an error. Real mode: the token is required; the same URL rules as the adapters (plain http only to loopback or a single-label Docker name). The token is minted by the owner in Shelfarr with exactly `search:read requests:write requests:admin`. Real mode also needs `HOME_IDENTITY_MODE=jwt_required`. Never in a repr, log line or error message. |
+| `HOME_WATCH_REQUESTS` / `SEERR_BASE_URL` / `SEERR_API_KEY` (`_FILE`) | `off` / unset / unset | The film and TV request broker (section 5c). `on` needs `HOME_SECTIONS=on` and the URL; the URL or key without the switch is a startup error. Mock mode: loopback URL, fixed fake key. Real mode: the key is required, and `HOME_IDENTITY_MODE=jwt_required` (the key is full Seerr admin; Home always names the member). Never in a repr, log line or error message. |
 | `HOME_LIBRARY_IDS_FILE` | unset | Absolute path of the catalogue-id index (section 5b), mounted read-only; re-read at most every minute when it changes. Absent or malformed: no "Already in" claims. A relative path refuses to start. |
 | `CALIBRE_WEB_BASE_URL` / `CALIBRE_WEB_CREDENTIAL` (`_FILE`) / `CALIBRE_WEB_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS` | unset / unset / `off` | Optional. Mock mode: loopback URL, fixed fake credential. Real mode is refused unless the owner setting is `yes` (default off; Calibre-Web is a shared view, ADAPTER-CONTRACT 13.2), and then also needs `HOME_GATES_VERIFIED=yes`, the URL and a `user:password` credential together. The constructor's `owner_confirms_no_member_restrictions` is `True` only in mock mode or from that setting. |
 | `HOME_IDENTITY_MODE` | `headers` | `headers`, `jwt_log_only` or `jwt_required` (section 2). Unknown, empty or miscased: refuses to start. |

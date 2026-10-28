@@ -216,8 +216,8 @@ class BookRequestsWeb(unittest.TestCase):
     def test_search_fallback_points_books_at_the_ask_page(self):
         from avrana_home.app.viewmodel import request_options
         hosts = {"requestabook": "requestabook.avrana.net", "requests": "request.avrana.net"}
-        on = request_options(["calibre-web", "jellyfin"], "dune book", hosts, True)
-        off = request_options(["calibre-web"], "dune book", hosts, False)
+        on = request_options(["calibre-web", "jellyfin"], "dune book", hosts, {"requestabook": "/request/books"})
+        off = request_options(["calibre-web"], "dune book", hosts, None)
         self.assertIn("/request/books?q=dune%20book", [o.href for o in on])
         self.assertEqual(["/requestabook"], [o.href for o in off])
 

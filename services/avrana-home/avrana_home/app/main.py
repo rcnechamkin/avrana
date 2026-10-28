@@ -32,7 +32,7 @@ from ..adapters.komga import KomgaAdapter
 from ..aggregate import gather, health_summary, search as run_search
 from urllib.parse import urlencode
 
-from ..contract import MediaAdapter, Service, build_handoff_url
+from ..contract import REQUIRED_GROUP, MediaAdapter, Service, build_handoff_url
 from ..cache import MemberCache
 from ..resilience import SystemClock, UrllibTransport
 from . import catalogue as catalogue_mod
@@ -44,8 +44,10 @@ from . import pwa as pwa_mod
 from . import bookrequests as bookreq_mod
 from ..requests.forms import FormSigner, RequestGuard
 from ..requests.owned import OwnedIndex
+from ..requests.seerr import MediaState, SeerrRequests
+from . import watchrequests as watch_mod
 from ..requests.shelfarr import FORMAT_GROUP, ShelfarrRequests, member_username
-from .identity import (IdentityResolver, Viewer, broker_form, get_viewer, has_identity_headers, home_filter_from_scope,
+from .identity import (WATCH_FORM_FIELDS, IdentityResolver, Viewer, broker_form, get_viewer, has_identity_headers, home_filter_from_scope,
                        library_chip_from_scope, library_view_from_scope, new_tab_from_scope, same_origin_post,
                        search_term_from_scope)
 from .logsafe import app_log, log_event, silence_uvicorn_access
@@ -162,15 +164,24 @@ def build_book_requests(settings: Settings) -> Optional[ShelfarrRequests]:
     return ShelfarrRequests(transport, timeout=settings.timeout)
 
 
+def build_watch_requests(settings: Settings) -> Optional[SeerrRequests]:
+    """The Seerr request client, or None when HOME_WATCH_REQUESTS is off (settings.py validates the rest)."""
+    if not (settings.home_sections and settings.watch_requests and settings.seerr_base_url):
+        return None
+    transport = UrllibTransport(settings.seerr_base_url, {"X-Api-Key": settings.seerr_api_key})
+    return SeerrRequests(transport, timeout=settings.timeout)
+
+
 def _is_loopback_peer(request: Request) -> bool:
     client = request.client
     return client is not None and client.host in ("127.0.0.1", "::1")
 
 
 def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]] = None,
-               book_requests: Optional[ShelfarrRequests] = None) -> FastAPI:
-    """`adapters` and `book_requests` let tests inject fakes; otherwise they are built from `settings`. Book requests
-    exist only when HOME_BOOK_REQUESTS is on (an injected client is ignored otherwise)."""
+               book_requests: Optional[ShelfarrRequests] = None,
+               watch_requests: Optional[SeerrRequests] = None) -> FastAPI:
+    """`adapters`, `book_requests` and `watch_requests` let tests inject fakes; otherwise they are built from
+    `settings`. Each broker exists only when its switch is on (an injected client is ignored otherwise)."""
     silence_uvicorn_access()      # whoever serves this app, uvicorn must not log raw query strings
     cat = catalogue_mod.load(settings.catalogue_path)
     env = make_environment()
@@ -189,6 +200,9 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
     broker = None
     if settings.home_sections and settings.book_requests:
         broker = book_requests if book_requests is not None else build_book_requests(settings)
+    seerr = None
+    if settings.home_sections and settings.watch_requests:
+        seerr = watch_requests if watch_requests is not None else build_watch_requests(settings)
     signer, guard = FormSigner(), RequestGuard()                    # per process: a restart expires open forms
     owned_index = OwnedIndex(settings.library_ids_file)             # read-only; None = no "Already in" claims
 
@@ -268,7 +282,7 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
                           section=s.section, state=s.state.value, reason=s.reason or "")
             decision = search_decision(build_search(result.search_view(), term, title_services=title_services,
                                                     request_hosts=request_hosts(viewer),
-                                                    book_requests=bool(broker_formats(viewer))))
+                                                    own_pages=own_pages(viewer)))
             scope["avrana_route"] = decision.label
             # Search's no-results group may offer Contribute (memo section 2), only from the member's own tiles.
             return respond(decision, scope, shell=shell_for(viewer, "search"),
@@ -292,6 +306,31 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
             scope["avrana_route"] = bookreq_mod.PATH
             mark_shell(scope, shell_for(viewer, "search"))
             return render("request_books.html", page=page, shell=shell_for(viewer, "search"))
+
+        if route == watch_mod.PATH and seerr is not None:
+            # Ask for a film or show (request broker, Seerr): a shell page for a member holding Movies and TV; anyone
+            # else gets the standard 404. Searched AS the member's own Seerr user; nothing is asked for on a GET.
+            if not watch_allowed(viewer):
+                scope["avrana_route"] = "not_found"
+                return respond(not_found())
+            scope["avrana_route"] = watch_mod.PATH
+            shell = shell_for(viewer, "search")
+            mark_shell(scope, shell)
+            term = search_term_from_scope(scope)
+            if term is None:
+                return render("request_watch.html", page=watch_mod.build_results("form", (), None, "", signer),
+                              shell=shell)
+            linked, seerr_id = await seerr_user(viewer)
+            if linked != "ok":
+                log_event(app_log, logging.INFO, "watch_search", service="seerr", state=linked)
+                page = (watch_mod.not_linked(watch_place(viewer)) if linked == "not_linked" else
+                        watch_mod.build_results("unavailable", (), term, "", signer))
+                return render("request_watch.html", page=page, shell=shell)
+            state, offers = await run_in_threadpool(seerr.search, seerr_id, term)
+            log_event(app_log, logging.INFO, "watch_search", service="seerr", state=state)
+            owned = await watch_owned(viewer, offers) if offers else {}
+            page = watch_mod.build_results(state, offers, term, broker_user(viewer), signer, owned)
+            return render("request_watch.html", page=page, shell=shell)
 
         if route == "/library" and settings.home_sections and adapter_list:
             # The Library page (Concept K MK-5a, AVR-719): a shell page like /search, only with the shell on and for a
@@ -445,6 +484,84 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
         return render("request_books.html", page=bookreq_mod.build_said(outcome, None, fields, place, formats),
                       shell=shell)
 
+    @app.post(watch_mod.PATH, include_in_schema=False, response_model=None)
+    async def ask_for_watch(request: Request, viewer: Viewer = Depends(get_viewer)) -> Response:
+        """One request for one film or show, as the verified member's own Seerr user (never an administrator). The
+        same gates as books: switch, group, same origin, exact fields, a token this process signed for this member,
+        the guard."""
+        scope = request.scope
+        if seerr is None or not watch_allowed(viewer):
+            scope["avrana_route"] = "not_found"
+            return respond(not_found())
+        scope["avrana_route"] = watch_mod.PATH
+        shell = shell_for(viewer, "search")
+        mark_shell(scope, shell)
+        username = broker_user(viewer)
+        fields = await broker_form(request, MAX_FORM_BODY, WATCH_FORM_FIELDS) if same_origin_post(scope) else None
+        token = fields.pop("token") if fields is not None else None
+        if (fields is None or username is None or not signer.verify(token, username, fields)
+                or fields["media_type"] not in ("movie", "tv") or not fields["media_id"].isdigit()):
+            log_event(app_log, logging.INFO, "watch_request", service="seerr", state="refused_form")
+            return render("request_watch.html", 403, page=watch_mod.build_said(None, "expired", {}, None), shell=shell)
+        blocked = guard.check(username, "watch|" + fields["media_type"] + "|" + fields["media_id"])
+        if blocked is not None:
+            log_event(app_log, logging.INFO, "watch_request", service="seerr", state=blocked)
+            return render("request_watch.html", 429 if blocked == "rate" else 200,
+                          page=watch_mod.build_said(None, blocked, fields, None), shell=shell)
+        linked, seerr_id = await seerr_user(viewer)
+        if linked != "ok":
+            outcome = watch_mod.Outcome.NOT_LINKED if linked == "not_linked" else watch_mod.Outcome.UNAVAILABLE
+        else:
+            outcome = await run_in_threadpool(seerr.create, seerr_id, fields["media_type"], int(fields["media_id"]))
+        log_event(app_log, logging.INFO, "watch_request", service="seerr", state=outcome.value,
+                  reason=fields["media_type"])
+        return render("request_watch.html", page=watch_mod.build_said(outcome, None, fields, watch_place(viewer)),
+                      shell=shell)
+
+    def watch_allowed(viewer: Viewer) -> bool:
+        return (seerr is not None and viewer.principal is not None and bool(adapter_list)
+                and REQUIRED_GROUP[Service.JELLYFIN] in viewer.groups)
+
+    def watch_place(viewer: Viewer) -> Optional[str]:
+        svc = cat.service(watch_mod.PLACE.strip("/"))
+        return watch_mod.PLACE if svc is not None and svc.allows(viewer.groups) else None
+
+    async def seerr_user(viewer: Viewer):
+        """("ok", seerr id) | ("not_linked", None) | ("unavailable", None): the member's Seerr user, found through the
+        Jellyfin user Home already maps them to. No Jellyfin adapter, or an unmapped member: not linked."""
+        jellyfin = next((a for a in adapter_list if a.service is Service.JELLYFIN), None)
+        if jellyfin is None:
+            return "not_linked", None
+        user = await run_in_threadpool(jellyfin.resolve_user, viewer.principal)
+        if user is None:
+            return "not_linked", None
+        return await run_in_threadpool(seerr.user_for, user.upstream_id)
+
+    async def watch_owned(viewer: Viewer, offers) -> dict:
+        """{(media_type, tmdb_id): OwnedVM} for titles Seerr says are in the library AND this member's own
+        permission-checked Jellyfin lookup finds (at most OWNED_CHECKS); the link is Home's own title page."""
+        out, checks = {}, 0
+        jellyfin = next((a for a in adapter_list if a.service is Service.JELLYFIN), None)
+        for offer in offers:
+            if (jellyfin is None or offer.jellyfin_id is None or checks >= bookreq_mod.OWNED_CHECKS
+                    or offer.state not in (MediaState.AVAILABLE, MediaState.PARTIAL)):
+                continue
+            checks += 1
+            section = await run_in_threadpool(jellyfin.item, viewer.principal, offer.jellyfin_id, True)
+            if section.state.value == "ok" and section.items:
+                out[(offer.media_type, offer.tmdb_id)] = bookreq_mod.OwnedVM(
+                    watch_mod.LIBRARY, title_href(Service.JELLYFIN.value, offer.jellyfin_id), False)
+        return out
+
+    def own_pages(viewer: Viewer) -> dict:
+        """Request path -> Home ask page, for each broker that is on and that this member may use (search fallback)."""
+        out = {}
+        if broker_formats(viewer):
+            out["requestabook"] = bookreq_mod.PATH
+        if watch_allowed(viewer):
+            out["requests"] = watch_mod.PATH
+        return out
+
     async def already_have(viewer: Viewer, offers, formats):
         """({(work_id, format): OwnedVM}, {(work_id, format): MaybeVM}) for this member, from the catalogue-id index.
         Only the member's own formats are looked at (a library they do not hold is never mentioned). Books is a
@@ -556,6 +673,7 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
 
     app.add_middleware(HygieneMiddleware, render_error=lambda: env.get_template("error.html")
                        .render().encode("utf-8"),
-                       post_paths=frozenset({bookreq_mod.PATH}) if broker is not None else frozenset())
+                       post_paths=frozenset(path for path, on in ((bookreq_mod.PATH, broker is not None),
+                                                                   (watch_mod.PATH, seerr is not None)) if on))
     log_event(app_log, logging.INFO, "app_created")
     return app

@@ -172,7 +172,8 @@ def library_view_from_scope(scope) -> Optional[str]:
     return _choice_from_scope(scope, "view")
 
 
-FORM_FIELDS = frozenset({"work_id", "book_type", "title", "author", "token"})
+FORM_FIELDS = frozenset({"work_id", "book_type", "title", "author", "token"})          # /request/books
+WATCH_FORM_FIELDS = frozenset({"media_type", "media_id", "title", "token"})             # /request/watch
 
 
 def content_length_from_scope(scope) -> Optional[int]:
@@ -205,10 +206,10 @@ def same_origin_post(scope) -> bool:
         return False
 
 
-async def broker_form(request, limit: int) -> Optional[dict]:
+async def broker_form(request, limit: int, fields_wanted: frozenset = FORM_FIELDS) -> Optional[dict]:
     """The request broker's confirmation form (application/x-www-form-urlencoded, at most `limit` bytes; the
     middleware already refused a missing or larger Content-Length): exactly FORM_FIELDS, each once, ASCII-decodable
-    after percent-decoding as UTF-8, or None. The fields name a book, never a person: who asks is the verified
+    after percent-decoding as UTF-8, or None. `fields_wanted`: FORM_FIELDS (books) or WATCH_FORM_FIELDS (films and shows). The fields name a book, never a person: who asks is the verified
     principal only."""
     from urllib.parse import parse_qsl
     ctype = [v for k, v in request.scope.get("headers", ()) if bytes(k).lower() == b"content-type"]
@@ -219,11 +220,11 @@ async def broker_form(request, limit: int) -> Optional[dict]:
         return None
     try:
         pairs = parse_qsl(raw.decode("ascii"), keep_blank_values=True, strict_parsing=True,
-                          max_num_fields=len(FORM_FIELDS), encoding="utf-8", errors="strict")
+                          max_num_fields=len(fields_wanted), encoding="utf-8", errors="strict")
     except (ValueError, UnicodeDecodeError):
         return None
     fields = dict(pairs)
-    if len(pairs) != len(FORM_FIELDS) or set(fields) != FORM_FIELDS:
+    if len(pairs) != len(fields_wanted) or set(fields) != fields_wanted:
         return None
     return fields
 
