@@ -21,7 +21,7 @@ What can change is **how often** the wall appears and **how many taps** it costs
 | 2 | Komga: lengthen the 7-day idle session and note that a Komga restart signs everyone out | Owner config | Fewer Comics walls |
 | 3 | Do **not** turn on Komga's "auto OAuth2 login" with "hide login" | Owner (a warning) | On iPhone it can leave a blank sign-in page (popup blocked) |
 | 4 | Calibre-Web: switch the Books sign-in from LDAP form to CWA's own Authentik OIDC button | Owner config + blueprint | One tap, no password; item still lost |
-| 5 | Jellyfin: SSO plugin 4.0.0.4 | Owner decision, after the identity migration | One tap instead of a password; item still lost; native apps unchanged |
+| 5 | Jellyfin: SSO plugin 4.0.0.4 | Owner decision (the identity migration is done: LDAP is on) | One tap instead of a password; item still lost; native apps unchanged |
 | 6 | Small upstream pull requests (Audiobookshelf first) | Optional | Would make the return-to-item work upstream |
 
 ## Per library, at the pinned version
@@ -66,17 +66,19 @@ What can change is **how often** the wall appears and **how many taps** it costs
 
 ### Jellyfin 10.11.11 (`watch.avrana.net/web/#/details?id=<id>`)
 
-- Local accounts only; no SSO plugin installed (`docs/services/jellyfin.md`). The jellyfin-web sign-in form
-  lands on its home page, as recorded for P5.
+- **Changed on the host (drift check, 2026-10-28):** Jellyfin now signs members in against Authentik through
+  the LDAP plugin (host-only blueprint `jellyfin-ldap.yaml`, not yet in Git), and the owner is one Authentik
+  account ("Cody") across the services. The member types their **Authentik** username and password into the same
+  jellyfin-web form; there is still no SSO plugin, and the form still lands on its home page, as recorded for P5.
+  `docs/services/jellyfin.md` predates this and needs the same update.
 - How often: once per browser storage. Jellyfin web keeps its access token in local storage and tokens do
   not expire by default, so a member who signed in once in that browser is not asked again until they sign
   out or the device entry is removed. This makes test S1 decisive for Jellyfin.
 - Single sign-on: `jellyfin-plugin-sso` **4.0.0.4** targets ABI `10.11.0.0` (`build.yaml`), so it fits the
   pinned server. After the Authentik round trip it always loads `/web/index.html` (`SSO-Auth/WebResponse.cs`
   464, 506): **the item is lost** here too. It adds a button through the login disclaimer HTML; it does not
-  remove the form. Prerequisites stand as recorded in `sso-architecture.md`: Authentik accounts for the four
-  Jellyfin users without one (including the owner's "Cody"), group and username-case reconciliation, and an
-  explicit decision to put a third-party plugin in the main media service's sign-in path. Native and TV apps
+  remove the form. With LDAP in place the account prerequisites of `sso-architecture.md` (Authentik accounts for
+  every Jellyfin user, username-case reconciliation) are met; what remains is group mapping and an explicit decision to put a third-party plugin in the main media service's sign-in path. Native and TV apps
   keep local passwords (Quick Connect remains the low-typing option on TVs).
 
 ### Calibre-Web-Automated 4.0.6 (`books.avrana.net/book/<n>`)
@@ -93,7 +95,8 @@ What can change is **how often** the wall appears and **how many taps** it costs
 ### Seerr 3.5.1 (request hand-offs)
 
 No OIDC: the routes are Plex, Jellyfin (password and Quick Connect) and local (`server/routes/auth.ts`).
-Seerr stays "sign in with your Jellyfin account".
+Seerr stays "sign in with your Jellyfin account", which since the LDAP change means the member's Authentik
+username and password.
 
 ## Tests to add to the physical script (CONTINUE-AND-HANDOFF.md section 6)
 
@@ -108,5 +111,6 @@ Seerr stays "sign in with your Jellyfin account".
 
 - Any Avrana-side redirect, token pass-through or "return to item" relay: it would be an open-redirect or
   token-handling surface for a problem only the upstreams can solve.
-- Turning on Jellyfin LDAP: it removes password drift, not the sign-in form (`sso-architecture.md`).
+- Expecting Jellyfin LDAP (now on, see above) to remove the wall: it removes password drift, not the sign-in
+  form (`sso-architecture.md`).
 - Global single logout: unchanged, see `sso-architecture.md`.
