@@ -183,6 +183,13 @@ class PageScript(unittest.TestCase):
         css = strip_comments(css_text := (TEMPLATES / "home.css").read_text(encoding="utf-8"))
         self.assertIn('html[data-chrome="tucked"] .tabbar:not(:focus-within){transform:translateY(0.625rem) scale(0.84);}', css)
         self.assertIn('html[data-chrome="tucked"] .places:not(:focus-within)', css)
+        # owner review 2026-10-27: "the slightest pan in and out", so a slow even glide, never a spring or a snap
+        self.assertIn("html[data-chrome=\"tucked\"] .places:not(:focus-within){transform:translateY(-75%);", css)
+        self.assertIn(".places{z-index:1;transition:transform 560ms cubic-bezier(0.37,0,0.2,1),"
+                      "opacity 480ms cubic-bezier(0.37,0,0.2,1);}", css)
+        self.assertIn(".tabbar{transform-origin:50% 100%;transition:transform 520ms cubic-bezier(0.37,0,0.2,1);}", css)
+        # with the labels gone, the dock's icons settle to the middle of the bar
+        self.assertIn('html[data-chrome="tucked"] .tabbar:not(:focus-within) :is(.ic,.me){transform:translateY(', css)
         self.assertIn("body:has(.mast) header{position:sticky;top:0;", css_text)
 
     def test_the_flight_only_aims_at_a_title_page_on_this_origin(self):

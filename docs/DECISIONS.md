@@ -262,3 +262,16 @@ Recorded from the owner's chat of 2026-10-27 ("Perfect... the bottom should stil
 | **Filters are a ledger** | Home's Recently added and the Library's libraries: words on one hairline, the chosen one Cream with a short yellow rule. Shown only with two or more libraries. |
 | **Header and dock follow the scroll** | The header stays at the top; once scrolled, Home's lockup slims into a glass ceiling; on the way down the places (or the Library's filters) tuck under it and the tab bar shrinks down and in (icons only, still a full target). Scrolling up a little, either end, or focus brings everything back. Nothing changes size, so the page never jumps. |
 | **The title's action stays pinned** | On the title page (above the tab bar) and at the foot of the sheet. |
+
+## Owner decisions, 2026-10-27: Media Home filters, Up next and Library layouts
+
+Recorded from the owner's chat of 2026-10-27 ("the top menu items ... should be filters, not links ... give the library
+multiple options for views ... Go at it").
+
+| Decision | Consequence |
+|---|---|
+| **The tuck is a slow glide** | "The slightest pan in and out": the header row, the Library's filters and the tab bar move over about half a second on one even ease-in-out curve (no spring), a short distance, fading as they go. |
+| **The shrunk dock is centred** | With the labels faded, the icons settle to the middle of the bar. |
+| **Home's top row is filters** | For a member with two library places or more, the row under the lockup is All, Watch, Listen, Read (each only if the member has it), a ledger like the Library's, via `/?for=<place>`; it narrows Home to that place's libraries and never leaves Avrana. The chosen place's own site is one link at the foot of the filtered Home. Request stays on the Library and Help under Me. A member with one place keeps the places bar. Replaces the places bar of D16 for those members. |
+| **Watch has Up next, Movies and TV shows** | The Watch filter shows Continue, then Up next (the next unwatched episode of each series the member watches, from the library's own Next Up list, minus what Continue already shows), then Recently added split into Movies and TV shows. Up next is a new read-only, user-scoped Jellyfin route (`/Shows/NextUp`), added to the allow-list, the contract and the OpenAPI subset (regenerated from the same two spec files, hashes unchanged). It is asked for only on the Watch filter, after the other sections, so a member never holds more than two calls to that library at once. |
+| **The Library has four layouts** | Large artwork (the default), small artwork, details (a small cover beside the words) and a plain list, chosen with `?view=` from four icon links; the chosen library and the chosen layout keep each other. Not remembered between visits (the page script stores nothing). |

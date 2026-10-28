@@ -11,7 +11,10 @@
    never retyped, its alt text the product name; under it the places bar, Watch, Listen, Read, Request, Help (owner,
    AVR-452; kept by D16). Owner decision 2026-10-27 (chrome pass): matte launch tiles that share the row equally (a
    place the member cannot use is absent, so the others widen), a small arrow on the three that leave Avrana; the
-   whole header stays at the top while scrolling, and the places tuck under the lockup on the way down. The cream lockup cannot follow forced colours (Windows high contrast), so there home.css
+   whole header stays at the top while scrolling, and the places tuck under the lockup on the way down.
+   Owner decision 2026-10-27 (filters): for a member with two library places or more, that row holds Home's filters
+   instead (All, Watch, Listen, Read: `shell.filters`), a ledger like the Library's, narrowing Home to one place; the
+   place's own site is then one link on the filtered Home, Request is on the Library and Help is under Me. The cream lockup cannot follow forced colours (Windows high contrast), so there home.css
    shows the name as text instead: that span is aria-hidden, and the image stays in the accessibility tree, so the
    link is named once, by the alt text.
    Every other shell page: the heading "Avrana Media" stays first for screen readers (visually hidden), and the
@@ -29,7 +32,13 @@
 {% endif %}
 {% endif %}
     </div>
-{% if shell.current == "home" %}
+{% if shell.current == "home" and shell.filters %}
+    <nav class="places filters" aria-label="Show on Home">
+{% for f in shell.filters %}
+      <a href="{{ f.href }}"{% if f.current %} aria-current="true"{% endif %}{% if not f.up %} class="off"{% endif %}>{% if f.key == "all" %}{{ f.label }}{% elif f.up %}{{ f.label|trusted }}{% else %}<s>{{ f.label|trusted }}</s><span class="sr">, unavailable</span>{% endif %}{% if f.current %}<span class="ul" aria-hidden="true"></span>{% endif %}</a>
+{% endfor %}
+    </nav>
+{% elif shell.current == "home" %}
     <nav class="places" aria-label="Avrana">
 {% for p in shell.places %}
 {% if p.up %}      <a href="{{ p.href }}">{{ p.label|trusted }}{% if p.href in ("/watch", "/listen", "/read") %}<svg class="out" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" focusable="false"><path d="M5.5 3.5h7v7M12.5 3.5l-9 9"/></svg><span class="sr">, opens its own site</span>{% endif %}</a>

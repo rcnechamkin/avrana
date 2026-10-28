@@ -31,6 +31,16 @@ class AggregateTests(unittest.TestCase):
         self.assertEqual(len(res.sections), 8)
         self.assertTrue(all(s.state is SectionState.OK for s in res.sections))
 
+    def test_next_up_is_asked_only_of_an_adapter_that_offers_it(self):
+        """Up next (Home's Watch filter) is an extra section: no adapter without it in `extra_sections` is called."""
+        adapters = self.build()
+        res = gather(make_principal("member-a", ALL_GROUPS), adapters, ("next_up",))
+        self.assertEqual((), res.sections)
+        self.assertEqual(0, sum(a.calls for a in adapters))
+        direct = adapters[0].next_up_items(make_principal("member-a", ALL_GROUPS))
+        self.assertEqual((SectionState.EMPTY, "not_offered"), (direct.state, direct.reason))
+        self.assertEqual(0, adapters[0].calls)
+
     def test_each_adapter_failing_in_turn_leaves_the_rest(self):
         for mode in ("timeout", "boom"):
             for broken in SERVICES:

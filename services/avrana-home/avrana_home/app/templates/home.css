@@ -796,9 +796,9 @@
   body:has(.mast) header{position:sticky;top:0;z-index:15;overflow-x:clip;pointer-events:none;}
   body:has(.mast) header>*{pointer-events:auto;}
   .mast.at-home,.places{position:relative;}
-  .mast.at-home{z-index:2;transform-origin:left top;transition:transform 320ms var(--ease-meaningful);}
-  .mast.at-home .lockup{transform-origin:left center;transition:transform 320ms var(--ease-meaningful);}
-  .places{z-index:1;transition:transform 320ms var(--ease-meaningful),opacity 200ms var(--ease-responsive);}
+  .mast.at-home{--glide:cubic-bezier(0.37,0,0.2,1);z-index:2;transform-origin:left top;transition:transform 560ms var(--glide);}
+  .mast.at-home .lockup{transform-origin:left center;transition:transform 560ms var(--glide);}
+  .places{z-index:1;transition:transform 560ms cubic-bezier(0.37,0,0.2,1),opacity 480ms cubic-bezier(0.37,0,0.2,1);}
   .mast.at-home::before,.places::before{content:"";position:absolute;z-index:-1;left:-100vmax;right:-100vmax;opacity:0;
     background:rgb(18 18 20 / 0.74);-webkit-backdrop-filter:blur(20px) saturate(1.6);backdrop-filter:blur(20px) saturate(1.6);
     transition:opacity 200ms var(--ease-responsive);pointer-events:none;}
@@ -808,24 +808,28 @@
   html[data-scrolled] .mast.at-home{transform:translateY(-0.75rem);}
   html[data-scrolled] .mast.at-home .lockup{transform:scale(0.7);}
   html[data-scrolled] .places{transform:translateY(-1.25rem);}
-  html[data-chrome="tucked"] .places:not(:focus-within){transform:translateY(calc(-100% - 2rem));opacity:0;pointer-events:none;}
+  html[data-chrome="tucked"] .places:not(:focus-within){transform:translateY(-75%);opacity:0;pointer-events:none;}
   html[data-chrome="tucked"] .mast.at-home::before{border-bottom:1px solid var(--line);}
   html:has(.mast.at-home){scroll-padding-top:7.5rem;}
   /* The Library's filter ledger stays reachable the same way: it sticks under the top of the screen with a glass
      ceiling once scrolled, and tucks away on the way down. */
   body:has(.mast) .chips{position:sticky;top:0;z-index:14;padding-top:env(safe-area-inset-top);
-    transition:transform 320ms var(--ease-meaningful),opacity 200ms var(--ease-responsive);}
+    transition:transform 560ms cubic-bezier(0.37,0,0.2,1),opacity 480ms cubic-bezier(0.37,0,0.2,1);}
   body:has(.mast) .chips::before{content:"";position:absolute;z-index:-1;inset:0;opacity:0;
     background:rgb(18 18 20 / 0.74);-webkit-backdrop-filter:blur(20px) saturate(1.6);backdrop-filter:blur(20px) saturate(1.6);
     transition:opacity 200ms var(--ease-responsive);pointer-events:none;}
   html[data-scrolled] body:has(.mast) .chips::before{opacity:1;}
-  html[data-chrome="tucked"] body:has(.mast) .chips:not(:focus-within){transform:translateY(-110%);opacity:0;pointer-events:none;}
+  html[data-chrome="tucked"] body:has(.mast) .chips:not(:focus-within){transform:translateY(-75%);opacity:0;pointer-events:none;}
   /* The tab bar shrinks down and in on the way down (labels fade, icons stay, still a full target) and comes back on
      the way up, at the top and at the end of the page. */
-  .tabbar{transform-origin:50% 100%;transition:transform 340ms var(--ease-spring);}
-  .tabbar .tl{transition:opacity 160ms var(--ease-responsive);}
+  .tabbar{transform-origin:50% 100%;transition:transform 520ms cubic-bezier(0.37,0,0.2,1);}
+  .tabbar .tl{transition:opacity 360ms cubic-bezier(0.37,0,0.2,1);}
+  .tab .ic,.tab .me{transition:transform 520ms cubic-bezier(0.37,0,0.2,1);}
   html[data-chrome="tucked"] .tabbar:not(:focus-within){transform:translateY(0.625rem) scale(0.84);}
   html[data-chrome="tucked"] .tabbar:not(:focus-within) .tl{opacity:0;}
+  html[data-chrome="tucked"] .tabbar:not(:focus-within) :is(.ic,.me){transform:translateY(calc((var(--text-eyebrow) * 1.2 + 0.125rem) / 2));}
+  @media (prefers-reduced-motion:reduce){
+    .mast.at-home,.mast.at-home .lockup,.places,body:has(.mast) .chips,.tabbar,.tabbar .tl,.tab .ic,.tab .me{transition-duration:150ms;}}
   @media (prefers-reduced-transparency:reduce),(prefers-contrast:more){
     .mast.at-home::before,.places::before,body:has(.mast) .chips::before{background:var(--bg);
       -webkit-backdrop-filter:none;backdrop-filter:none;}}
@@ -836,6 +840,54 @@
   .title-page .act{position:sticky;bottom:calc(5.5rem + max(24px, env(safe-area-inset-bottom)));z-index:3;}
   dialog.k-sheet .title-page .act{bottom:calc(1rem + env(safe-area-inset-bottom));}
   .title-page a.open{box-shadow:0 12px 32px rgb(0 0 0 / 0.55);}
+  /* ---- MK-9 Home filters and Library layouts (owner decision 2026-10-27) ---- */
+  /* Home's filters take the places' row: the same ledger as the Library's filters (words on one hairline, the chosen
+     one in Cream over a short yellow rule), so they read as a choice of what to show, not as places to go. */
+  .places.filters{display:flex;flex-wrap:nowrap;gap:1.5rem;overflow-x:auto;scrollbar-width:none;
+    border-bottom:1px solid var(--line);}
+  .places.filters::-webkit-scrollbar{display:none;}
+  .places.filters>*{position:relative;flex:none;min-height:2.75rem;padding:0;border:0;border-radius:0;background:none;
+    color:var(--stone);font-size:var(--text-body);font-weight:500;}
+  .places.filters a:hover{color:var(--cream);background:none;}
+  .places.filters a[aria-current]{color:var(--cream);font-weight:600;}
+  .places.filters a:focus-visible{outline:2px solid var(--focus);outline-offset:2px;}
+  .places.filters .ul{position:absolute;left:0;right:0;bottom:-1px;height:2px;border-radius:1px;background:var(--accent);}
+  @media (forced-colors:active){.places.filters .ul{background:Highlight;}.places.filters>*{border:0;}}
+  /* Up next is all episode stills: the rail is as tall as a still at its widest, not a poster's height. */
+  .rail.stills{--art-h:calc(var(--wide-max) / 1.7778);}
+  .focus-open{margin:0.5rem 0 0;}
+  .focus-open .shelf-open{display:inline-flex;align-items:center;gap:0.375rem;}
+  .focus-open .out{flex:none;width:0.75rem;height:0.75rem;fill:none;stroke:currentColor;stroke-width:1.75;stroke-linecap:round;
+    stroke-linejoin:round;}
+  /* The Library's layout switcher: four quiet icon links on the right, the chosen one raised. */
+  .lib-views{display:flex;justify-content:flex-end;gap:0.25rem;margin:0.75rem 0 0;}
+  .lib-view{display:inline-flex;align-items:center;justify-content:center;width:2.75rem;height:2.75rem;
+    border-radius:var(--radius-button);color:var(--stone);}
+  .lib-view .ic{width:1.25rem;height:1.25rem;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;
+    stroke-linejoin:round;}
+  .lib-view:hover{color:var(--cream);}
+  .lib-view[aria-current]{color:var(--cream);background:var(--raised);box-shadow:inset 0 0 0 1px var(--line-strong);}
+  .lib-view:focus-visible{outline:2px solid var(--focus);outline-offset:2px;}
+  @media (forced-colors:active){.lib-view[aria-current]{outline:2px solid Highlight;}}
+  /* Small artwork: a denser grid on a 110px baseline, titles only. */
+  .lib-grid.lib-v-small{grid-template-columns:repeat(auto-fill,minmax(min(5.75rem,100%),1fr));gap:1rem 0.625rem;}
+  .lib-v-small .frame{--fw:min(100cqw,calc(110px * var(--r)));margin-top:calc(110px - var(--fw) / var(--r));}
+  .lib-v-small .card .t{font-size:var(--text-secondary);}
+  .lib-v-small .card .d{display:none;}
+  /* Details: one column of rows, a small cover beside the title and its line. List: the same rows, words only. */
+  .lib-grid.lib-v-details,.lib-grid.lib-v-list{grid-template-columns:minmax(0,1fr);gap:0;
+    border-top:1px solid var(--line);}
+  .lib-v-details>li,.lib-v-list>li{border-bottom:1px solid var(--line);}
+  .lib-v-details .card,.lib-v-list .card{display:grid;grid-template-columns:auto minmax(0,1fr);
+    grid-template-areas:"f t" "f d";align-content:center;column-gap:0.875rem;row-gap:0.125rem;min-height:3.5rem;
+    padding:0.625rem 0;}
+  .lib-v-details .frame{grid-area:f;--fw:calc(64px * var(--r));width:min(var(--fw),5.5rem);height:auto;
+    aspect-ratio:var(--r);margin:0;align-self:center;}
+  .lib-v-details .card .t,.lib-v-list .card .t{grid-area:t;align-self:end;}
+  .lib-v-details .card .d,.lib-v-list .card .d{grid-area:d;align-self:start;}
+  .lib-v-list .card{grid-template-columns:minmax(0,1fr);grid-template-areas:"t" "d";min-height:3rem;}
+  .lib-v-list .frame{display:none;}
+
   /* ---- MK-6 Motion (AVR-720) ---- */
   /* Page-to-page motion (memo section 10; the motion tiers above). One block, appended last. Everything that moves is
      inside the no-preference query: with Reduce Motion there is no transition at all, not even a fade, and the

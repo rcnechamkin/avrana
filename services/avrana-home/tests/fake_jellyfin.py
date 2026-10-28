@@ -49,12 +49,13 @@ class FakeJellyfin:
         try:
             return load(f"{kind}_{name}.json")
         except (FileNotFoundError, TypeError):
-            return {"Items": [], "TotalRecordCount": 0} if kind == "resume" else []
+            return {"Items": [], "TotalRecordCount": 0} if kind in ("resume", "nextup") else []
 
     def _visible(self, user_id):
         resume = self._per_user("resume", user_id)["Items"]
         latest = self._per_user("latest", user_id)
-        return {_hex(i["Id"]): i for i in resume + latest if "Id" in i}
+        next_up = self._per_user("nextup", user_id)["Items"]
+        return {_hex(i["Id"]): i for i in resume + latest + next_up if "Id" in i}
 
     def handle(self, method, path, query):
         query = dict(query or {})
@@ -79,6 +80,8 @@ class FakeJellyfin:
             return self._json(self._per_user("resume", uid))
         if path == "/Items/Latest":
             return self._json(self._per_user("latest", uid))
+        if path == "/Shows/NextUp":
+            return self._json(self._per_user("nextup", uid))
         if path == "/Items":
             vis = self._visible(uid)
             found = [vis[i] for i in query.get("ids", "").split(",") if i in vis]

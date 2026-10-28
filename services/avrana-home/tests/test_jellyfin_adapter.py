@@ -192,6 +192,23 @@ class ContinueAndRecentTests(Base):
         self.assertNone(as_json(ra), B_MARKERS)
         self.assertNone(as_json(rb), A_MARKERS)
 
+    def test_next_up_is_episodes_only_member_scoped_and_without_progress(self):
+        ra, rb = self.adapter.next_up_items(self.a), self.adapter.next_up_items(self.b)
+        self.assertEqual([i.title for i in ra.items],
+                         ["Synthetic Second Step", "Synthetic Pilot", "Synthetic Opening Night"])
+        self.assertEqual({i.kind.value for i in ra.items}, {"episode"})
+        self.assertEqual((ra.items[0].series, ra.items[0].subtitle), ("Synthetic Series Alpha", "S1 E4"))
+        self.assertTrue(all(i.progress_fraction is None for i in ra.items))
+        self.assertIs(rb.state, SectionState.EMPTY)
+        self.assertNotIn("Played", as_json(ra))
+        self.assertNone(as_json(ra), B_MARKERS)
+        sent = [q for _m, path, q in self.fake.requests if path == "/Shows/NextUp"]
+        self.assertEqual(len(sent), 2)
+        self.assertTrue(all(q.get("userId") for q in sent))
+
+    def test_next_up_is_offered_by_this_library_only(self):
+        self.assertEqual(JellyfinAdapter.extra_sections, frozenset({"next_up"}))
+
     def test_empty_when_nothing_in_progress(self):
         self.fake.users.append({"Id": "99999999-9999-4999-8999-999999999999", "Name": "member-z",
                                 "Policy": {}})
@@ -447,7 +464,7 @@ class AllowListTests(unittest.TestCase):
 
     def test_route_table_has_no_write_capable_template(self):
         names = sorted(r.name for r in ALLOWED_ROUTES)
-        self.assertEqual(names, ["image", "items", "latest", "resume", "users"])   # search uses "items" (userId)
+        self.assertEqual(names, ["image", "items", "latest", "next_up", "resume", "users"])   # search uses "items" (userId)
 
     def test_adapter_cannot_bypass_the_guard(self):
         adapter = JellyfinAdapter(self.inner, clock=FakeClock())

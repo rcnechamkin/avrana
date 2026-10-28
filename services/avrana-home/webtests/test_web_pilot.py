@@ -91,8 +91,8 @@ class NavigationTests(Mocks):
                     self.assertNotIn('<details class="account">', t)
                     if route == "/":
                         self.assertIn('<h1><a href="/"', t)
-                        # Help is the last place in the places bar on Home (AVR-452, D16)
-                        self.assertIn('href="/help"', re.search(r'<nav class="places".*?</nav>', t, re.S).group(0))
+                        # Home's row holds the filters (owner decision 2026-10-27); Help is a step away, under Me
+                        self.assertRegex(t, r'<nav class="places( filters)?" aria-label="(Avrana|Show on Home)">')
                     else:
                         self.assertIn('<h1 class="sr">Avrana Media</h1>', t)
                         self.assertNotIn('<nav class="places"', t)
@@ -104,7 +104,8 @@ class NavigationTests(Mocks):
         c = self.client()
         # "page" marks the tab (and on Home the lockup) that is this page; "true" marks the section a deeper page
         # belongs to: Account, Help and its topics are reached from Me (the hub, AVR-719).
-        want = {"/": [("/", "page"), ("/", "page")], "/library": [("/library", "page")], "/search": [("/search", "page")],
+        # On Home the chosen filter (All) is "true" as well: it is a choice, not a page (owner decision 2026-10-27).
+        want = {"/": [("/", "page"), ("/", "page"), ("/", "true")], "/library": [("/library", "page")], "/search": [("/search", "page")],
                 "/me": [("/me", "page")], "/account": [("/me", "true")], "/help": [("/me", "true")],
                 "/help/movies": [("/me", "true")]}
         for route, expected in want.items():

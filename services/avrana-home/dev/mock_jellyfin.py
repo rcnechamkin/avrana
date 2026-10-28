@@ -192,13 +192,13 @@ class MockJellyfin:
         try:
             return _fixture(f"{kind}_{name}.json")
         except (FileNotFoundError, TypeError):
-            return {"Items": [], "TotalRecordCount": 0} if kind == "resume" else []
+            return {"Items": [], "TotalRecordCount": 0} if kind in ("resume", "nextup") else []
 
     def _types(self):
         """Every synthetic item's Type by id, across all members' fixtures (for the cover's shape only)."""
         out = {}
         for f in sorted(FIXTURES.glob("*.json")):
-            if f.name.startswith(("resume_", "latest_")):
+            if f.name.startswith(("resume_", "latest_", "nextup_")):
                 doc = _fixture(f.name)
                 for i in (doc.get("Items", []) if isinstance(doc, dict) else doc):
                     if isinstance(i, dict) and "Id" in i:
@@ -208,7 +208,8 @@ class MockJellyfin:
     def _visible(self, name):
         resume = self._per_user("resume", name)["Items"]
         latest = self._per_user("latest", name)
-        return {_hex(i["Id"]): i for i in resume + latest if "Id" in i}
+        next_up = self._per_user("nextup", name)["Items"]
+        return {_hex(i["Id"]): i for i in resume + latest + next_up if "Id" in i}
 
     def _answer(self, h, path, query, wrong_user):
         uid = _hex(query.get("userId", ""))
@@ -233,6 +234,8 @@ class MockJellyfin:
             return self._json(h, self._per_user("resume", name))
         if path == "/Items/Latest":
             return self._json(h, self._per_user("latest", name))
+        if path == "/Shows/NextUp":
+            return self._json(h, self._per_user("nextup", name))
         if path == "/Items":
             vis = self._visible(name)
             found = [vis[i] for i in query.get("ids", "").split(",") if i in vis]

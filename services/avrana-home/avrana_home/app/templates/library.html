@@ -28,6 +28,15 @@
 {% endfor %}
   </nav>
 {% endif %}
+{% if page.views and page.shelves and not page.said %}
+{#- The layout switcher (owner decision 2026-10-27): four plain links, the chosen one aria-current; the chosen library
+   is kept. Icons are decorative; each link is named by its words. #}
+  <nav class="lib-views" aria-label="Layout">
+{% for key, label, href, current in page.views %}
+    <a class="lib-view" href="{{ href }}"{% if current %} aria-current="true"{% endif %}><svg class="ic" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">{% if key == "large" %}<rect x="4" y="4" width="7" height="9" rx="1.5"/><rect x="13" y="4" width="7" height="9" rx="1.5"/><path d="M4 17h7M13 17h7"/>{% elif key == "small" %}<rect x="4" y="4" width="4" height="5" rx="1"/><rect x="10" y="4" width="4" height="5" rx="1"/><rect x="16" y="4" width="4" height="5" rx="1"/><rect x="4" y="13" width="4" height="5" rx="1"/><rect x="10" y="13" width="4" height="5" rx="1"/><rect x="16" y="13" width="4" height="5" rx="1"/>{% elif key == "details" %}<rect x="4" y="4.5" width="4" height="5" rx="1"/><rect x="4" y="14.5" width="4" height="5" rx="1"/><path d="M11 6h9M11 8.5h6M11 16h9M11 18.5h6"/>{% else %}<path d="M4 6h16M4 10h16M4 14h16M4 18h16"/>{% endif %}</svg><span class="sr">{{ label }}</span></a>
+{% endfor %}
+  </nav>
+{% endif %}
 {% if page.warnings %}
   <div class="k-warn" role="status">
     <svg class="k-warn-ic" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false"><path d="M12 4.5 2.75 19.5h18.5z"/><path d="M12 10v4.25M12 16.9v.1"/></svg>
@@ -58,7 +67,7 @@
 {% endif %}
     </div>
 {% if sh.items %}
-    <ul class="rail">
+    <ul class="{% if page.view == "large" %}rail{% else %}lib-grid lib-v-{{ page.view }}{% endif %}">
 {% for c in sh.items %}{{ card(c) }}
 {% endfor %}
     </ul>
@@ -72,7 +81,7 @@
   <section class="shelf lib-shelf lib-one" aria-labelledby="l-{{ loop.index }}">
     <h2 class="sr" id="l-{{ loop.index }}">{{ sh.label }}</h2>
 {% if sh.items %}
-    <ul class="lib-grid">
+    <ul class="lib-grid{% if page.view != "large" %} lib-v-{{ page.view }}{% endif %}">
 {% for c in sh.items %}{{ card(c) }}
 {% endfor %}
     </ul>

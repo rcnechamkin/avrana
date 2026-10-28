@@ -112,9 +112,11 @@ class SectionRenderingTests(Fixture):
 
     def test_navigation_stays_reachable_for_every_state(self):
         for headers in (A, B, C, D, NOLIB, ADMIN):
-            places = re.findall(r'<nav class="places".*?</nav>', self.on.get("/", headers=headers).text, flags=re.S)
+            text = self.on.get("/", headers=headers).text
+            places = re.findall(r'<nav class="places.*?</nav>', text, flags=re.S)
             self.assertEqual(1, len(places))
-            self.assertIn('href="/help"', places[0])
+            # Help is in the places bar, or (where filters take that row, owner decision 2026-10-27) under Me
+            self.assertTrue('href="/help"' in places[0] or '<a class="tab" href="/me"' in text, headers)
 
     def test_a_member_with_no_library_sees_nothing_to_show_and_no_upstream_call(self):
         self.mock.reset()

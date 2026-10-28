@@ -34,6 +34,7 @@ PATHS = {
                           "enableTotalRecordCount"),
     "/Items/Latest": ("userId", "limit", "includeItemTypes", "groupItems", "fields", "enableImageTypes",
                       "enableUserData"),
+    "/Shows/NextUp": ("userId", "limit", "fields", "enableUserData", "enableImageTypes", "enableTotalRecordCount"),
     "/Items": ("userId", "ids", "fields", "enableUserData", "enableImageTypes", "searchTerm", "includeItemTypes",
                "recursive", "limit"),
     "/Items/{itemId}/Images/{imageType}": ("maxWidth", "quality"),

@@ -167,7 +167,7 @@ def main_of(text):
 
 
 def places_of(text):
-    return re.search(r'<nav class="places".*?</nav>', text, flags=re.S).group(0)
+    return re.search(r'<nav class="places[^"]*".*?</nav>', text, flags=re.S).group(0)
 
 
 class HomePageTests(unittest.TestCase):
@@ -193,8 +193,9 @@ class HomePageTests(unittest.TestCase):
         self.assertNotIn("Synthetic Film Two", a)
         self.assertIn("Synthetic Film Two", main_of(b))
         self.assertNotIn("Synthetic Film One", b)
-        self.assertNotIn('href="/read"', places_of(a))
-        self.assertIn('href="/read"', places_of(b))
+        # Home's filters (owner decision 2026-10-27) name only each member's own places
+        self.assertNotIn('read"', places_of(a))
+        self.assertRegex(places_of(b), r'href="/(\?for=)?read"')
         self.assertIn("signed in as member-a", a)            # the Me tab names who is signed in
         self.assertIn("signed in as member-b", b)
         self.assertNotIn("member-b", a)
