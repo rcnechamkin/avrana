@@ -202,7 +202,8 @@ class Return(Base):
         self.assertNotIn("password", main.split("role=\"status\"")[1].split("</p>")[0])
 
     def test_garbage_or_missing_state_is_a_calm_unknown(self):
-        for q in ("", "?s=", "?s=password.1.x", "?s=" + "a" * 400, "?s=%00%0d%0a", "?s=<script>"):
+        for q in ("", "?s=", "?s=password.1.x", "?s=" + "a" * 400, "?s=%00%0d%0a", "?s=<script>",
+                  "?s=password.%C2%B2.x", "?s=password.99999999999.%C3%A9", "?s=password.1.x.y", "?s=.1.x"):
             r = self.ret.get("/me/security/back" + q, headers=VIDEO)
             self.assertEqual(200, r.status_code, q)
             self.assertIn("couldn't confirm what changed", main_of(r.text), q)
