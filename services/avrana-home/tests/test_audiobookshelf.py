@@ -805,6 +805,23 @@ class Search(Base):
         r = self.adapter.search(self.a, "anything")
         self.assertEqual((r.state, r.items), (SectionState.EMPTY, ()))
 
+    def padded_search(self, size):
+        body = json.dumps({"book": [{"libraryItem": self.fake.items["li_book000001"]}], "tags": []}).encode("utf-8")
+        self.fake.overrides["/api/libraries/lib_aaa/search"] = ("body", body + b" " * (size - len(body)))
+
+    def test_a_search_body_over_the_shared_json_cap_is_still_read(self):
+        # Expanded search hits make a real 36-hit page 2-3 MB; the shared 1 MB cap turned that into UpstreamTooLarge.
+        from avrana_home.resilience import MAX_JSON_BYTES
+        self.padded_search(3 * MAX_JSON_BYTES)
+        r = self.adapter.search(self.a, "anything")
+        self.assertEqual((r.state, titles(r)), (SectionState.OK, ["Synthetic Audiobook One"]))
+
+    def test_a_search_body_over_the_search_cap_is_unavailable(self):
+        from avrana_home.adapters.audiobookshelf import MAX_SEARCH_BYTES
+        self.padded_search(MAX_SEARCH_BYTES + 1)
+        r = self.adapter.search(self.a, "anything")
+        self.assertEqual((r.state, r.reason), (SectionState.UNAVAILABLE, "UpstreamTooLarge"))
+
     def test_a_member_with_every_library_searches_the_listed_book_libraries_only(self):
         self.adapter.search(self.b, "Synthetic")
         self.assertIn("/api/libraries", self.fake.paths())
