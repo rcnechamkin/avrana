@@ -15,7 +15,8 @@
         (a redirect, an error, an older browser) and the link simply navigates, as it does with the script off, and
      9. chrome that follows the scroll: two marks on <html> the stylesheet reads (part 9), and
      10. the Library's layout menu: choosing a layout rearranges the cards in place, each gliding from where it was
-        to where it now is, and puts the choice in the address (owner decision 2026-10-27).
+        to where it now is, and puts the choice in the address (owner decision 2026-10-27), and
+     11. forms that change something (form[data-once], "Sign in on a TV") send once: a second press does nothing.
    It uses no browser storage, writes no HTML from text and does nothing when its elements are absent; only the
    title sheet (8) reads member data, and only the title page the member asked for. Inline preview behaviour (MK-4) is not here yet. */
 (function () {
@@ -682,6 +683,25 @@
     });
   }
 
+  /* 11. Send once. Contract: <form data-once> with a <button type="submit" data-busy="..."> (me_tv.html). After the
+     first submit the button is disabled and shows its busy words; a form whose default button is disabled can't be
+     submitted again by a press or by Enter (HTML implicit submission), so the browser still does all the
+     navigating, and a double press sends one post (the server also answers a repeat with the first answer:
+     forms.Replays). A page restored from the back/forward cache is reloaded by part 3, so the button never stays
+     disabled. */
+  function once() {
+    document.addEventListener('submit', function (event) {
+      var form = event.target;
+      if (!form || !form.hasAttribute || !form.hasAttribute('data-once') || event.defaultPrevented) return;
+      var button = form.querySelector('button[type="submit"]');
+      if (!button) return;
+      form.setAttribute('aria-busy', 'true');
+      button.disabled = true;
+      var busy = button.getAttribute('data-busy');
+      if (busy) button.textContent = busy;
+    });
+  }
+
   lens();
   bfcache();
   worker();
@@ -692,4 +712,5 @@
   sheet();
   chrome();
   layout();
+  once();
 })();

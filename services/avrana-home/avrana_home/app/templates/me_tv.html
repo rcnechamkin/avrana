@@ -10,7 +10,7 @@
 {% set r = tv.result %}
 {% if r %}
   <p class="note msg" role="status">
-{%- if r == "approved" %}Approved. Your TV should sign in within a few seconds. If it doesn't, check the code on the TV and try again.
+{%- if r == "approved" %}Approved. Your TV should sign in within a few seconds; once it has, play something for a moment to check. If it doesn't sign in, get a new code on the TV and try again.
 {%- elif r == "bad_code" %}Enter the 6 numbers shown on your TV.
 {%- elif r == "not_found" %}That code didn't work. Check the numbers on your TV; codes last 10 minutes.
 {%- elif r == "not_accepted" %}That code didn't go through. It may already have been used. Get a new code on the TV and try again.
@@ -30,12 +30,12 @@
       <li>The TV shows a 6&#8209;digit code. Enter it below and choose Approve.</li>
     </ol>
     <p class="note">Approving signs that TV in to TV and Movies as {{ shell.member_name }}. Only enter a code from a TV you're setting up.</p>
-    <form class="srch" method="post" action="/me/tv">
+    <form class="srch" method="post" action="/me/tv" data-once>
       <input type="hidden" name="t" value="{{ tv.token }}">
       <label for="code">Code from your TV</label>
       <div class="ask">
         <span class="ask-field"><input id="code" name="code" type="text" inputmode="numeric" pattern="[0-9]{6}" minlength="6" maxlength="6" autocomplete="off" spellcheck="false" required></span>
-        <button type="submit">Approve</button>
+        <button type="submit" data-busy="Approving&hellip;">Approve</button>
       </div>
     </form>
   </section>

@@ -105,7 +105,9 @@ class Gating(unittest.TestCase):
     def test_me_shows_the_row_only_to_members_with_tv_and_movies(self):
         client, _fake = make()
         with client:
-            self.assertIn('href="/me/tv"', main_of(client.get("/me", headers=VIDEO).text))
+            me = main_of(client.get("/me", headers=VIDEO).text)
+            self.assertIn('href="/me/tv"', me)
+            self.assertLess(me.index('id="me-devices"'), me.index('id="me-account"'))    # setup first (ME-01)
             self.assertNotIn('href="/me/tv"', main_of(client.get("/me", headers=BOOKS).text))
         client, _fake = make(qc=False)
         with client:
@@ -116,7 +118,8 @@ class Page(TvBase):
     def test_form_hand_off_and_csp(self):
         r = self.client.get("/me/tv", headers=VIDEO)
         main = main_of(r.text)
-        self.assertIn('<form class="srch" method="post" action="/me/tv">', main)
+        self.assertIn('<form class="srch" method="post" action="/me/tv" data-once>', main)
+        self.assertIn('data-busy="Approving', main)                    # home.js part 11: a second press sends nothing
         self.assertIn('pattern="[0-9]{6}"', main)
         self.assertIn('href="https://watch.avrana.net/web/#/quickconnect"', main)
         self.assertIn("as Member A", main)
