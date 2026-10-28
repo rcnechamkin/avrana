@@ -65,10 +65,10 @@ class JellyfinContinue(unittest.TestCase):
         return home.continue_items
 
     def test_ticks_are_ten_million_per_second_and_remaining_is_run_minus_position(self):
-        # 2 h run, 38 min 59.9 s watched -> 81 min 0.1 s left -> "1 hour 22 minutes left" (minutes rounded up)
+        # 2 h run, 38 min 59.9 s watched -> 81 min 0.1 s left -> "82 minutes left" (minutes rounded up; films and episodes in total minutes)
         pos = (38 * 60 + 59) * TICKS_PER_SECOND + 9_000_000
         (c,) = self.card(jf_item(pos))
-        self.assertEqual(("Resume", "1 hour 22 minutes left"), (c.action, c.progress))
+        self.assertEqual(("Resume", "82 minutes left"), (c.action, c.progress))
         self.assertEqual("Resume in Movies and TV", c.action_label)
         self.assertNotIn("Synthetic Edge Film", c.action_label)       # the link already starts with the title
         self.assertEqual("Movie", c.kind_label)

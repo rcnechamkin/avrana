@@ -86,7 +86,7 @@ class SectionRenderingTests(Fixture):
         for token in ("Synthetic Film One", "Synthetic Pilot", "Synthetic Film Three"):
             self.assertIn(token, above)
         self.assertIn('href="https://watch.avrana.net/web/#/details?id=aaaa0000000000000000000000000001"', above)
-        self.assertIn("1 hour 10 minutes left", above)
+        self.assertIn("70 minutes left", above)
         places = re.search(r'<nav class="places".*?</nav>', r.text, flags=re.S).group(0)
         for place in ("/watch", "/request", "/help"):
             self.assertIn(f'<a href="{place}">', places)
@@ -101,7 +101,8 @@ class SectionRenderingTests(Fixture):
         # Continue is bounded (at most four); artwork is decoration (alt="") from the artwork route only
         self.assertLessEqual(len(re.findall(r'class="card"', above.split('id="h-new"')[0])), 4)
         for tag in re.findall(r"<img[^>]*>", above):
-            self.assertRegex(tag, r'^<img class="art" src="/art/[A-Za-z0-9_/-]+" alt="" width="160" height="240" loading="lazy">$')
+            self.assertRegex(tag, r'^<img class="art" src="/art/[A-Za-z0-9_/-]+" alt="" (width="160" height="240" loading="lazy"'
+                                  r'|width="1280" height="720")>$')   # the second: the hero's wide backdrop
         # Search and Me are tabs (D1): each once, in the tab bar after the footer, never a sixth place
         bar = re.search(r'<nav class="tabbar glass" aria-label="Sections".*?</nav>', text, flags=re.S).group(0)
         self.assertEqual(1, text.count('href="/search"'))
@@ -256,7 +257,9 @@ class JsonViewTests(Fixture):
             self.assertEqual({"service", "section", "state", "items"}, set(s))
             for it in s["items"]:
                 self.assertEqual({"id", "service", "kind", "title", "subtitle", "series", "progress",
-                                  "artwork", "creator", "year", "summary", "handoff_url"}, set(it))
+                                  "artwork", "creator", "year", "summary", "handoff_url"}, set(it) - {"backdrop"})
+                if "backdrop" in it:                   # only when the library gave one (Jellyfin's Backdrop)
+                    self.assertRegex(it["backdrop"]["ref"], r"^jellyfin/backdrop/[0-9a-f]{32}$")
                 self.assertIsNone(it["summary"])       # a synopsis only on the title page (R2-C)
         self.assertNotIn("reason", r.text)
 

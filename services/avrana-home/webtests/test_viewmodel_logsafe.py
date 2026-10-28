@@ -23,16 +23,16 @@ def section(state, items=(), section="continue", service="jellyfin"):
 class ProgressWordsTests(unittest.TestCase):
     def test_words_not_bare_numbers(self):
         cases = [
-            ({"position_seconds": 3024, "duration_seconds": 7200, "percent": 42}, "movie", "1 hour 10 minutes left"),
+            ({"position_seconds": 3024, "duration_seconds": 7200, "percent": 42}, "movie", "70 minutes left"),
             ({"position_seconds": 6750, "duration_seconds": 8820, "percent": 76}, "movie", "35 minutes left"),
             ({"position_seconds": 7140, "duration_seconds": 7200}, "movie", "1 minute left"),
             ({"position_seconds": 7190, "duration_seconds": 7200}, "movie", "less than a minute left"),
             ({"position_seconds": 7200, "duration_seconds": 7200}, "movie", "finished"),
-            ({"position_seconds": 0, "duration_seconds": 7200}, "movie", "2 hours left"),
+            ({"position_seconds": 0, "duration_seconds": 7200}, "movie", "120 minutes left"),
             ({"position_seconds": None, "duration_seconds": None, "percent": 42}, "movie", "42 percent watched"),
             ({"position_seconds": None, "duration_seconds": None, "percent": 7}, "audiobook", "7 percent listened"),
             ({"percent": 7}, "ebook", "7 percent read"),
-            ({"position_seconds": 3600, "duration_seconds": None, "percent": None}, "movie", "1 hour in"),
+            ({"position_seconds": 3600, "duration_seconds": None, "percent": None}, "movie", "60 minutes in"),
             ({"position_seconds": 30, "duration_seconds": None, "percent": None}, "movie", "just started"),
             ({}, "movie", None),
             (None, "movie", None),
@@ -58,7 +58,7 @@ class SectionStateTests(unittest.TestCase):
         it = out[0].items[0]
         self.assertEqual("https://watch.avrana.net/web/#/details?id=aaaa", it.href)
         self.assertEqual("S1 E3 · Synthetic Series Alpha", it.detail)    # episode marker first (Home 2.0)
-        self.assertEqual("1 hour 10 minutes left", it.progress)
+        self.assertEqual("70 minutes left", it.progress)
 
     def test_empty_is_nothing_and_not_permitted_is_absent(self):
         self.assertEqual((), build_sections({"sections": [section("empty")]}))

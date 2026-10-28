@@ -30,7 +30,8 @@ _GUID = re.compile(r"[0-9a-fA-F]{8}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]
 _HEX32 = r"[0-9a-f]{32}"
 _BOUND_ID = re.compile(_HEX32)
 MAX_INT = _base.MAX_INT
-_ARTWORK_REF = re.compile(r"jellyfin/primary/(" + _HEX32 + r")")
+_ARTWORK_REF = re.compile(r"jellyfin/(primary|backdrop)/(" + _HEX32 + r")")
+_IMAGE_TYPES = "Primary,Backdrop"   # Backdrop: the wide image for Home's hero (an episode uses its series')
 _ITEM_FIELDS = "PrimaryImageAspectRatio,ProviderIds"   # ProviderIds: media_ids.from_jellyfin
 _TITLE_FIELDS = _ITEM_FIELDS + ",Overview"    # the title page alone asks for the synopsis (R2-C)
 _int = bounded_int                    # names kept for the tests and for older importers
@@ -65,7 +66,7 @@ ALLOWED_ROUTES = (
           user_scoped=True, not_found=UserGone),
     # The image route cannot carry a userId, so ITS member scoping is not enforced here: it rests on
     # the adapter calling `_visible_item` (a userId-scoped lookup) for the same item first.
-    Route("image", r"/Items/" + _HEX32 + r"/Images/Primary", ("maxWidth", "quality"),
+    Route("image", r"/Items/" + _HEX32 + r"/Images/(?:Primary|Backdrop)", ("maxWidth", "quality"),
           user_scoped=False, not_found=ItemGone),
 )
 
@@ -122,7 +123,7 @@ class JellyfinAdapter(GuardedAdapter):
     # -- item parsing --------------------------------------------------------------------
     def _parse_item(self, raw: Any, user_id: str, kinds: Tuple[str, ...],
                     want_progress: bool, require_progress: bool,
-                    want_summary: bool = False) -> Tuple[Optional[MediaItem], str]:
+                    want_summary: bool = False, want_backdrop: bool = True) -> Tuple[Optional[MediaItem], str]:
         """Returns (item, status). status: "ok", "filtered" (a legitimate drop: another type, not
         in progress) or "bad" (unparsable: wrong shape or invalid id). Only "bad" counts as drift."""
         if not isinstance(raw, dict):
@@ -182,25 +183,38 @@ class JellyfinAdapter(GuardedAdapter):
             alt = (f"Still from {series}, {title}" if series else
                    f"Poster for {title}")
             artwork = ArtworkRef(f"jellyfin/primary/{item_id}", alt)
+        backdrop = None
+        own = raw.get("BackdropImageTags")
+        parent = normalise_guid(raw.get("ParentBackdropItemId"))
+        theirs = raw.get("ParentBackdropImageTags")
+        if not want_backdrop:
+            pass                                                     # search results carry no backdrop
+        elif isinstance(own, list) and own and isinstance(own[0], str) and own[0]:
+            backdrop = ArtworkRef(f"jellyfin/backdrop/{item_id}", "")
+        elif (kind is Kind.EPISODE and parent is not None and isinstance(theirs, list) and theirs
+              and isinstance(theirs[0], str) and theirs[0]):
+            backdrop = ArtworkRef(f"jellyfin/backdrop/{parent}", "")   # the series' backdrop
         return MediaItem(id=f"jellyfin:{item_id}", service=Service.JELLYFIN, kind=kind, title=title,
                          handoff_url=build_handoff_url(Service.JELLYFIN, item_id),
                          subtitle=subtitle, series=series, progress_fraction=fraction,
                          position_seconds=position, duration_seconds=duration,
                          artwork=artwork, year=year,
                          external_ids=media_ids.from_jellyfin(raw.get("ProviderIds")),
-                         summary=clean_summary(raw.get("Overview")) if want_summary else None), "ok"
+                         summary=clean_summary(raw.get("Overview")) if want_summary else None,
+                         backdrop=backdrop), "ok"
 
     def _parse_list(self, raws: Any, user_id: str, limit: int, kinds, want_progress,
-                    require_progress, want_summary: bool = False) -> Tuple[MediaItem, ...]:
+                    require_progress, want_summary: bool = False,
+                    want_backdrop: bool = True) -> Tuple[MediaItem, ...]:
         return self._parse_many(raws, limit, lambda raw: self._parse_item(
-            raw, user_id, kinds, want_progress, require_progress, want_summary))
+            raw, user_id, kinds, want_progress, require_progress, want_summary, want_backdrop))
 
     # -- hooks ---------------------------------------------------------------------------
     def _continue_items(self, user: UpstreamUser, limit: int) -> SectionResult:
         guard = self._guard.bind(user.upstream_id)
         body = self._get_json(guard, self._budget(), "/UserItems/Resume", {
             "userId": user.upstream_id, "limit": str(limit), "mediaTypes": "Video",
-            "fields": _ITEM_FIELDS, "enableUserData": "true", "enableImageTypes": "Primary",
+            "fields": _ITEM_FIELDS, "enableUserData": "true", "enableImageTypes": _IMAGE_TYPES,
             "enableTotalRecordCount": "false"})
         if not isinstance(body, dict):
             raise UpstreamMalformed()
@@ -213,7 +227,7 @@ class JellyfinAdapter(GuardedAdapter):
         body = self._get_json(guard, self._budget(), "/Items/Latest", {
             "userId": user.upstream_id, "limit": str(limit),
             "includeItemTypes": "Movie,Series,Episode", "groupItems": "true",
-            "fields": _ITEM_FIELDS, "enableImageTypes": "Primary", "enableUserData": "true"})
+            "fields": _ITEM_FIELDS, "enableImageTypes": _IMAGE_TYPES, "enableUserData": "true"})
         # user data is requested only so the scope tripwire can run; it is never exposed here
         items = self._parse_list(body, user.upstream_id, limit, ("Movie", "Series", "Episode"),
                                  want_progress=False, require_progress=False)
@@ -228,14 +242,14 @@ class JellyfinAdapter(GuardedAdapter):
         if not isinstance(body, dict):
             raise UpstreamMalformed()
         items = self._parse_list(body.get("Items"), user.upstream_id, limit, ("Movie", "Series", "Episode"),
-                                 want_progress=False, require_progress=False)
+                                 want_progress=False, require_progress=False, want_backdrop=False)
         return SectionResult.of(Service.JELLYFIN, "search", items)
 
     def _visible_item(self, guard, budget, user: UpstreamUser, item_id: str,
                       fields: str = _ITEM_FIELDS) -> Optional[MediaItem]:
         body = self._get_json(guard, budget, "/Items", {
             "userId": user.upstream_id, "ids": item_id, "fields": fields,
-            "enableUserData": "true", "enableImageTypes": "Primary"})
+            "enableUserData": "true", "enableImageTypes": _IMAGE_TYPES})
         if not isinstance(body, dict):
             raise UpstreamMalformed()
         items = self._parse_list(body.get("Items"), user.upstream_id, 1,
@@ -252,14 +266,20 @@ class JellyfinAdapter(GuardedAdapter):
         m = _ARTWORK_REF.fullmatch(ref)
         if m is None:
             return ArtworkResult(SectionState.EMPTY)
-        item_id = m.group(1)
+        image, item_id = m.group(1), m.group(2)
         guard = self._guard.bind(user.upstream_id)
         budget = self._budget()
-        visible = self._visible_item(guard, budget, user, item_id)   # member-scoped permission check
-        if visible is None or visible.artwork is None:
+        # Member-scoped permission check. A backdrop ref names the item that owns the image: the movie or series
+        # itself (an episode's ref names its series), so that item must be visible to this member and have one.
+        visible = self._visible_item(guard, budget, user, item_id)
+        owned = None if visible is None else (visible.backdrop if image == "backdrop" else visible.artwork)
+        if owned is None or owned.ref != ref:
             return ArtworkResult(SectionState.EMPTY)
         hit = cached() if cached is not None else None      # only AFTER this member's visibility check
         if hit is not None:
             return hit
+        if image == "backdrop":
+            return self._fetch_image(guard, budget, f"/Items/{item_id}/Images/Backdrop",
+                                     {"maxWidth": "1280", "quality": "80"})
         return self._fetch_image(guard, budget, f"/Items/{item_id}/Images/Primary",
                                  {"maxWidth": "400", "quality": "80"})

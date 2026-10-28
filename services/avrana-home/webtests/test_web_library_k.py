@@ -416,7 +416,7 @@ class TitlePage(Fixture):
         self.assertIn('<span class="hero-glow" aria-hidden="true">', main)
         self.assertLess(main.index('class="title-stage"'), main.index('<p class="kicker">'))
         self.assertLess(main.index('<p class="kicker">'), main.index('<h2 id="h-title" class="t">'))
-        self.assertIn('<p class="d p">1 hour 10 minutes left</p>', main)
+        self.assertIn('<p class="d p">70 minutes left</p>', main)
         self.assertRegex(main, r'<span class="bar title-bar" aria-hidden="true"><span class="fill pc\d+"></span></span>')
         self.assertIn('aria-label="Resume Synthetic Film One in Movies and TV">Resume</a>', main)
         self.assertEqual(1, main.count('<a class="open"'))
