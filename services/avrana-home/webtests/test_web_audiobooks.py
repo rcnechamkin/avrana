@@ -63,7 +63,7 @@ class CoverTests(Fixture):
         self.assertEqual(200, r.status_code)
         self.assertEqual("image/jpeg", r.headers["content-type"])
         self.assertTrue(r.content.startswith(b"\xff\xd8\xff"))
-        self.assertEqual("private, no-store", r.headers["cache-control"])
+        self.assertEqual("private, no-cache", r.headers["cache-control"])
         self.assertEqual("nosniff", r.headers["x-content-type-options"])
         self.assertIn("/api/items/li_book000001/cover", self.abs.paths())
 

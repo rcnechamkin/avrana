@@ -429,7 +429,7 @@ Like the outpost link it replaces, it is a state-changing GET reachable by a cro
 the outpost. No exempt paths, no `skip_path_regex` (G1 review F5). While signed out, worker updates and the manifest
 fetch get the sign-in redirect and fail quietly; they retry on the next signed-in load.
 
-**Caching (D11).** No `Cache-Control` relaxation: every response stays `no-store` (`/art` `private, no-store`). The
+**Caching (D11, `/art` amended 2026-10-27).** Every response stays `no-store` except `/art`: `private, no-cache` plus an `ETag`, revalidated through the full permission check before every use (304 only for an allowed member). The
 script's hashed path, not a header, keeps a stale script from pairing with new HTML.
 
 **Kill switch and rollback limits.** `HOME_PWA_SW=off` (section 7) makes `/sw.js` a worker that deletes its caches

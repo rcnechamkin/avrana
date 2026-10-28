@@ -39,8 +39,8 @@ from . import artwork as artwork_mod
 from . import install as install_mod
 from . import notice as notice_mod
 from . import pwa as pwa_mod
-from .identity import (IdentityResolver, Viewer, get_viewer, has_identity_headers, library_chip_from_scope,
-                       new_tab_from_scope, search_term_from_scope)
+from .identity import (IdentityResolver, Viewer, get_viewer, has_identity_headers, if_none_match_from_scope,
+                       library_chip_from_scope, new_tab_from_scope, search_term_from_scope)
 from .logsafe import app_log, log_event, silence_uvicorn_access
 from .middleware import HygieneMiddleware
 from . import recovery
@@ -297,8 +297,10 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
                 scope["avrana_route"] = "not_found"          # trouble: one and the same 404
                 return respond(not_found())
             scope["avrana_route"] = "/art/{ref}"
-            return Response(result.data, media_type=result.content_type,
-                            headers={"Cache-Control": artwork_mod.CACHE_CONTROL})
+            headers = {"Cache-Control": artwork_mod.CACHE_CONTROL, "ETag": artwork_mod.etag_for(result.data)}
+            if artwork_mod.not_modified(if_none_match_from_scope(scope), headers["ETag"]):
+                return Response(status_code=304, headers=headers)     # checked above like any fetch
+            return Response(result.data, media_type=result.content_type, headers=headers)
 
         # Installable Home and the approved brand files (install.py, brand.py): only where the shell can render, so
         # with sections off these paths stay the portal's 404. Static bytes, the same for every viewer, so no

@@ -103,8 +103,8 @@ failing (`webtests/test_web_isolation_h2.py`).
    cache (30 to 120 s). It only ever shows that member's own previous data; it never links anyone else.
 2. Shared views (Komga, Calibre-Web): a book removed from the one account's view can keep its cover in that
    member's own cache for up to 300 s. Group removal is still immediate.
-3. Browser copies: covers are sent `Cache-Control: private, no-store`, so neither the browser cache nor a proxy
-   should keep them, but an image already shown in an open page stays visible until the page is reloaded.
+3. Browser copies: covers are sent `Cache-Control: private, no-cache` with an `ETag`: no proxy keeps them, and the browser revalidates every use (the full check runs; 304 only if allowed).
+   An image already shown in an open page stays visible until the page is reloaded.
 4. Per-member covers need a live upstream check: while Jellyfin or Audiobookshelf cannot answer, their covers
    are 404 (the letter placeholder shows) even if the bytes are cached. This is deliberate (fail closed).
    Review of #57: covers have their own concurrency allowance (8 per adapter, 4 per member, separate from the

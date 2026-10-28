@@ -262,3 +262,14 @@ Recorded from the owner's chat of 2026-10-27 ("Perfect... the bottom should stil
 | **Filters are a ledger** | Home's Recently added and the Library's libraries: words on one hairline, the chosen one Cream with a short yellow rule. Shown only with two or more libraries. |
 | **Header and dock follow the scroll** | The header stays at the top; once scrolled, Home's lockup slims into a glass ceiling; on the way down the places (or the Library's filters) tuck under it and the tab bar shrinks down and in (icons only, still a full target). Scrolling up a little, either end, or focus brings everything back. Nothing changes size, so the page never jumps. |
 | **The title's action stays pinned** | On the title page (above the tab bar) and at the foot of the sheet. |
+
+## Owner decision, 2026-10-27: artwork may be revalidated from the browser cache
+
+Recorded from the owner's chat of 2026-10-27 ("Do 3 and then 4", 4 being "artwork caching": artwork was
+`private, no-store`, so the phone fetched every cover again on every page).
+
+| Decision | Consequence |
+|---|---|
+| **`/art` is `private, no-cache` with an `ETag`** (amends D11 for `/art` only) | The browser may keep a cover but must ask before each use. The request runs the full check (group, then per-member visibility for Jellyfin and Audiobookshelf); only a member allowed to see it gets `304 Not Modified`, everyone else the same 404. No proxy may keep it (`private`). The ETag is a digest of the image bytes. Every other response stays `no-store` |
+| **No `max-age`** | A `max-age` would let the browser show a cover without asking, past a removed group or a hidden item. Revalidation saves the bytes over the tunnel, not the round trip |
+| Sign-out unchanged | `/signout`'s `Clear-Site-Data: "cache", "storage"` (D10) still clears the kept covers on that device |
