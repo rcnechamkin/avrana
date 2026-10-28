@@ -353,3 +353,12 @@ instruction; the owner can reverse any of them.
 | **Search cache and per-member allowance** | Shelfarr results are shared for ten minutes (Home's own account), Seerr results per member for two; 40 upstream searches per member per ten minutes. Protects Hardcover/Google Books caps behind Shelfarr and Seerr's TMDB quota. |
 | **A stale index makes no claims** | Older than 36 hours or no build time: no "Already in" at all. |
 | **Credentials left in place (F-D3, F-D4)** | The Omnibus `JobLog` row and Shelfarr's legacy `api_token` are not touched: deleting rows in a live database or clearing a token whose consumer is unknown could break something for little gain (both are visible only to the owner). The fork fixes the leak at its source. |
+
+## Owner decisions, 2026-10-28: Home may create missing library accounts
+
+Recorded from the owner's chat of 2026-10-28 ("Yes it should", on Home creating a member's library accounts).
+
+| Decision | Consequence |
+|---|---|
+| **Home creates missing Jellyfin and Audiobookshelf accounts** | Direction approved; the how is the plan in `docs/design/ACCOUNT-PROVISIONING.md`. Built as `avrana_home/provision.py` (ADAPTER-CONTRACT 15), off until `HOME_PROVISION_ACCOUNTS` names a library. |
+| **P1-P5 as recommended** ("Go with your recommendations") | P1: created on the member's first Home visit; a background sync from Authentik may come later. P2: Jellyfin accounts see all libraries, as the LDAP plugin gives. P3: Audiobookshelf accounts get the server's defaults for a new user, as OIDC auto-register gives. P4: beta members first: settings refuse it without `HOME_ALLOWED_USERS`. P5: at most 10 attempts per hour (`HOME_PROVISION_CAP_PER_HOUR`). |

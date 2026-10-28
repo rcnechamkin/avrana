@@ -135,6 +135,8 @@ class Settings:
     jwt_secret: str = field(default="", repr=False)             # HS256 client secret; never shown
     jwt_secret_previous: str = field(default="", repr=False)    # optional, rotation overlap only
     allowed_users: tuple = ()                    # () = no restriction; beta only, jwt_required only
+    provision_accounts: tuple = ()               # libraries Home may create a missing account in (provision.py)
+    provision_cap_per_hour: int = 10
 
     owner_preview: bool = False                  # the sealed LAN owner preview (module docstring)
     owner_preview_username: str = ""             # the one principal the member-username overrides apply to
@@ -464,6 +466,21 @@ class Settings:
         if allowed and id_mode != "jwt_required":
             problems.append("HOME_ALLOWED_USERS needs HOME_IDENTITY_MODE=jwt_required")
 
+        # Account creation (docs/design/ACCOUNT-PROVISIONING.md, owner decisions 2026-10-28): off unless named. It
+        # writes to the upstream with its admin credential, so it needs real upstreams, a verified username
+        # (jwt_required) and, for now, the beta allowlist (P4: beta users first); never in the owner preview.
+        provision = _provision_accounts(env, problems)
+        cap = number("HOME_PROVISION_CAP_PER_HOUR", 10, int, 1, 50)
+        if provision:
+            if mode != "real" or sealed:
+                problems.append("HOME_PROVISION_ACCOUNTS needs real upstreams and is never on in the owner preview")
+            if id_mode != "jwt_required":
+                problems.append("HOME_PROVISION_ACCOUNTS needs HOME_IDENTITY_MODE=jwt_required")
+            if not allowed:
+                problems.append("HOME_PROVISION_ACCOUNTS needs HOME_ALLOWED_USERS (beta members first)")
+            if "audiobookshelf" in provision and not abs_url:
+                problems.append("HOME_PROVISION_ACCOUNTS names audiobookshelf but AUDIOBOOKSHELF_BASE_URL is not set")
+
         if problems:
             raise SettingsError("invalid configuration: " + "; ".join(problems))
         return cls(home_sections=sections, upstream_mode=mode, jellyfin_base_url=base_url,
@@ -481,7 +498,8 @@ class Settings:
                    jellyfin_member_username=jf_member, audiobookshelf_member_username=abs_member,
                    preview_seal=_OWNER_PREVIEW_SEAL if owner_preview else None,
                    identity_mode=id_mode, jwt_issuer=jwt_issuer, jwt_audience=jwt_audience,
-                   jwt_secret=jwt_secret, jwt_secret_previous=jwt_previous, allowed_users=allowed)
+                   jwt_secret=jwt_secret, jwt_secret_previous=jwt_previous, allowed_users=allowed,
+                   provision_accounts=provision, provision_cap_per_hour=cap)
 
 
 def is_sealed_preview(settings: object) -> bool:
@@ -500,6 +518,19 @@ def _allowed_users(env: Mapping[str, str], problems: list) -> tuple:
     if not names or any(not n or len(n) > 150 or not n.isascii() or not n.isprintable()
                         or any(c.isspace() for c in n) for n in names):
         problems.append("HOME_ALLOWED_USERS must be a comma-separated list of usernames")
+        return ()
+    return tuple(sorted(set(names)))
+
+
+def _provision_accounts(env: Mapping[str, str], problems: list) -> tuple:
+    """Absent or "off" -> (). Otherwise a comma-separated subset of jellyfin, audiobookshelf; anything else is an
+    error, never a silent "all"."""
+    raw = str(env.get("HOME_PROVISION_ACCOUNTS", "off")).strip()
+    if raw == "off":
+        return ()
+    names = [n.strip() for n in raw.split(",")]
+    if not names or any(n not in ("jellyfin", "audiobookshelf") for n in names):
+        problems.append("HOME_PROVISION_ACCOUNTS must be off or a comma-separated list of jellyfin, audiobookshelf")
         return ()
     return tuple(sorted(set(names)))
 

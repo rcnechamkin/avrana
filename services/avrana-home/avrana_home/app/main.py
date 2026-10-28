@@ -34,6 +34,7 @@ from urllib.parse import urlencode
 
 from ..contract import REQUIRED_GROUP, MediaAdapter, Service, build_handoff_url
 from ..cache import MemberCache
+from ..provision import Provisioner, build_provisioner
 from ..quickconnect import OUTCOMES as QC_OUTCOMES, QuickConnect
 from ..resilience import SystemClock, UrllibTransport
 from . import catalogue as catalogue_mod
@@ -203,9 +204,11 @@ def _is_loopback_peer(request: Request) -> bool:
 def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]] = None,
                quick_connect: Optional[QuickConnect] = None,
                book_requests: Optional[ShelfarrRequests] = None,
-               watch_requests: Optional[SeerrRequests] = None) -> FastAPI:
-    """`adapters`, `quick_connect`, `book_requests` and `watch_requests` let tests inject fakes; otherwise they are
-    built from `settings`. Each broker exists only when its switch is on (an injected client is ignored otherwise)."""
+               watch_requests: Optional[SeerrRequests] = None,
+               provisioner: Optional[Provisioner] = None) -> FastAPI:
+    """`adapters`, `quick_connect`, `book_requests`, `watch_requests` and `provisioner` let tests inject fakes; otherwise
+    they are built from `settings`. Each broker exists only when its switch is on (an injected client is ignored
+    otherwise)."""
     silence_uvicorn_access()      # whoever serves this app, uvicorn must not log raw query strings
     cat = catalogue_mod.load(settings.catalogue_path)
     env = make_environment()
@@ -221,6 +224,10 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
     cache = MemberCache(SystemClock())
     adapter_list = list(adapters) if adapters is not None else build_adapters(settings, cache)
     notices = notice_mod.NoticeBoard(settings.notice_file)          # AVR-365: read-only; None = no notices
+    # Account creation (ACCOUNT-PROVISIONING.md): None unless HOME_PROVISION_ACCOUNTS names a library.
+    if provisioner is None and adapters is None:
+        provisioner = build_provisioner(
+            settings, log=lambda **f: log_event(app_log, logging.INFO, "provision", **f))
     broker = None
     if settings.home_sections and settings.book_requests:
         broker = book_requests if book_requests is not None else build_book_requests(settings)
@@ -780,6 +787,16 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
         (contract.DEFAULT_MAX_IN_FLIGHT_PER_MEMBER), so a third alongside them would only be refused as busy."""
         result = await run_in_threadpool(gather, viewer.principal, adapter_list, ("continue", "recent"),
                                         settings.section_limit)
+        if provisioner is not None and provisioner.candidates(result.sections):
+            # A library said "no account with this name": create it once, forget the cached "absent" mapping and
+            # read the page again, so the member's first visit already shows that library.
+            created = await run_in_threadpool(provisioner.provision, viewer.principal, result.sections)
+            if created:
+                for a in adapter_list:
+                    if a.service in created:
+                        a.cache.for_member(viewer.principal).delete(a.service.value, "mapping")
+                result = await run_in_threadpool(gather, viewer.principal, adapter_list, ("continue", "recent"),
+                                                settings.section_limit)
         sections = list(result.sections)
         view = result.member_view()
         if extras:
