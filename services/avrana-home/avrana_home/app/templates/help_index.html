@@ -32,4 +32,4 @@
 {% endif %}
 {% endif %}
 {% endblock %}
-{% block footer %}{% if shell %}    <a class="link" href="/">Back to home</a>{% else %}    <a class="account" href="/">Back</a>{% endif %}{% endblock %}
+{% block footer %}{% if shell %}    {% if not shell %}<a class="link" href="/">Back to home</a>{% endif %}{% else %}    <a class="account" href="/">Back</a>{% endif %}{% endblock %}

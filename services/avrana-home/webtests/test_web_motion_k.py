@@ -111,8 +111,10 @@ class Stylesheet(unittest.TestCase):
 
     def test_the_names_and_where_they_are(self):
         """Class selectors only, each name on one element per page: the title page's one frame (or, on the page being
-        left, the one frame the script marks while it is captured) and the tab bar's one lens."""
-        self.assertEqual({".title-page .frame": "k-art", ".frame.k-flight": "k-art", ".tabbar .lens": "k-lens"},
+        left, the one frame the script marks while it is captured), the tab bar's one lens, and the tab bar itself
+        (k-dock, held still while the pages change; owner review 2026-10-27)."""
+        self.assertEqual({".title-page .frame": "k-art", ".frame.k-flight": "k-art", ".tabbar .lens": "k-lens",
+                          ".tabbar": "k-dock"},
                          named_selectors(self.css))
         for sel in named_selectors(self.css):
             self.assertRegex(sel, r"^(\.[\w-]+)+( (\.[\w-]+)+)*$", sel)
@@ -167,7 +169,9 @@ class PageScript(unittest.TestCase):
         self.assertIn("classList.remove('k-flight')", self.js)
         self.assertNotRegex(self.js, r"\.style\b|setProperty|viewTransitionName|view-transition-name")
         self.assertNotIn("startViewTransition", self.js)             # cross-document only: the browser starts them
-        self.assertEqual(1, self.js.count("classList.add("))         # one element, one class
+        # one element, one class for the flight; the only other class the script adds is the art's k-wait
+        self.assertEqual(2, self.js.count("classList.add("))
+        self.assertIn("img.classList.add('k-wait')", self.js)
 
     def test_the_flight_only_aims_at_a_title_page_on_this_origin(self):
         self.assertIn("to.origin !== window.location.origin || to.pathname.indexOf('/title/') !== 0", self.js)
@@ -295,7 +299,7 @@ class RenderedPages(unittest.TestCase):
         html = ('<div class="title-page w-poster"><span class="stage"><span class="frame"><img class="art"></span></span>'
                 '</div><nav class="tabbar glass"><a class="tab"></a><span class="lens"></span></nav>'
                 '<section class="hero"><span class="frame"></span></section>')
-        self.assertEqual({"k-art": 1, "k-lens": 1}, name_counts(html))
+        self.assertEqual({"k-art": 1, "k-lens": 1, "k-dock": 1}, name_counts(html))
         self.assertEqual({"k-art": 2}, name_counts('<p class="title-page"><span class="frame"></span></p>'
                                                    '<span class="frame k-flight"></span>'))
 

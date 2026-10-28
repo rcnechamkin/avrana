@@ -61,7 +61,8 @@ class ReturnNavigationTests(Fixture):
                     self.assertIn('<nav class="places" aria-label="Avrana">', r.text)   # kept on Home (D16)
                 else:
                     self.assertNotRegex(r.text, r'<img class="lockup"')
-                    self.assertIn('<a class="link" href="/">Back to home</a>', footer(r.text))
+                    # the tab bar's Home tab is the way back; no "Back to home" link (owner review 2026-10-27)
+                    self.assertNotIn(">Back to home</a>", r.text)
                     # pages that are not tabs carry the glass Home button (D5); tab pages show their own title
                     if path in ("/library", "/search", "/me", "/account", "/help"):
                         self.assertNotIn('class="homebtn', r.text)

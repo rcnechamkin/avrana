@@ -5,7 +5,7 @@ cannot drift back. SYNTHETIC data, loopback only.
   2  The title page and Continue agree on Resume (viewmodel.continue_state): a fraction with no position is Open.
   3  "Not set up" is never a dead end: Home, Search and the title page link /help/trouble#not-set-up.
   5  Account's "Your access" (shell only): Libraries and Requests in Home's language, each name once.
-  7  The trouble topic does not send a member to a struck place, and has one "Back to home".
+  7  The trouble topic does not send a member to a struck place, and has no "Back to home" (the Home tab is the way back).
   8  Search: what a screen reader hears for a result that leaves matches what is shown.
   9  Help's index has a heading like the other shell pages.
  10  Help topics wrap the "Recommended" tag instead of pushing the page sideways (shell CSS only).
@@ -76,11 +76,10 @@ class TroubleCopy(StubFixture):
         unavailable = r.text.split('id="unavailable"', 1)[1].split("</section>", 1)[0]
         self.assertIn("You can still try opening the library itself with the links below.", unavailable)
         self.assertIn('<a class="link" href="/watch">Open Movies and TV</a>', unavailable)
-        self.assertEqual(1, r.text.count(">Back to home</a>"))
-        self.assertIn('<a class="link" href="/">Back to home</a>', footer(r.text))
+        self.assertEqual(0, r.text.count(">Back to home</a>"))
         self.assertIn('id="not-set-up"', r.text)                   # the anchor the not-set-up links use
         nolib = self.on.get("/help/trouble", headers=[(USER, "member-n"), (GROUPS, "avrana-users")])
-        self.assertEqual(1, nolib.text.count(">Back to home</a>"))
+        self.assertEqual(0, nolib.text.count(">Back to home</a>"))
 
 
 class ResumeAgreement(unittest.TestCase):
