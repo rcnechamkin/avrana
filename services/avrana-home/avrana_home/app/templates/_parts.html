@@ -9,7 +9,9 @@
    place pages and title pages.
    Home: the approved Media L3 product lockup is the heading (AVR-584, brand.py), an image of the brand's own SVG,
    never retyped, its alt text the product name; under it the places bar, Watch, Listen, Read, Request, Help (owner,
-   AVR-452; kept by D16). The cream lockup cannot follow forced colours (Windows high contrast), so there home.css
+   AVR-452; kept by D16). Owner decision 2026-10-27 (chrome pass): matte launch tiles that share the row equally (a
+   place the member cannot use is absent, so the others widen), a small arrow on the three that leave Avrana; the
+   whole header stays at the top while scrolling, and the places tuck under the lockup on the way down. The cream lockup cannot follow forced colours (Windows high contrast), so there home.css
    shows the name as text instead: that span is aria-hidden, and the image stays in the accessibility tree, so the
    link is named once, by the alt text.
    Every other shell page: the heading "Avrana Media" stays first for screen readers (visually hidden), and the
@@ -30,7 +32,7 @@
 {% if shell.current == "home" %}
     <nav class="places" aria-label="Avrana">
 {% for p in shell.places %}
-{% if p.up %}      <a href="{{ p.href }}">{{ p.label|trusted }}</a>
+{% if p.up %}      <a href="{{ p.href }}">{{ p.label|trusted }}{% if p.href in ("/watch", "/listen", "/read") %}<svg class="out" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" focusable="false"><path d="M5.5 3.5h7v7M12.5 3.5l-9 9"/></svg><span class="sr">, opens its own site</span>{% endif %}</a>
 {% else %}      <a class="off" href="/help/trouble#unavailable"><s>{{ p.label|trusted }}</s><span class="sr">, unavailable: what to do</span></a>
 {% endif %}
 {% endfor %}

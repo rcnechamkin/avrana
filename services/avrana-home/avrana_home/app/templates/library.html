@@ -21,11 +21,13 @@
     <p class="said"><a class="link" href="/help">Help</a></p>
   </section>
 {% else %}
+{% if page.chips|length > 2 %}
   <nav class="chips" aria-label="Libraries">
 {% for chip in page.chips %}
-    <a class="chip{% if chip.down %} off{% endif %}" href="{{ chip.href }}"{% if chip.current %} aria-current="true"{% endif %}>{% if chip.current %}<svg class="ck" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="m3.5 8.5 3 3 6-7"/></svg>{% endif %}{% if chip.down %}<s>{{ chip.label }}</s><span class="sr">, unavailable</span>{% else %}{{ chip.label }}{% endif %}</a>
+    <a class="chip{% if chip.down %} off{% endif %}" href="{{ chip.href }}"{% if chip.current %} aria-current="true"{% endif %}>{% if chip.down %}<s>{{ chip.label }}</s><span class="sr">, unavailable</span>{% else %}{{ chip.label }}{% endif %}{% if chip.current %}<span class="ul" aria-hidden="true"></span>{% endif %}</a>
 {% endfor %}
   </nav>
+{% endif %}
 {% if page.warnings %}
   <div class="k-warn" role="status">
     <svg class="k-warn-ic" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false"><path d="M12 4.5 2.75 19.5h18.5z"/><path d="M12 10v4.25M12 16.9v.1"/></svg>

@@ -71,11 +71,13 @@
 {% if home.show_new %}
   <section class="shelf" aria-labelledby="h-new">
     <h2 id="h-new">Recently added</h2>
+{% if home.new_tabs|length > 1 %}
     <nav class="tabs" aria-label="Recently added, by library">
 {% for key, name, current in home.new_tabs %}
-      <a href="/{% if key != 'all' %}?new={{ key }}{% endif %}#h-new"{% if current %} aria-current="true"{% endif %}>{{ name }}</a>
+      <a href="/{% if key != 'all' %}?new={{ key }}{% endif %}#h-new"{% if current %} aria-current="true"{% endif %}>{{ name }}{% if current %}<span class="ul" aria-hidden="true"></span>{% endif %}</a>
 {% endfor %}
     </nav>
+{% endif %}
 {% if home.new_said %}
     <p class="said">{{ home.new_said }}</p>
 {% endif %}
