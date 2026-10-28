@@ -19,11 +19,12 @@ ever have Komga restrictions, so there is nothing per member to enforce. What th
     can never be shown as a member's own. The shared account's route table has no `ondeck`, read-list,
     collection or per-user route.
   * Continue reading (owner decision 2026-10-28) is offered ONLY to a member whose OWN Komga API key Home holds
-    (`member_transports`, filed under the member's signed email; docs/runbooks/komga-member-keys.md). It is
-    that member's in-progress books, then their On Deck (the next unread book of a series they have started),
-    read with their key through a separate two-route allow-list. The shared account is never used for it. A
-    member without a key sees no Continue row (not offered), exactly as before. A refused member key is that
-    member's problem: an empty row, never a count against the circuit every member shares.
+    (`member_keys`, a live MemberKeyStore filed by the member's signed email; docs/runbooks/komga-member-keys.md).
+    It is that member's in-progress books, then their On Deck (the next unread book of a series they have
+    started), read with their key through a separate two-route allow-list. The shared account is never used for
+    it. A member without a key gets an empty row, never cached: reason `no_member_key` when Home may make their
+    key (provision.py, "Home does it", 2026-10-28), else `not_offered`. A refused member key is that member's
+    problem: an empty row, never a count against the circuit every member shares.
   * The credential lives only inside the transport (a header, never a URL). Every request goes through
     `GuardedTransport`: GET only, an explicit three-route list (books, book, thumbnail), no query keys
     beyond the list.
@@ -46,7 +47,7 @@ from __future__ import annotations
 import dataclasses
 import re
 from datetime import date, datetime, timedelta, timezone
-from typing import Any, Dict, Mapping, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple
 
 from ..contract import (ArtworkRef, ArtworkResult, DEFAULT_LIMIT, Kind, MediaItem, SectionResult,
                         SectionState, Service, UpstreamUser, _limit, build_handoff_url, clean_summary, clean_text,
@@ -57,6 +58,7 @@ from ..resilience import (DEFAULT_TIMEOUT, ItemGone, RouteMissing, Transport, Up
                           UpstreamMalformed, UpstreamMisbehaved)
 from ._base import GuardedAdapter, Route, bounded_int, iso_day, year_from
 from ._base import GuardedTransport as _Guard
+from ..member_keys import MemberKeyStore, member_key_id  # noqa: F401  (member_key_id is re-exported)
 
 SHARED_VIEWER = "shared"                      # the fixed, non-member upstream "user": a shared view, by design
 _BOUND_ID = re.compile(SHARED_VIEWER)
@@ -69,7 +71,7 @@ RECENT_DAYS = 60
 RELEASE_AHEAD_DAYS = 92
 ADDED_SORT, RELEASED_SORT = "created,desc", "metadata.releaseDate,desc"     # fixed values, never member input
 READING_SORT, IN_PROGRESS = "readProgress.readDate,desc", "IN_PROGRESS"      # likewise
-_EMAIL = re.compile(r"[^@\s]{1,64}@[^@\s]{1,190}")
+NO_MEMBER_KEY = "no_member_key"               # the provisioning trigger (provision.py)
 
 ALLOWED_ROUTES = (
     Route("books", r"/api/v1/books", ("search", "sort", "page", "size"), user_scoped=False, not_found=RouteMissing),
@@ -106,14 +108,6 @@ class MemberGuardedTransport(_Guard):
     def _clone(self, user_id):
         return MemberGuardedTransport(self._inner, user_id)
 
-
-def member_key_id(email: Any) -> Optional[str]:
-    """What a member's own Komga key is filed under: their email, trimmed and case-folded (Komga matches sign-ins
-    by email, ignoring case). None for anything that is not a plausible email."""
-    if not isinstance(email, str):
-        return None
-    value = email.strip().casefold()
-    return value if _EMAIL.fullmatch(value) else None
 
 
 _RESERVED = frozenset({"latest", "updated", "ondeck"})     # Komga sub-routes that look like ids (UNVERIFIED list)
@@ -167,33 +161,43 @@ class KomgaAdapter(GuardedAdapter):
 
     def __init__(self, transport: Transport, timeout: float = DEFAULT_TIMEOUT, *,
                  owner_confirms_no_member_restrictions: bool = False,
-                 member_transports: Optional[Mapping[str, Transport]] = None, **kw):
+                 member_keys: Optional[MemberKeyStore] = None,
+                 member_transport: Optional[Callable[[str], Transport]] = None,
+                 provisioning: bool = False, **kw):
         # A shared view (contract 12.2, owner decision 2026-10-15): every member sees what the regular
         # account sees, so Komga's own per-member restrictions are NOT applied. The owner must opt in on
         # purpose, and only while no member has a Komga restriction.
         if owner_confirms_no_member_restrictions is not True:
             raise ValueError("Komga adapter is a shared view; the owner must confirm no member is restricted")
         super().__init__(GuardedTransport(transport), timeout, **kw)
-        members = {}
-        for key, inner in (member_transports or {}).items():
-            if member_key_id(key) != key:
-                raise ValueError("member transports are filed under member_key_id(email)")
-            members[key] = MemberGuardedTransport(inner)
-        self._members = members
-        if members:                                    # Continue is offered (to the members with a key)
+        if (member_keys is None) != (member_transport is None):
+            raise ValueError("member_keys and member_transport go together")
+        self._keys = member_keys
+        self._member_transport = member_transport     # one member's key -> an inner Transport carrying it
+        self._guards: Dict[str, MemberGuardedTransport] = {}
+        self._provisioning = bool(provisioning) and member_keys is not None
+        if member_keys is not None:                    # Continue is offered (to the members with a key)
             self.not_offered = frozenset()
 
     def __repr__(self) -> str:
         return "KomgaAdapter(<redacted>)"
+
+    @property
+    def member_keys(self) -> Optional[MemberKeyStore]:
+        """The live keys store (provision.py files new keys in it), or None."""
+        return self._keys
 
     # -- what this adapter does not offer: no upstream call, nothing cached ----------------
     def continue_items(self, principal: MemberPrincipal, limit: int = DEFAULT_LIMIT) -> SectionResult:
         """The member's own reading, with their own key; without one, not offered (the shared account's progress
         is never anyone's). The group is checked first (in `_not_offered` or `_section`), before any cache read."""
         self._require_principal(principal)
-        guard = self._members.get(member_key_id(principal.email))
+        guard = self._member_guard(principal.email)
         if guard is None:
-            return self._not_offered(principal, "continue")
+            out = self._not_offered(principal, "continue")
+            if self._provisioning and out.reason == "not_offered" and member_key_id(principal.email):
+                out = SectionResult(self.service, "continue", SectionState.EMPTY, reason=NO_MEMBER_KEY)
+            return out
         limit = _limit(limit)
         return self._section(principal, "continue", f"continue:{limit}",
                              lambda user: self._reading(guard, limit))
@@ -251,6 +255,20 @@ class KomgaAdapter(GuardedAdapter):
             info = raw.get("metadata") if isinstance(raw.get("metadata"), dict) else {}
             item = dataclasses.replace(item, summary=clean_summary(info.get("summary")))
         return item
+
+    def _member_guard(self, email: Any) -> Optional[MemberGuardedTransport]:
+        """The allow-listed transport for this member's CURRENT key (the store follows the file), or None."""
+        if self._keys is None:
+            return None
+        key = self._keys.get(email)
+        if key is None:
+            return None
+        guard = self._guards.get(key)
+        if guard is None:
+            if len(self._guards) > 2 * 500:                # replaced keys: start over rather than grow
+                self._guards.clear()
+            guard = self._guards[key] = MemberGuardedTransport(self._member_transport(key))
+        return guard
 
     @staticmethod
     def _progress(raw: dict) -> Optional[float]:

@@ -177,9 +177,9 @@ class ProvisionerTests(unittest.TestCase):
         self.assertEqual(jf.calls, [])
         self.assertEqual(p.provision(member(), [unmapped(Service.JELLYFIN)]), (Service.JELLYFIN,))
 
-    def test_only_jellyfin_and_audiobookshelf(self):
+    def test_only_jellyfin_audiobookshelf_and_komga(self):
         with self.assertRaises(ValueError):
-            Provisioner({Service.KOMGA: object()})
+            Provisioner({Service.CALIBRE_WEB: object()})
 
     def test_needs_the_librarys_group(self):
         jf = FakeJellyfinAdmin()
