@@ -1,0 +1,10 @@
+[Unit]
+Description=Check capped metadata APIs every 30 minutes
+
+[Timer]
+OnCalendar=*:07/30
+Persistent=true
+RandomizedDelaySec=2m
+
+[Install]
+WantedBy=timers.target

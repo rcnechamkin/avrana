@@ -183,7 +183,8 @@ class SettingsTests(unittest.TestCase):
                 self.assertNotIn("komga.internal", str(cm.exception))
 
     REAL = {"HOME_UPSTREAM_MODE": "real", "HOME_GATES_VERIFIED": "yes",
-            "JELLYFIN_BASE_URL": "https://jf.example.test", "JELLYFIN_API_KEY": "k"}
+            "JELLYFIN_BASE_URL": "https://jf.example.test", "JELLYFIN_API_KEY": "k",
+            "HOME_IDENTITY_MODE": "jwt_required", "HOME_JWT_ISSUER": "https://auth.example.test/application/o/t/", "HOME_JWT_AUDIENCE": "t", "HOME_JWT_SECRET": "x" * 48}
     KOMGA = {"KOMGA_BASE_URL": "https://komga.example.test", "KOMGA_TOKEN": "sentinel-komga"}
     CONFIRM = {"KOMGA_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS": "yes"}
 

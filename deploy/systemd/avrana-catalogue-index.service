@@ -1,0 +1,8 @@
+[Unit]
+Description=Build Home's catalogue-id index (which outside ids are already in a library)
+
+[Service]
+Type=oneshot
+# Read-only over Calibre, Shelfarr, Omnibus and Komga databases; writes one JSON file of catalogue ids, mounted
+# read-only into Home as HOME_LIBRARY_IDS_FILE. Exit 2 = nothing readable; the previous file is kept.
+ExecStart=/usr/bin/python3 /home/cody/avrana/services/avrana-home/tools/build_catalogue_index.py --out /home/cody/.local/state/avrana/library-ids.json

@@ -6,6 +6,11 @@ from pathlib import Path
 from avrana_home.app.settings import MOCK_API_KEY, Settings, SettingsError
 
 
+# Real mode needs verified identity (the Jellyfin key is an admin key): every real-mode case below carries it.
+JWT = {"HOME_IDENTITY_MODE": "jwt_required", "HOME_JWT_ISSUER": "https://auth.example.test/application/o/t/",
+       "HOME_JWT_AUDIENCE": "t", "HOME_JWT_SECRET": "x" * 48}
+
+
 class SettingsTests(unittest.TestCase):
     def test_defaults_are_the_safe_ones(self):
         s = Settings.from_mapping({})
@@ -58,7 +63,7 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(MOCK_API_KEY, ok.jellyfin_api_key)
 
     def test_real_mode_needs_every_explicit_step(self):
-        full = {"HOME_UPSTREAM_MODE": "real", "HOME_GATES_VERIFIED": "yes",
+        full = {**JWT, "HOME_UPSTREAM_MODE": "real", "HOME_GATES_VERIFIED": "yes",
                 "JELLYFIN_BASE_URL": "http://jellyfin:8096", "JELLYFIN_API_KEY": "fake-key-for-test"}
         self.assertTrue(Settings.from_mapping(full).uses_real_upstream)
         for missing in ("HOME_GATES_VERIFIED", "JELLYFIN_BASE_URL", "JELLYFIN_API_KEY"):
@@ -68,9 +73,25 @@ class SettingsTests(unittest.TestCase):
         with self.assertRaises(SettingsError):
             Settings.from_mapping(dict(full, HOME_GATES_VERIFIED="true"))
 
+    def test_the_jellyfin_admin_key_in_real_mode_needs_verified_identity(self):
+        # Jellyfin gives every API key the Administrator role (10.11), and Home reads each member's viewing with it
+        # (and is planned to approve Quick Connect codes with it). Owner decision 2026-10-27: real mode needs
+        # HOME_IDENTITY_MODE=jwt_required, as the Audiobookshelf admin token already does.
+        real = {"HOME_UPSTREAM_MODE": "real", "HOME_GATES_VERIFIED": "yes",
+                "JELLYFIN_BASE_URL": "https://jf.example.test", "JELLYFIN_API_KEY": "sentinel-key"}
+        jwt = {k: v for k, v in JWT.items() if k != "HOME_IDENTITY_MODE"}
+        for env in ({}, {"HOME_IDENTITY_MODE": "headers"}, {**jwt, "HOME_IDENTITY_MODE": "jwt_log_only"}):
+            with self.subTest(mode=env.get("HOME_IDENTITY_MODE", "default")):
+                with self.assertRaises(SettingsError) as cm:
+                    Settings.from_mapping({**real, **env})
+                self.assertIn("JELLYFIN_API_KEY is an admin key", str(cm.exception))
+                self.assertNotIn("sentinel-key", str(cm.exception))
+        self.assertEqual("jwt_required", Settings.from_mapping({**real, **JWT}).identity_mode)
+        Settings.from_mapping({"HOME_UPSTREAM_MODE": "mock"})          # mock mode: synthetic data, unaffected
+
     def test_plain_http_never_crosses_machines_in_real_mode(self):
         # Owner decision 2026-10-27 (HTTPS across machines; Docker's isolated networking exempt).
-        base = {"HOME_UPSTREAM_MODE": "real", "HOME_GATES_VERIFIED": "yes", "JELLYFIN_API_KEY": "sentinel-key"}
+        base = {**JWT, "HOME_UPSTREAM_MODE": "real", "HOME_GATES_VERIFIED": "yes", "JELLYFIN_API_KEY": "sentinel-key"}
         for url in ("http://jellyfin:8096", "http://calibre-web:8083", "http://host.docker.internal:8096",
                     "http://127.0.0.1:8096", "http://[::1]:8096", "https://10.0.0.218:8096",
                     "https://jellyfin.example.test"):
@@ -90,7 +111,7 @@ class SettingsTests(unittest.TestCase):
         Settings.from_mapping({"HOME_UPSTREAM_MODE": "mock", "JELLYFIN_BASE_URL": "http://127.0.0.1:18096"})
 
     def test_url_shape(self):
-        base = {"HOME_UPSTREAM_MODE": "real", "HOME_GATES_VERIFIED": "yes", "JELLYFIN_API_KEY": "k-fake"}
+        base = {**JWT, "HOME_UPSTREAM_MODE": "real", "HOME_GATES_VERIFIED": "yes", "JELLYFIN_API_KEY": "k-fake"}
         for url in ("ftp://x", "http://" + "someone" + ":" + "fake" + "@x:1", "http://x:1/", "http://x:1?q=1", "http://x:1#f", "x:1", ""):
             with self.subTest(url=url), self.assertRaises(SettingsError):
                 Settings.from_mapping(dict(base, JELLYFIN_BASE_URL=url))
@@ -99,7 +120,7 @@ class SettingsTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             key = Path(d) / "jf_key"
             key.write_text("fake-key-from-file\n", encoding="utf-8")
-            env = {"HOME_UPSTREAM_MODE": "real", "HOME_GATES_VERIFIED": "yes",
+            env = {**JWT, "HOME_UPSTREAM_MODE": "real", "HOME_GATES_VERIFIED": "yes",
                    "JELLYFIN_BASE_URL": "http://jellyfin:8096", "JELLYFIN_API_KEY_FILE": str(key)}
             self.assertEqual("fake-key-from-file", Settings.from_mapping(env).jellyfin_api_key)
             with self.assertRaises(SettingsError):
@@ -109,7 +130,7 @@ class SettingsTests(unittest.TestCase):
 
     def test_secret_values_never_appear_in_repr_or_errors(self):
         secret = "fake-key-DO-NOT-LEAK-12345"
-        env = {"HOME_UPSTREAM_MODE": "real", "HOME_GATES_VERIFIED": "yes",
+        env = {**JWT, "HOME_UPSTREAM_MODE": "real", "HOME_GATES_VERIFIED": "yes",
                "JELLYFIN_BASE_URL": "http://jellyfin:8096", "JELLYFIN_API_KEY": secret}
         s = Settings.from_mapping(env)
         self.assertNotIn(secret, repr(s))

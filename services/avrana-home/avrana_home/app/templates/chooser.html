@@ -22,7 +22,11 @@
       <h3 class="kgroup-h" id="g-ask">Ask for something</h3>
       <ul class="krows">
 {% for path, label, desc in tiles %}
+{% if own_pages and path in own_pages %}
+        {{ row(own_pages[path], desc|trusted, "Search and ask here", {"requests": "film", "requestabook": "book", "requestacomic": "comic"}.get(path, "plus"), leaves=False) }}
+{% else %}
         {{ row("/" ~ path, desc|trusted, "Opens the request website", {"requests": "film", "requestabook": "book", "requestacomic": "comic"}.get(path, "plus"), leaves=True) }}
+{% endif %}
 {% endfor %}
       </ul>
     </section>

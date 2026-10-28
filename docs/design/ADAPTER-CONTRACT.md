@@ -327,7 +327,7 @@ own cached bytes be served; a hidden item, a lost mapping or an unreachable upst
 entry is dropped. Only the image bytes are cached, never the permission. For a shared view (Komga,
 Calibre-Web) there is no per-member visibility: the group is checked first on every request, and a
 book removed from the one account's view can still have its cover served from that member's own cache
-for up to `ARTWORK_TTL` (300 s). The browser is told `Cache-Control: private, no-store`; a browser that
+for up to `ARTWORK_TTL` (300 s). The browser is told `Cache-Control: private, no-cache` with an `ETag`, so it must revalidate (same checks, 304 only if allowed) before every use; a browser that
 already holds the bytes in an open page keeps showing them until the page is reloaded (residual, not
 fixable from the server). Tests: `tests/test_h2_security.py`.
 
@@ -447,6 +447,9 @@ behind `persist_classes` but is not enabled. This document does not edit `MEDIA-
 5. The credential lives only inside the transport. It is in no result, repr or log line. The
    guard also refuses to bind anything that is not a 32-hex user id.
 6. The service credential is never used to produce an "everyone" or admin view as a fallback.
+7. The adapters never write. Home's writes live outside them and leave their GET-only guard unchanged: account
+   creation (section 15, `avrana_home/provision.py`), Quick Connect approval (`quickconnect.py`) and the request
+   brokers (`requests/`).
 
 **UNVERIFIED Jellyfin behaviours this isolation relies on** (all part of the recorded read-only check):
 (a) `GET /Items?userId=..&ids=..` returns an **empty list**, not a 404, for an item the user cannot see
@@ -1024,3 +1027,31 @@ under an "About" heading when present, never on cards or search results. Field n
 pinned commits (Jellyfin `BaseItemDto.Overview` and the `Overview` item field in the 10.11.11 and 12.3.0 OpenAPI files);
 not live-verified. The primary action and every search
 result link only to the item's own service host (`HANDOFF_BASE`).
+
+## 15. Account creation (owner decisions 2026-10-28)
+
+Amends the read-only rule above for exactly two writes, made by `avrana_home/provision.py` (plan and owner choices:
+`docs/design/ACCOUNT-PROVISIONING.md`). The adapters stay read-only: their guarded transports still refuse every
+non-GET, and provision.py has its own HTTP helper (no proxy, no redirect, bounded body, fixed failure reasons).
+
+| Library | Writes, in order | What the account is |
+|---|---|---|
+| Jellyfin | `POST /Users/New` (name, random password used once and discarded); `POST /Users/{id}/Policy`; then `GET /Users/{id}` to verify | What the LDAP plugin makes on a first sign-in: sign-in and password reset by the LDAP plugin, not an administrator, all libraries, no deletion, no remote control of others. If the policy step fails the account stays locked by its unknown password. |
+| Audiobookshelf | `POST /api/users` (username, e-mail from the verified token, type `user`, active, random discarded password) | What OIDC auto-register makes: a plain user with the server's default permissions. "Match existing by e-mail" links the member's first "Sign in with Avrana" to it. |
+
+Rules, each enforced in code and tested in `tests/test_provision.py` and `webtests/test_web_provision.py`:
+
+* Trigger: a section came back `NOT_LINKED` with reason `unmapped` (no account with the member's name in any letter
+  case). Never for `case_or_unicode_mismatch`, `ambiguous`, `disabled` or an unavailable library.
+* The member holds the library's group; a fresh upstream read confirms the name (and, for Audiobookshelf, the
+  e-mail) is unused just before the write. Never changes, renames, enables or deletes an existing account.
+* One attempt per member and library per hour, one at a time per member and library, at most
+  `HOME_PROVISION_CAP_PER_HOUR` attempts in all (default 10). The counters are in memory: a restart resets them.
+* Off unless `HOME_PROVISION_ACCOUNTS` names the library (`jellyfin`, `audiobookshelf`). Settings refuse it without
+  real upstreams, `HOME_IDENTITY_MODE=jwt_required` and `HOME_ALLOWED_USERS`, and in the owner preview.
+* One log event per attempt, `provision` with `service`, `state` (`provisioned`, `refused`, `failed`) and a fixed
+  `reason`: never a password, token, username, e-mail or upstream id.
+
+Not covered by the published-interface gate (`tests/test_openapi_subset.py` lists the adapter's GET routes only):
+the two Jellyfin write routes are named from Jellyfin 10.11's `UserController`, and the Audiobookshelf route from
+its `UserController.create`. The first real creation (ACCOUNT-PROVISIONING section 5) is their live check.

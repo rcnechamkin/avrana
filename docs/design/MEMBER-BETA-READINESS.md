@@ -39,7 +39,7 @@ Test names are in `services/avrana-home` unless they start with `tests/` at the 
 | No title, id, cover or progress of one member reaches another (`/`, `/home.json`, `/search`, `/art`), cold and warm cache, one upstream failing | 1 | `webtests/test_web_isolation_h2.py` (all classes), `webtests/test_bench_cache_revocation.py` (#54, warm-cache group revocation) | Title pages (Lane C, TODO in that module); two real members on two devices (owner, physical) |
 | Cache partitioned per member (HMAC key), per-member quotas | 2 | `tests/test_cache.py`; `tests/test_h2_security.py::SharedViewCovers::test_the_cover_cache_is_per_member`; review of #50 | |
 | Cover revoked on the next request when the member loses the item (per-member services) | 1 | `tests/test_h2_security.py::JellyfinArtworkRevocation`, `AudiobookshelfArtworkRevocation` (fixes #53 LOW) | Jellyfin and Audiobookshelf hiding behaviour on the real servers (owner) |
-| Covers not kept by browsers or proxies | 2 | `Cache-Control: private, no-store` on `/art/` (`webtests/test_web_artwork.py`, `test_web_isolation_h2.py`) | Residual: a page already open keeps showing an image until reloaded |
+| Covers not kept by proxies; browser copies revalidated through the full check on every use | 2 | `Cache-Control: private, no-cache` + `ETag` on `/art/` (`webtests/test_web_artwork.py::RevalidationTests`, `test_web_realserver.py`, `test_web_isolation_h2.py`) | Residual: a page already open keeps showing an image until reloaded |
 | Shared-view covers (Komga, Calibre-Web) bounded by `ARTWORK_TTL` 300 s after removal from the one account | 1 (documented residual) | `tests/test_h2_security.py::SharedViewCovers::test_a_shared_cover_outlives_removal_at_most_artwork_ttl` | Owner acceptance |
 
 ## Reliability

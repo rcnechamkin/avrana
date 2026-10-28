@@ -280,7 +280,7 @@ never a line per library above it. Everything not set up (member-c, member-d) is
 the sentence and "What to do next" (`/help/trouble#not-set-up`). A mix keeps the per-library lines, Try again and
 the next step.
 
-`artwork.ref` is opaque. `GET /art/<ref>` (for example `/art/komga/book/<id>`) serves it, member-scoped: `app/artwork.py` is the one module that calls `fetch_artwork`, with the verified principal and a ref of the exact shape `service/word/id` (`[A-Za-z0-9_-]` only). Unknown service, bad ref, missing group, an item the member may not see, an upstream failure and a refused content type are all the same standard 404. Responses carry `Cache-Control: private, no-store`, `nosniff`, and only `image/jpeg|png|webp` of at most 5 MiB (never SVG or HTML). Section items render `<img src="/art/..." alt=<title> width="80" height="120" loading="lazy">` only when a valid ref exists.
+`artwork.ref` is opaque. `GET /art/<ref>` (for example `/art/komga/book/<id>`) serves it, member-scoped: `app/artwork.py` is the one module that calls `fetch_artwork`, with the verified principal and a ref of the exact shape `service/word/id` (`[A-Za-z0-9_-]` only). Unknown service, bad ref, missing group, an item the member may not see, an upstream failure and a refused content type are all the same standard 404. Responses carry `Cache-Control: private, no-cache` with an `ETag` (revalidated through the same checks; `304` only for an allowed member), `nosniff`, and only `image/jpeg|png|webp` of at most 5 MiB (never SVG or HTML). Section items render `<img src="/art/..." alt=<title> width="80" height="120" loading="lazy">` only when a valid ref exists.
 
 ### Search results and title pages (AVR-383/384)
 
@@ -429,7 +429,7 @@ Like the outpost link it replaces, it is a state-changing GET reachable by a cro
 the outpost. No exempt paths, no `skip_path_regex` (G1 review F5). While signed out, worker updates and the manifest
 fetch get the sign-in redirect and fail quietly; they retry on the next signed-in load.
 
-**Caching (D11).** No `Cache-Control` relaxation: every response stays `no-store` (`/art` `private, no-store`). The
+**Caching (D11, `/art` amended 2026-10-27).** Every response stays `no-store` except `/art`: `private, no-cache` plus an `ETag`, revalidated through the full permission check before every use (304 only for an allowed member). The
 script's hashed path, not a header, keeps a stale script from pairing with new HTML.
 
 **Kill switch and rollback limits.** `HOME_PWA_SW=off` (section 7) makes `/sw.js` a worker that deletes its caches
@@ -441,6 +441,102 @@ held long enough for active devices. Turning sections off or reverting the image
 **Not verified.** Nothing ran on a phone, over HTTPS or behind the real outpost; installability, standalone
 behaviour, the iOS Home Screen cookie jar, `Clear-Site-Data` on Safari and bfcache with `no-store` on Safari are
 research findings, not tests. The device review (AVR-585, D17) runs on the Concept K build.
+
+## 5b. Asking for a book (request broker, Shelfarr)
+
+Status: proposed, not deployed; off unless `HOME_BOOK_REQUESTS=on` (section 7). Design and the owner decisions:
+`docs/design/UNIVERSAL-SEARCH-AND-REQUESTS.md`.
+
+`GET /request/books` (a shell page) searches Shelfarr (2026.10.19.1, `/api/v1/search`, `content_kind=book`) as Home's
+own token and lists the matches with one button per format the member may ask for: Ask for the ebook only for a
+member holding `avrana-books`, Ask for the audiobook only for `avrana-audiobooks`. A member holding neither, an
+unverified viewer, and every viewer while the switch is off get the standard 404. Upstream cover and source URLs are
+dropped; nothing on the page loads from elsewhere.
+
+`POST /request/books` creates one request in Shelfarr (`/api/v1/requests`) **for the verified member**: the username
+is the principal's, lower-cased, never a form field. It is the only POST Home answers, and only while the switch is
+on; every other POST stays 501. The rules, in order:
+
+1. The middleware: an exact path match and a single `Content-Length` of at most 4096 bytes, else 411 or 413 (fixed
+   text) before the application runs.
+2. The member holds Books or Audiobooks, else 404.
+3. CSRF: `Sec-Fetch-Site: same-origin`, or, from a browser without it, an `Origin` equal to the `Host`; else 403.
+4. The body is `application/x-www-form-urlencoded` with exactly `work_id`, `book_type`, `title`, `author`, `q`,
+   `token` (`q` is the search the form came from: navigation only, never signed, never sent upstream).
+5. The token is an HMAC over the member, those four fields and an expiry 15 minutes out: only fields Home rendered
+   for this member can be posted, unchanged. The key is derived from the JWT client secret
+   (`HMAC(secret, "avrana-home/request-forms/v1")`), so open pages survive a restart; without a secret it is a
+   per-process random key and a restart expires them.
+6. The format belongs to one of the member's libraries.
+7. A guard per member: the same book and format twice within a minute is answered "You just asked" without a call;
+   more than 10 attempts an hour is refused (429).
+
+**Post-redirect-get.** Every answer except the 429 is a 303 to the page's own fixed path (`/request/books`); nothing
+from the request is ever in a `Location`. The outcome, the titles just asked for and the search term go into a
+one-shot, per-member flash (in memory, two minutes), so the next GET shows the outcome over the same results with the
+button for that title replaced by "Asked for the ebook just now"; a reload shows neither and never re-sends the form.
+
+**Searches.** A GET with a term searches once; HEAD never does. Results are cached per process (Shelfarr: ten minutes,
+shared, since Home searches as its own account; Seerr: two minutes per member, dropped when that member asks for
+something from it). Each member gets 40 upstream searches in ten minutes; past that the page says "You have searched
+a lot in the last few minutes" and cached searches still answer.
+
+Outcomes, in fixed words: asked for (Shelfarr 201 or 202: "It appears in Books once it arrives"); could not be asked
+for (422: already asked for or owned); not set up (404: the member has never signed in to Shelfarr, with a link to
+the member's own request place); could not be reached (anything else, including a lost token scope, which also
+counts toward the breaker). A timeout is never retried. Log lines carry the service, a fixed state and the format
+only. Search's empty-results fallback links books and audiobooks to this page (with the term) instead of the
+Shelfarr site while the broker is on.
+
+The token can name any Shelfarr user (`requests:admin`); that is why the username comes only from the verified
+principal and why the client can send exactly the two allow-listed calls (no listing, cancel, users or settings).
+
+**Already in the library.** With `HOME_LIBRARY_IDS_FILE` set, each result is checked against the catalogue-id index
+(`requests/owned.py`, written on the host by `tools/build_catalogue_index.py`, design in
+`API-CAPS-AND-MATCHING.md`). The keys are the ids Shelfarr returns (`hardcover:<id>` from every provider it merged,
+edition ISBNs) and the ids CWA and Shelfarr's Audiobookshelf mirror stamped on the files. Rules:
+
+- Only the member's own formats are looked at; a library the member does not hold is never mentioned.
+- Books (a shared view): an exact hit shows "Already in Books. Open", linking to the book in Books, and that format
+  loses its ask button.
+- Audiobooks (per member): an exact hit is shown only after the adapter's permission-checked item lookup finds it for
+  this member (at most three lookups a page); the link is Home's own title page.
+- A likely hit (same folded title and author surname, no shared id) keeps the ask button and adds "Audiobooks may
+  already have this. Check", linking to Home's own search. It is never shown as owned.
+- No file, an unreadable or malformed file, a wrong version, or an index older than 36 hours (or with no `built`
+  time): no claims at all. A stopped builder therefore cannot leave Home saying "Already in Books" about a deleted
+  file. The file holds catalogue ids and folded title keys only, no member data.
+
+## 5c. Asking for a film or show (request broker, Seerr)
+
+Status: proposed, not deployed; off unless `HOME_WATCH_REQUESTS=on`. Same shape and gates as section 5b, with these
+differences:
+
+- **Who Home acts as.** Seerr has one global key (full admin). Every search and request is sent with `X-API-User` set
+  to the member's own Seerr user, so Seerr's per-user permissions, quotas and auto-approve apply. That user is found
+  by the Jellyfin user Home already maps the member to (the Jellyfin adapter), matched against Seerr's
+  `jellyfinUserId` (user list read with the key, at most 2,000 users within a six-second deadline, cached 10 minutes;
+  a miss re-reads at most once a minute; a read past its deadline is abandoned as "could not be reached"). User 1, any user with ADMIN or MANAGE_* permission bits, and a Jellyfin id shared by two Seerr users
+  are refused: the member reads "Requests are not set up for your account yet", and nothing is searched.
+- **Real mode needs verified identity.** As for the Audiobookshelf token, `HOME_WATCH_REQUESTS` (and
+  `HOME_BOOK_REQUESTS`) in real mode require `HOME_IDENTITY_MODE=jwt_required`: their credentials can act as any
+  member, so a forged username must be impossible.
+- **Allow-list.** `GET /api/v1/search`, `GET /api/v1/user` (mapping only, never as a member) and
+  `POST /api/v1/request`. Search and request without a member are refused in the client before anything is sent.
+- **What the member reads, per title** (people are dropped): *Ask for this film* / *Ask for this show* (a show asks
+  for every season); *Already in Movies and TV. Open* (Home's own title page) when Seerr knows the library item AND
+  this member's own Jellyfin lookup finds it (at most three lookups a page); *Ask for the missing seasons* for a show
+  that is partly there; *Already asked for* (never by whom); *Not available to ask for* (blocklisted or removed).
+- **Outcomes.** Asked for (201; "it waits for approval first" when Seerr holds it for approval); already asked for
+  (409); could not be asked for (403 quota or permission, 202 nothing left); not set up; could not be reached.
+- **Search fallback.** "Ask for a film or show" on Search's no-results group goes to `/request/watch?q=` instead of
+  the Seerr site while the broker is on and the member may use it.
+
+**The Request chooser.** While a broker is on and the member may use it, its row on `/request` opens Home's own ask
+page ("Search and ask here") instead of the request website; otherwise the row is unchanged.
+
+The fork plan (`REQUEST-FORKS-PLAN.md`, Seerr E-S1..E-S3) replaces the global key with a scoped key that cannot act as
+an administrator at all; until then the rules above are the lock.
 
 ## 6. Logging
 
@@ -473,6 +569,9 @@ variables (never the values).
 | `AUDIOBOOKSHELF_BASE_URL` | unset (adapter not built) | Optional. Same URL rules as Jellyfin. Mock mode: loopback only. Real mode: needs the token too, and the same gates. |
 | `AUDIOBOOKSHELF_TOKEN` / `AUDIOBOOKSHELF_TOKEN_FILE` | none | Real mode only, with the URL, exactly one of the two; a token in mock mode is an error. It is an admin token, so real mode also needs `HOME_IDENTITY_MODE=jwt_required` (ABS admin-token review 2026-10-27, HIGH; the sealed owner preview is exempt). Never in a repr, log line or error message. |
 | `KOMGA_BASE_URL` / `KOMGA_TOKEN` (`_FILE`) / `KOMGA_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS` | unset (adapter not built) | Optional. Mock mode: loopback URL, the token is fixed and fake, the flag is ignored. Real mode (owner decision 2026-10-15, ADAPTER-CONTRACT 12.2): needs `HOME_GATES_VERIFIED=yes`, the URL, a REGULAR (non-admin) account's key and `KOMGA_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS=yes`; otherwise a startup error. |
+| `HOME_BOOK_REQUESTS` / `SHELFARR_BASE_URL` / `SHELFARR_TOKEN` (`_FILE`) | `off` / unset / unset | The request broker (section 5b). `on` needs `HOME_SECTIONS=on` and the URL; the URL or token without the switch is a startup error. Mock mode: loopback URL, the token is fixed and fake, a real token is an error. Real mode: the token is required; the same URL rules as the adapters (plain http only to loopback or a single-label Docker name). The token is minted by the owner in Shelfarr with exactly `search:read requests:write requests:admin`. Real mode also needs `HOME_IDENTITY_MODE=jwt_required`. Never in a repr, log line or error message. |
+| `HOME_WATCH_REQUESTS` / `SEERR_BASE_URL` / `SEERR_API_KEY` (`_FILE`) | `off` / unset / unset | The film and TV request broker (section 5c). `on` needs `HOME_SECTIONS=on` and the URL; the URL or key without the switch is a startup error. Mock mode: loopback URL, fixed fake key. Real mode: the key is required, and `HOME_IDENTITY_MODE=jwt_required` (the key is full Seerr admin; Home always names the member). Never in a repr, log line or error message. |
+| `HOME_LIBRARY_IDS_FILE` | unset | Absolute path of the catalogue-id index (section 5b), mounted read-only; re-read at most every minute when it changes. Absent or malformed: no "Already in" claims. A relative path refuses to start. |
 | `CALIBRE_WEB_BASE_URL` / `CALIBRE_WEB_CREDENTIAL` (`_FILE`) / `CALIBRE_WEB_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS` | unset / unset / `off` | Optional. Mock mode: loopback URL, fixed fake credential. Real mode is refused unless the owner setting is `yes` (default off; Calibre-Web is a shared view, ADAPTER-CONTRACT 13.2), and then also needs `HOME_GATES_VERIFIED=yes`, the URL and a `user:password` credential together. The constructor's `owner_confirms_no_member_restrictions` is `True` only in mock mode or from that setting. |
 | `HOME_IDENTITY_MODE` | `headers` | `headers`, `jwt_log_only` or `jwt_required` (section 2). Unknown, empty or miscased: refuses to start. |
 | `HOME_JWT_ISSUER`, `HOME_JWT_AUDIENCE` | unset | Required in a JWT mode (the provider's issuer URL and client id); refused in `headers` mode. |
@@ -488,7 +587,7 @@ variables (never the values).
 | `LOG_LEVEL` | `INFO` | DEBUG, INFO, WARNING, ERROR. |
 
 Real upstream adapters stay disabled unless `HOME_SECTIONS=on` **and** `HOME_UPSTREAM_MODE=real`
-**and** `HOME_GATES_VERIFIED=yes` **and** an explicit URL and key are present. With the flag off no
+**and** `HOME_GATES_VERIFIED=yes` **and** an explicit URL and key are present **and** (2026-10-27, the Jellyfin key is an admin key) `HOME_IDENTITY_MODE=jwt_required`. With the flag off no
 transport or adapter is even constructed. The development identity is deliberately **not** a
 setting.
 
