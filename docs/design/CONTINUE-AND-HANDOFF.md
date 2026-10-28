@@ -177,3 +177,5 @@ Preparation: one movie partly watched (Jellyfin), one episode partly watched, on
 - Any real-service capture or real-device test (owner).
 - Audiobookshelf ebook progress and podcast episodes (not offered).
 - Komga/Calibre-Web per-member progress: impossible with a shared account by design (ADAPTER-CONTRACT 12.2, 13.2).
+
+Sign-in walls on hand-off, per library at the pinned versions, and what can reduce them: [`HANDOFF-SIGN-IN.md`](HANDOFF-SIGN-IN.md) (tests S1 to S4 extend section 6).
