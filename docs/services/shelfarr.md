@@ -33,10 +33,27 @@ for member-facing apps. 5056 is upstream's default and was verified free before 
 
 ## Version and pinning
 
-`ghcr.io/pedro-revez-silva/shelfarr:0.1.0@sha256:61c38fc13aeabeb6bdb71ec2f53fe2008fd38571444ebea0fc26394c1c664cca`
+`ghcr.io/pedro-revez-silva/shelfarr:2026.10.19.1@sha256:182e91e26249a35a21a95dd727ebf95632f73a4c8191bf6e29b1ca05ea203460`
 
-Tag **and** digest, per repo convention. **Upstream is v0.1.0** -- early software. `latest` on GHCR
-is already ahead of the only semver tag, which is exactly why the digest pin matters here.
+Tag **and** digest, per repo convention. Upstream is young and releases weekly (calendar versions since
+2026-08; semver up to v0.39.7 before that).
+
+**Upgrade 2026-10-28** from `0.1.0` (image revision `f69538a`, built 2026-02-15, which had no API) to
+`2026.10.19.1` (revision `61028d0`). Container stopped, `data/` (with `.encryption_keys` and
+`.secret_key_base`) and the compose file copied to
+`/home/cody/backups/shelfarr-pre-upgrade-20261028T053926Z` (integrity check ok), then pulled and started.
+96 migrations applied; both users, the 6 requests and the OIDC settings intact; `/up` 200; `/api/v1/search`
+401 without a token; `requestabook.avrana.net` 302 to sign-in. **Rollback:** stop, put the snapshot's
+`data/` back, restore the old image line, start.
+
+**API (since v0.1.4).** Bearer tokens `shf_…` from Profile > API tokens, scopes `search:read`,
+`requests:read`, `requests:write` (self-service) and `requests:admin`, `users:write` (admins only). An admin
+token may create a request for another user with `username`. See `docs/design/UNIVERSAL-SEARCH-AND-REQUESTS.md`.
+
+**Job chains after the upgrade.** The old self-enqueuing chains were still queued (8 `HealthCheckJob`,
+9 `DownloadMonitorJob`, 9 `RequestQueueJob`). The new release schedules these from `config/recurring.yml`,
+limits `DownloadMonitorJob` and `RequestQueueJob` to one at a time, and `HealthCheckJob` no longer
+re-enqueues itself, so the leftovers should drain. Re-check with the query below before deleting anything.
 
 ## Storage
 
@@ -105,7 +122,7 @@ Verified by restoring the backup copy and reading 51 settings rows back.
 
 ## Upgrade procedure
 
-1. Read the upstream changelog. This is a 0.1.0 project; assume breaking changes.
+1. Read the upstream changelog. Young project with weekly releases; assume breaking changes.
 2. Resolve the new digest:
    `curl -s -H "Authorization: Bearer $(curl -s 'https://ghcr.io/token?scope=repository:pedro-revez-silva/shelfarr:pull' | jq -r .token)" -I -H 'Accept: application/vnd.oci.image.index.v1+json' https://ghcr.io/v2/pedro-revez-silva/shelfarr/manifests/<TAG> | grep -i docker-content-digest`
 3. Update tag **and** digest in `docker-compose.yml`.
@@ -193,7 +210,7 @@ this page.
 > numbers are meaningless.
 
 **This will recur.** Every container start adds a chain and nothing cancels the old ones, so the
-count creeps up with each restart. Worth reporting upstream (Shelfarr is v0.1.0). Re-check with:
+count creeps up with each restart. Worth reporting upstream (that was v0.1.0; see the 2026-10-28 note above). Re-check with:
 
 ```bash
 for e in "" -wal -shm; do docker cp "shelfarr:/rails/storage/production_queue.sqlite3$e" "/tmp/q.sqlite3$e"; done
