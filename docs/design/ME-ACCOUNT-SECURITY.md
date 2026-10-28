@@ -124,6 +124,8 @@ External-SSO accounts don't exist today.
 
 ## 6. Not built here, and why
 
+Proposed solutions for the first two, with the decisions they need: [ME-PREFERENCES-PROFILE-QUICKCONNECT.md](ME-PREFERENCES-PROFILE-QUICKCONNECT.md).
+
 - **Account-wide Home preferences (HOME-02)** and **profile edits** need durable per-member storage. Home has none by
   design (`HOME-APP.md`: a file-backed store is an owner decision). Needs that decision first.
 - **Embedded Jellyfin Quick Connect (ME-05)** needs a member-scoped Jellyfin credential strategy; the admin key must not
