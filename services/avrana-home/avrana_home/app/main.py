@@ -42,11 +42,11 @@ from . import install as install_mod
 from . import notice as notice_mod
 from . import pwa as pwa_mod
 from . import bookrequests as bookreq_mod
-from ..requests.forms import FormSigner, RequestGuard
+from ..requests.forms import Flash, FormSigner, RequestGuard, SearchCache, SearchLimiter, form_key
 from ..requests.owned import OwnedIndex
 from ..requests.seerr import MediaState, SeerrRequests
 from . import watchrequests as watch_mod
-from ..requests.shelfarr import FORMAT_GROUP, ShelfarrRequests, member_username
+from ..requests.shelfarr import FORMAT_GROUP, ShelfarrRequests, clean_term, member_username
 from .identity import (WATCH_FORM_FIELDS, IdentityResolver, Viewer, broker_form, get_viewer, has_identity_headers, home_filter_from_scope,
                        library_chip_from_scope, library_view_from_scope, new_tab_from_scope, same_origin_post,
                        search_term_from_scope)
@@ -203,7 +203,12 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
     seerr = None
     if settings.home_sections and settings.watch_requests:
         seerr = watch_requests if watch_requests is not None else build_watch_requests(settings)
-    signer, guard = FormSigner(), RequestGuard()                    # per process: a restart expires open forms
+    # Forms are signed with a key derived from the JWT client secret when Home has one (open forms survive a
+    # restart), else a random per-process key. Guards, the search limiter, caches and outcomes are per process.
+    signer, guard = FormSigner(form_key(settings.jwt_secret)), RequestGuard()
+    limiter, flash = SearchLimiter(), Flash()
+    book_cache = SearchCache(ttl=600.0)           # Shelfarr searched as Home's account: the same for every member
+    watch_cache = SearchCache(ttl=120.0)          # Seerr searched AS a member: keyed by that member's Seerr id
     owned_index = OwnedIndex(settings.library_ids_file)             # read-only; None = no "Already in" claims
 
     @contextlib.asynccontextmanager
@@ -242,8 +247,8 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
         if decision.plain is not None:
             return Response(decision.plain, status_code=decision.status,
                             media_type="text/plain; charset=utf-8")
-        if decision.status == 307:
-            return Response(b"", status_code=307, headers={"Location": decision.location},
+        if decision.status in (303, 307):
+            return Response(b"", status_code=decision.status, headers={"Location": decision.location},
                             media_type=HTML)
         return render(decision.template, decision.status, **dict(decision.context), **extra)
 
@@ -296,16 +301,22 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
             if not formats:
                 scope["avrana_route"] = "not_found"
                 return respond(not_found())
-            term = search_term_from_scope(scope)
+            username = broker_user(viewer)
+            said, asked, back = flash.take(username, bookreq_mod.PATH) or (None, frozenset(), None)
+            term = None if request.method == "HEAD" else (search_term_from_scope(scope) or back)   # HEAD never searches
             state, offers = ("form", ())
             if term is not None:
-                state, offers = await run_in_threadpool(broker.search, term)
+                state, offers = await cached_search(book_cache, ("books", clean_term(term)), username,
+                                                    broker.search, term)
                 log_event(app_log, logging.INFO, "book_search", service="shelfarr", state=state)
             owned, maybe = await already_have(viewer, offers, formats) if offers else ({}, {})
-            page = bookreq_mod.build_results(state, offers, term, formats, broker_user(viewer), signer, owned, maybe)
+            page = bookreq_mod.build_results(state, offers, term, formats, username, signer, owned, maybe, asked)
+            if said is not None:
+                page = dataclasses.replace(page, notice=said)
             scope["avrana_route"] = bookreq_mod.PATH
-            mark_shell(scope, shell_for(viewer, "search"))
-            return render("request_books.html", page=page, shell=shell_for(viewer, "search"))
+            shell = shell_for(viewer, "search")
+            mark_shell(scope, shell)
+            return render("request_books.html", page=page, shell=shell)
 
         if route == watch_mod.PATH and seerr is not None:
             # Ask for a film or show (request broker, Seerr): a shell page for a member holding Movies and TV; anyone
@@ -316,21 +327,24 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
             scope["avrana_route"] = watch_mod.PATH
             shell = shell_for(viewer, "search")
             mark_shell(scope, shell)
-            term = search_term_from_scope(scope)
+            username = broker_user(viewer)
+            said, asked, back = flash.take(username, watch_mod.PATH) or (None, frozenset(), None)
+            term = None if request.method == "HEAD" else (search_term_from_scope(scope) or back)   # HEAD never searches
             if term is None:
-                return render("request_watch.html", page=watch_mod.build_results("form", (), None, "", signer),
-                              shell=shell)
+                page = watch_mod.build_results("form", (), None, "", signer)
+                return render("request_watch.html", page=dataclasses.replace(page, notice=said), shell=shell)
             linked, seerr_id = await seerr_user(viewer)
             if linked != "ok":
                 log_event(app_log, logging.INFO, "watch_search", service="seerr", state=linked)
                 page = (watch_mod.not_linked(watch_place(viewer)) if linked == "not_linked" else
                         watch_mod.build_results("unavailable", (), term, "", signer))
                 return render("request_watch.html", page=page, shell=shell)
-            state, offers = await run_in_threadpool(seerr.search, seerr_id, term)
+            state, offers = await cached_search(watch_cache, (seerr_id, clean_term(term)), username,
+                                                seerr.search, seerr_id, term)
             log_event(app_log, logging.INFO, "watch_search", service="seerr", state=state)
             owned = await watch_owned(viewer, offers) if offers else {}
-            page = watch_mod.build_results(state, offers, term, broker_user(viewer), signer, owned)
-            return render("request_watch.html", page=page, shell=shell)
+            page = watch_mod.build_results(state, offers, term, username, signer, owned, asked)
+            return render("request_watch.html", page=dataclasses.replace(page, notice=said), shell=shell)
 
         if route == "/library" and settings.home_sections and adapter_list:
             # The Library page (Concept K MK-5a, AVR-719): a shell page like /search, only with the shell on and for a
@@ -437,6 +451,8 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
                 if decision.context["chooser"].path == "request":
                     # "Add to the library" (frame 17:619): only when the member's own tiles hold Contribute.
                     extra["contribute"] = place_link(tiles_for(viewer), CONTRIBUTE_PATH)
+                    # A request service whose broker is on (and that this member may use) opens Home's own ask page.
+                    extra["own_pages"] = own_pages(viewer)
             if decision.label == "/account" and extra["shell"] is not None:
                 # Shell only: libraries and requests in Home's language. Sections off keeps the portal's list.
                 extra["shell_access"] = account_access(
@@ -465,24 +481,30 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
         username = broker_user(viewer)
         fields = await broker_form(request, MAX_FORM_BODY) if same_origin_post(scope) else None
         token = fields.pop("token") if fields is not None else None
+        back = clean_term(fields.pop("q")) if fields is not None else None     # navigation only, never signed
         if (fields is None or username is None or fields.get("book_type") not in formats
                 or not signer.verify(token, username, fields)):
             log_event(app_log, logging.INFO, "book_request", service="shelfarr", state="refused_form")
             page = bookreq_mod.build_said(None, "expired", {}, None, formats)
             return render("request_books.html", 403, page=page, shell=shell)
         blocked = guard.check(username, fields["work_id"] + "|" + fields["book_type"])
-        if blocked is not None:
+        if blocked == "rate":
             log_event(app_log, logging.INFO, "book_request", service="shelfarr", state=blocked)
-            return render("request_books.html", 429 if blocked == "rate" else 200,
-                          page=bookreq_mod.build_said(None, blocked, fields, None, formats), shell=shell)
+            return render("request_books.html", 429, page=bookreq_mod.build_said(None, blocked, fields, None, formats),
+                          shell=shell)
+        if blocked is not None:                    # a double tap: say so on the page it came from, send nothing
+            log_event(app_log, logging.INFO, "book_request", service="shelfarr", state=blocked)
+            return see_other(username, bookreq_mod.PATH, bookreq_mod.build_said(None, blocked, fields, None, formats),
+                             frozenset({(fields["work_id"], fields["book_type"])}), back)
         outcome = await run_in_threadpool(broker.create, username, fields["work_id"], fields["book_type"],
                                           fields["title"], fields["author"])
         log_event(app_log, logging.INFO, "book_request", service="shelfarr", state=outcome.value,
                   reason=fields["book_type"])
         place = "/requestabook" if cat.service("requestabook") is not None and \
             cat.service("requestabook").allows(viewer.groups) else None
-        return render("request_books.html", page=bookreq_mod.build_said(outcome, None, fields, place, formats),
-                      shell=shell)
+        ok = outcome in (bookreq_mod.Outcome.CREATED, bookreq_mod.Outcome.QUEUED)
+        return see_other(username, bookreq_mod.PATH, bookreq_mod.build_said(outcome, None, fields, place, formats),
+                         frozenset({(fields["work_id"], fields["book_type"])}) if ok else frozenset(), back)
 
     @app.post(watch_mod.PATH, include_in_schema=False, response_model=None)
     async def ask_for_watch(request: Request, viewer: Viewer = Depends(get_viewer)) -> Response:
@@ -499,15 +521,20 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
         username = broker_user(viewer)
         fields = await broker_form(request, MAX_FORM_BODY, WATCH_FORM_FIELDS) if same_origin_post(scope) else None
         token = fields.pop("token") if fields is not None else None
+        back = clean_term(fields.pop("q")) if fields is not None else None     # navigation only, never signed
         if (fields is None or username is None or not signer.verify(token, username, fields)
                 or fields["media_type"] not in ("movie", "tv") or not fields["media_id"].isdigit()):
             log_event(app_log, logging.INFO, "watch_request", service="seerr", state="refused_form")
             return render("request_watch.html", 403, page=watch_mod.build_said(None, "expired", {}, None), shell=shell)
         blocked = guard.check(username, "watch|" + fields["media_type"] + "|" + fields["media_id"])
+        key = (fields["media_type"], int(fields["media_id"]))
+        if blocked == "rate":
+            log_event(app_log, logging.INFO, "watch_request", service="seerr", state=blocked)
+            return render("request_watch.html", 429, page=watch_mod.build_said(None, blocked, fields, None), shell=shell)
         if blocked is not None:
             log_event(app_log, logging.INFO, "watch_request", service="seerr", state=blocked)
-            return render("request_watch.html", 429 if blocked == "rate" else 200,
-                          page=watch_mod.build_said(None, blocked, fields, None), shell=shell)
+            return see_other(username, watch_mod.PATH, watch_mod.build_said(None, blocked, fields, None),
+                             frozenset({key}), back)
         linked, seerr_id = await seerr_user(viewer)
         if linked != "ok":
             outcome = watch_mod.Outcome.NOT_LINKED if linked == "not_linked" else watch_mod.Outcome.UNAVAILABLE
@@ -515,8 +542,31 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
             outcome = await run_in_threadpool(seerr.create, seerr_id, fields["media_type"], int(fields["media_id"]))
         log_event(app_log, logging.INFO, "watch_request", service="seerr", state=outcome.value,
                   reason=fields["media_type"])
-        return render("request_watch.html", page=watch_mod.build_said(outcome, None, fields, watch_place(viewer)),
-                      shell=shell)
+        ok = outcome in (watch_mod.Outcome.CREATED, watch_mod.Outcome.AWAITING, watch_mod.Outcome.DUPLICATE)
+        if ok and seerr_id is not None:
+            watch_cache.drop((seerr_id, back))     # the next view of that search shows Seerr's new state
+        return see_other(username, watch_mod.PATH, watch_mod.build_said(outcome, None, fields, watch_place(viewer)),
+                         frozenset({key}) if ok else frozenset(), back)
+
+    def see_other(username: str, path: str, said, asked: frozenset, term: Optional[str]) -> Response:
+        """Post-redirect-get: the outcome, the titles just asked for and the search the form came from go into the
+        member's one-shot flash, and a 303 goes to the ask page's own fixed path (nothing from the request is ever
+        in a Location). The next GET shows the outcome over the same results; a reload never re-sends the form."""
+        flash.put(username, path, (said, asked, term))
+        return respond(Decision(path, 303, location=path))
+
+    async def cached_search(cache, key, username, search, *args):
+        """A cached answer, or one upstream search counted against the member's search allowance ("limited" once it
+        is spent). Only "ok" and "empty" are cached; a key whose term is unusable is never cached."""
+        hit = cache.get(key) if key[1] is not None else None
+        if hit is not None:
+            return hit
+        if username is None or not limiter.allow(username):
+            return "limited", ()
+        state, offers = await run_in_threadpool(search, *args)
+        if key[1] is not None and state in ("ok", "empty"):
+            cache.put(key, (state, offers))
+        return state, offers
 
     def watch_allowed(viewer: Viewer) -> bool:
         return (seerr is not None and viewer.principal is not None and bool(adapter_list)

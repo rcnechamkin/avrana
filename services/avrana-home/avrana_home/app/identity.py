@@ -172,8 +172,8 @@ def library_view_from_scope(scope) -> Optional[str]:
     return _choice_from_scope(scope, "view")
 
 
-FORM_FIELDS = frozenset({"work_id", "book_type", "title", "author", "token"})          # /request/books
-WATCH_FORM_FIELDS = frozenset({"media_type", "media_id", "title", "token"})             # /request/watch
+FORM_FIELDS = frozenset({"work_id", "book_type", "title", "author", "q", "token"})          # /request/books
+WATCH_FORM_FIELDS = frozenset({"media_type", "media_id", "title", "q", "token"})             # /request/watch
 
 
 def content_length_from_scope(scope) -> Optional[int]:

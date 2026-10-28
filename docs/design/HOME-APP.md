@@ -461,12 +461,25 @@ on; every other POST stays 501. The rules, in order:
    text) before the application runs.
 2. The member holds Books or Audiobooks, else 404.
 3. CSRF: `Sec-Fetch-Site: same-origin`, or, from a browser without it, an `Origin` equal to the `Host`; else 403.
-4. The body is `application/x-www-form-urlencoded` with exactly `work_id`, `book_type`, `title`, `author`, `token`.
-5. The token is an HMAC (per-process random key) over the member, those four fields and an expiry 15 minutes out:
-   only fields this process rendered for this member can be posted, unchanged. A restart expires open pages.
+4. The body is `application/x-www-form-urlencoded` with exactly `work_id`, `book_type`, `title`, `author`, `q`,
+   `token` (`q` is the search the form came from: navigation only, never signed, never sent upstream).
+5. The token is an HMAC over the member, those four fields and an expiry 15 minutes out: only fields Home rendered
+   for this member can be posted, unchanged. The key is derived from the JWT client secret
+   (`HMAC(secret, "avrana-home/request-forms/v1")`), so open pages survive a restart; without a secret it is a
+   per-process random key and a restart expires them.
 6. The format belongs to one of the member's libraries.
 7. A guard per member: the same book and format twice within a minute is answered "You just asked" without a call;
    more than 10 attempts an hour is refused (429).
+
+**Post-redirect-get.** Every answer except the 429 is a 303 to the page's own fixed path (`/request/books`); nothing
+from the request is ever in a `Location`. The outcome, the titles just asked for and the search term go into a
+one-shot, per-member flash (in memory, two minutes), so the next GET shows the outcome over the same results with the
+button for that title replaced by "Asked for the ebook just now"; a reload shows neither and never re-sends the form.
+
+**Searches.** A GET with a term searches once; HEAD never does. Results are cached per process (Shelfarr: ten minutes,
+shared, since Home searches as its own account; Seerr: two minutes per member, dropped when that member asks for
+something from it). Each member gets 40 upstream searches in ten minutes; past that the page says "You have searched
+a lot in the last few minutes" and cached searches still answer.
 
 Outcomes, in fixed words: asked for (Shelfarr 201 or 202: "It appears in Books once it arrives"); could not be asked
 for (422: already asked for or owned); not set up (404: the member has never signed in to Shelfarr, with a link to
@@ -490,8 +503,9 @@ edition ISBNs) and the ids CWA and Shelfarr's Audiobookshelf mirror stamped on t
   this member (at most three lookups a page); the link is Home's own title page.
 - A likely hit (same folded title and author surname, no shared id) keeps the ask button and adds "Audiobooks may
   already have this. Check", linking to Home's own search. It is never shown as owned.
-- No file, an unreadable or malformed file, or a wrong version: no claims at all. The file holds catalogue ids and
-  folded title keys only, no member data.
+- No file, an unreadable or malformed file, a wrong version, or an index older than 36 hours (or with no `built`
+  time): no claims at all. A stopped builder therefore cannot leave Home saying "Already in Books" about a deleted
+  file. The file holds catalogue ids and folded title keys only, no member data.
 
 ## 5c. Asking for a film or show (request broker, Seerr)
 
@@ -501,8 +515,8 @@ differences:
 - **Who Home acts as.** Seerr has one global key (full admin). Every search and request is sent with `X-API-User` set
   to the member's own Seerr user, so Seerr's per-user permissions, quotas and auto-approve apply. That user is found
   by the Jellyfin user Home already maps the member to (the Jellyfin adapter), matched against Seerr's
-  `jellyfinUserId` (user list read with the key, at most 2,000 users, cached 10 minutes; a miss re-reads at most
-  once a minute). User 1, any user with ADMIN or MANAGE_* permission bits, and a Jellyfin id shared by two Seerr users
+  `jellyfinUserId` (user list read with the key, at most 2,000 users within a six-second deadline, cached 10 minutes;
+  a miss re-reads at most once a minute; a read past its deadline is abandoned as "could not be reached"). User 1, any user with ADMIN or MANAGE_* permission bits, and a Jellyfin id shared by two Seerr users
   are refused: the member reads "Requests are not set up for your account yet", and nothing is searched.
 - **Real mode needs verified identity.** As for the Audiobookshelf token, `HOME_WATCH_REQUESTS` (and
   `HOME_BOOK_REQUESTS`) in real mode require `HOME_IDENTITY_MODE=jwt_required`: their credentials can act as any
@@ -517,6 +531,9 @@ differences:
   (409); could not be asked for (403 quota or permission, 202 nothing left); not set up; could not be reached.
 - **Search fallback.** "Ask for a film or show" on Search's no-results group goes to `/request/watch?q=` instead of
   the Seerr site while the broker is on and the member may use it.
+
+**The Request chooser.** While a broker is on and the member may use it, its row on `/request` opens Home's own ask
+page ("Search and ask here") instead of the request website; otherwise the row is unchanged.
 
 The fork plan (`REQUEST-FORKS-PLAN.md`, Seerr E-S1..E-S3) replaces the global key with a scoped key that cannot act as
 an administrator at all; until then the rules above are the lock.

@@ -12,7 +12,7 @@ from typing import Optional, Tuple
 
 from ..requests.forms import FormSigner
 from ..requests.seerr import MAX_TERM, MediaState, Outcome, WatchOffer
-from .bookrequests import GUARD_COPY, AskVM, OwnedVM
+from .bookrequests import GUARD_COPY, LIMITED, AskVM, OwnedVM
 
 PATH = "/request/watch"
 LIBRARY = "Movies and TV"
@@ -49,6 +49,7 @@ class WatchPageVM:
     warn: bool = False
     place_href: Optional[str] = None
     outcome: str = ""
+    notice: Optional["WatchPageVM"] = None    # the outcome of the ask that redirected here (a "said" page)
 
 
 def _line(offer: WatchOffer) -> str:
@@ -60,7 +61,7 @@ def fields_for(offer: WatchOffer) -> dict:
 
 
 def build_results(state: str, offers, term: Optional[str], username: str, signer: FormSigner,
-                  owned=None) -> WatchPageVM:
+                  owned=None, asked=frozenset()) -> WatchPageVM:
     """`owned`: {(media_type, tmdb_id): OwnedVM}, decided by the caller after this member's own permission-checked
     Jellyfin lookup."""
     owned = owned or {}
@@ -72,6 +73,8 @@ def build_results(state: str, offers, term: Optional[str], username: str, signer
     if state == "unavailable":
         return WatchPageVM("unavailable", shown, message=OUTCOME_COPY[Outcome.UNAVAILABLE], warn=True,
                            outcome="Unavailable")
+    if state == "limited":
+        return WatchPageVM("unavailable", shown, message=LIMITED, warn=True, outcome="Not searched")
     rows = []
     for offer in offers:
         have = owned.get((offer.media_type, offer.tmdb_id))
@@ -80,7 +83,10 @@ def build_results(state: str, offers, term: Optional[str], username: str, signer
         def ask(label):
             fields = fields_for(offer)
             return AskVM(label, tuple(sorted(fields.items())), signer.sign(username, fields))
-        if offer.state is MediaState.NONE:
+        if (offer.media_type, offer.tmdb_id) in asked:
+            rows.append(WatchOfferVM(offer.title, _line(offer), owned=have,
+                                     note="Asked for just now. It appears in Movies and TV once it arrives."))
+        elif offer.state is MediaState.NONE:
             rows.append(WatchOfferVM(offer.title, _line(offer), ask=ask(f"Ask for this {noun}")))
         elif offer.state is MediaState.PARTIAL:
             rows.append(WatchOfferVM(offer.title, _line(offer), ask=ask("Ask for the missing seasons"), owned=have,

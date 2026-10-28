@@ -15,6 +15,7 @@ from ..requests.shelfarr import FORMAT_GROUP, MAX_TERM, BookOffer, Outcome
 PATH = "/request/books"
 FORMAT_LABEL = {"ebook": "ebook", "audiobook": "audiobook"}
 LIBRARY_LABEL = {"ebook": "Books", "audiobook": "Audiobooks"}
+LIMITED = "You have searched a lot in the last few minutes. Try again shortly."
 OWNED_CHECKS = 3               # permission-checked Audiobookshelf lookups per page, at most
 
 OUTCOME_COPY = {
@@ -65,6 +66,7 @@ class OfferVM:
     unavailable: str = ""          # why no button: "Only as an audiobook, which you have no library for"
     owned: Tuple[OwnedVM, ...] = ()
     maybe: Tuple[MaybeVM, ...] = ()
+    asked_now: Tuple[str, ...] = ()   # formats asked for on the page this redirect came from ("ebook")
 
 
 @dataclass(frozen=True)
@@ -77,6 +79,7 @@ class RequestPageVM:
     place_href: Optional[str] = None       # the member's own request place ("/requestabook"), for NOT_LINKED
     outcome: str = ""                      # page title prefix
     formats: Tuple[str, ...] = field(default=())
+    notice: Optional["RequestPageVM"] = None   # the outcome of the ask that redirected here (a "said" page)
 
 
 def formats_for(groups) -> Tuple[str, ...]:
@@ -93,11 +96,14 @@ def _fields(offer: BookOffer, book_type: str) -> dict:
 
 
 def build_results(state: str, offers, term: Optional[str], formats, username: str,
-                  signer: FormSigner, owned=None, maybe=None) -> RequestPageVM:
+                  signer: FormSigner, owned=None, maybe=None, asked=frozenset()) -> RequestPageVM:
     """`owned` / `maybe`: {(work_id, format): OwnedVM / MaybeVM}, already decided by the caller for THIS member (a
     library the member holds, and a permission-checked lookup where the library is per member). An owned format
     gets no ask button."""
     owned, maybe = owned or {}, maybe or {}
+    if state == "limited":
+        return RequestPageVM("unavailable", (term or "")[:MAX_TERM], message=LIMITED, warn=True, outcome="Not searched",
+                             formats=formats)
     shown = (term or "")[:MAX_TERM]
     if term is None:
         return RequestPageVM("form", formats=formats)
@@ -109,8 +115,11 @@ def build_results(state: str, offers, term: Optional[str], formats, username: st
                              outcome="Unavailable", formats=formats)
     rows = []
     for offer in offers:
-        asks, have, hints = [], [], []
+        asks, have, hints, now = [], [], [], []
         for fmt in formats:
+            if (offer.work_id, fmt) in asked:
+                now.append(FORMAT_LABEL[fmt])
+                continue
             if (offer.work_id, fmt) in owned:
                 have.append(owned[(offer.work_id, fmt)])
                 continue
@@ -121,13 +130,13 @@ def build_results(state: str, offers, term: Optional[str], formats, username: st
                 asks.append(AskVM(f"Ask for the {FORMAT_LABEL[fmt]}", tuple(sorted(fields.items())),
                                   signer.sign(username, fields)))
         why = ""
-        if not asks and not have:
+        if not asks and not have and not now:
             if not offer.formats:
                 why = "No edition found to ask for."
             else:
                 only = " or ".join(FORMAT_LABEL[f] for f in offer.formats)
                 why = f"Only as an {only}, which is not one of your libraries."
-        rows.append(OfferVM(offer.title, _line(offer), tuple(asks), why, tuple(have), tuple(hints)))
+        rows.append(OfferVM(offer.title, _line(offer), tuple(asks), why, tuple(have), tuple(hints), tuple(now)))
     if not rows:
         return RequestPageVM("empty", shown, message="No book matches that. Check the spelling, or try the author.",
                              outcome="No match", formats=formats)

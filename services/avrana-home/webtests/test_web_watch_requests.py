@@ -20,6 +20,7 @@ OWNER = [(USER, "owner"), (GROUPS, "avrana-users|avrana-videos")]
 UNMAPPED = [(USER, "member-n"), (GROUPS, "avrana-users|avrana-videos")]
 BOOKS = [(USER, "member-b"), (GROUPS, "avrana-users|avrana-books")]
 SAME = [("Sec-Fetch-Site", "same-origin")]
+PAGE = "/request/watch"
 IN_LIBRARY = "d" * 32
 USERS = {"pageInfo": {}, "results": [
     {"id": 1, "permissions": 2, "jellyfinUserId": "e" * 32},
@@ -97,8 +98,16 @@ class WatchRequestsWeb(unittest.TestCase):
         return dict(re.findall(r'name="([a-z_]+)" value="([^"]*)"', form.group(1))) if form else None
 
     def ask(self, c, fields, who=VIEWER, extra=SAME):
-        return c.post("/request/watch", content=urlencode(fields),
-                      headers=[("Content-Type", "application/x-www-form-urlencoded")] + who + extra)
+        """POST, then follow the 303 back to the page (post-redirect-get), as a browser does."""
+        r = c.post("/request/watch", content=urlencode(fields),
+                   headers=[("Content-Type", "application/x-www-form-urlencoded")] + who + extra)
+        if r.status_code == 303:
+            self.assertTrue(r.headers["location"].startswith(PAGE))
+            r = c.get(r.headers["location"], headers=who)
+        return r
+
+    def posts(self):
+        return [call for call in self.seerr.calls if call[0] == "POST"]
 
     def searched(self):
         return [call for call in self.seerr.calls if call[1] == "/api/v1/search"]
@@ -145,7 +154,7 @@ class WatchRequestsWeb(unittest.TestCase):
         self.assertEqual(5, len(rows))                                   # the person is dropped
         film, show, asked, owned_elsewhere, blocked = rows
         self.assertEqual({"media_type": "movie", "media_id": "101", "title": "Synthetic Film"},
-                         {k: v for k, v in self.form_of(film).items() if k != "token"})
+                         {k: v for k, v in self.form_of(film).items() if k not in ("token", "q")})
         self.assertIn("Ask for this film", film)
         self.assertIn("Film · 1999", film)
         self.assertIn("Already in Movies and TV.", show)
@@ -168,11 +177,11 @@ class WatchRequestsWeb(unittest.TestCase):
         r = self.ask(c, self.signed(c))
         self.assertIn("Asked for Synthetic Film. It appears in Movies and TV once it arrives.", r.text)
         self.assertEqual(("POST", "/api/v1/request", {}, {"mediaType": "movie", "mediaId": 101, "is4k": False}, "5"),
-                         self.seerr.calls[-1])
+                         self.posts()[-1])
         self.seerr.create_body = {"id": 10, "status": 1}
         r = self.ask(c, self.signed(c, 1))
         self.assertIn("It waits for approval first", r.text)
-        self.assertEqual({"mediaType": "tv", "mediaId": 102, "is4k": False, "seasons": "all"}, self.seerr.calls[-1][3])
+        self.assertEqual({"mediaType": "tv", "mediaId": 102, "is4k": False, "seasons": "all"}, self.posts()[-1][3])
 
     def test_outcomes(self):
         for exc, words in ((UpstreamHTTPError(409), "has already been asked for"),

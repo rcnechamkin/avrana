@@ -17,6 +17,7 @@ EBOOKS = [(USER, "member-e"), (GROUPS, "avrana-users|avrana-books")]
 LISTENER = [(USER, "member-l"), (GROUPS, "avrana-users|avrana-audiobooks")]
 VIDEOS = [(USER, "member-v"), (GROUPS, "avrana-users|avrana-videos")]
 SAME = [("Sec-Fetch-Site", "same-origin")]
+PAGE = "/request/books"
 RESULTS = {"results": [
     {"work_id": "hardcover:123", "title": "Synthetic Dune", "author": "Synthetic Author", "year": 1965,
      "series_name": "Synthetic Chronicles", "has_ebook": True, "has_audiobook": True,
@@ -68,8 +69,13 @@ class BookRequestsWeb(unittest.TestCase):
         return out
 
     def ask(self, c, fields, who=BOTH, extra=SAME):
-        return c.post("/request/books", content=urlencode(fields),
-                      headers=[("Content-Type", "application/x-www-form-urlencoded")] + who + extra)
+        """POST, then follow the 303 back to the page (post-redirect-get), as a browser does."""
+        r = c.post("/request/books", content=urlencode(fields),
+                   headers=[("Content-Type", "application/x-www-form-urlencoded")] + who + extra)
+        if r.status_code == 303:
+            self.assertTrue(r.headers["location"].startswith(PAGE))
+            r = c.get(r.headers["location"], headers=who)
+        return r
 
     # ---- gating ------------------------------------------------------------------------------
     def test_off_is_the_standard_404_and_post_is_501(self):

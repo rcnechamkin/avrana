@@ -7,8 +7,9 @@
    search and a signed token; no script needed. Styling reuses Search's classes; the UX pass owns the look. #}
   <section class="shelf" aria-labelledby="h-ask">
     <h2 id="h-ask">Ask for a film or show</h2>
-{% if page.mode == "said" %}
-    <p class="said{% if page.warn %} kwarn{% endif %}" role="status">{% if page.warn %}{{ glyph("warn", "kic kwarn-ic") }}<span class="kwarn-t">{% endif %}{{ page.message }}{% if page.place_href %} <a class="link" href="{{ page.place_href }}">Open the request website<span class="sr">, opens another website</span></a>{% endif %}{% if page.warn %}</span>{% endif %}</p>
+{% set n = page.notice or (page if page.mode == "said" else none) %}
+{% if n %}
+    <p class="said{% if n.warn %} kwarn{% endif %}" role="status">{% if n.warn %}{{ glyph("warn", "kic kwarn-ic") }}<span class="kwarn-t">{% endif %}{{ n.message }}{% if n.place_href %} <a class="link" href="{{ n.place_href }}">Open the request website<span class="sr">, opens another website</span></a>{% endif %}{% if n.warn %}</span>{% endif %}</p>
 {% endif %}
     <form class="srch" method="get" action="/request/watch" role="search">
       <label for="q">Title</label>
@@ -37,7 +38,7 @@
 {%- if o.owned %}<span class="d owned">Already in {{ o.owned.library }}. <a class="link" href="{{ o.owned.href }}">Open<span class="sr"> {{ o.title }} in {{ o.owned.library }}</span></a></span>{% endif %}
 {%- if o.note %}<span class="d">{{ o.note }}</span>{% endif %}</span>
 {% if o.ask %}
-        <form method="post" action="/request/watch" class="ask-f">{% for k, v in o.ask.fields %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}<input type="hidden" name="token" value="{{ o.ask.token }}"><button type="submit">{{ o.ask.label }}<span class="sr">: {{ o.title }}</span></button></form>
+        <form method="post" action="/request/watch" class="ask-f">{% for k, v in o.ask.fields %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}<input type="hidden" name="q" value="{{ page.term }}"><input type="hidden" name="token" value="{{ o.ask.token }}"><button type="submit">{{ o.ask.label }}<span class="sr">: {{ o.title }}</span></button></form>
 {% endif %}
       </li>
 {% endfor %}

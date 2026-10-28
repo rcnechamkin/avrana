@@ -27,6 +27,7 @@ from typing import Callable, Dict, Iterable, Optional
 from ..contract import Service, valid_upstream_id
 
 RECHECK_SECONDS = 60.0
+MAX_AGE = 36 * 3600.0          # an index this old makes no claims: the builder stopped, files may have gone
 MAX_BYTES = 8 * 1024 * 1024
 KINDS = {"ebook": Service.CALIBRE_WEB, "audiobook": Service.AUDIOBOOKSHELF, "comic": Service.KOMGA}
 KEY = re.compile(r"(?:hardcover:[0-9]{1,12}|isbn:97[89][0-9]{10}|asin:[0-9A-Z]{10}|comicvine:[0-9]{1,10}"
@@ -65,9 +66,12 @@ def title_key(title, author) -> Optional[str]:
 
 
 class OwnedIndex:
-    def __init__(self, path: Optional[Path], clock: Callable[[], float] = time.monotonic):
+    def __init__(self, path: Optional[Path], clock: Callable[[], float] = time.monotonic,
+                 wall: Callable[[], float] = time.time):
         self.path = path
         self._clock = clock
+        self._wall = wall
+        self._built = float("-inf")
         self._lock = threading.Lock()
         self._checked = float("-inf")
         self._stamp: Optional[tuple] = None
@@ -87,13 +91,13 @@ class OwnedIndex:
         with self._lock:
             now = self._clock()
             if now - self._checked < RECHECK_SECONDS:
-                return self._data
+                return self._fresh()
             self._checked = now
             try:
                 st = os.stat(self.path)
                 stamp = (st.st_mtime_ns, st.st_size, st.st_ino)
                 if stamp == self._stamp:
-                    return self._data
+                    return self._fresh()
                 self._stamp = stamp
                 if st.st_size > MAX_BYTES:
                     return self._fail("oversized")
@@ -105,14 +109,29 @@ class OwnedIndex:
             except (OSError, ValueError, UnicodeDecodeError, RecursionError):
                 return self._fail("invalid")
             self._data = _validated(raw)
+            self._built = _built_at(raw)
             if not any(self._data.values()):
                 return self._fail("empty")
-            return self._data
+            return self._fresh()
+
+    def _fresh(self) -> Dict[str, Dict[str, str]]:
+        if self._data and self._wall() - self._built > MAX_AGE:
+            log.info(json.dumps({"event": "owned_index", "reason": "stale"}))
+            return {}
+        return self._data
 
     def _fail(self, reason: str) -> Dict[str, Dict[str, str]]:
         log.info(json.dumps({"event": "owned_index", "reason": reason}))
         self._data = {}
         return self._data
+
+
+def _built_at(raw) -> float:
+    from datetime import datetime
+    try:
+        return datetime.fromisoformat(str(raw.get("built"))).timestamp()
+    except (TypeError, ValueError, AttributeError):
+        return float("-inf")                     # no usable build time: treated as stale
 
 
 def _validated(raw) -> Dict[str, Dict[str, str]]:

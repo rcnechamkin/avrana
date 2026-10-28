@@ -3,8 +3,9 @@
 Status: proposed, not deployed. Standard library only.
 
 Home keeps no session store, so the confirmation form carries everything it will submit plus an HMAC over
-(principal username, those exact fields, expiry) with a key that exists only in this process (`os.urandom` at
-start; a restart simply expires every open form). The POST is accepted only when the MAC matches for the SAME
+(principal username, those exact fields, expiry). The key is derived from a secret Home already holds
+(`form_key`: the JWT client secret in a JWT identity mode), so open forms survive a restart; without one it is
+`os.urandom` at start and a restart simply expires every open form. The POST is accepted only when the MAC matches for the SAME
 verified principal and the SAME fields, so:
 
   * another site cannot forge a request (it cannot compute the MAC), and the route also checks the browser's own
@@ -30,6 +31,16 @@ from typing import Callable, Dict, Mapping, Optional, Tuple
 TOKEN_TTL = 15 * 60             # long enough to read the page, short enough that an old tab expires
 DOUBLE_TAP_WINDOW = 60.0        # the same member asking for the same format of the same work again
 RATE_WINDOW, RATE_MAX = 3600.0, 10
+SEARCH_WINDOW, SEARCH_MAX = 600.0, 40   # searches per member per ten minutes (the providers' caps are shared)
+FLASH_TTL = 120.0               # how long an outcome waits for the redirected page to show it
+
+
+def form_key(secret: str) -> Optional[bytes]:
+    """A form-signing key derived from a secret Home already holds, or None (then FormSigner draws a random one).
+    A separate, labelled derivation: the form key reveals nothing about the secret and cannot sign anything else."""
+    if not secret:
+        return None
+    return hmac.new(secret.encode("utf-8"), b"avrana-home/request-forms/v1", hashlib.sha256).digest()
 
 
 class FormSigner:
@@ -84,3 +95,79 @@ class RequestGuard:
             attempts.append(now)
             self._recent[(username, key)] = now
             return None
+
+
+class SearchLimiter:
+    """`allow(username)` -> False once a member has searched SEARCH_MAX times in SEARCH_WINDOW (a runaway tab or a
+    script must not spend the shared Hardcover or TMDB budget for everyone)."""
+
+    def __init__(self, now: Callable[[], float] = time.monotonic, window: float = SEARCH_WINDOW,
+                 limit: int = SEARCH_MAX):
+        self._now, self._window, self._limit = now, window, limit
+        self._lock = threading.Lock()
+        self._seen: Dict[str, deque] = {}
+
+    def allow(self, username: str) -> bool:
+        now = self._now()
+        with self._lock:
+            if len(self._seen) > 10_000:                 # bounded memory: forget idle members
+                self._seen = {u: q for u, q in self._seen.items() if q and now - q[-1] < self._window}
+            seen = self._seen.setdefault(username, deque())
+            while seen and now - seen[0] >= self._window:
+                seen.popleft()
+            if len(seen) >= self._limit:
+                return False
+            seen.append(now)
+            return True
+
+
+class SearchCache:
+    """A small TTL cache of upstream search answers. Keys must already say whose view they are: a shared service
+    account search is keyed by the term alone, a search made AS a member by (member, term). Only successful answers
+    ("ok", "empty") are kept; `drop` forgets one key after the member asked for something, so the next view is fresh."""
+
+    def __init__(self, ttl: float, size: int = 256, now: Callable[[], float] = time.monotonic):
+        self._ttl, self._size, self._now = ttl, size, now
+        self._lock = threading.Lock()
+        self._data: Dict[object, Tuple[float, object]] = {}
+
+    def get(self, key):
+        with self._lock:
+            hit = self._data.get(key)
+            if hit is None or self._now() - hit[0] > self._ttl:
+                self._data.pop(key, None)
+                return None
+            return hit[1]
+
+    def put(self, key, value) -> None:
+        with self._lock:
+            if len(self._data) >= self._size:
+                oldest = min(self._data, key=lambda k: self._data[k][0])
+                self._data.pop(oldest, None)
+            self._data[key] = (self._now(), value)
+
+    def drop(self, key) -> None:
+        with self._lock:
+            self._data.pop(key, None)
+
+
+class Flash:
+    """One outcome per member, shown once by the page the POST redirects to (post-redirect-get: a reload never
+    re-sends the form). In memory, per process, FLASH_TTL seconds."""
+
+    def __init__(self, now: Callable[[], float] = time.monotonic):
+        self._now = now
+        self._lock = threading.Lock()
+        self._data: Dict[Tuple[str, str], Tuple[float, object]] = {}
+
+    def put(self, username: str, page: str, value) -> None:
+        with self._lock:
+            now = self._now()
+            self._data = {k: v for k, v in self._data.items() if now - v[0] < FLASH_TTL}
+            self._data[(username, page)] = (now, value)
+
+    def take(self, username: str, page: str):
+        with self._lock:
+            hit = self._data.pop((username, page), None)
+        return hit[1] if hit is not None and self._now() - hit[0] < FLASH_TTL else None
+

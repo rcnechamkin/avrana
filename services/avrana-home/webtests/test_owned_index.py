@@ -49,7 +49,8 @@ class Keys(unittest.TestCase):
 
 def write_index(d, **tables):
     path = Path(d) / "ids.json"
-    path.write_text(json.dumps(dict({"version": 1}, **tables)), encoding="utf-8")
+    built = __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat()
+    path.write_text(json.dumps(dict({"version": 1, "built": built}, **tables)), encoding="utf-8")
     return path
 
 

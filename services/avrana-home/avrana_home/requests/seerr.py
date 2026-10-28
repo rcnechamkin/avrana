@@ -35,6 +35,7 @@ MIN_TERM, MAX_TERM = 2, 100
 MAX_TITLE = 300
 USER_PAGE, USER_PAGES = 100, 20                 # at most 2,000 Seerr users are read to map members
 MAP_TTL, MISS_TTL = 600.0, 60.0                 # seconds a user map is trusted; how soon a miss may re-read it
+MAP_DEADLINE = 6.0                              # a user-map refresh that takes longer is abandoned (never partial)
 # Seerr permission bits that make a user an administrator of some kind (server/lib/permissions.ts).
 ADMIN_BITS = 2 | 4 | 8 | 16                     # ADMIN, MANAGE_SETTINGS, MANAGE_USERS, MANAGE_REQUESTS
 ROUTES = {("GET", "/api/v1/search"): frozenset({"query", "page"}),
@@ -157,7 +158,11 @@ class SeerrRequests:
 
     def _read_users(self) -> Optional[Dict[str, Optional[int]]]:
         out: Dict[str, Optional[int]] = {}
+        started = self._clock.now()
         for page in range(USER_PAGES):
+            if page and self._clock.now() - started > MAP_DEADLINE:
+                self._fail("map_deadline")
+                return None
             body = self._call("GET", "/api/v1/user", {"take": str(USER_PAGE), "skip": str(page * USER_PAGE)})
             results = body.get("results") if isinstance(body, dict) else None
             if not isinstance(results, list):
