@@ -140,8 +140,13 @@ def build_adapters(settings: Settings, cache: MemberCache) -> list:
         # a Komga restriction. Mock mode (synthetic data) states it itself; real mode takes the value
         # settings.py only accepts when KOMGA_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS=yes.
         komga_confirmed = (settings.upstream_mode == "mock") or settings.komga_owner_confirms
+        # Members' OWN keys (owner decision 2026-10-28), for their Continue reading row only; settings.py accepts
+        # them only in real mode with signed identity. Nobody's key: Continue is not offered, as before.
+        komga_members = {email: UrllibTransport(settings.komga_base_url, {"X-API-Key": key})
+                         for email, key in settings.komga_member_keys}
         komga_adapter = KomgaAdapter(komga_transport, timeout=settings.timeout, cache=cache,
-                                     owner_confirms_no_member_restrictions=komga_confirmed)
+                                     owner_confirms_no_member_restrictions=komga_confirmed,
+                                     member_transports=komga_members)
         komga_adapter.cache = cache
         adapters.append(komga_adapter)
     if settings.calibre_web_base_url:             # off unless configured (settings.py validates)

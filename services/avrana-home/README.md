@@ -104,6 +104,13 @@ Stateless apart from a disposable in-memory SQLite cache (`:memory:`, no file se
 the environment file from 1Password. Cut-over and rollback are a proxy-provider upstream switch
 between the new app and the still-deployed portal (MEDIA-2.0 section 5); see HOME-APP.md section 9.
 
+## Owner-run Komga member keys (comics Continue reading)
+
+`tools/komga_member_keys.py` gives a member's Comics Continue reading row (their in-progress books, then their On
+Deck) that member's own Komga API key, using a temporary admin key typed at a hidden prompt. Use `--all` once, then
+`--member <email>` when you invite someone. Home reads the result as `KOMGA_MEMBER_KEYS_FILE`; members without a key
+see the shared rows only. Runbook: [docs/runbooks/komga-member-keys.md](../../docs/runbooks/komga-member-keys.md).
+
 ## Owner-run capture of upstream responses (AVR-376 sections 11.7, 12.5, 13.6)
 
 `tools/capture_upstreams.py` records what the four adapters would read, for the owner to compare with the

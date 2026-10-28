@@ -362,3 +362,17 @@ Recorded from the owner's chat of 2026-10-28 ("Yes it should", on Home creating 
 |---|---|
 | **Home creates missing Jellyfin and Audiobookshelf accounts** | Direction approved; the how is the plan in `docs/design/ACCOUNT-PROVISIONING.md`. Built as `avrana_home/provision.py` (ADAPTER-CONTRACT 15), off until `HOME_PROVISION_ACCOUNTS` names a library. |
 | **P1-P5 as recommended** ("Go with your recommendations") | P1: created on the member's first Home visit; a background sync from Authentik may come later. P2: Jellyfin accounts see all libraries, as the LDAP plugin gives. P3: Audiobookshelf accounts get the server's defaults for a new user, as OIDC auto-register gives. P4: beta members first: settings refuse it without `HOME_ALLOWED_USERS`. P5: at most 10 attempts per hour (`HOME_PROVISION_CAP_PER_HOUR`). |
+
+## Owner decision, 2026-10-28: comics Continue reading with members' own Komga keys
+
+Recorded from the owner's chat of 2026-10-28 (asked whether each member's Komga On Deck could be shown; agreed to a
+temporary admin key for a one-time run: "Yes"; asked that new members be covered; chose to build the run, the
+invite-time step and the fallback).
+
+| Decision | Consequence |
+|---|---|
+| **Comics Continue reading is each member's own** | Home holds one Komga API key per member (`secrets/komga_member_keys`, KOMGA_MEMBER_KEYS_FILE, filed by signed email) and reads, with it alone, that member's in-progress books and then their On Deck. A separate two-route GET allow-list; the shared account (ADAPTER-CONTRACT 12.2) is never used for it and keeps its three routes. Needs real mode and `HOME_IDENTITY_MODE=jwt_required`. |
+| **Keys are made by an owner-run tool with a temporary admin key** | Komga makes keys only for the signed-in account, so `tools/komga_member_keys.py` sets a random password for the member (one Komga sign-out), makes the `avrana-home` key as them and forgets the password. The admin key is typed at a hidden prompt and deleted afterwards; Home never holds it (decision of 2026-10-15 unchanged). ADMIN accounts are never touched. |
+| **New members are covered at invite time** | `--member <email>` creates the Komga account by email with the Authentik first-sign-in defaults when none exists; Komga links the first Authentik sign-in to it by email. Runbook: docs/runbooks/komga-member-keys.md. |
+| **No key, no change** | A member without a key sees the shared rows only, as before. A refused member key is an empty row and never counts against the shared circuit. |
+| **Members never paste a key** | Owner, 2026-10-28: "I don't want people to have to copy and paste stuff as that would add friction." Keys come only from the owner-run tool; there is no paste-your-own-key option in Home. |
