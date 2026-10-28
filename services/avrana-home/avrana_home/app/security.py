@@ -47,6 +47,7 @@ ENROLLMENT_STATES = ("verified_enrolled", "verified_absent", "unknown")
 OUTCOMES = ("confirmed", "cancelled", "unknown", "failed", "session_changed")
 STATE_TTL = 15 * 60
 _MAX_STATE = 160
+_STATE = re.compile(r"([a-z_]{1,32})\.([0-9]{1,12})\.([A-Za-z0-9_-]{1,64})\Z")
 
 # Detail pages under /me/security: route -> (page id, the action its "Continue securely" hands off to, or None).
 PAGES = {
@@ -205,12 +206,12 @@ class ReturnStates:
         return f"{action}.{exp}.{self._sig(action, exp, username)}"
 
     def check(self, state: Optional[str], username: str) -> ReturnResult:
-        if not state or len(state) > _MAX_STATE:
+        # The exact shape mint() writes, ASCII only: "²".isdigit() is True but int() refuses it, and compare_digest
+        # raises on non-ASCII text, so anything looser turned a crafted address into a 500.
+        match = _STATE.fullmatch(state) if isinstance(state, str) and len(state) <= _MAX_STATE else None
+        if match is None or match.group(1) not in ACTIONS:
             return ReturnResult("unknown")
-        action, _, rest = state.partition(".")
-        exp_text, _, sig = rest.partition(".")
-        if action not in ACTIONS or not exp_text.isdigit() or not sig:
-            return ReturnResult("unknown")
+        action, exp_text, sig = match.groups()
         exp = int(exp_text)
         if exp < self._clock():
             return ReturnResult("unknown", expired=True)
