@@ -293,8 +293,8 @@ class GuardedAdapter(MediaAdapter):
         return resp
 
     def _get_json(self, guard: GuardedTransport, budget: CallBudget, path: str,
-                  query: Optional[Mapping[str, str]]) -> Any:
-        resp = self._get(guard, budget, path, query)
+                  query: Optional[Mapping[str, str]], max_bytes: int = MAX_JSON_BYTES) -> Any:
+        resp = self._get(guard, budget, path, query, max_bytes)
         try:
             return json.loads(resp.body.decode("utf-8"))
         except (UnicodeDecodeError, ValueError, RecursionError, MemoryError):

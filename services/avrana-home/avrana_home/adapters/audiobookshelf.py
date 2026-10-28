@@ -91,6 +91,10 @@ _LIBRARY_PATH = r"(?:lib_[a-z0-9]{3,40}|" + _UUID + r")"   # old "lib_" ids and 
 _LIBRARY_ID = re.compile(_LIBRARY_PATH)
 MAX_LIBRARIES = 6               # libraries searched per request (each is one upstream call)
 MAX_SEARCH_PAGE = 50            # hits asked for per library, whatever the limit
+# Search has no minified form: every hit is a fully expanded library item (audio files, tracks, chapters), measured
+# live 2026-10-28 at 10-75 KB each, so a 36-hit page for a common word is 2-3 MB. The shared 1 MB cap made every
+# broad search UpstreamTooLarge. This cap applies to the search route only.
+MAX_SEARCH_BYTES = 8 * 1024 * 1024
 MAX_LIST_PAGE = 36              # entries asked for per library list (recent or a shelf), whatever the limit
 CLASSIC_GENRE = re.compile(r"\bclassics?\b", re.IGNORECASE)
 MAX_CLASSIC_GENRES = 3
@@ -295,7 +299,7 @@ class AudiobookshelfAdapter(GuardedAdapter):
                 break
             try:
                 body = self._get_json(guard, budget, f"/api/libraries/{library_id}/search",
-                                      {"q": query, "limit": str(page)})
+                                      {"q": query, "limit": str(page)}, MAX_SEARCH_BYTES)
             except ItemGone:
                 continue                                  # one library is gone: neutral
             answered += 1
