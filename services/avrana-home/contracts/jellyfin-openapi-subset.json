@@ -16,6 +16,7 @@
      "Series"
     ],
     "ImageType": [
+     "Backdrop",
      "Primary"
     ],
     "ItemFields": [
@@ -91,11 +92,14 @@
    "retrieved": "unknown (on or before 2026-10-26)",
    "schemas": {
     "BaseItemDto": {
+     "BackdropImageTags": "array",
      "Id": "string",
      "ImageTags": "object",
      "IndexNumber": "integer",
      "Name": "string",
      "Overview": "string",
+     "ParentBackdropImageTags": "array",
+     "ParentBackdropItemId": "string",
      "ParentIndexNumber": "integer",
      "ProductionYear": "integer",
      "ProviderIds": "object",
@@ -134,6 +138,7 @@
      "Series"
     ],
     "ImageType": [
+     "Backdrop",
      "Primary"
     ],
     "ItemFields": [
@@ -209,11 +214,14 @@
    "retrieved": "2026-10-26",
    "schemas": {
     "BaseItemDto": {
+     "BackdropImageTags": "array",
      "Id": "string",
      "ImageTags": "object",
      "IndexNumber": "integer",
      "Name": "string",
      "Overview": "string",
+     "ParentBackdropImageTags": "array",
+     "ParentBackdropItemId": "string",
      "ParentIndexNumber": "integer",
      "ProductionYear": "integer",
      "ProviderIds": "object",

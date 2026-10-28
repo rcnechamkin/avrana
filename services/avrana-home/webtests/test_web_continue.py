@@ -61,7 +61,7 @@ class BothUp(Fixture):
         self.assertIn(FILM, by)
         self.assertIn(BOOK, by)
         film, book = by[FILM], by[BOOK]
-        self.assertEqual(("Resume", "Movie", "1 hour 10 minutes left"), (film.action, film.kind_label, film.progress))
+        self.assertEqual(("Resume", "Movie", "70 minutes left"), (film.action, film.kind_label, film.progress))
         self.assertEqual("Resume in Movies and TV", film.action_label)
         self.assertEqual(("Resume", "Audiobook", "5 hours 48 minutes left"), (book.action, book.kind_label, book.progress))
         self.assertTrue(film.href.startswith("https://watch.avrana.net/web/#/details?id="))

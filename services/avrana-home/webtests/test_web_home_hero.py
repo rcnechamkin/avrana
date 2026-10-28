@@ -55,7 +55,7 @@ class HeroViewModel(unittest.TestCase):
         self.assertEqual(("continue", "Harbour", "poster"), (hero.state, hero.title, hero.shape))
         self.assertEqual("Resume in Jellyfin", hero.action)
         self.assertEqual(HOST["jellyfin"] + JF1, hero.action_href)
-        self.assertEqual("1 hour 10 minutes left · Movies and TV", hero.meta)
+        self.assertEqual("70 minutes left · Movies and TV", hero.meta)
         self.assertEqual(f"/art/jellyfin/primary/{JF1}", hero.image)
         self.assertEqual(f"/title/jellyfin/{JF1}", hero.details_href)
 
@@ -282,7 +282,7 @@ class TwoMembers(unittest.TestCase):
             href = re.search(r'<a class="hero-go" href="([^"]*)">', mine).group(1)
             self.assertTrue(href.startswith("https://watch.avrana.net/web/#/details?id="), href)
             for src in re.findall(r'src="([^"]*)"', mine):
-                self.assertTrue(src.startswith("/art/jellyfin/primary/"), src)
+                self.assertTrue(src.startswith(("/art/jellyfin/primary/", "/art/jellyfin/backdrop/")), src)
         self.assertNotIn("Synthetic Film Two", a_text)
         self.assertNotIn("Synthetic Film One", b_text)
 

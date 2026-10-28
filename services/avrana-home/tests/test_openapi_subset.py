@@ -62,7 +62,7 @@ DECLARED_NOT_READ = {
     ("user.Policy", "IsAdministrator"): "declared in the contract; the adapter reads only IsDisabled",
 }
 COMPATIBLE = {"string": {"string", "enum"}, "integer": {"integer"}, "number": {"number", "integer"},
-              "boolean": {"boolean"}, "object": {"object"}}
+              "boolean": {"boolean"}, "object": {"object"}, "array": {"array"}}
 
 
 class SubsetFileTests(unittest.TestCase):

@@ -283,6 +283,9 @@ class MediaItem:
     # used to link the same title across a member's own results, never displayed and not in to_dict().
     external_ids: Tuple[Tuple[str, str], ...] = field(default=(), repr=False)
     summary: Optional[str] = None        # synopsis, plain text (clean_summary); set on title-page lookups only
+    # A wide 16:9 backdrop (Jellyfin's Backdrop image; an episode borrows its series'), for Home's hero only. Same
+    # opaque, member-checked artwork path as `artwork`; in to_dict() only when present.
+    backdrop: Optional[ArtworkRef] = None
 
     def to_dict(self) -> dict:
         progress = None
@@ -292,12 +295,15 @@ class MediaItem:
                         "percent": None if frac is None else int(round(frac * 100)),
                         "position_seconds": self.position_seconds,
                         "duration_seconds": self.duration_seconds}
-        return {"id": self.id, "service": self.service.value, "kind": self.kind.value,
-                "title": self.title, "subtitle": self.subtitle, "series": self.series,
-                "progress": progress,
-                "artwork": self.artwork.to_dict() if self.artwork else None,
-                "creator": self.creator, "year": self.year, "summary": self.summary,
-                "handoff_url": self.handoff_url}
+        out = {"id": self.id, "service": self.service.value, "kind": self.kind.value,
+               "title": self.title, "subtitle": self.subtitle, "series": self.series,
+               "progress": progress,
+               "artwork": self.artwork.to_dict() if self.artwork else None,
+               "creator": self.creator, "year": self.year, "summary": self.summary,
+               "handoff_url": self.handoff_url}
+        if self.backdrop:
+            out["backdrop"] = self.backdrop.to_dict()
+        return out
 
 
 @dataclass(frozen=True)

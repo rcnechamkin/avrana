@@ -405,6 +405,16 @@
   .hero-details:hover{border-color:var(--control);}
   /* Focus: the shell's two-ring mark (an ink gap, then the yellow), the same as every other shell link. */
   .hero-go:focus-visible,.hero-details:focus-visible{outline:2px solid transparent;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--focus);}
+  /* A wide backdrop (owner review 2026-10-27): the full column at 16:9, the preview radius, a quiet fade at its foot
+     into the page so the eyebrow below reads as part of it. Decoration only (alt=""). Kept at 359px and below too:
+     it is wide, not tall, so it does not push the title off a small screen the way the poster stage would. */
+  .hero.has-backdrop .hero-backdrop{display:block;padding:0;aspect-ratio:16/9;overflow:hidden;border-radius:var(--radius-preview);
+    border:1px solid var(--line);background:var(--raised);margin-bottom:0.5rem;}
+  .hero-backdrop .art{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;}
+  .hero-backdrop::after{content:"";position:absolute;inset:0;background:linear-gradient(to bottom,transparent 60%,rgb(13 13 15 / 0.45));pointer-events:none;}
+  @media (max-width:359px){.hero.has-backdrop .hero-backdrop{display:block;min-height:0;}}
+  @media (max-width:359px) and (prefers-contrast:more){.hero.has-backdrop .hero-backdrop{display:none;}}
+  @media (forced-colors:active){.hero-backdrop::after{display:none;}}
   @media (prefers-contrast:more){.hero-glow{display:none;}}
   @media (forced-colors:active){.hero-glow{display:none;}.hero .frame{box-shadow:none;}
     .hero-title .k-eyebrow.yours::before{forced-color-adjust:none;background:CanvasText;}

@@ -75,7 +75,7 @@ class HomeViewModelTests(unittest.TestCase):
         home = build_home(v, TILES, limit=12)
         self.assertEqual(RAIL_MOST, len(home.continue_items))
         self.assertEqual(["Film 1", "Book", "Film 2", "Film 3"], [c.title for c in home.continue_items])
-        self.assertEqual("1 hour left", home.continue_items[0].progress)
+        self.assertEqual("60 minutes left", home.continue_items[0].progress)
         self.assertEqual("square", home.continue_items[1].shape)
         self.assertEqual(2, len(build_home(v, TILES, limit=2).continue_items))
 

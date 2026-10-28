@@ -32,6 +32,7 @@ KIND_LABEL = {"movie": "Movie", "episode": "Episode", "series": "Series", "audio
               "comic": "Comic", "ebook": "Book"}
 _VERB = {"movie": "watched", "episode": "watched", "series": "watched", "audiobook": "listened",
          "comic": "read", "ebook": "read"}
+_MINUTES_KINDS = frozenset({"movie", "episode", "series"})   # time left in total minutes (_duration_words)
 _HANDOFF_PREFIX = "https://"
 # A Home card's hand-off is rendered only when it starts with one of the contract's FIXED hosts followed by
 # "/", so the host can never be anything else (str.startswith takes the tuple). An upstream-supplied URL never
@@ -41,8 +42,12 @@ HANDOFF_ALLOWED = tuple(base + "/" for base in HANDOFF_BASE.values())
 MAX_PLAUSIBLE_SECONDS = 1000 * 3600
 
 
-def _duration_words(seconds: int) -> str:
+def _duration_words(seconds: int, kind: str = "") -> str:
     minutes = max(1, math.ceil(seconds / 60))
+    if kind in _MINUTES_KINDS:
+        # Owner review 2026-10-27: a film or an episode reads in total minutes ("70 minutes left"), shorter and the
+        # way a player shows it. Long listens and reads keep hours ("7 hours 43 minutes left").
+        return f"{minutes} minute" + ("" if minutes == 1 else "s")
     hours, rest = divmod(minutes, 60)
     parts = []
     if hours:
@@ -64,7 +69,7 @@ def progress_words(kind: str, progress: Optional[dict]) -> Optional[str]:
             return "finished"
         if left < 60:
             return "less than a minute left"
-        return _duration_words(left) + " left"
+        return _duration_words(left, kind) + " left"
     if _is_int(pct) and 0 <= pct <= 100:
         if pct == 0:
             return "just started"            # a rounded-down sliver is not "0 percent"
@@ -72,7 +77,7 @@ def progress_words(kind: str, progress: Optional[dict]) -> Optional[str]:
             return "nearly finished"         # finished items never reach Continue (continue_state)
         return f"{pct} percent {_VERB.get(kind, 'done')}"
     if pos is not None and pos > 0:
-        return (_duration_words(pos) + " in") if pos >= 60 else "just started"
+        return (_duration_words(pos, kind) + " in") if pos >= 60 else "just started"
     return None
 
 
@@ -138,6 +143,7 @@ class ItemVM:
     finished: bool = False         # the upstream's numbers say nothing is left: never shown in Continue
     item_id: Optional[str] = None  # the contract id ("jellyfin:<id>"), for the hero's Details link only
     fraction: Optional[float] = None  # 0 to 1, for the progress rule beside the words (progress_fraction)
+    backdrop: Optional[str] = None # same-origin /art/... URL of a wide backdrop, for the hero only
 
 
 @dataclass(frozen=True)
@@ -182,7 +188,7 @@ def _item_vm(it: dict) -> Optional[ItemVM]:
     return ItemVM(_plain(it.get("title") or "") or "Untitled", href, str(it.get("kind", "")), detail,
                   progress_words(it.get("kind", ""), it.get("progress")), _image(it.get("artwork")),
                   service=service, resumable=resumable, finished=finished, item_id=item_id,
-                  fraction=progress_fraction(it.get("progress")))
+                  fraction=progress_fraction(it.get("progress")), backdrop=_image(it.get("backdrop")))
 
 
 def build_sections(view: dict) -> Tuple[SectionVM, ...]:
@@ -267,6 +273,7 @@ class HeroVM:
     action: str                        # "Resume in Jellyfin": visible text of the one primary hand-off
     action_href: str                   # the item's https hand-off on its library's fixed host
     details_href: Optional[str] = None  # the title page, only for a library that has one (permission-checked)
+    backdrop: Optional[str] = None     # a wide 16:9 /art/... backdrop; when present the hero leads with it
 
 
 @dataclass(frozen=True)
@@ -495,7 +502,7 @@ def hero_of(it: ItemVM, state: str, title_services=frozenset()) -> Optional[Hero
     details = (title_href(parts[0], parts[1]) if parts is not None and parts[0] == it.service
                and it.service in title_services else None)
     return HeroVM(state, it.title, SHAPE.get(it.kind, "poster"), it.image, meta or None,
-                  f"{verb} in {HERO_APP[it.service]}", it.href, details)
+                  f"{verb} in {HERO_APP[it.service]}", it.href, details, it.backdrop)
 
 
 def build_home(view: dict, tiles, *, new_tab: Optional[str] = None, limit: int = RAIL_MOST,

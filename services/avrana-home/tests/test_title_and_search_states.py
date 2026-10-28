@@ -263,7 +263,7 @@ class TitleRules(unittest.TestCase):
         self.assertEqual((t.action, t.progress, t.back_href), ("Watch", None, None))
         prog = {"fraction": 0.5, "percent": 50, "position_seconds": 3600, "duration_seconds": 7200}
         t = build_title(self.section(progress=prog), "jellyfin", "a" * 31 + "1", "Film")
-        self.assertEqual((t.action, t.progress), ("Resume", "1 hour left"))
+        self.assertEqual((t.action, t.progress), ("Resume", "60 minutes left"))
         self.assertEqual(t.action_label, "Resume Film 1 in Movies and TV")
         self.assertEqual(t.back_href, "/search?q=Film")
         done = dict(prog, position_seconds=7200)

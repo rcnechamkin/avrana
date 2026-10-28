@@ -237,6 +237,8 @@ class MockJellyfin:
             vis = self._visible(name)
             found = [vis[i] for i in query.get("ids", "").split(",") if i in vis]
             return self._json(h, {"Items": found, "TotalRecordCount": len(found)})
+        if path.startswith("/Items/") and path.endswith("/Images/Backdrop"):
+            return self._send(h, 200, cover("still", path), "image/png")   # a wide synthetic backdrop
         if path.startswith("/Items/") and path.endswith("/Images/Primary"):
             # A real, decodable synthetic PNG in the item's natural shape (poster, or a still for an episode).
             item_id = path[len("/Items/"):-len("/Images/Primary")].lower()

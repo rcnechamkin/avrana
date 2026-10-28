@@ -29,19 +29,25 @@
 {% endif %}
 {#- The hero (Concept K, AVR-718; memo section 4, D6): the member's own next thing, from the view-model only. The art
    is the item's own /art image twice: crisp at its natural shape, and behind it a blurred, dimmed copy (CSS only),
-   so artwork keeps flowing through the member-scoped gateway. No art: the letter frame, and no backdrop. The eyebrow
+   so artwork keeps flowing through the member-scoped gateway. No art: the letter frame, and no backdrop. A library
+   that gives a wide backdrop (Jellyfin's Backdrop image, an episode's from its series) leads with that instead, as
+   the owner's TV screensaver does (owner review 2026-10-27); it is decoration, the title is the heading below. The eyebrow
    is part of the heading, so heading navigation hears "Continue: <title>"; it is yellow only for the member's own
    state (Continue), Stone for Recently added. One Cream hand-off that names the app and never claims playback, and
    Details only where the library has a title page. #}
 {% if home.hero %}
 {% set h = home.hero %}
-  <section class="hero w-{{ h.shape }}{% if not h.image %} no-art{% endif %}" aria-labelledby="h-hero">
+  <section class="hero w-{{ h.shape }}{% if h.backdrop %} has-backdrop{% elif not h.image %} no-art{% endif %}" aria-labelledby="h-hero">
+{% if h.backdrop %}
+    <div class="hero-stage hero-backdrop"><img class="art" src="{{ h.backdrop }}" alt="" width="1280" height="720"></div>
+{% else %}
     <div class="hero-stage">
 {% if h.image %}
       <span class="hero-glow" aria-hidden="true"><img class="art" src="{{ h.image }}" alt="" width="160" height="240" loading="lazy"></span>
 {% endif %}
       {{ frame(h.image, h.title) }}
     </div>
+{% endif %}
     <h2 id="h-hero" class="hero-title"><span class="k-eyebrow{% if h.state == "continue" %} yours{% endif %}">{% if h.state == "continue" %}Continue{% else %}Recently added{% endif %}<span class="sr">: </span></span> <span class="k-display">{{ h.title }}</span></h2>
 {% if h.meta %}
     <p class="k-meta">{{ h.meta }}</p>
