@@ -299,6 +299,11 @@ class AudiobookshelfSim:
         return 404, {}
 
 
+def _iso_days_ago(n: int, suffix: str) -> str:
+    """Now minus `n` minutes as an ISO date, so thousands of books stay inside Recently added's 60-day window."""
+    return time.strftime("%Y-%m-%d", time.gmtime(time.time() - n * 60)) + suffix
+
+
 class KomgaSim:
     def __init__(self, rng: random.Random, size: int, members: List[Member]):
         self.titles = [_title(rng, n) for n in range(size)]
@@ -308,13 +313,15 @@ class KomgaSim:
         self.books = [{"id": self.ids[n], "seriesId": f"SR{n // 10:08d}", "seriesTitle": f"Synthetic Series {n // 10}",
                        "libraryId": "LIBCOMICS1", "name": self.titles[n], "number": n % 10 + 1, "deleted": False,
                        "media": {"status": "READY", "mediaType": "application/zip", "pagesCount": 24},
-                       "metadata": {"title": self.titles[n], "number": str(n % 10 + 1), "tags": []}}
+                       "created": _iso_days_ago(size - n, "T00:00:00Z"),        # newest last, within Recently added's window
+                       "metadata": {"title": self.titles[n], "number": str(n % 10 + 1), "tags": [],
+                                    "releaseDate": _iso_days_ago(size - n, "")}}
                       for n in range(size)]
         self.image = _png(b"komga")
 
     def handle(self, path, q):
         size = int(q.get("size", "20"))
-        if path == "/api/v1/books/latest":
+        if path == "/api/v1/books" and "search" not in q:       # Recently added and New releases
             content = self.books[-size:][::-1]
             return 200, {"content": content, "number": 0, "size": size, "totalElements": len(self.books)}
         if path == "/api/v1/books":
