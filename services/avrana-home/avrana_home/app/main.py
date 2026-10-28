@@ -30,8 +30,9 @@ from ..adapters.jellyfin import JellyfinAdapter
 from ..adapters.calibre_web import CalibreWebAdapter
 from ..adapters.komga import KomgaAdapter
 from ..aggregate import gather, health_summary, search as run_search
-from ..contract import MediaAdapter
+from ..contract import REQUIRED_GROUP, MediaAdapter, Service
 from ..cache import MemberCache
+from ..quickconnect import OUTCOMES as QC_OUTCOMES, QuickConnect
 from ..resilience import SystemClock, UrllibTransport
 from . import catalogue as catalogue_mod
 from .catalogue import Trusted
@@ -39,10 +40,11 @@ from . import artwork as artwork_mod
 from . import install as install_mod
 from . import notice as notice_mod
 from . import pwa as pwa_mod
+from . import forms as forms_mod
 from . import security as security_mod
 from .identity import (IdentityResolver, Viewer, get_viewer, has_identity_headers, home_filter_from_scope,
                        library_chip_from_scope, library_view_from_scope, new_tab_from_scope, search_term_from_scope,
-                       security_state_from_scope)
+                       same_origin_form_post, security_state_from_scope, tv_result_from_scope)
 from .logsafe import app_log, log_event, silence_uvicorn_access
 from .middleware import HygieneMiddleware
 from . import recovery
@@ -149,13 +151,31 @@ def build_adapters(settings: Settings, cache: MemberCache) -> list:
     return adapters
 
 
+def build_quick_connect(settings: Settings) -> Optional[QuickConnect]:
+    """Embedded Quick Connect (quickconnect.py; owner decision 2026-10-27): built only where the real adapters are, with
+    its own transport to the same Jellyfin address and key. Tests inject one, or get none (then /me/tv is the standard
+    404 and a POST to it the standard 501)."""
+    if not settings.home_sections:
+        return None
+    transport = UrllibTransport(settings.jellyfin_base_url,
+                                {"Authorization": f'MediaBrowser Token="{settings.jellyfin_api_key}"'})
+    return QuickConnect(transport, timeout=settings.timeout,
+                        member_username=_member_username(settings, settings.jellyfin_member_username))
+
+
+# "Sign in on a TV" (forms.py, quickconnect.py): the posted fields, and every result the page may be sent back with.
+TV_FIELDS = frozenset({"code", "t"})
+TV_RESULTS = QC_OUTCOMES + ("expired",)
+
+
 def _is_loopback_peer(request: Request) -> bool:
     client = request.client
     return client is not None and client.host in ("127.0.0.1", "::1")
 
 
-def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]] = None) -> FastAPI:
-    """`adapters` lets tests inject fakes; otherwise they are built from `settings`."""
+def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]] = None,
+               quick_connect: Optional[QuickConnect] = None) -> FastAPI:
+    """`adapters` and `quick_connect` let tests inject fakes; otherwise they are built from `settings`."""
     silence_uvicorn_access()      # whoever serves this app, uvicorn must not log raw query strings
     cat = catalogue_mod.load(settings.catalogue_path)
     env = make_environment()
@@ -176,6 +196,14 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
     security_config = security_mod.SecurityConfig.build(cat.account_url, settings.security_flows,
                                                         settings.security_return_origin)
     return_states = security_mod.ReturnStates()
+    # "Sign in on a TV": only with the shell on. Injected adapters without an injected Quick Connect mean none.
+    qc = quick_connect if quick_connect is not None else (build_quick_connect(settings) if adapters is None else None)
+    if not (settings.home_sections and adapter_list):
+        qc = None
+    form_tokens = forms_mod.FormTokens()
+    watch = cat.service("watch")
+    # Jellyfin's own Quick Connect page (jellyfin-web 10.11 route `quickconnect`), from the catalogue's fixed host.
+    tv_handoff = f"https://{watch.host}/web/#/quickconnect" if watch is not None else None
 
 
     @contextlib.asynccontextmanager
@@ -195,6 +223,7 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
     app.state.adapters = adapter_list
     app.state.env = env
     app.state.notices = notices
+    app.state.form_tokens = form_tokens            # tests mint a token without loading the page
     # Libraries whose search results link to a title page: those whose adapter offers the permission-checked
     # item lookup (`item`). The others' results link straight to the library.
     title_services = frozenset(a.service.value for a in adapter_list if "item" not in a.not_offered)
@@ -368,11 +397,20 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
             scope["avrana_route"] = route
             return respond(Decision(route, 200, "me_security.html", {"sec": page}), scope,
                            shell=shell_for(viewer, "me"))
+        if route == forms_mod.TV_ROUTE and qc is not None and p is not None and tv_member(viewer):
+            # "Sign in on a TV" (quickconnect.py). Only for members with TV and Movies; otherwise the standard 404.
+            status = await run_in_threadpool(qc.status, p)
+            result = tv_result_from_scope(scope)
+            scope["avrana_route"] = route
+            return respond(Decision(route, 200, "me_tv.html", {"tv": {
+                "status": status, "result": result if result in TV_RESULTS else None,
+                "token": form_tokens.issue("tv", p.username), "handoff": tv_handoff}}),
+                scope, shell=shell_for(viewer, "me"))
         if route == ME_ROUTE and settings.home_sections and p is not None and adapter_list:
             # The Me hub (Concept K, AVR-719) exists only with the shell; otherwise the path stays unknown (parity).
             decision = me_decision(build_me(tiles_for(viewer), p.username, pwa_mod.SIGNOUT_PATH))
             scope["avrana_route"] = decision.label
-            return respond(decision, scope, shell=shell_for(viewer, "me"))
+            return respond(decision, scope, shell=shell_for(viewer, "me"), me_tv=qc is not None and tv_member(viewer))
         decision = decide(route, viewer.groups, cat, facts)
         scope["avrana_route"] = decision.label
         extra = {}
@@ -465,6 +503,33 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
                       section=s.section, state=s.state.value, reason=s.reason or "")
         return view
 
+    def tv_member(viewer: Viewer) -> bool:
+        return REQUIRED_GROUP[Service.JELLYFIN] in viewer.groups
+
+    if qc is not None:
+        @app.post(forms_mod.TV_ROUTE, include_in_schema=False, response_model=None)
+        async def tv_approve(request: Request, viewer: Viewer = Depends(get_viewer)) -> Response:
+            """Approve a TV's Quick Connect code as this member (quickconnect.py has the guardrails). Every lock in
+            forms.py first; the answer is always a 303 back to the page with a fixed result id (post/redirect/get)."""
+            scope = request.scope
+            p = viewer.principal
+            if p is None or not tv_member(viewer):
+                scope["avrana_route"] = "not_found"
+                return respond(not_found())
+            scope["avrana_route"] = forms_mod.TV_ROUTE
+            if not same_origin_form_post(scope):
+                return render("error.html", 403)
+            form = await forms_mod.read_form(request, TV_FIELDS)
+            if form is None:
+                return render("error.html", 400)
+            if form_tokens.check(form.get("t"), "tv", p.username):
+                outcome = await run_in_threadpool(qc.approve, p, form.get("code", ""))
+            else:
+                outcome = "expired"
+            log_event(app_log, logging.INFO, "quick_connect", state=outcome)       # never the code or the member
+            return Response(b"", status_code=303, media_type=HTML,
+                            headers=forms_mod.result_headers(outcome, TV_RESULTS))
+
     @app.exception_handler(StarletteHTTPException)
     async def _http_error(request: Request, exc: StarletteHTTPException) -> Response:
         request.scope.setdefault("avrana_route", "error")
@@ -478,6 +543,7 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
         return render("error.html", 422)
 
     app.add_middleware(HygieneMiddleware, render_error=lambda: env.get_template("error.html")
-                       .render().encode("utf-8"))
+                       .render().encode("utf-8"),
+                       form_routes=forms_mod.FORM_ROUTES if qc is not None else frozenset())
     log_event(app_log, logging.INFO, "app_created")
     return app

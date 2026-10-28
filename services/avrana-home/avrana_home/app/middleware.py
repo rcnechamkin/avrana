@@ -7,7 +7,8 @@ carry these headers; they contain no application data (documented in HOME-APP.md
 
   * Methods other than GET and HEAD get 501 before any routing or identity work, for every path
     and every identity, like the portal (http.server answers 501 before looking at groups). The
-    body is fixed text and does NOT echo the method.
+    body is fixed text and does NOT echo the method. The one exception is POST to a form route (forms.FORM_ROUTES),
+    and only when main.py turns that form on (`form_routes`); with it off, those paths are 501 like any other.
   * A request whose header block exceeds identity.MAX_HEADER_BYTES gets 431 with fixed text before any routing or
     identity work (AVR-732). h11 enforces its own 16 KiB limit only while a request is still incomplete, so
     a request that arrives in one read (Linux asyncio reads up to 256 KiB at once) reached the application
@@ -38,7 +39,8 @@ HYGIENE = (
     (b"x-content-type-options", b"nosniff"),
     (b"content-security-policy", CSP),
 )
-# /search is the one page with a form (a plain GET to itself), so it alone may submit to its own origin.
+# /search (a plain GET to itself) and the form pages (forms.py, a POST to themselves) alone may submit to their own
+# origin.
 CSP_SEARCH = CSP.replace(b"form-action 'none'", b"form-action 'self'")
 # Shell pages (Home with sections, Library, Search, Me, Account, Help) link the web app manifest (install.py), load
 # the brand font, Plus Jakarta Sans (brand.py, home.css; AVR-584, AVR-715), and load the one first-party page script (pwa.py; MK-3, AVR-717, owner
@@ -85,9 +87,10 @@ def with_hygiene(headers, form_self: bool = False, manifest: bool = False, route
 
 
 class HygieneMiddleware:
-    def __init__(self, app, render_error: Callable[[], bytes]):
+    def __init__(self, app, render_error: Callable[[], bytes], form_routes: frozenset = frozenset()):
         self.app = app
         self._render_error = render_error
+        self._form_routes = frozenset(form_routes)
 
     async def __call__(self, scope, receive, send):
         kind = scope["type"]
@@ -109,8 +112,9 @@ class HygieneMiddleware:
                 if state.get("error_page"):        # the generic 500 page: base CSP, whatever the failed route marked
                     message = dict(message, headers=with_hygiene(message.get("headers", ())))
                 else:
+                    route = scope.get("avrana_route")
                     message = dict(message, headers=with_hygiene(message.get("headers", ()),
-                                                                 scope.get("avrana_route") == "/search",
+                                                                 route == "/search" or route in self._form_routes,
                                                                  scope.get("avrana_shell") is True,
                                                                  scope.get("avrana_route") or ""))
             await send(message)
@@ -119,7 +123,7 @@ class HygieneMiddleware:
             if header_block_too_large(scope):
                 scope["avrana_route"] = "headers_too_large"
                 await self._plain(wrapped_send, 431, HEADERS_TOO_LARGE_BODY, head=(method == "HEAD"))
-            elif method not in ("GET", "HEAD"):
+            elif method not in ("GET", "HEAD") and not (method == "POST" and self._is_form_route(scope)):
                 scope["avrana_route"] = "method_not_supported"
                 await self._plain(wrapped_send, 501, NOT_IMPLEMENTED_BODY, head=False)
             else:
@@ -137,6 +141,13 @@ class HygieneMiddleware:
                       route=scope.get("avrana_route", "unmatched"), method=method,
                       status=state["status"],
                       duration_ms=round((time.perf_counter() - started) * 1000, 1))
+
+    def _is_form_route(self, scope) -> bool:
+        if not self._form_routes:
+            return False
+        # The exact path only: no trailing slash, no doubled slash (those stay 501, like every other path).
+        raw = scope.get("raw_path") or scope.get("path", "").encode("latin-1", "replace")
+        return bytes(raw).decode("latin-1") in self._form_routes
 
     @staticmethod
     async def _plain(send, status: int, body: bytes, head: bool) -> None:

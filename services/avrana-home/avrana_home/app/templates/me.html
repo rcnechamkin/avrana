@@ -20,6 +20,9 @@
     <ul class="krows">
       {{ row("/account", "Account", "Your access and sign-in", "person") }}
       {{ row("/me/security", "Account & Security", "Sign-in, recovery, and sessions", "key") }}
+{% if me_tv %}
+      {{ row("/me/tv", "Sign in on a TV", "Approve the code your TV shows", "film") }}
+{% endif %}
     </ul>
   </section>
   <section class="kgroup" aria-labelledby="me-help">

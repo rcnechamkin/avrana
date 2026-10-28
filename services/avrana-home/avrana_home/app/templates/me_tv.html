@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% from "_rows.html" import row %}
+{% block title %}Sign in on a TV · Avrana{% endblock %}
+{% block body %}
+{# "Sign in on a TV" (Media 2.0 ME-05; owner decision 2026-10-27; quickconnect.py, forms.py). Shell only, members with
+   TV and Movies only. The member types the code their TV shows; Home approves it as them. A plain form that works
+   with JavaScript off, answered by a 303 back here with a fixed result id. "Approved" acknowledges the approval; it
+   doesn't claim the TV signed in. Jellyfin's own Quick Connect page is always offered as the other way. #}
+  <h2 class="topic">Sign in on a TV</h2>
+{% set r = tv.result %}
+{% if r %}
+  <p class="note msg" role="status">
+{%- if r == "approved" %}Approved. Your TV should sign in within a few seconds. If it doesn't, check the code on the TV and try again.
+{%- elif r == "bad_code" %}Enter the 6 numbers shown on your TV.
+{%- elif r == "not_found" %}That code didn't work. Check the numbers on your TV; codes last 10 minutes.
+{%- elif r == "not_accepted" %}That code didn't go through. It may already have been used. Get a new code on the TV and try again.
+{%- elif r == "off" %}Quick Connect is switched off for TV and Movies right now.
+{%- elif r == "not_eligible" %}This account can't approve TV codes here. Approve the code in TV and Movies itself instead.
+{%- elif r == "busy" %}Too many tries. Wait 10 minutes, then try again.
+{%- elif r == "unknown" %}We couldn't tell whether it went through. Look at your TV before trying again.
+{%- elif r == "unavailable" %}TV and Movies couldn't be reached. Try again in a moment, or approve the code in TV and Movies itself.
+{%- elif r == "expired" %}This page was open too long. Enter the code again.
+{%- endif %}</p>
+{% endif %}
+{% if tv.status == "ready" %}
+  <section class="kgroup" aria-labelledby="tv-how">
+    <h3 class="kgroup-h" id="tv-how">How it works</h3>
+    <ol class="note steps">
+      <li>On the TV, open the Jellyfin app and choose <span lang="en">Quick Connect</span> on its sign&#8209;in screen.</li>
+      <li>The TV shows a 6&#8209;digit code. Enter it below and choose Approve.</li>
+    </ol>
+    <p class="note">Approving signs that TV in to TV and Movies as {{ shell.member_name }}. Only enter a code from a TV you're setting up.</p>
+    <form class="srch" method="post" action="/me/tv">
+      <input type="hidden" name="t" value="{{ tv.token }}">
+      <label for="code">Code from your TV</label>
+      <div class="ask">
+        <span class="ask-field"><input id="code" name="code" type="text" inputmode="numeric" pattern="[0-9]{6}" minlength="6" maxlength="6" autocomplete="off" spellcheck="false" required></span>
+        <button type="submit">Approve</button>
+      </div>
+    </form>
+  </section>
+{% elif tv.status == "off" %}
+  <p class="note msg">Quick Connect is switched off for TV and Movies right now. Sign in on the TV with your username and password, or ask the person who invited you.</p>
+{% elif tv.status == "not_eligible" %}
+  <p class="note msg">This account can't approve TV codes here. Approve the code in TV and Movies itself instead.</p>
+{% else %}
+  <p class="note msg">TV and Movies couldn't be reached just now. You can approve the code in TV and Movies itself instead.</p>
+{% endif %}
+{% if tv.handoff and tv.status != "off" %}
+  <section class="kgroup" aria-labelledby="tv-other">
+    <h3 class="kgroup-h" id="tv-other">Another way</h3>
+    <ul class="krows">
+      {{ row(tv.handoff, "Approve it in TV and Movies", "Sign in there, then enter the TV's code", "film", leaves=True, leaves_said=True) }}
+    </ul>
+  </section>
+{% endif %}
+{% endblock %}
+{% block footer %}    {% if not shell %}<a class="link" href="/">Back to home</a>{% endif %}{% endblock %}
