@@ -13,6 +13,7 @@ State rules (docs/design/HOME-APP.md):
 """
 from __future__ import annotations
 
+import datetime as _dt
 import math
 import re
 from dataclasses import dataclass
@@ -145,6 +146,7 @@ class ItemVM:
     fraction: Optional[float] = None  # 0 to 1, for the progress rule beside the words (progress_fraction)
     backdrop: Optional[str] = None # same-origin /art/... URL of a wide backdrop, for the hero only
     shelf: Optional[str] = None    # a "shelves" item's shelf (SHELF_ROWS key); never upstream text
+    released: Optional[str] = None # the release day, "YYYY-MM-DD" (contract MediaItem.released), for sorting only
 
 
 @dataclass(frozen=True)
@@ -174,6 +176,9 @@ def _heading(service: str, section: str) -> str:
     return f"Recently added to {label}"
 
 
+_DAY = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+
 def _item_vm(it: dict) -> Optional[ItemVM]:
     """One contract item as display data, or None when it has no https hand-off (never rendered)."""
     href = it.get("handoff_url")
@@ -190,7 +195,11 @@ def _item_vm(it: dict) -> Optional[ItemVM]:
                   progress_words(it.get("kind", ""), it.get("progress")), _image(it.get("artwork")),
                   service=service, resumable=resumable, finished=finished, item_id=item_id,
                   fraction=progress_fraction(it.get("progress")), backdrop=_image(it.get("backdrop")),
-                  shelf=it.get("shelf") if it.get("shelf") in dict(SHELF_ROWS) else None)
+                  shelf=it.get("shelf") if it.get("shelf") in dict(SHELF_ROWS) else None,
+                  year=it.get("year") if isinstance(it.get("year"), int) and not isinstance(it.get("year"), bool)
+                  else None,
+                  released=it.get("released") if isinstance(it.get("released"), str)
+                  and _DAY.fullmatch(it["released"]) else None)
 
 
 def build_sections(view: dict) -> Tuple[SectionVM, ...]:
@@ -215,7 +224,8 @@ def build_sections(view: dict) -> Tuple[SectionVM, ...]:
     return tuple(out)
 
 
-# ---- The Home page (AVR-374/452/478; Concept K AVR-718): places, the hero, Continue, Recently added ------
+# ---- The Home page (AVR-374/452/478; Concept K AVR-718): places, the hero, Continue, New releases, New to
+# Avrana (owner decision 2026-10-28: New releases by the release date itself, New to Avrana by when it was added) ---
 # Pure functions over `member_view()` plus the catalogue's tile list. Nothing here calls an adapter.
 RAIL_MOST = 4                       # a rail is one bounded row, never more than four things
 NEW_ALL = "all"
@@ -227,8 +237,10 @@ SHAPE = {"movie": "poster", "series": "poster", "episode": "still", "audiobook":
          "comic": "comic", "ebook": "book"}
 NOTHING_IN_PROGRESS = ("Nothing in progress. Whatever you start in a library appears here, "
                        "ready to pick up where you stopped.")
-# "Recently added", never "this week": the upstream lists are not date-bounded (memo section 4, wording fix).
-NOTHING_NEW = "Nothing recently added."
+# "Recently", never "this week": the upstream lists are not date-bounded (memo section 4, wording fix).
+NEW_TO_AVRANA = "New to Avrana"
+NOTHING_NEW = "Nothing added to Avrana recently."
+NEW_RELEASES = "New releases"
 NO_LIBRARY = "No library is shared with this account yet. Ask the person who invited you, or read Help."
 
 
@@ -320,7 +332,8 @@ class HomeVM:
     hero: Optional[HeroVM] = None        # Concept K hero (AVR-718); None on every state with nothing of the member's
     filters: Tuple[FilterVM, ...] = ()   # All, Watch, Listen, Read: only when the member has two places or more
     focus: Optional[str] = None          # the chosen place ("watch"), None for All
-    rows: Tuple[RowVM, ...] = ()         # Watch: Up next, Movies, TV shows (in place of Recently added)
+    rows: Tuple[RowVM, ...] = ()         # Watch: Up next, Movies, TV shows (in place of New to Avrana)
+    released_items: Tuple[CardVM, ...] = ()   # All: New releases across libraries, newest release day first
     focus_open: Optional[Tuple[object, str]] = None   # (place label, "/watch"): the chosen place's own site
 
 
@@ -480,18 +493,22 @@ NOTHING_UP_NEXT = "Nothing up next. The next episode of a show you are watching 
 # The Audiobooks shelves (owner decision 2026-10-27), in this order after Recently added. Keys are the adapter's.
 SHELF_ROWS = (("new", "New releases"), ("classics", "Classics"), ("short", "Short listens"),
               ("epic", "Epic listens"))
-_EXTRA_FOR = {"jellyfin": "next_up", "audiobookshelf": "shelves", "komga": "shelves"}
+_EXTRA_FOR = {"jellyfin": ("next_up", "released"), "audiobookshelf": ("shelves",), "komga": ("shelves",)}
+# All: New releases from every library that has release dates (Calibre-Web's catalogue gives none Home can sort).
+RELEASED_FROM = ("jellyfin", "audiobookshelf", "komga")
 # Libraries whose Recently added gives way to Recently released when nothing was added in the last two months
 # (owner decisions 2026-10-27 Audiobookshelf, 2026-10-28 Komga).
 RELEASED_FALLBACK = ("audiobookshelf", "komga")
 
 
 def extra_sections_for(raw_focus) -> Tuple[Tuple[str, str], ...]:
-    """The (library, section) pairs a Home filter needs beyond Continue and Recently added (Watch: Up next; Listen:
-    the shelves; Comics and Read: Komga's New releases), so the caller gathers them too, from that library only.
-    It only decides what to ask for; `build_home` still checks the member's own places."""
-    services = _PLACE_SERVICES.get(raw_focus, ()) if isinstance(raw_focus, str) else ()
-    return tuple((s, _EXTRA_FOR[s]) for s in services if s in _EXTRA_FOR)
+    """The (library, section) pairs Home needs beyond Continue and New to Avrana (All: every library's New
+    releases; Watch: Up next and New releases; Listen: the shelves; Comics and Read: Komga's New releases), so the
+    caller gathers them too, from those libraries only. It only decides what to ask for; `build_home` still checks
+    the member's own places."""
+    if not (isinstance(raw_focus, str) and raw_focus in _PLACE_SERVICES):
+        return tuple((s, "released") for s in RELEASED_FROM)
+    return tuple((s, x) for s in _PLACE_SERVICES[raw_focus] for x in _EXTRA_FOR.get(s, ()))
 
 
 def library_extra_sections(raw_chip) -> Tuple[Tuple[str, str], ...]:
@@ -522,6 +539,13 @@ def build_filters(places, focus: Optional[str]):
     out = [FilterVM(HOME_ALL, "All", "/", chosen is None)]
     out.extend(FilterVM(p.href[1:], p.label, "/?for=" + p.href[1:], p.href[1:] == chosen, p.up) for p in libs)
     return tuple(out), chosen
+
+
+def release_key(it: ItemVM, today: str) -> Optional[str]:
+    """What New releases sorts on: the release day, or 1 January of a bare release year (never claiming a book is
+    newer than it may be), and a future date (a comic's cover date runs ahead of sale) as today. None: unsortable."""
+    day = it.released or (f"{it.year:04d}-01-01" if it.year else None)
+    return min(day, today) if day else None
 
 
 def _round_robin(lists, limit: int):
@@ -597,7 +621,8 @@ def hero_of(it: ItemVM, state: str, title_services=frozenset()) -> Optional[Hero
 
 
 def build_home(view: dict, tiles, *, new_tab: Optional[str] = None, limit: int = RAIL_MOST,
-               member_name: str = "", title_services=frozenset(), focus: Optional[str] = None) -> HomeVM:
+               member_name: str = "", title_services=frozenset(), focus: Optional[str] = None,
+               today: Optional[str] = None) -> HomeVM:
     """Home as display data. Retry links point at `/` (the new tab is kept), the same page again.
     `title_services`: libraries with a title page (main.py's set), for the hero's Details link and the Recently added
     cards (which open the title page; Continue cards open the item where it plays)."""
@@ -674,7 +699,22 @@ def build_home(view: dict, tiles, *, new_tab: Optional[str] = None, limit: int =
     else:
         new = _cards(items_of("recent", tab)[:limit], lambda it: it.detail or KIND_LABEL.get(it.kind),
                      title_services=title_services)
-        new_said = None if new else (NOTHING_NEW if len(libs) == 1 else f"Nothing recently added in {SERVICE_LABEL[tab]}.")
+        new_said = None if new else (NOTHING_NEW if len(libs) == 1
+                                     else f"Nothing added to {SERVICE_LABEL[tab]} recently.")
+
+    # New releases (owner decision 2026-10-28): by the release date itself, across libraries, newest first; a title
+    # once, and never one Continue already shows (as Up next). Shown only when there is something (an empty row would
+    # only repeat New to Avrana's empty line).
+    today = today if isinstance(today, str) and _DAY.fullmatch(today) else _dt.date.today().isoformat()
+    dated = [(release_key(it, today), i, it) for i, it in
+             enumerate(it for s in SERVICE_ORDER for it in items_of("released", s))]
+    seen, picked = {it.item_id for it in cont}, []
+    for _key, _i, it in sorted((t for t in dated if t[0]), key=lambda t: (t[0], -t[1]), reverse=True):
+        if it.item_id not in seen:
+            seen.add(it.item_id)
+            picked.append(it)
+    released = _cards(picked[:limit], lambda it: it.detail or SERVICE_LABEL.get(it.service),
+                      title_services=title_services) if focus is None else ()
 
     # Watch (owner decision 2026-10-27): Up next, then Recently added split into Movies and TV shows, in place of the
     # one Recently added rail. Up next leaves out what Continue already shows.
@@ -686,6 +726,10 @@ def build_home(view: dict, tiles, *, new_tab: Optional[str] = None, limit: int =
             nxt = [it for it in items_of("next_up", "jellyfin") if it.item_id not in shown][:limit]
             built.append(RowVM("next", "Up next", _cards(nxt, lambda it: it.detail, title_services=title_services),
                                None if nxt else NOTHING_UP_NEXT, tall=False))
+        if picked:
+            built.append(RowVM("released", NEW_RELEASES,
+                               _cards(picked[:limit], lambda it: it.detail or KIND_LABEL.get(it.kind),
+                                      title_services=title_services)))
         recent = items_of("recent", "jellyfin")
         for key, heading, kinds in WATCH_ROWS:
             cards = _cards([it for it in recent if it.kind in kinds][:limit],
@@ -715,7 +759,7 @@ def build_home(view: dict, tiles, *, new_tab: Optional[str] = None, limit: int =
                            title_services=title_services)
             shelved = items_of("shelves", s)
             if cards or s not in RELEASED_FALLBACK:
-                built.append(RowVM("new", "Recently added", cards, None if cards else NOTHING_NEW))
+                built.append(RowVM("new", NEW_TO_AVRANA, cards, None if cards else NOTHING_NEW))
                 built += shelf_rows(shelved, limit, title_services)
             else:
                 # Nothing added in the last two months (owner decision 2026-10-27): the row says Recently released and
@@ -724,7 +768,7 @@ def build_home(view: dict, tiles, *, new_tab: Optional[str] = None, limit: int =
                 built += [RowVM("new", r.heading, r.items) for r in released]
                 built += shelf_rows(shelved, limit, title_services, SHELF_ROWS[1:])
                 released_only = bool(released)
-        # One row alone is the plain Recently added section, unless it is Recently released (it must keep its name).
+        # One row alone is the plain New to Avrana section, unless it is Recently released (it must keep its name).
         rows = tuple(built) if len(built) > 1 or released_only else ()
 
     # The hero (memo section 4, Actual states only): the member's own next thing. H1: the first Continue item that
@@ -743,7 +787,7 @@ def build_home(view: dict, tiles, *, new_tab: Optional[str] = None, limit: int =
                   continue_items=_cards(cont, lambda it: it.detail, progress=True),
                   continue_said=continue_said, show_new=not rows, rows=rows,
                   new_tabs=tuple((k, n, k == tab) for k, n in tabs), new_items=new, new_said=new_said,
-                  retry_href=retry_href, setup_href=setup_href, hero=hero)
+                  retry_href=retry_href, setup_href=setup_href, hero=hero, released_items=released)
 
 
 # ---- The Library page (Concept K MK-5a, AVR-719): chips, one shelf per library, the Request group ------------
@@ -788,7 +832,7 @@ class LibraryVM:
     warnings: Tuple[str, ...] = ()         # Home's own unavailable sentences, one per down library (or one combined)
     retry_href: Optional[str] = None       # "Try again": this same page, the chosen chip kept
     shelves: Tuple[ShelfVM, ...] = ()
-    said: Optional[str] = None             # the honest empty state ("Nothing recently added.")
+    said: Optional[str] = None             # the honest empty state ("Nothing added to Avrana recently.")
     setup_href: Optional[str] = None       # "What to do next": a library is not set up for this member
     asks: Tuple[Tuple[str, object, object], ...] = ()   # (href, label, description): catalogue text (Trusted)
     asks_heading: str = "Requests"         # "Request or contribute" when both rows are there; contributing is no request
@@ -882,7 +926,7 @@ def build_library(view: dict, tiles, *, chip: Optional[str] = None, limit: int =
                          for key, heading, kinds in WATCH_ROWS]
                 built = [r for r in built if r.items]
             else:
-                built = [RowVM("new", "Recently added", cards)] if cards else []
+                built = [RowVM("new", NEW_TO_AVRANA, cards)] if cards else []
                 shelved = [vm for sec in held[s] if sec["section"] == "shelves" and sec["state"] == "ok"
                            for vm in (_item_vm(it) for it in sec.get("items", ())) if vm is not None]
                 built += shelf_rows(shelved, limit, title_services)
@@ -890,7 +934,7 @@ def build_library(view: dict, tiles, *, chip: Optional[str] = None, limit: int =
         if cards:
             shelves.append(ShelfVM(s, label, "ok", cards, open_href=open_href, open_app=app, rows=rows))
         else:
-            shelves.append(ShelfVM(s, label, "empty", message=f"Nothing recently added in {label}.",
+            shelves.append(ShelfVM(s, label, "empty", message=f"Nothing added to {label} recently.",
                                    open_href=open_href, open_app=app))
     if chosen == LIBRARY_ALL and len(warnings) > 1 and len(warnings) == len(mine):
         warnings = ["None of your libraries is answering right now."]   # Home's combined line (all down)

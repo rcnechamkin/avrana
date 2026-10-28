@@ -16,6 +16,7 @@ Nothing here knows a service's routes, field names or id format; those are passe
 """
 from __future__ import annotations
 
+import datetime as _dt
 import json
 import re
 import unicodedata
@@ -145,6 +146,23 @@ def bounded_int(value: Any) -> Optional[int]:
 
 YEAR_MIN, YEAR_MAX = 1000, 2200
 _YEAR_TEXT = re.compile(r"([0-9]{4})(?:-[0-9]{2}(?:-[0-9]{2}(?:T[0-9:.]{1,18}(?:Z|[+-][0-9]{2}:?[0-9]{2})?)?)?)?")
+
+
+_DAY_TEXT = re.compile(r"(\d{4})-(\d{2})-(\d{2})(?:[T ].*)?")
+
+
+def iso_day(value: Any) -> Optional[str]:
+    """A release day ("YYYY-MM-DD") from the start of an upstream ISO date or timestamp, or None. The year must be
+    plausible (as `year_from`) and the date real; a bare year is not a day."""
+    if not isinstance(value, str) or len(value) > 40:
+        return None
+    m = _DAY_TEXT.fullmatch(value.strip())
+    if m is None or year_from(m.group(1)) is None:
+        return None
+    try:
+        return _dt.date(int(m.group(1)), int(m.group(2)), int(m.group(3))).isoformat()
+    except ValueError:
+        return None
 
 
 def year_from(value: Any) -> Optional[int]:

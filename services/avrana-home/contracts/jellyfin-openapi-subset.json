@@ -38,9 +38,13 @@
       "fields",
       "ids",
       "includeItemTypes",
+      "isMissing",
       "limit",
+      "maxPremiereDate",
       "recursive",
       "searchTerm",
+      "sortBy",
+      "sortOrder",
       "userId"
      ],
      "response": "BaseItemDtoQueryResult"
@@ -114,6 +118,7 @@
      "ParentBackdropImageTags": "array",
      "ParentBackdropItemId": "string",
      "ParentIndexNumber": "integer",
+     "PremiereDate": "string",
      "ProductionYear": "integer",
      "ProviderIds": "object",
      "RunTimeTicks": "integer",
@@ -173,9 +178,13 @@
       "fields",
       "ids",
       "includeItemTypes",
+      "isMissing",
       "limit",
+      "maxPremiereDate",
       "recursive",
       "searchTerm",
+      "sortBy",
+      "sortOrder",
       "userId"
      ],
      "response": "BaseItemDtoQueryResult"
@@ -237,7 +246,7 @@
      "response": "array:UserDto"
     }
    },
-   "retrieved": "2026-10-26",
+   "retrieved": "2026-10-28",
    "schemas": {
     "BaseItemDto": {
      "BackdropImageTags": "array",
@@ -249,6 +258,7 @@
      "ParentBackdropImageTags": "array",
      "ParentBackdropItemId": "string",
      "ParentIndexNumber": "integer",
+     "PremiereDate": "string",
      "ProductionYear": "integer",
      "ProviderIds": "object",
      "RunTimeTicks": "integer",
@@ -276,7 +286,7 @@
    },
    "sha256": "c17ce3d626214900034de40a2f014622d17393b4d2bb0dfcce09aa81ec69fd8e",
    "source_note": "source_url is a moving alias (it now serves whatever is current), so the sha256 is what pins the file that was read",
-   "source_url": "https://repo.jellyfin.org/files/openapi/jellyfin-openapi-stable.json",
+   "source_url": "https://repo.jellyfin.org/files/openapi/stable/jellyfin-openapi-12.3.json",
    "version": "12.3.0"
   }
  }

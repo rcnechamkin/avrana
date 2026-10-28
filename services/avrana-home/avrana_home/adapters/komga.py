@@ -55,7 +55,7 @@ from .. import media_ids
 from ..principal import MemberPrincipal
 from ..resilience import (DEFAULT_TIMEOUT, ItemGone, RouteMissing, Transport, UpstreamAuthError,
                           UpstreamMalformed, UpstreamMisbehaved)
-from ._base import GuardedAdapter, Route, bounded_int, year_from
+from ._base import GuardedAdapter, Route, bounded_int, iso_day, year_from
 from ._base import GuardedTransport as _Guard
 
 SHARED_VIEWER = "shared"                      # the fixed, non-member upstream "user": a shared view, by design
@@ -163,7 +163,7 @@ def _released(raw: dict) -> Optional[date]:
 class KomgaAdapter(GuardedAdapter):
     service = Service.KOMGA
     not_offered = frozenset({"continue"})
-    extra_sections = frozenset({"shelves"})
+    extra_sections = frozenset({"shelves", "released"})
 
     def __init__(self, transport: Transport, timeout: float = DEFAULT_TIMEOUT, *,
                  owner_confirms_no_member_restrictions: bool = False,
@@ -219,6 +219,7 @@ class KomgaAdapter(GuardedAdapter):
         title = clean_text(info.get("title")) or clean_text(raw.get("name")) or "Untitled"
         number = clean_text(info.get("number"), 20)
         return MediaItem(creator=_creator(info.get("authors")), year=year_from(info.get("releaseDate")),
+                         released=iso_day(info.get("releaseDate")),
                          id=f"komga:{book_id}", service=Service.KOMGA, kind=Kind.COMIC, title=title,
                          handoff_url=build_handoff_url(Service.KOMGA, book_id),
                          subtitle=f"#{number}" if number else None, series=clean_text(raw.get("seriesTitle")),
@@ -315,6 +316,17 @@ class KomgaAdapter(GuardedAdapter):
             return day is not None and day <= latest
         return self._listing(user, limit, "/api/v1/books", {"sort": RELEASED_SORT}, "shelves", keep=keep,
                              per_series=True, size=MAX_PAGE, shelf="new")
+
+    def _released_items(self, user: UpstreamUser, limit: int) -> SectionResult:
+        """Home's New releases (owner decision 2026-10-28): the same listing as the New releases shelf, as its own
+        section. Cover dates run ahead of sale, so Home sorts a future date as today."""
+        latest = _today() + timedelta(days=RELEASE_AHEAD_DAYS)
+
+        def keep(raw):
+            day = _released(raw)
+            return day is not None and day <= latest
+        return self._listing(user, limit, "/api/v1/books", {"sort": RELEASED_SORT}, "released", keep=keep,
+                             per_series=True, size=MAX_PAGE)
 
     def _search(self, user: UpstreamUser, query: str, limit: int) -> SectionResult:
         """Search is the SAME shared-account listing as recent (contract 12.2): Komga applies the one regular

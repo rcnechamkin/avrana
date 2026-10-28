@@ -134,8 +134,8 @@ class HeroViewModel(unittest.TestCase):
 
     def test_recently_added_wording_is_not_date_bounded(self):
         v = view(sec("jellyfin", "recent", "empty"), sec("komga", "recent", "ok", [item("komga", "BOOKAAAA01", "C", "comic")]))
-        self.assertEqual("Nothing recently added in Movies and TV.", build_home(v, TILES, new_tab="jellyfin").new_said)
-        self.assertEqual("Nothing recently added.", build_home(view(sec("jellyfin", "recent", "empty")), TILES).new_said)
+        self.assertEqual("Nothing added to Movies and TV recently.", build_home(v, TILES, new_tab="jellyfin").new_said)
+        self.assertEqual("Nothing added to Avrana recently.", build_home(view(sec("jellyfin", "recent", "empty")), TILES).new_said)
 
 
 class Stylesheet(unittest.TestCase):
@@ -218,14 +218,14 @@ class Markup(unittest.TestCase):
         html = self.render(v)
         hero = self.hero_of(html)
         self.assertIn('<section class="hero w-comic no-art" aria-labelledby="h-hero">', hero)
-        self.assertIn('<span class="k-eyebrow">Recently added<span class="sr">: </span></span>', hero)
+        self.assertIn('<span class="k-eyebrow">New to Avrana<span class="sr">: </span></span>', hero)
         self.assertNotIn("yours", hero)
         self.assertNotIn("<img", hero)
         self.assertNotIn("hero-glow", hero)
         self.assertIn('<span class="frame"><span class="ph" aria-hidden="true">Z</span></span>', hero)
         self.assertNotIn("hero-details", hero)                             # no title services: no Details
-        self.assertIn('<h2 id="h-new">Recently added</h2>', html)
-        self.assertNotIn('aria-label="Recently added, by library"', html)   # one library: no filter row
+        self.assertIn('<h2 id="h-new">New to Avrana</h2>', html)
+        self.assertNotIn('aria-label="New to Avrana, by library"', html)   # one library: no filter row
         self.assertNotIn("New this week", html)
 
     def test_continue_cards_carry_the_rule_and_keep_one_link(self):
@@ -290,7 +290,7 @@ class TwoMembers(unittest.TestCase):
         # MK-5a (AVR-719) gave Library its own page; Home keeps its shelf and its id.
         text, _hero = self.hero(A)
         self.assertIn('<a class="tab" href="/library">', text)
-        self.assertIn('<h2 id="h-new">Recently added</h2>', text)
+        self.assertIn('<h2 id="h-new">New to Avrana</h2>', text)
 
 
 if __name__ == "__main__":

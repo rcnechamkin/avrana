@@ -343,11 +343,19 @@ JavaScript-off parity is tested per page (`webtests/test_web_pages_k.py`, `test_
 `script-src`" on every route and identity. `shell_for` gives shell data only when `HOME_SECTIONS` is on, the request
 has a valid principal and adapters are built; otherwise the page is the portal's, byte for byte (section 4).
 
+**Home's rails (owner decision 2026-10-28).** After Continue, Home shows **New releases**, by the release date
+itself across the member's libraries (Jellyfin `PremiereDate`, Komga `releaseDate`, Audiobookshelf `publishedDate`
+or a bare year as 1 January; a future cover date sorts as today; never what Continue already shows; hidden when
+nothing has a date), then **New to Avrana**, the rail that was Recently added (by when a library added it, with its
+library tabs). The hero without Continue says New to Avrana. The Watch filter adds New releases after Up next; Listen
+and Comics keep their own New releases shelf. The All page gathers each library's `released` section after Continue
+and New to Avrana (cached 300 s), so a member still holds at most two upstream calls per library at once.
+
 **Shell routes** (all `Cache-Control: no-store`, all through `respond()`):
 
 | Route | Shell page | Without the shell |
 |---|---|---|
-| `/` | Home: lockup, places bar, hero, Continue, Recently added | The portal's tile page |
+| `/` | Home: lockup, places bar, hero, Continue, New releases, New to Avrana | The portal's tile page |
 | `/library` (MK-5a) | Library tab page; `?lib=` picks one of the member's own libraries | Standard 404, byte-identical to an unknown route |
 | `/search` | Search tab page (`form-action 'self'`) | Standard 404 with sections off |
 | `/title/<service>/<id>` | Title page; 503 page when the library is unavailable | Standard 404 |

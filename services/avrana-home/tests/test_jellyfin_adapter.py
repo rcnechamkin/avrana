@@ -6,6 +6,7 @@ _sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)
 from tests import _netguard  # noqa: E402,F401  (installs the network guard, also when run directly)
 import json
 import unittest
+from datetime import datetime, timedelta, timezone
 
 from avrana_home.adapters.jellyfin import (ALLOWED_ROUTES, GuardedTransport, JellyfinAdapter,
                                            check_request, normalise_guid)
@@ -207,7 +208,7 @@ class ContinueAndRecentTests(Base):
         self.assertTrue(all(q.get("userId") for q in sent))
 
     def test_next_up_is_offered_by_this_library_only(self):
-        self.assertEqual(JellyfinAdapter.extra_sections, frozenset({"next_up"}))
+        self.assertEqual(JellyfinAdapter.extra_sections, frozenset({"next_up", "released"}))
 
     def test_empty_when_nothing_in_progress(self):
         self.fake.users.append({"Id": "99999999-9999-4999-8999-999999999999", "Name": "member-z",
@@ -510,6 +511,57 @@ class SecretHandlingTests(unittest.TestCase):
     def test_no_redirects_are_followed(self):
         from avrana_home.resilience import _NoRedirect
         self.assertIsNone(_NoRedirect().redirect_request(None, None, 302, "", {}, "http://elsewhere"))
+
+
+class Released(Base):
+    """New releases (owner decision 2026-10-28): by premiere date, none later than today, one episode per series."""
+
+    def setUp(self):
+        super().setUp()
+        today = datetime.now(timezone.utc).date()
+
+        def entry(n, name, kind, days_ago, series=None):
+            raw = {"Id": f"aaaa00000000000000000000000009{n:02d}", "Name": name, "Type": kind,
+                   "UserData": {"Played": False}, "ImageTags": {"Primary": f"tag{n}"}}
+            if days_ago is not None:
+                raw["PremiereDate"] = (today - timedelta(days=days_ago)).isoformat() + "T00:00:00.0000000Z"
+            if series:
+                raw.update(SeriesName=series, ParentIndexNumber=2, IndexNumber=10 - days_ago)
+            return raw
+        self.served = [entry(1, "Synthetic Late Episode", "Episode", -3, "Synthetic Show"),   # future: dropped
+                       entry(2, "Synthetic New Episode", "Episode", 1, "Synthetic Show"),
+                       entry(3, "Synthetic Older Episode", "Episode", 2, "Synthetic Show"),   # same series
+                       entry(4, "Synthetic New Film", "Movie", 3),
+                       entry(5, "Synthetic Undated Film", "Movie", None)]                    # no date: dropped
+        handle = self.fake.handle
+
+        def released(method, path, query):
+            if path == "/Items" and query and "sortBy" in query:
+                self.fake.requests.append((method, path, dict(query)))
+                return self.fake._json({"Items": self.served, "TotalRecordCount": len(self.served)})
+            return handle(method, path, query)
+        self.fake.handle = released
+        self.today = today
+
+    def test_newest_premiere_first_one_episode_per_series_nothing_undated_or_ahead(self):
+        r = self.adapter.released_items(self.a)
+        self.assertEqual((r.section, r.state), ("released", SectionState.OK))
+        self.assertEqual([i.title for i in r.items], ["Synthetic New Episode", "Synthetic New Film"])
+        self.assertEqual(r.items[1].released, (self.today - timedelta(days=3)).isoformat())
+        self.assertEqual(r.items[1].to_dict()["released"], r.items[1].released)
+
+    def test_the_query_is_the_members_own_sorted_bounded_listing(self):
+        self.adapter.released_items(self.a, limit=5)
+        (q,) = [q for _m, p, q in self.fake.requests if p == "/Items" and "sortBy" in q]
+        self.assertEqual(q["userId"], A)
+        self.assertEqual((q["sortBy"], q["sortOrder"], q["isMissing"]), ("PremiereDate,SortName", "Descending", "false"))
+        self.assertEqual(q["maxPremiereDate"], self.today.isoformat() + "T23:59:59Z")
+        self.assertEqual((q["includeItemTypes"], q["limit"]), ("Movie,Episode", "20"))
+
+    def test_the_group_gates_it(self):
+        outsider = make_principal("member-a", ("avrana-users",))
+        self.assertIs(self.adapter.released_items(outsider).state, SectionState.NOT_PERMITTED)
+        self.assertEqual(self.fake.requests, [])
 
 
 if __name__ == "__main__":

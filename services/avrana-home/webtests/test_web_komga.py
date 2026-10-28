@@ -1,4 +1,4 @@
-"""Tier B: the Komga "Recently added" section through the HTTP layer, against the mock Komga (loopback,
+"""Tier B: the Komga "New to Avrana" section through the HTTP layer, against the mock Komga (loopback,
 SYNTHETIC fixtures from tests/fake_komga.py, real UrllibTransport). Komga is off unless
 `komga_base_url` is set, and mock mode is the only mode that accepts it.
 
@@ -66,7 +66,7 @@ class RecentComicsTests(Fixture):
         c = self.client()
         r = c.get("/", headers=A)
         self.assertEqual(200, r.status_code)
-        self.assertIn('<h2 id="h-new">Recently added</h2>', r.text)     # memo section 4: not date-bounded
+        self.assertIn('<h2 id="h-new">New to Avrana</h2>', r.text)     # memo section 4: not date-bounded
         sec = self.recent(c, A)
         self.assertEqual("ok", sec["state"])
         self.assertEqual(A_BOOKS, sorted(i["title"] for i in sec["items"]))

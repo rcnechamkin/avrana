@@ -120,7 +120,7 @@ class EndToEnd(Fixture):
         self.assertEqual("ok", states[("calibre-web", "recent")])
         page = c.get("/", headers=auth())
         self.assertEqual(200, page.status_code)
-        self.assertIn("Recently added", page.text)
+        self.assertIn("New to Avrana", page.text)
         self.assertGreater(self.upstream_calls(), 0)
 
     def test_forged_identity_headers_change_nothing(self):
