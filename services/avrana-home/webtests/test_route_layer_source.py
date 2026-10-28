@@ -91,6 +91,11 @@ class RouteLayerTests(unittest.TestCase):
         self.assertNotIn("RedirectResponse", main)
         self.assertEqual(1, len(re.findall(r'"Location"', main)))
         self.assertIn("decision.location", main)
+        # Account & Security's hand-off: a fixed table in security.py, chosen by an allowlisted action id only.
+        self.assertIn("action = security_mod.action_from_route(route)", main)
+        sec = code(sources()["security.py"])
+        self.assertIn("if action not in ACTIONS:", sec)
+        self.assertEqual(1, len(re.findall(r'"Location"', sec)))
 
     def test_no_import_time_side_effects_in_the_package(self):
         for name, text in sources().items():

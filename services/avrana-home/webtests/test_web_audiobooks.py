@@ -233,7 +233,7 @@ class SettingsTests(unittest.TestCase):
 
     def test_real_mode_needs_url_and_token_together_and_the_gates(self):
         from avrana_home.app.settings import Settings, SettingsError
-        real = {"HOME_UPSTREAM_MODE": "real", "HOME_GATES_VERIFIED": "yes",
+        real = {"HOME_UPSTREAM_MODE": "real", "HOME_GATES_VERIFIED": "yes", **JWT_REQUIRED,
                 "JELLYFIN_BASE_URL": "https://jf.example.test", "JELLYFIN_API_KEY": "k"}
         Settings.from_mapping(real)                                   # Audiobookshelf stays off
         with self.assertRaises(SettingsError):
@@ -265,8 +265,11 @@ class SettingsTests(unittest.TestCase):
                 self.assertNotIn("sentinel-token", str(cm.exception))
         ok = Settings.from_mapping({**real, **JWT_REQUIRED})
         self.assertEqual("jwt_required", ok.identity_mode)
-        # Without Audiobookshelf nothing changes: real mode with headers keeps today's behaviour.
-        Settings.from_mapping({k: v for k, v in real.items() if not k.startswith("AUDIOBOOKSHELF_")})
+        # Without Audiobookshelf, real mode still needs verified identity: the Jellyfin key is an admin key too
+        # (owner decision 2026-10-27; test_settings.test_the_jellyfin_admin_key_in_real_mode_needs_verified_identity).
+        with self.assertRaises(SettingsError) as cm:
+            Settings.from_mapping({k: v for k, v in real.items() if not k.startswith("AUDIOBOOKSHELF_")})
+        self.assertIn("JELLYFIN_API_KEY is an admin key", str(cm.exception))
         # Mock mode is synthetic data: unaffected.
         Settings.from_mapping({"HOME_UPSTREAM_MODE": "mock", "AUDIOBOOKSHELF_BASE_URL": "http://127.0.0.1:18097"})
 

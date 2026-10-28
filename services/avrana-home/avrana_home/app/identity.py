@@ -182,6 +182,19 @@ def library_view_from_scope(scope) -> Optional[str]:
     return _choice_from_scope(scope, "view")
 
 
+def security_state_from_scope(scope) -> Optional[str]:
+    """The opaque return state on `/me/security/back?s=<state>` (security.py). Bounded text only; security.py checks
+    its signature against the verified member. It confers no identity and no access, and is never echoed or logged."""
+    from urllib.parse import parse_qsl
+    raw = scope.get("query_string") or b""
+    if not isinstance(raw, (bytes, bytearray)) or len(raw) > 512:
+        return None
+    for key, value in parse_qsl(bytes(raw).decode("ascii", "ignore"), keep_blank_values=False):
+        if key == "s":
+            return value[:160]
+    return None
+
+
 def _choice_from_scope(scope, name: str) -> Optional[str]:
     from urllib.parse import parse_qsl
     raw = scope.get("query_string") or b""

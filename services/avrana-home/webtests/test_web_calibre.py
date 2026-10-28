@@ -142,7 +142,8 @@ class ArtworkTests(Fixture):
 
 class SettingsTests(unittest.TestCase):
     REAL = {"HOME_UPSTREAM_MODE": "real", "HOME_GATES_VERIFIED": "yes",
-            "JELLYFIN_BASE_URL": "https://jf.example.test", "JELLYFIN_API_KEY": "k"}
+            "JELLYFIN_BASE_URL": "https://jf.example.test", "JELLYFIN_API_KEY": "k",
+            "HOME_IDENTITY_MODE": "jwt_required", "HOME_JWT_ISSUER": "https://auth.example.test/application/o/t/", "HOME_JWT_AUDIENCE": "t", "HOME_JWT_SECRET": "x" * 48}
     CW = {"CALIBRE_WEB_BASE_URL": "https://cw.example.test", "CALIBRE_WEB_CREDENTIAL": "viewer:sentinel-cw"}
     OWNER = {"CALIBRE_WEB_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS": "yes"}
 
