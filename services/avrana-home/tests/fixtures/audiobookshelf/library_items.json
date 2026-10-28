@@ -1,0 +1,279 @@
+{
+ "_synthetic": "Hand-written SYNTHETIC fixture, written from recollection of the public Audiobookshelf API. Hand-written, unverified against the deployed version; a recorded read-only contract check is a separate owner-approved step before any real data is read. Invented ids and titles.",
+ "_schema": "Library item lists, keyed by library id: the `results` of GET /api/libraries/{id}/items?minified=1, before the fake sorts, filters and limits them. Unverified.",
+ "_target_version": "Audiobookshelf 2.36 (the version the contract says is deployed; NOT confirmed against the deployed server)",
+ "_provenance": "GET /api/libraries/{id}/items (query sort, desc, limit, minified, filter=genres.<base64>) answering {results, total, limit, page, ...} with minified library items (id, libraryId, mediaType, isMissing, isInvalid, addedAt in milliseconds, media.metadata.{title, authorName, seriesName, publishedYear, explicit, genres}, media.tags, media.duration, media.coverPath), and GET /api/libraries/{id}/filterdata answering {genres: [...], ...}, are recalled from the 2.x API and server source. SYNTHETIC assumption: '@this_year' is replaced by the fake with the current year. Live compatibility is UNPROVEN until the owner's recorded read-only capture is compared (ADAPTER-CONTRACT.md 11.7).",
+ "response": {
+  "lib_aaa": [
+   {
+    "id": "li_book000021",
+    "libraryId": "lib_aaa",
+    "mediaType": "book",
+    "isMissing": false,
+    "isInvalid": false,
+    "addedAt": 1790000900000,
+    "media": {
+     "metadata": {
+      "title": "Synthetic Fresh Release",
+      "authorName": "Synthetic Author",
+      "seriesName": null,
+      "publishedYear": "@this_year",
+      "explicit": false,
+      "genres": [
+       "Science Fiction"
+      ]
+     },
+     "tags": [],
+     "duration": 30000.0,
+     "coverPath": "/metadata/items/li_book000021/cover.jpg"
+    }
+   },
+   {
+    "id": "li_book000020",
+    "libraryId": "lib_aaa",
+    "mediaType": "book",
+    "isMissing": false,
+    "isInvalid": false,
+    "addedAt": 1790000800000,
+    "media": {
+     "metadata": {
+      "title": "Synthetic Classic Novel",
+      "authorName": "Synthetic Author",
+      "seriesName": null,
+      "publishedYear": "1813",
+      "explicit": false,
+      "genres": [
+       "Classics",
+       "Romance"
+      ]
+     },
+     "tags": [],
+     "duration": 41000.0,
+     "coverPath": "/metadata/items/li_book000020/cover.jpg"
+    }
+   },
+   {
+    "id": "li_book000022",
+    "libraryId": "lib_aaa",
+    "mediaType": "book",
+    "isMissing": false,
+    "isInvalid": false,
+    "addedAt": 1790000700000,
+    "media": {
+     "metadata": {
+      "title": "Synthetic Quick Story",
+      "authorName": "Synthetic Author",
+      "seriesName": null,
+      "publishedYear": "2019",
+      "explicit": false,
+      "genres": [
+       "Short Stories"
+      ]
+     },
+     "tags": [],
+     "duration": 5400.0,
+     "coverPath": "/metadata/items/li_book000022/cover.jpg"
+    }
+   },
+   {
+    "id": "li_book000023",
+    "libraryId": "lib_aaa",
+    "mediaType": "book",
+    "isMissing": false,
+    "isInvalid": false,
+    "addedAt": 1790000600000,
+    "media": {
+     "metadata": {
+      "title": "Synthetic Grand Epic",
+      "authorName": "Synthetic Author",
+      "seriesName": null,
+      "publishedYear": "2005",
+      "explicit": false,
+      "genres": [
+       "Fantasy"
+      ]
+     },
+     "tags": [],
+     "duration": 90000.0,
+     "coverPath": "/metadata/items/li_book000023/cover.jpg"
+    }
+   },
+   {
+    "id": "li_book000024",
+    "libraryId": "lib_aaa",
+    "mediaType": "book",
+    "isMissing": false,
+    "isInvalid": false,
+    "addedAt": 1790000500000,
+    "media": {
+     "metadata": {
+      "title": "Synthetic Explicit Short",
+      "authorName": "Synthetic Author",
+      "seriesName": null,
+      "publishedYear": "2020",
+      "explicit": true,
+      "genres": []
+     },
+     "tags": [],
+     "duration": 3600.0,
+     "coverPath": "/metadata/items/li_book000024/cover.jpg"
+    }
+   },
+   {
+    "id": "li_book000025",
+    "libraryId": "lib_aaa",
+    "mediaType": "book",
+    "isMissing": false,
+    "isInvalid": false,
+    "addedAt": 1790000400000,
+    "media": {
+     "metadata": {
+      "title": "Synthetic Tagged Short",
+      "authorName": "Synthetic Author",
+      "seriesName": null,
+      "publishedYear": "2021",
+      "explicit": false,
+      "genres": []
+     },
+     "tags": [
+      "mature"
+     ],
+     "duration": 4000.0,
+     "coverPath": "/metadata/items/li_book000025/cover.jpg"
+    }
+   },
+   {
+    "id": "li_book000026",
+    "libraryId": "lib_aaa",
+    "mediaType": "book",
+    "isMissing": false,
+    "isInvalid": false,
+    "addedAt": 1790000300000,
+    "media": {
+     "metadata": {
+      "title": "Synthetic Classic Adventure",
+      "authorName": "Synthetic Author",
+      "seriesName": null,
+      "publishedYear": "1883",
+      "explicit": false,
+      "genres": [
+       "Classic Literature"
+      ]
+     },
+     "tags": [],
+     "duration": 7200.0,
+     "coverPath": "/metadata/items/li_book000026/cover.jpg"
+    }
+   },
+   {
+    "id": "li_book000001",
+    "libraryId": "lib_aaa",
+    "mediaType": "book",
+    "isMissing": false,
+    "isInvalid": false,
+    "addedAt": 1700000000000,
+    "media": {
+     "metadata": {
+      "title": "Synthetic Audiobook One",
+      "authorName": "Synthetic Author",
+      "seriesName": "Synthetic Saga #1",
+      "publishedYear": "2011",
+      "explicit": false,
+      "isbn": "0-306-40615-2",
+      "asin": "B0SYNTH001",
+      "genres": [
+       "Fantasy"
+      ]
+     },
+     "tags": [],
+     "duration": 36000.0,
+     "coverPath": "/metadata/items/li_book000001/cover.jpg"
+    }
+   },
+   {
+    "id": "li_book000002",
+    "libraryId": "lib_aaa",
+    "mediaType": "book",
+    "isMissing": false,
+    "isInvalid": false,
+    "addedAt": 1690000000000,
+    "media": {
+     "metadata": {
+      "title": "Synthetic Audiobook Two",
+      "authorName": "Synthetic Author",
+      "seriesName": null,
+      "explicit": false,
+      "genres": []
+     },
+     "tags": [],
+     "duration": 32000.0,
+     "coverPath": null
+    }
+   },
+   {
+    "id": "li_book000006",
+    "libraryId": "lib_aaa",
+    "mediaType": "book",
+    "isMissing": false,
+    "isInvalid": false,
+    "addedAt": 1680000000000,
+    "media": {
+     "metadata": {
+      "title": "Synthetic Audiobook Six",
+      "authorName": "Synthetic Author",
+      "seriesName": null,
+      "explicit": false,
+      "genres": []
+     },
+     "tags": [],
+     "duration": 36000.0,
+     "coverPath": "/metadata/items/li_book000006/cover.jpg"
+    }
+   },
+   {
+    "id": "li_book000007",
+    "libraryId": "lib_aaa",
+    "mediaType": "book",
+    "isMissing": false,
+    "isInvalid": false,
+    "addedAt": 1670000000000,
+    "media": {
+     "metadata": {
+      "title": "Synthetic Audiobook Seven",
+      "authorName": "Synthetic Author",
+      "seriesName": null,
+      "explicit": false,
+      "genres": []
+     },
+     "tags": [],
+     "duration": 35000.0,
+     "coverPath": "/metadata/items/li_book000007/cover.jpg"
+    }
+   }
+  ],
+  "lib_bbb": [
+   {
+    "id": "li_book000003",
+    "libraryId": "lib_bbb",
+    "mediaType": "book",
+    "isMissing": false,
+    "isInvalid": false,
+    "addedAt": 1795000000000,
+    "media": {
+     "metadata": {
+      "title": "Synthetic Audiobook Three",
+      "authorName": "Synthetic Author",
+      "seriesName": null,
+      "explicit": false,
+      "genres": [
+       "Classics"
+      ]
+     },
+     "tags": [],
+     "duration": 36000.0,
+     "coverPath": "/metadata/items/li_book000003/cover.jpg"
+    }
+   }
+  ]
+ }
+}
