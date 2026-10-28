@@ -39,8 +39,9 @@ from . import artwork as artwork_mod
 from . import install as install_mod
 from . import notice as notice_mod
 from . import pwa as pwa_mod
+from . import security as security_mod
 from .identity import (IdentityResolver, Viewer, get_viewer, has_identity_headers, library_chip_from_scope,
-                       new_tab_from_scope, search_term_from_scope)
+                       new_tab_from_scope, search_term_from_scope, security_state_from_scope)
 from .logsafe import app_log, log_event, silence_uvicorn_access
 from .middleware import HygieneMiddleware
 from . import recovery
@@ -169,6 +170,11 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
     cache = MemberCache(SystemClock())
     adapter_list = list(adapters) if adapters is not None else build_adapters(settings, cache)
     notices = notice_mod.NoticeBoard(settings.notice_file)          # AVR-365: read-only; None = no notices
+    # Account & Security: the fixed hand-off table (from the catalogue's account address and the owner-verified flows)
+    # and the per-process key for the opaque return state. A bad catalogue address stops startup.
+    security_config = security_mod.SecurityConfig.build(cat.account_url, settings.security_flows,
+                                                        settings.security_return_origin)
+    return_states = security_mod.ReturnStates()
 
     @contextlib.asynccontextmanager
     async def lifespan(_app):
@@ -331,6 +337,32 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
             decision = trouble_decision(viewer.groups)
             scope["avrana_route"] = decision.label
             return respond(decision, scope, shell=shell_for(viewer, "help-topic"))
+        if route.startswith(security_mod.PREFIX) and settings.home_sections and p is not None and adapter_list:
+            # Me -> Account & Security (security.py). Shell only and a verified member only; any other path under the
+            # prefix, or no member, is the standard 404 (parity). The hand-off is a 303 to a fixed Authentik address.
+            if route == security_mod.JSON_ROUTE:
+                scope["avrana_route"] = route
+                return JSONResponse(security_config.summary())
+            action = security_mod.action_from_route(route)
+            if action is not None:
+                scope["avrana_route"] = security_mod.GO_PREFIX + "{action}"
+                log_event(app_log, logging.INFO, "security_handoff", reason=action,
+                          state=security_config.via(action))
+                return Response(b"", status_code=303, media_type=HTML, headers=security_mod.handoff_headers(
+                    security_config, return_states, action, p.username))
+            result = (return_states.check(security_state_from_scope(scope), p.username)
+                      if route == security_mod.BACK_ROUTE else None)
+            page = security_mod.build_page(route, security_config, groups=viewer.groups, username=p.username,
+                                           signout_href=pwa_mod.SIGNOUT_PATH, result=result)
+            if page is None:
+                scope["avrana_route"] = "not_found"
+                return respond(not_found())
+            if result is not None:
+                log_event(app_log, logging.INFO, "security_return", state=result.outcome,
+                          reason="expired" if result.expired else (result.action or "none"))
+            scope["avrana_route"] = route
+            return respond(Decision(route, 200, "me_security.html", {"sec": page}), scope,
+                           shell=shell_for(viewer, "me"))
         if route == ME_ROUTE and settings.home_sections and p is not None and adapter_list:
             # The Me hub (Concept K, AVR-719) exists only with the shell; otherwise the path stays unknown (parity).
             decision = me_decision(build_me(tiles_for(viewer), p.username, pwa_mod.SIGNOUT_PATH))
