@@ -416,6 +416,12 @@
      .rail rules keep all of that and only the sizes change here. Art takes the preview radius. */
   .rail,.rail.tall{--art-h:180px;--card-min:11.25rem;}
   @media (min-width:45rem){.rail,.rail.tall{--art-h:180px;--card-min:9.5rem;}}
+  /* Owner review 2026-10-27 (iPhone, live beta): one fixed card width left a poster 60px of empty card beside it, so
+     the gaps changed with the media type. Each card is now as wide as its art (posters 120, 13:20 covers 117, squares
+     and phone stills 180, desktop stills up to 12.5rem) with the one 0.875rem gap. The Rail Focus Rule's region stays
+     max(--cw, --wide-max): the widest card, so a focused card always fits it. */
+  .rail,.rail.tall{--card-min:7.5rem;--wide-max:11.25rem;}
+  @media (min-width:45rem){.rail,.rail.tall{--card-min:7.5rem;--wide-max:12.5rem;}}
   .rail .frame{border-radius:var(--radius-preview);border-color:var(--line);background:var(--raised);}
   .card{gap:0.1875rem;}
   .card .frame{margin-bottom:0.625rem;}
