@@ -285,6 +285,14 @@ class AudiobookshelfSim:
                     if len(hits) >= limit:
                         break
             return 200, {"book": hits, "tags": [], "authors": [], "series": [], "narrators": [], "genres": []}
+        m = re.fullmatch(r"/api/libraries/([a-z0-9_]+)/items", path)
+        if m:                                  # newest first: the highest numbers were added last
+            lib, limit = m.group(1), int(q.get("limit", "12"))
+            listed = [self.items[iid] for iid in reversed(self.order) if self.items[iid]["libraryId"] == lib][:limit]
+            return 200, {"results": [dict(it, addedAt=1_700_000_000_000 + int(it["id"][5:])) for it in listed],
+                         "total": len(listed), "limit": limit, "page": 0}
+        if re.fullmatch(r"/api/libraries/([a-z0-9_]+)/filterdata", path):
+            return 200, {"genres": [], "authors": [], "tags": [], "series": [], "narrators": []}
         m = re.fullmatch(r"/api/items/(li_[a-z0-9]+)(/cover)?", path)
         if m and m.group(1) in self.items:
             return (200, ("image/jpeg", self.image)) if m.group(2) else (200, self.items[m.group(1)])

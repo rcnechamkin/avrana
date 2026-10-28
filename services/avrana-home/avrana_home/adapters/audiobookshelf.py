@@ -45,13 +45,24 @@ How it stays member-scoped with an ADMIN-capable token (Audiobookshelf has no im
     "name", "mediaType"}, ...]}` (UNVERIFIED).
   * One title (`item`, for the title page): the member's own record first, then the item through
     `_visible` exactly as a cover; a saved position only from that member's own progress entry.
+  * Recently added and the shelves (owner decision 2026-10-27, Home's Listen filter and the Library): the
+    member's own record first, then each of the member's libraries (the same `_libraries` rule as search) is
+    listed with `GET /api/libraries/{id}/items?sort=&desc=&limit=&minified=1[&filter=genres.<base64>]` and EVERY
+    entry goes through `_visible`, exactly as search. A list body without `results`, or an entry from another
+    library, fails closed. The shelves are New releases (published this year or last), Classics (the library's own
+    genres whose name says "classic", read from `GET /api/libraries/{id}/filterdata`), Short listens (30 minutes
+    to 5 hours) and Epic listens (20 hours or more). There is no "popular" shelf: the upstream has no listening
+    signal that is not another member's own history. Route, sort keys, filter syntax and the minified item shape
+    are recalled from the 2.x API and server source and are UNVERIFIED.
 
 Route and field names are recalled from Audiobookshelf's public API documentation and are UNVERIFIED.
 """
 from __future__ import annotations
 
+import base64
 import dataclasses
 import re
+import time
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 from ..contract import (TRUNCATED, ArtworkRef, ArtworkResult, DEFAULT_LIMIT, Kind, MappingFailed, MediaItem,
@@ -79,6 +90,17 @@ _LIBRARY_PATH = r"(?:lib_[a-z0-9]{3,40}|" + _UUID + r")"   # old "lib_" ids and 
 _LIBRARY_ID = re.compile(_LIBRARY_PATH)
 MAX_LIBRARIES = 6               # libraries searched per request (each is one upstream call)
 MAX_SEARCH_PAGE = 50            # hits asked for per library, whatever the limit
+MAX_LIST_PAGE = 36              # entries asked for per library list (recent or a shelf), whatever the limit
+CLASSIC_GENRE = re.compile(r"\bclassics?\b", re.IGNORECASE)
+MAX_CLASSIC_GENRES = 3
+SHORT_MIN, SHORT_MAX, EPIC_MIN = 30 * 60, 5 * 3600, 20 * 3600     # seconds
+# (shelf, sort key, descending, how many to ask for per wanted item): the upstream sorts, `_shelf_keep` filters.
+SHELVES = (("new", "media.metadata.publishedYear", True, 2), ("classics", "addedAt", True, 1),
+           ("short", "media.duration", False, 3), ("epic", "media.duration", True, 2))
+
+
+def _this_year() -> int:
+    return time.gmtime().tm_year
 
 ALLOWED_ROUTES = (
     Route("users", r"/api/users", (), user_scoped=False, needs_user=False, not_found=RouteMissing),
@@ -94,6 +116,12 @@ ALLOWED_ROUTES = (
     # The term travels only as the `q` query parameter, already cleaned by the contract's `clean_query`.
     Route("libraries", r"/api/libraries", (), user_scoped=False, not_found=RouteMissing),
     Route("search", r"/api/libraries/" + _LIBRARY_PATH + r"/search", ("q", "limit"), user_scoped=False,
+          not_found=ItemGone),
+    # Recently added and the shelves: the same scoping as search (the member's own libraries, every entry
+    # through `_visible`). `filter` only ever carries `genres.<base64 of a genre the library itself listed>`.
+    Route("library_items", r"/api/libraries/" + _LIBRARY_PATH + r"/items",
+          ("sort", "desc", "limit", "minified", "filter"), user_scoped=False, not_found=ItemGone),
+    Route("filterdata", r"/api/libraries/" + _LIBRARY_PATH + r"/filterdata", (), user_scoped=False,
           not_found=ItemGone),
 )
 
@@ -173,8 +201,8 @@ def _left(budget) -> float:
 
 class AudiobookshelfAdapter(GuardedAdapter):
     service = Service.AUDIOBOOKSHELF
-    not_offered = frozenset({"recent"})
     artwork_rechecks_visibility = True     # visibility is per member: re-checked before any cached cover
+    extra_sections = frozenset({"shelves"})
 
     def __init__(self, transport: Transport, timeout: float = DEFAULT_TIMEOUT, *,
                  member_username: Optional[Tuple[str, str]] = None, **kw):
@@ -185,10 +213,6 @@ class AudiobookshelfAdapter(GuardedAdapter):
 
     def __repr__(self) -> str:
         return "AudiobookshelfAdapter(<redacted>)"
-
-    # -- what this adapter does not offer: no upstream call, nothing cached ----------------
-    def recent_items(self, principal: MemberPrincipal, limit: int = DEFAULT_LIMIT) -> SectionResult:
-        return self._not_offered(principal, "recent")
 
     def fetch_artwork(self, principal: MemberPrincipal, ref: str) -> ArtworkResult:
         # Group first, then the ref's exact shape, both before any upstream call or cache read.
@@ -344,7 +368,112 @@ class AudiobookshelfAdapter(GuardedAdapter):
             raise UpstreamMalformed()
         return out
 
-    # -- the one section ---------------------------------------------------------------------
+    # -- Recently added and the shelves --------------------------------------------------------
+    def _list(self, guard, budget, access: _Access, library_id: str, query: Dict[str, str],
+              counts: List[int]) -> List[Tuple[int, int, MediaItem]]:
+        """One library list, every entry checked with THIS member's permissions. (added at, published year, item)
+        for each entry the member may see. `counts` gathers [answered, unusable] across calls."""
+        try:
+            body = self._get_json(guard, budget, f"/api/libraries/{library_id}/items", dict(query, minified="1"))
+        except ItemGone:
+            return []                                     # the library is gone: neutral
+        counts[0] += 1
+        raws = body.get("results") if isinstance(body, dict) else None
+        if not isinstance(raws, list):
+            raise UpstreamMalformed()
+        if len(raws) > int(query["limit"]):
+            raise UpstreamMisbehaved()                    # the limit was ignored
+        out = []
+        for raw in raws:
+            item_id = raw.get("id") if isinstance(raw, dict) else None
+            if not valid_upstream_id(Service.AUDIOBOOKSHELF, item_id):
+                counts[1] += 1
+                continue
+            if isinstance(raw.get("libraryId"), str) and raw["libraryId"] != library_id:
+                raise UpstreamMisbehaved()                # an entry from a library that was not listed
+            media, status = self._visible(raw, item_id, access, None, None, None)
+            counts[1] += status == "bad"
+            if media is not None:
+                out.append((bounded_int(raw.get("addedAt")) or 0, media.year or 0, media))
+        return out
+
+    def _recent_items(self, user: UpstreamUser, limit: int) -> SectionResult:
+        uid = user.upstream_id
+        guard = self._guard.bind(uid)
+        budget = self._budget()
+        _record, access = self._member_access(guard, budget, uid)   # BEFORE any library is listed
+        counts = [0, 0]
+        found: List[Tuple[int, int, MediaItem]] = []
+        libraries = self._libraries(guard, budget, access)[:MAX_LIBRARIES]
+        for library_id in libraries:
+            found += self._list(guard, budget, access, library_id,
+                                {"sort": "addedAt", "desc": "1", "limit": str(min(MAX_LIST_PAGE, limit))}, counts)
+        if libraries and not counts[0]:
+            raise RouteMissing(404)                       # every library answered 404: the route itself drifted
+        if not found and counts[1]:
+            raise UpstreamMalformed()
+        found.sort(key=lambda t: t[0], reverse=True)
+        return SectionResult.of(Service.AUDIOBOOKSHELF, "recent", tuple(_unique(m for _a, _y, m in found)[:limit]))
+
+    def _shelves_items(self, user: UpstreamUser, limit: int) -> SectionResult:
+        """Every shelf's items in one section, each item marked with its shelf. Cut short by the request budget, the
+        shelves already read are shown (reason TRUNCATED), never an empty or unfiltered list."""
+        uid = user.upstream_id
+        guard = self._guard.bind(uid)
+        budget = self._budget()
+        _record, access = self._member_access(guard, budget, uid)
+        libraries = self._libraries(guard, budget, access)[:MAX_LIBRARIES]
+        counts = [0, 0]
+        shown: List[MediaItem] = []
+        truncated = False
+        year = _this_year()
+        for shelf, sort, desc, ask in SHELVES:
+            if _left(budget) < LOOKUP_RESERVE:
+                truncated = True
+                break
+            found: List[Tuple[int, int, MediaItem]] = []
+            for library_id in libraries:
+                if _left(budget) < LOOKUP_RESERVE:
+                    truncated = True
+                    break
+                query = {"sort": sort, "desc": "1" if desc else "0", "limit": str(min(MAX_LIST_PAGE, limit * ask))}
+                if shelf == "classics":
+                    for genre in self._classic_genres(guard, budget, library_id):
+                        found += self._list(guard, budget, access, library_id,
+                                            dict(query, filter="genres." + _encode(genre)), counts)
+                else:
+                    found += self._list(guard, budget, access, library_id, query, counts)
+            kept = [t for t in found if _shelf_keep(shelf, t[2], year)]
+            if shelf == "new":
+                kept.sort(key=lambda t: (t[1], t[0]), reverse=True)
+            elif shelf in ("short", "epic"):
+                kept.sort(key=lambda t: t[2].duration_seconds or 0, reverse=shelf == "epic")
+            else:
+                kept.sort(key=lambda t: t[0], reverse=True)
+            shown += [dataclasses.replace(m, shelf=shelf) for m in _unique(m for _a, _y, m in kept)[:limit]]
+        if libraries and not counts[0] and not truncated:
+            raise RouteMissing(404)
+        if not shown and counts[1]:
+            raise UpstreamMalformed()
+        result = SectionResult.of(Service.AUDIOBOOKSHELF, "shelves", tuple(shown))
+        if truncated:
+            result = SectionResult(result.service, result.section, result.state, result.items, reason=TRUNCATED)
+        return result
+
+    def _classic_genres(self, guard, budget, library_id: str) -> List[str]:
+        """The library's own genre names that say "classic" (at most MAX_CLASSIC_GENRES). Only names the upstream
+        itself listed are ever sent back, base64-encoded, as a filter."""
+        try:
+            body = self._get_json(guard, budget, f"/api/libraries/{library_id}/filterdata", None)
+        except ItemGone:
+            return []
+        genres = body.get("genres") if isinstance(body, dict) else None
+        if not isinstance(genres, list):
+            raise UpstreamMalformed()
+        names = [g for g in genres if isinstance(g, str) and 0 < len(g) <= 80 and CLASSIC_GENRE.search(g)]
+        return sorted(set(names))[:MAX_CLASSIC_GENRES]
+
+    # -- Continue ------------------------------------------------------------------------------
     def _continue_items(self, user: UpstreamUser, limit: int) -> SectionResult:
         uid = user.upstream_id
         guard = self._guard.bind(uid)
@@ -470,3 +599,28 @@ class AudiobookshelfAdapter(GuardedAdapter):
                          duration_seconds=duration, artwork=artwork,
                          creator=clean_text(meta.get("authorName")), year=year_from(meta.get("publishedYear")),
                          external_ids=media_ids.from_book_metadata(meta)), "ok"
+
+
+def _encode(value: str) -> str:
+    """The upstream's filter value encoding: base64 of the UTF-8 text (UNVERIFIED)."""
+    return base64.b64encode(value.encode("utf-8")).decode("ascii")
+
+
+def _unique(items) -> List[MediaItem]:
+    out, seen = [], set()
+    for m in items:
+        if m.id not in seen:
+            seen.add(m.id)
+            out.append(m)
+    return out
+
+
+def _shelf_keep(shelf: str, item: MediaItem, year: int) -> bool:
+    duration = item.duration_seconds or 0
+    if shelf == "new":
+        return item.year is not None and item.year >= year - 1
+    if shelf == "short":
+        return SHORT_MIN <= duration <= SHORT_MAX
+    if shelf == "epic":
+        return duration >= EPIC_MIN
+    return True

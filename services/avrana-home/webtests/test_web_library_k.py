@@ -57,17 +57,23 @@ def av_view(**states):
 
 class ViewModel(unittest.TestCase):
     def test_layouts_are_a_fixed_list_and_keep_the_chosen_library(self):
-        page = build_library(av_view(), TILES_AV, chip="jellyfin", view_mode="details")
-        self.assertEqual("details", page.view)
-        self.assertEqual([("large", "/library?lib=jellyfin", False), ("small", "/library?lib=jellyfin&view=small", False),
-                          ("details", "/library?lib=jellyfin&view=details", True),
-                          ("list", "/library?lib=jellyfin&view=list", False)],
+        page = build_library(av_view(), TILES_AV, chip="jellyfin", view_mode="list")
+        self.assertEqual(("list", "List", "lib-grid lib-v-list"), (page.view, page.view_label, page.list_class))
+        self.assertEqual([("shelves", "/library?lib=jellyfin", False), ("grid", "/library?lib=jellyfin&view=grid", False),
+                          ("compact", "/library?lib=jellyfin&view=compact", False),
+                          ("list", "/library?lib=jellyfin&view=list", True)],
                          [(k, h, c) for k, _l, h, c in page.views])
-        self.assertEqual(["/library?view=details", "/library?lib=jellyfin&view=details",
-                          "/library?lib=audiobookshelf&view=details"], [c.href for c in page.chips])
+        self.assertEqual(["/library?view=list", "/library?lib=jellyfin&view=list",
+                          "/library?lib=audiobookshelf&view=list"], [c.href for c in page.chips])
         for raw in (None, "", "huge", "<b>", "LIST"):
             with self.subTest(raw=raw):
-                self.assertEqual("large", build_library(av_view(), TILES_AV, view_mode=raw).view)
+                self.assertEqual("shelves", build_library(av_view(), TILES_AV, view_mode=raw).view)
+        # the first names stay readable: an old address lands on the layout that replaced it
+        for old, new in (("large", "grid"), ("small", "compact"), ("details", "list")):
+            self.assertEqual(new, build_library(av_view(), TILES_AV, view_mode=old).view)
+        # Shelves are rows; a page with one row shows it as a grid
+        self.assertEqual("rail", build_library(av_view(), TILES_AV).list_class)
+        self.assertEqual("lib-grid", build_library(av_view(), TILES_AV, chip="audiobookshelf").list_class)
 
     def test_chips_are_all_then_only_the_members_own_libraries_in_order(self):
         page = build_library(av_view(), TILES_AV)
@@ -282,7 +288,8 @@ class LibraryPage(Fixture):
         one = c.get("/library?lib=jellyfin", headers=A).text
         self.assertIn('<a class="chip" href="/library?lib=jellyfin" aria-current="true">Movies and TV<span class="ul"', one)
         self.assertIn("<title>Movies and TV · Library · Avrana</title>", one)
-        self.assertIn('<ul class="lib-grid">', one)
+        self.assertIn('<h3 class="lib-row-h" id="l-1-movies">Movies</h3>', one)   # its own rows (2026-10-27)
+        self.assertIn('<ul class="rail" data-lib-list aria-labelledby="l-1-movies">', one)
         self.assertIn('<p class="lib-browse"><a href="/watch">', one)
         self.assertNotIn("Open Audiobookshelf", one)
         plain = c.get("/library", headers=A).text
@@ -352,7 +359,8 @@ class LibraryPage(Fixture):
         self.assertNotIn('class="homebtn', t)
         self.assertIn('<div class="utility glass"><a class="util" href="/search"><svg class="ic"', t)
         self.assertIn('<span class="sr">Search</span></a></div>', t)
-        self.assertEqual(2, len(re.findall(r'class="[^"]*\bglass\b', t)))       # the tab bar and the utility only
+        # the tab bar, the utility, and the layout button with its menu (owner decision 2026-10-27)
+        self.assertEqual(4, len(re.findall(r'class="[^"]*\bglass\b', t)))
         for path in ("/", "/search", "/account"):
             self.assertIn('<a class="tab" href="/library"', c.get(path, headers=A).text, path)
 
@@ -473,7 +481,7 @@ class TitleSheetLinks(Fixture):
         titles = [h for h in recent_hrefs if h.startswith("/title/")]
         self.assertTrue(titles, recent_hrefs)
         for h in titles:
-            self.assertRegex(h, r"^/title/jellyfin/[0-9a-f]{32}$")
+            self.assertRegex(h, r"^/title/(jellyfin/[0-9a-f]{32}|audiobookshelf/li_[a-z0-9]+)$")
             self.assertEqual(200, c.get(h, headers=A).status_code, h)
         lib = main_of(c.get("/library", headers=A).text)
         self.assertRegex(lib, r'class="card" href="/title/jellyfin/[0-9a-f]{32}"')
@@ -491,19 +499,34 @@ class LibraryLayouts(Fixture):
     """Owner decision 2026-10-27: large artwork (the default), small artwork, details and a plain list, chosen with plain
     links; the same cards in each, so every layout reads the same to assistive technology."""
 
-    def test_each_layout_renders_the_same_cards_in_its_own_grid(self):
+    def test_one_layout_button_opens_a_menu_of_four_plain_links(self):
         c = self.client()
-        large = main_of(c.get("/library", headers=A).text)
-        self.assertIn('<nav class="lib-views" aria-label="Layout">', large)
-        self.assertIn('<a class="lib-view" href="/library" aria-current="true">', large)
-        cards = re.findall(r'class="card" href="([^"]*)"', large)
-        for key in ("small", "details", "list"):
+        shelves = c.get("/library", headers=A).text
+        self.assertEqual(1, shelves.count('<details class="lib-layout" data-layout="shelves">'))
+        self.assertIn('<span class="sr">Layout: </span><span class="lib-layout-t">Shelves</span>', shelves)
+        self.assertEqual(["/library", "/library?view=grid", "/library?view=compact", "/library?view=list"],
+                         re.findall(r'<a class="lib-view" href="([^"]*)"', shelves))
+        self.assertIn('<a class="lib-view" href="/library" data-view="shelves" aria-current="true">', shelves)
+
+    def test_each_layout_renders_the_same_cards_in_its_own_lists(self):
+        c = self.client()
+        shelves = main_of(c.get("/library", headers=A).text)
+        self.assertIn('<ul class="rail" data-lib-list>', shelves)
+        cards = re.findall(r'class="card" href="([^"]*)"', shelves)
+        for key, cls in (("grid", "lib-grid"), ("compact", "lib-grid lib-v-compact"), ("list", "lib-grid lib-v-list")):
             with self.subTest(key=key):
                 text = main_of(c.get("/library?view=" + key, headers=A).text)
-                self.assertIn(f'<ul class="lib-grid lib-v-{key}">', text)
-                self.assertIn(f'<a class="lib-view" href="/library?view={key}" aria-current="true">', text)
+                self.assertIn(f'<ul class="{cls}" data-lib-list>', text)
+                self.assertIn(f'<a class="lib-view" href="/library?view={key}" data-view="{key}" aria-current="true">',
+                              text)
                 self.assertEqual(cards, re.findall(r'class="card" href="([^"]*)"', text))
                 self.assertIn(f'href="/library?lib=jellyfin&amp;view={key}"', text)     # the chips keep the layout
+
+    def test_the_audiobooks_chip_shows_recently_added_then_the_shelves(self):
+        text = main_of(self.client().get("/library?lib=audiobookshelf", headers=A).text)
+        heads = re.findall(r'<h3 class="lib-row-h" id="[^"]*">([^<]*)</h3>', text)
+        self.assertEqual(["Recently added", "New releases", "Classics", "Short listens", "Epic listens"], heads)
+        self.assertNotIn("Nothing recently added", text)
 
 
 class HomeFilters(Fixture):
@@ -553,6 +576,10 @@ class HomeFilters(Fixture):
         self.assertNotIn('id="h-next"', main)
         self.assertIn('id="h-new"', main)
         self.assertNotIn("Synthetic Film", main)
+        # owner decision 2026-10-27: Listen leads with what the library holds, then its shelves
+        heads = re.findall(r'<h2 id="h-[a-z]+">([^<]*)</h2>', main)
+        self.assertEqual(heads[-5:], ["Recently added", "New releases", "Classics", "Short listens", "Epic listens"])
+        self.assertIn("Synthetic Grand Epic", main.split('id="h-epic"', 1)[1])
 
 
 if __name__ == "__main__":
