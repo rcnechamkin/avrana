@@ -376,3 +376,14 @@ invite-time step and the fallback).
 | **New members are covered at invite time** | `--member <email>` creates the Komga account by email with the Authentik first-sign-in defaults when none exists; Komga links the first Authentik sign-in to it by email. Runbook: docs/runbooks/komga-member-keys.md. |
 | **No key, no change** | A member without a key sees the shared rows only, as before. A refused member key is an empty row and never counts against the shared circuit. |
 | **Members never paste a key** | Owner, 2026-10-28: "I don't want people to have to copy and paste stuff as that would add friction." Keys come only from the owner-run tool; there is no paste-your-own-key option in Home. |
+
+## Owner decision, 2026-10-28: Home makes members' Komga keys
+
+Recorded from the owner's chat of 2026-10-28 (asked how to be sure every member gets their comics Continue
+reading; chose "Home does it" over running the tool at each invite).
+
+| Decision | Consequence |
+|---|---|
+| **Home holds a Komga admin key, for making members' keys only** | Replaces the decision of 2026-10-15 ("no admin key") for this one use, as Home already holds admin-level Jellyfin and Audiobookshelf credentials for #128. `secrets/komga_admin_token`, used only by provision.py (`KomgaKeyCreator`); the read adapters never see it. |
+| **A member's first visit makes their key** | With `komga` in HOME_PROVISION_ACCOUNTS, a member with the comics group and an email but no key gets one on their first Home page (one Komga sign-out for an existing account; a new account gets Authentik sign-in defaults). The owner's own admin account gets its key without a password change; other admins are never touched. |
+| **Keys live in Home's one writable folder and reload by themselves** | `state/komga_member_keys` (gitignored, uid 1000, 0700) is mounted read-write; Home re-reads it when it changes, so neither Home nor the owner's tool needs a restart. `tools/komga_member_keys.py --missing` checks coverage. |

@@ -1,5 +1,6 @@
 """Komga Continue reading with a member's OWN key (owner decision 2026-10-28; docs/runbooks/komga-member-keys.md),
-and the owner-run tool that issues those keys (tools/komga_member_keys.py). Offline, synthetic data only; the
+the live keys file (member_keys.py), Home making a missing key (provision.py, "Home does it") and the owner-run
+tool (tools/komga_member_keys.py). Offline, synthetic data only; the
 Komga routes and fields are from the 1.25.0 source, UNVERIFIED live."""
 import os as _os
 import sys as _sys
@@ -14,6 +15,9 @@ import types
 import unittest
 
 from avrana_home.adapters.komga import MEMBER_ROUTES, KomgaAdapter, member_key_id
+from avrana_home.contract import SectionResult, Service
+from avrana_home.member_keys import MemberKeyStore, read_keys, write_keys
+from avrana_home.provision import KomgaKeyCreator, Provisioner, ProvisionFailed
 from avrana_home.app.settings import Settings, SettingsError
 from avrana_home.contract import ForbiddenRequest, SectionState
 from avrana_home.principal import principal_from_headers
@@ -69,11 +73,23 @@ class Reading(unittest.TestCase):
         self.clock = FakeClock()
         self.shared = FakeKomga(self.clock)
         self.mine = MemberKomga()
-        self.adapter = KomgaAdapter(FakeTransport(self.shared), clock=self.clock,
-                                    owner_confirms_no_member_restrictions=True,
-                                    member_transports={"alice@example.com": FakeTransport(self.mine)})
+        self.dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dir.cleanup)
+        self.path = os.path.join(self.dir.name, "komga_member_keys")
+        write_keys(self.path, {"alice@example.com": KEY_A})
+        self.store = MemberKeyStore(self.path, initial=read_keys(self.path))
+        self.made = []
+
+        def transport(key):
+            self.made.append(key)
+            return FakeTransport(self.mine)
+        self.adapter = self.build(transport)
         self.alice = member("alice", "Alice@Example.com")
         self.bob = member("bob", "bob@example.com")
+
+    def build(self, transport, provisioning=False):
+        return KomgaAdapter(FakeTransport(self.shared), clock=self.clock, owner_confirms_no_member_restrictions=True,
+                            member_keys=self.store, member_transport=transport, provisioning=provisioning)
 
     def test_a_member_with_a_key_gets_in_progress_then_on_deck_with_their_own_progress(self):
         got = self.adapter.continue_items(self.alice)
@@ -114,6 +130,30 @@ class Reading(unittest.TestCase):
         plain = KomgaAdapter(FakeTransport(self.shared), owner_confirms_no_member_restrictions=True)
         self.assertIn("continue", plain.not_offered)
         self.assertEqual(plain.continue_items(self.alice).reason, "not_offered")
+        with self.assertRaises(ValueError):
+            KomgaAdapter(FakeTransport(self.shared), owner_confirms_no_member_restrictions=True,
+                         member_keys=self.store)                              # keys without a transport factory
+
+    def test_with_provisioning_a_keyless_member_gets_the_trigger_and_it_is_never_cached(self):
+        adapter = self.build(lambda key: FakeTransport(self.mine), provisioning=True)
+        for _ in range(2):
+            got = adapter.continue_items(self.bob)
+            self.assertEqual((got.state, got.reason), (SectionState.EMPTY, "no_member_key"))
+        self.assertEqual(adapter.continue_items(member("carol", None)).reason, "not_offered")   # no email
+        write_keys(self.path, {"alice@example.com": KEY_A, "bob@example.com": "f" * 32})
+        self.assertEqual(adapter.continue_items(self.bob).state, SectionState.OK)
+
+    def test_a_key_written_to_the_file_is_used_without_a_restart(self):
+        self.assertEqual(self.adapter.continue_items(self.bob).reason, "not_offered")
+        write_keys(self.path, {"alice@example.com": KEY_A, "bob@example.com": "e" * 32})
+        os.utime(self.path, ns=(1, 1))                              # a new stamp even on a coarse clock
+        self.assertEqual(self.adapter.continue_items(self.bob).state, SectionState.OK)
+        self.assertIn("e" * 32, self.made)
+
+    def test_a_broken_file_keeps_the_last_good_keys(self):
+        with open(self.path, "w", encoding="utf-8") as fh:
+            fh.write("{broken")
+        self.assertEqual(self.store.get("alice@example.com"), KEY_A)
 
     def test_a_refused_member_key_is_an_empty_row_and_never_opens_the_shared_circuit(self):
         self.mine.status = 401
@@ -130,7 +170,7 @@ class Reading(unittest.TestCase):
 
     def test_the_member_allow_list_has_only_the_two_reading_routes(self):
         self.assertEqual([r.name for r in MEMBER_ROUTES], ["reading", "ondeck"])
-        guard = self.adapter._members["alice@example.com"].bind("shared")
+        guard = self.adapter._member_guard("alice@example.com").bind("shared")
         for path, query in (("/api/v2/users/me/api-keys", {}), ("/api/v1/books/READ00000001", {}),
                             ("/api/v1/books", {"search": "x"})):
             with self.subTest(path=path), self.assertRaises(ForbiddenRequest):
@@ -138,11 +178,7 @@ class Reading(unittest.TestCase):
         with self.assertRaises(ForbiddenRequest):
             guard.request("POST", "/api/v1/books/ondeck", {}, 1.0, 1000)
 
-    def test_transports_must_be_filed_under_the_normalised_email(self):
-        for key in ("Alice@Example.com", "alice", " alice@example.com"):
-            with self.subTest(key=key), self.assertRaises(ValueError):
-                KomgaAdapter(FakeTransport(self.shared), owner_confirms_no_member_restrictions=True,
-                             member_transports={key: FakeTransport(self.mine)})
+    def test_keys_are_filed_under_the_normalised_email(self):
         self.assertEqual(member_key_id(" Alice@Example.COM "), "alice@example.com")
         self.assertIsNone(member_key_id("not an email"))
 
@@ -170,6 +206,29 @@ class SettingsFile(unittest.TestCase):
             return Settings.from_env(env)
         except SettingsError as exc:
             return exc
+
+    def test_an_absent_file_is_no_keys_but_its_folder_must_exist(self):
+        env = dict(REAL, KOMGA_MEMBER_KEYS_FILE=self.path)
+        got = self.from_env(env)
+        self.assertIsInstance(got, Settings, got)
+        self.assertEqual((got.komga_member_keys, got.komga_member_keys_file), ((), self.path))
+        env["KOMGA_MEMBER_KEYS_FILE"] = os.path.join(self.dir.name, "missing", "keys")
+        self.assertIsInstance(self.from_env(env), SettingsError)
+
+    def test_home_making_keys_needs_the_admin_key_and_the_file_and_the_admin_key_needs_it(self):
+        admin = os.path.join(self.dir.name, "admin")
+        with open(admin, "w", encoding="utf-8") as fh:
+            fh.write("a" * 32)
+        on = dict(REAL, KOMGA_MEMBER_KEYS_FILE=self.path, KOMGA_ADMIN_TOKEN_FILE=admin, HOME_ALLOWED_USERS="alice",
+                  HOME_PROVISION_ACCOUNTS="komga")
+        got = self.from_env(on)
+        self.assertIsInstance(got, Settings, got)
+        self.assertEqual(got.provision_accounts, ("komga",))
+        self.assertNotIn("a" * 32, repr(got))
+        for drop in ("KOMGA_ADMIN_TOKEN_FILE", "KOMGA_MEMBER_KEYS_FILE"):
+            with self.subTest(drop=drop):
+                self.assertIsInstance(self.from_env({k: v for k, v in on.items() if k != drop}), SettingsError)
+        self.assertIsInstance(self.from_env(dict(on, HOME_PROVISION_ACCOUNTS="off")), SettingsError)
 
     def test_a_valid_file_is_read(self):
         got = self.from_env(self.env({"alice@example.com": KEY_A}))
@@ -199,6 +258,78 @@ class SettingsFile(unittest.TestCase):
     def test_the_value_is_never_read_from_the_environment(self):
         env = dict(REAL, KOMGA_MEMBER_KEYS=json.dumps({"alice@example.com": KEY_A}))
         self.assertIsInstance(self.from_env(env), SettingsError)
+
+
+# ---- Home making a member's key (provision.py) ----------------------------------------------
+class HomeMakesKeys(unittest.TestCase):
+    """KomgaKeyCreator against the same fake Komga the tool tests use; the admin key's account is U0."""
+
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dir.cleanup)
+        self.path = os.path.join(self.dir.name, "komga_member_keys")
+        self.store = MemberKeyStore(self.path, writable=True)
+        self.fake = FakeAdminKomga()
+        self.creator = KomgaKeyCreator(self.sender({"X-API-Key": "ADMIN"}), self.as_member, self.store)
+
+    def sender(self, headers):
+        def send(method, path, body):
+            status, data = self.fake.send(method, "http://komga.test" + path, headers,
+                                          json.dumps(body).encode() if body is not None else None)
+            if status >= 400:
+                raise ProvisionFailed(f"http_{status}")
+            return json.loads(data) if data else None
+        return send
+
+    def as_member(self, email, password):
+        return self.sender(tool.basic_auth(email, password))
+
+    def test_an_existing_member_gets_a_key_filed_and_their_own_keys_are_kept(self):
+        self.creator.create("alice", "Alice@Example.com")
+        self.assertEqual(len(self.store.get("alice@example.com")), 32)
+        self.assertEqual(sorted(k["comment"] for k in self.fake.keys["U1"]), ["avrana-home", "phone"])
+        self.assertEqual(read_keys(self.path)[0][0], "alice@example.com")
+
+    def test_a_member_with_no_komga_account_gets_one_with_sign_in_defaults(self):
+        self.creator.create("newbie", "newbie@example.com")
+        made = [u for u in self.fake.users.values() if u["email"] == "newbie@example.com"][0]
+        self.assertEqual(sorted(made["roles"]), ["FILE_DOWNLOAD", "PAGE_STREAMING", "USER"])
+        self.assertIsNotNone(self.store.get("newbie@example.com"))
+
+    def test_the_admin_keys_own_account_gets_a_key_without_a_password_change(self):
+        self.fake.users["U0"]["email"] = "owner@example.com"
+        self.creator.create("owner", "owner@example.com")
+        self.assertEqual(self.fake.passwords["U0"], "owner")
+        self.assertIsNotNone(self.store.get("owner@example.com"))
+
+    def test_another_admin_is_never_touched(self):
+        self.fake.users["U9"] = {"id": "U9", "email": "boss@example.com", "roles": ["ADMIN", "USER"]}
+        self.fake.passwords["U9"] = "boss"
+        with self.assertRaises(ProvisionFailed) as caught:
+            self.creator.create("boss", "boss@example.com")
+        self.assertEqual(caught.exception.reason, "admin")
+        self.assertEqual(self.fake.passwords["U9"], "boss")
+
+    def test_no_email_or_an_existing_key_is_refused(self):
+        for email in (None, "", "not-an-email"):
+            with self.subTest(email=email), self.assertRaises(ProvisionFailed):
+                self.creator.create("x", email)
+        self.creator.create("alice", "alice@example.com")
+        with self.assertRaises(ProvisionFailed):
+            self.creator.create("alice", "alice@example.com")
+
+    def test_the_provisioner_triggers_only_on_the_komga_continue_reason(self):
+        prov = Provisioner({Service.KOMGA: self.creator})
+        hit = SectionResult(Service.KOMGA, "continue", SectionState.EMPTY, reason="no_member_key")
+        miss = SectionResult(Service.KOMGA, "continue", SectionState.EMPTY, reason="not_offered")
+        self.assertEqual(prov.candidates([miss]), ())
+        self.assertEqual(prov.candidates([hit]), (Service.KOMGA,))
+        self.assertEqual(prov.provision(member("alice", "alice@example.com"), [hit]), (Service.KOMGA,))
+        self.assertEqual(prov.provision(member("alice", "alice@example.com"), [hit]), ())      # once an hour
+
+    def test_a_read_only_store_is_refused(self):
+        with self.assertRaises(ValueError):
+            KomgaKeyCreator(self.sender({}), self.as_member, MemberKeyStore(self.path))
 
 
 # ---- the owner-run tool ---------------------------------------------------------------------
@@ -233,6 +364,8 @@ class FakeAdminKomga:
         data = json.loads(body) if body else None
         if who is None:
             return 401, b""
+        if path == "/api/v2/users/me" and method == "GET":
+            return 200, json.dumps(self.users[who]).encode()
         if path == "/api/v2/users" and method == "GET":
             return (200, json.dumps(list(self.users.values())).encode()) if who == "U0" else (403, b"")
         if path == "/api/v2/users" and method == "POST":
@@ -323,6 +456,13 @@ class Tool(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual([k["comment"] for k in self.fake.keys["U1"]], ["phone"])
         self.assertEqual(self.keys(), {})
+
+    def test_missing_lists_non_admin_accounts_without_a_key_and_changes_nothing(self):
+        code, _ = self.run_tool(missing=True)
+        self.assertEqual(code, 1)
+        self.assertIn("alice@example.com: no Home key", self.lines)
+        self.assertFalse(any("owner@" in line for line in self.lines))
+        self.assertEqual(self.fake.passwords["U1"], "old")
 
     def test_a_non_admin_key_is_refused_before_anything_changes(self):
         args = types.SimpleNamespace(member=["alice@example.com"], all=False, remove=[], skip=[], keys_file=self.path)

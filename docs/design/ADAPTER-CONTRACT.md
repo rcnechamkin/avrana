@@ -100,6 +100,7 @@ Each public method runs these steps, in this order, in the shared base class
 | `resolve_user(principal)` | `UpstreamUser` or `None` | `None` for not permitted, unmapped, ambiguous or unavailable. Never a fallback account. |
 | `continue_items(principal, limit)` | `SectionResult` | In-progress items for this member only (`section: "continue"`). |
 | `recent_items(principal, limit)` | `SectionResult` | Recently added items visible to this member (`"recent"`). |
+| `released_items(principal, limit)` | `SectionResult` | New releases (`"released"`, owner decision 2026-10-28): the newest release dates first, nothing later than today (Komga allows a cover date up to 92 days ahead). Offered by Jellyfin (films and episodes by `PremiereDate`, `maxPremiereDate` today, `isMissing=false`, one episode per series), Audiobookshelf (the New releases shelf alone) and Komga (the New releases listing); Calibre-Web declares no such section. Items carry `released` ("YYYY-MM-DD") when the upstream gives a full date. |
 | `item(principal, item_id)` | `SectionResult` | Metadata for one id the member can see (`"item"`); an invalid id is `EMPTY`, never interpolated. |
 | `search(principal, query, limit)` | `SectionResult` | Matching items for this member (`"search"`), see section 14. |
 | `fetch_artwork(principal, ref)` | `ArtworkResult` | Server-side image fetch for an opaque ref, after a member-scoped visibility check. |
@@ -317,6 +318,7 @@ that key.
 | Upstream mapping | No | member, service | 60 s (found, absent or ambiguous) |
 | Continue items | No | member, service, section, **limit** | 30 s |
 | Recently added | **No**, because library visibility depends on the member | member, service, section, limit | 120 s |
+| New releases, shelves | No, as Recently added | member, service, section, limit | 300 s |
 | Item metadata | No | member, service, item id | 120 s |
 | Artwork bytes | No. Jellyfin and Audiobookshelf re-check the member's item visibility upstream on every request before the cache is read; Komga and Calibre-Web (shared views) check the group only | member, service, ref | 300 s |
 | Failures, `UNAVAILABLE`, `NOT_LINKED` section results, and results from a call that finished after the circuit moved on | Never cached | | |

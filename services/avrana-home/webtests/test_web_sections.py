@@ -97,9 +97,9 @@ class SectionRenderingTests(Fixture):
         self.assertEqual(1, len(re.findall(r"<main(?:\s[^>]*)?>", text)))
         self.assertEqual(1, text.count("<h1>"))
         self.assertNotRegex(above, r"style=|<svg|<picture|<script|<canvas|on\w+=")
-        self.assertEqual(3, above.count("<h2"))           # the hero (AVR-718), Continue, Recently added
+        self.assertEqual(4, above.count("<h2"))           # the hero (AVR-718), Continue, New releases, New to Avrana
         # Continue is bounded (at most four); artwork is decoration (alt="") from the artwork route only
-        self.assertLessEqual(len(re.findall(r'class="card"', above.split('id="h-new"')[0])), 4)
+        self.assertLessEqual(len(re.findall(r'class="card"', above.split('id="h-released"')[0])), 4)
         for tag in re.findall(r"<img[^>]*>", above):
             self.assertRegex(tag, r'^<img class="art" src="/art/[A-Za-z0-9_/-]+" alt="" (width="160" height="240" loading="lazy"'
                                   r'|width="1280" height="720")>$')   # the second: the hero's wide backdrop
@@ -153,7 +153,7 @@ class SectionRenderingTests(Fixture):
         self.assertEqual(200, r.status_code)
         self.assertEqual([], cards(r.text))
         self.assertIn("Nothing in progress.", r.text)
-        self.assertIn("Nothing recently added.", r.text)
+        self.assertIn("Nothing added to Avrana recently.", r.text)
         self.assertNotIn("this week", r.text)                  # the lists are not date-bounded
 
     def test_hostile_titles_are_escaped_and_bidi_controls_removed(self):
@@ -254,13 +254,14 @@ class JsonViewTests(Fixture):
         self.assertEqual("nosniff", r.headers["x-content-type-options"])
         doc = r.json()
         self.assertEqual({"sections"}, set(doc))
-        self.assertEqual([("jellyfin", "continue", "ok"), ("jellyfin", "recent", "ok")],
+        self.assertEqual([("jellyfin", "continue", "ok"), ("jellyfin", "recent", "ok"), ("jellyfin", "released", "ok")],
                          [(s["service"], s["section"], s["state"]) for s in doc["sections"]])
         for s in doc["sections"]:
             self.assertEqual({"service", "section", "state", "items"}, set(s))
             for it in s["items"]:
                 self.assertEqual({"id", "service", "kind", "title", "subtitle", "series", "progress",
-                                  "artwork", "creator", "year", "summary", "handoff_url"}, set(it) - {"backdrop"})
+                                  "artwork", "creator", "year", "summary", "handoff_url"},
+                                 set(it) - {"backdrop", "released"})         # each only when the library gave it
                 if "backdrop" in it:                   # only when the library gave one (Jellyfin's Backdrop)
                     self.assertRegex(it["backdrop"]["ref"], r"^jellyfin/backdrop/[0-9a-f]{32}$")
                 self.assertIsNone(it["summary"])       # a synopsis only on the title page (R2-C)

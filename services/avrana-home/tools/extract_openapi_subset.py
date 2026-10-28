@@ -36,14 +36,14 @@ PATHS = {
                       "enableUserData"),
     "/Shows/NextUp": ("userId", "limit", "fields", "enableUserData", "enableImageTypes", "enableTotalRecordCount"),
     "/Items": ("userId", "ids", "fields", "enableUserData", "enableImageTypes", "searchTerm", "includeItemTypes",
-               "recursive", "limit"),
+               "recursive", "limit", "sortBy", "sortOrder", "maxPremiereDate", "isMissing"),
     "/Items/{itemId}/Images/{imageType}": ("maxWidth", "quality"),
 }
 # schema -> the properties the adapter reads
 SCHEMAS = {
     "BaseItemDto": ("Id", "Name", "Type", "SeriesName", "ParentIndexNumber", "IndexNumber", "ProductionYear",
                     "RunTimeTicks", "UserData", "ImageTags", "Overview", "ProviderIds",
-                    "BackdropImageTags", "ParentBackdropItemId", "ParentBackdropImageTags"),
+                    "BackdropImageTags", "ParentBackdropItemId", "ParentBackdropImageTags", "PremiereDate"),
     "BaseItemDtoQueryResult": ("Items",),
     # UserId is read only if present and is absent upstream; kept here so its absence is checked, not assumed
     "UserItemDataDto": ("PlaybackPositionTicks", "PlayedPercentage", "Played", "ItemId", "UserId"),

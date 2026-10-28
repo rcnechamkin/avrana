@@ -153,7 +153,7 @@ class Stylesheet(unittest.TestCase):
     def test_comments_name_no_library_or_member_word(self):
         words = list(SERVICE_LABEL.values()) + ["Movies", "Audiobook", "Comic", "jellyfin", "Jellyfin", "komga", "Komga",
                                                 "audiobookshelf", "Audiobookshelf", "calibre", "Calibre", "Continue",
-                                                "Recently added", "member-"]
+                                                "New to Avrana", "member-"]
         for word in words:
             self.assertNotIn(word, self.comments, word)
 

@@ -223,6 +223,13 @@ class RecentAndReleased(Base):
         self.assertEqual(titles(self.adapter.shelves_items(self.a)),
                          ["Synthetic Comic One", "Synthetic Teen One", "Synthetic Kids One", "Synthetic Manga One"])
 
+    def test_home_new_releases_is_the_same_listing_as_its_own_section_with_the_day(self):
+        r = self.adapter.released_items(self.a)
+        self.assertEqual(r.section, "released")
+        self.assertEqual(titles(r), titles(self.adapter.shelves_items(self.a)))
+        self.assertEqual({i.shelf for i in r.items}, {None})
+        self.assertTrue(all(i.released and len(i.released) == 10 for i in r.items))
+
     def test_the_shelf_needs_the_group_too(self):
         outsider = make_principal("member-a", ("avrana-users",))
         self.assertIs(self.adapter.shelves_items(outsider).state, SectionState.NOT_PERMITTED)

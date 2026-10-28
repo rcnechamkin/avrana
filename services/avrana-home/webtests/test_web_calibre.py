@@ -1,4 +1,4 @@
-"""Tier B: the Calibre-Web "Recently added" section (a SHARED view, ADAPTER-CONTRACT 13.2) through the HTTP
+"""Tier B: the Calibre-Web "New to Avrana" section (a SHARED view, ADAPTER-CONTRACT 13.2) through the HTTP
 layer, against the mock Calibre-Web (loopback, SYNTHETIC fixture, real UrllibTransport, HTTP Basic)."""
 import json
 import unittest
@@ -47,7 +47,7 @@ class RecentBooksTests(Fixture):
         c = self.client()
         r = c.get("/", headers=BOOKS)
         self.assertEqual(200, r.status_code)
-        self.assertIn('<h2 id="h-new">Recently added</h2>', r.text)     # memo section 4: not date-bounded
+        self.assertIn('<h2 id="h-new">New to Avrana</h2>', r.text)     # memo section 4: not date-bounded
         for title in TITLES:
             self.assertIn(title, r.text)
         view = c.get("/home.json", headers=BOOKS).json()

@@ -21,7 +21,6 @@ mode without the gates. Only in that mode may the per-service member usernames b
 from __future__ import annotations
 
 import ipaddress
-import json
 import os
 import re
 from dataclasses import dataclass, field
@@ -111,6 +110,10 @@ class Settings:
     # Members' OWN Komga API keys, ((member_key_id(email), key), ...), for their Continue reading row only
     # (docs/runbooks/komga-member-keys.md). () = nobody has one: Continue is not offered, as before.
     komga_member_keys: tuple = field(default=(), repr=False)
+    komga_member_keys_file: str = ""             # the file itself; Home re-reads it when it changes (member_keys.py)
+    # A Komga ADMIN account's API key, ONLY for Home making members' own keys (HOME_PROVISION_ACCOUNTS=...komga;
+    # owner decision 2026-10-28 "Home does it", replacing 2026-10-15's "no admin key"). Never used to read.
+    komga_admin_token: str = field(default="", repr=False)
     calibre_web_base_url: str = ""               # "" = the Calibre-Web adapter is not built
     calibre_web_credential: str = field(default="", repr=False)    # "user:password" of the viewer account
     calibre_web_owner_confirms: bool = False     # the owner's statement that no member is restricted
@@ -120,6 +123,11 @@ class Settings:
     watch_requests: bool = False                 # HOME_WATCH_REQUESTS=on: ask Seerr for films and shows as the member
     seerr_base_url: str = ""                     # required with watch_requests
     seerr_api_key: str = field(default="", repr=False)   # Seerr's global key (full admin): jwt_required in real mode
+    shelfarr_provision: bool = False             # HOME_SHELFARR_PROVISION=on: create a member's Shelfarr account on ask
+    seerr_provision: bool = False                # HOME_SEERR_PROVISION=on: import a member's Jellyfin user into Seerr
+    comic_requests: bool = False                 # HOME_COMIC_REQUESTS=on: ask Omnibus (Avrana fork) for comics
+    omnibus_base_url: str = ""                   # required with comic_requests
+    omnibus_api_key: str = field(default="", repr=False)  # an on-behalf API key (fork): jwt_required in real mode
     timeout: float = 2.0
     section_limit: int = 12
     health_detail: str = "loopback"              # "loopback" | "off"
@@ -262,7 +270,8 @@ class Settings:
         komga_url = get("KOMGA_BASE_URL")
         komga_token = _read_key(env, problems, "KOMGA_TOKEN")
         komga_confirms = boolean("KOMGA_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS", False)
-        komga_members = _read_member_keys(env, problems)
+        komga_members_file, komga_members = _read_member_keys(env, problems)
+        komga_admin = _read_key(env, problems, "KOMGA_ADMIN_TOKEN")
         cw_url = get("CALIBRE_WEB_BASE_URL")
         cw_cred = _read_key(env, problems, "CALIBRE_WEB_CREDENTIAL")
         cw_confirms = boolean("CALIBRE_WEB_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS", False)
@@ -281,6 +290,22 @@ class Settings:
         watch_requests = boolean("HOME_WATCH_REQUESTS", False)
         seerr_url = get("SEERR_BASE_URL")
         seerr_key = _read_key(env, problems, "SEERR_API_KEY")
+        shelfarr_provision = boolean("HOME_SHELFARR_PROVISION", False)
+        seerr_provision = boolean("HOME_SEERR_PROVISION", False)
+        if shelfarr_provision and not book_requests:
+            problems.append("HOME_SHELFARR_PROVISION needs HOME_BOOK_REQUESTS=on")
+        if seerr_provision and not watch_requests:
+            problems.append("HOME_SEERR_PROVISION needs HOME_WATCH_REQUESTS=on")
+        comic_requests = boolean("HOME_COMIC_REQUESTS", False)
+        omnibus_url = get("OMNIBUS_BASE_URL")
+        omnibus_key = _read_key(env, problems, "OMNIBUS_API_KEY")
+        if comic_requests:
+            if not sections:
+                problems.append("HOME_COMIC_REQUESTS needs HOME_SECTIONS=on")
+            if not omnibus_url:
+                problems.append("HOME_COMIC_REQUESTS needs OMNIBUS_BASE_URL")
+        elif omnibus_url or omnibus_key:
+            problems.append("OMNIBUS_BASE_URL or OMNIBUS_API_KEY is set but HOME_COMIC_REQUESTS is off")
         if watch_requests:
             if not sections:
                 problems.append("HOME_WATCH_REQUESTS needs HOME_SECTIONS=on")
@@ -339,10 +364,10 @@ class Settings:
                 problems.append("KOMGA_BASE_URL must be a loopback address in mock mode")
             komga_token = MOCK_API_KEY if komga_url else ""
             komga_confirms = False               # a real-mode statement; mock mode passes its own constant
-            if komga_members:
-                problems.append("KOMGA_MEMBER_KEYS_FILE is set but HOME_UPSTREAM_MODE is mock "
+            if komga_members_file or komga_admin:
+                problems.append("KOMGA_MEMBER_KEYS_FILE or KOMGA_ADMIN_TOKEN is set but HOME_UPSTREAM_MODE is mock "
                                 "(mock mode never sends a real key; unset it or choose real)")
-                komga_members = ()
+                komga_members_file, komga_members, komga_admin = "", (), ""
             if cw_cred:
                 problems.append("a Calibre-Web credential is set but HOME_UPSTREAM_MODE is mock "
                                 "(mock mode never sends a real credential; unset it or choose real)")
@@ -362,6 +387,12 @@ class Settings:
             if seerr_url and not is_loopback_host(url_host(seerr_url) or ""):
                 problems.append("SEERR_BASE_URL must be a loopback address in mock mode")
             seerr_key = MOCK_API_KEY if seerr_url else ""
+            if omnibus_key:
+                problems.append("an Omnibus key is set but HOME_UPSTREAM_MODE is mock "
+                                "(mock mode never sends a real key; unset it or choose real)")
+            if omnibus_url and not is_loopback_host(url_host(omnibus_url) or ""):
+                problems.append("OMNIBUS_BASE_URL must be a loopback address in mock mode")
+            omnibus_key = MOCK_API_KEY if omnibus_url else ""
         else:
             if not owner_preview and get("HOME_GATES_VERIFIED").lower() != "yes":
                 problems.append("HOME_UPSTREAM_MODE=real needs HOME_GATES_VERIFIED=yes "
@@ -381,7 +412,7 @@ class Settings:
                     problems.append("KOMGA_BASE_URL and KOMGA_TOKEN (or _FILE) must be set together")
             elif komga_confirms:
                 problems.append("KOMGA_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS is set but Komga is not configured")
-            if komga_members and not komga_url:
+            if komga_members_file and not komga_url:
                 problems.append("KOMGA_MEMBER_KEYS_FILE is set but Komga is not configured")
             if cw_url or cw_cred:
                 # ADAPTER-CONTRACT 13.2: a SHARED view; refused unless the owner states, deliberately, that
@@ -403,13 +434,16 @@ class Settings:
                 problems.append("HOME_BOOK_REQUESTS needs SHELFARR_TOKEN (or _FILE) in real mode")
             if watch_requests and not seerr_key:
                 problems.append("HOME_WATCH_REQUESTS needs SEERR_API_KEY (or _FILE) in real mode")
+            if comic_requests and not omnibus_key:
+                problems.append("HOME_COMIC_REQUESTS needs OMNIBUS_API_KEY (or _FILE) in real mode")
         # HTTPS across machines (owner decision 2026-10-27, ABS admin-token review HIGH): in real mode a plain-http
         # upstream must stay on this machine or inside Docker's isolated networking, so a service key never
         # crosses the LAN in clear text. See `plain_http_allowed`.
         if mode == "real":
             for name, value in (("JELLYFIN_BASE_URL", base_url), ("AUDIOBOOKSHELF_BASE_URL", abs_url),
                                 ("KOMGA_BASE_URL", komga_url), ("CALIBRE_WEB_BASE_URL", cw_url),
-                                ("SHELFARR_BASE_URL", shelfarr_url), ("SEERR_BASE_URL", seerr_url)):
+                                ("SHELFARR_BASE_URL", shelfarr_url), ("SEERR_BASE_URL", seerr_url),
+                                ("OMNIBUS_BASE_URL", omnibus_url)):
                 if value and urlsplit(value).scheme == "http" and not plain_http_allowed(url_host(value) or ""):
                     problems.append(f"{name} uses plain http to another machine: use https, or a Docker service "
                                     "name on a shared network (HTTPS across machines)")
@@ -425,6 +459,8 @@ class Settings:
             _check_url(shelfarr_url, problems, "SHELFARR_BASE_URL")
         if seerr_url:
             _check_url(seerr_url, problems, "SEERR_BASE_URL")
+        if omnibus_url:
+            _check_url(omnibus_url, problems, "OMNIBUS_BASE_URL")
 
         # Identity mode (AVR-498). The default keeps today's behaviour exactly; an unknown or empty
         # value is an error, never a silent fallback. The JWT modes need the provider's issuer,
@@ -465,6 +501,8 @@ class Settings:
             problems.append("HOME_BOOK_REQUESTS acts as the member: real mode needs HOME_IDENTITY_MODE=jwt_required")
         if mode == "real" and watch_requests and id_mode != "jwt_required" and not sealed:
             problems.append("HOME_WATCH_REQUESTS acts as the member: real mode needs HOME_IDENTITY_MODE=jwt_required")
+        if mode == "real" and comic_requests and id_mode != "jwt_required" and not sealed:
+            problems.append("HOME_COMIC_REQUESTS acts as the member: real mode needs HOME_IDENTITY_MODE=jwt_required")
         # The same holds for Jellyfin: Jellyfin gives every API key the Administrator role (CustomAuthenticationHandler,
         # 10.11), and Home reads each member's viewing with it through `userId` (owner decision 2026-10-27, with
         # Quick Connect approval planned on the same key: ME-PREFERENCES-PROFILE-QUICKCONNECT.md section 4).
@@ -477,7 +515,7 @@ class Settings:
         if allowed and id_mode != "jwt_required":
             problems.append("HOME_ALLOWED_USERS needs HOME_IDENTITY_MODE=jwt_required")
         # A member's key is picked by their email, so the email must be the signed one.
-        if komga_members and id_mode != "jwt_required":
+        if komga_members_file and id_mode != "jwt_required":
             problems.append("KOMGA_MEMBER_KEYS_FILE needs HOME_IDENTITY_MODE=jwt_required")
 
         # Account creation (docs/design/ACCOUNT-PROVISIONING.md, owner decisions 2026-10-28): off unless named. It
@@ -494,6 +532,11 @@ class Settings:
                 problems.append("HOME_PROVISION_ACCOUNTS needs HOME_ALLOWED_USERS (beta members first)")
             if "audiobookshelf" in provision and not abs_url:
                 problems.append("HOME_PROVISION_ACCOUNTS names audiobookshelf but AUDIOBOOKSHELF_BASE_URL is not set")
+            if "komga" in provision and not (komga_url and komga_members_file and komga_admin):
+                problems.append("HOME_PROVISION_ACCOUNTS names komga but KOMGA_BASE_URL, KOMGA_MEMBER_KEYS_FILE and "
+                                "KOMGA_ADMIN_TOKEN (or _FILE) are not all set")
+        if komga_admin and "komga" not in provision:
+            problems.append("KOMGA_ADMIN_TOKEN is only for HOME_PROVISION_ACCOUNTS=...komga; unset it")
 
         if problems:
             raise SettingsError("invalid configuration: " + "; ".join(problems))
@@ -501,10 +544,13 @@ class Settings:
                    jellyfin_api_key=key, audiobookshelf_base_url=abs_url,
                    audiobookshelf_token=abs_token, komga_base_url=komga_url,
                    komga_token=komga_token, komga_owner_confirms=komga_confirms, komga_member_keys=komga_members,
+                   komga_member_keys_file=komga_members_file, komga_admin_token=komga_admin,
                    calibre_web_base_url=cw_url,
                    calibre_web_credential=cw_cred, calibre_web_owner_confirms=cw_confirms,
                    book_requests=book_requests, shelfarr_base_url=shelfarr_url, shelfarr_token=shelfarr_token,
                    watch_requests=watch_requests, seerr_base_url=seerr_url, seerr_api_key=seerr_key,
+                   shelfarr_provision=shelfarr_provision, seerr_provision=seerr_provision,
+                   comic_requests=comic_requests, omnibus_base_url=omnibus_url, omnibus_api_key=omnibus_key,
                    timeout=timeout, section_limit=limit,
                    health_detail=detail, pwa_sw=pwa_sw, motion_proposal=motion_proposal, catalogue_path=catalogue, notice_file=notice_file, library_ids_file=library_ids_file, log_level=level,
                    security_flows=security_flows, security_return_origin=security_return_origin,
@@ -543,8 +589,9 @@ def _provision_accounts(env: Mapping[str, str], problems: list) -> tuple:
     if raw == "off":
         return ()
     names = [n.strip() for n in raw.split(",")]
-    if not names or any(n not in ("jellyfin", "audiobookshelf") for n in names):
-        problems.append("HOME_PROVISION_ACCOUNTS must be off or a comma-separated list of jellyfin, audiobookshelf")
+    if not names or any(n not in ("jellyfin", "audiobookshelf", "komga") for n in names):
+        problems.append("HOME_PROVISION_ACCOUNTS must be off or a comma-separated list of jellyfin, audiobookshelf, "
+                        "komga")
         return ()
     return tuple(sorted(set(names)))
 
@@ -573,35 +620,24 @@ def _check_url(url: str, problems: list, name: str = "JELLYFIN_BASE_URL") -> Non
         problems.append(f"{name} must have no credentials, query, fragment or trailing slash")
 
 
-MAX_MEMBER_KEYS = 500
-_KOMGA_KEY = re.compile(r"[0-9a-f]{32}")            # Komga 1.25 ApiKeyGenerator: a UUID v4 without dashes
-
-
 def _read_member_keys(env: Mapping[str, str], problems: list) -> tuple:
-    """KOMGA_MEMBER_KEYS_FILE (a file only, never the value in the environment): a JSON object of
-    member_key_id(email) -> that member's own Komga API key, as tools/komga_member_keys.py writes it. Any problem
-    refuses the whole file; no entry is ever echoed."""
+    """(path, keys) from KOMGA_MEMBER_KEYS_FILE (a file only, never the value in the environment). An absent file
+    is no keys yet (Home or the owner's tool creates it); its folder must exist. Any problem refuses the whole
+    file; no entry is ever echoed (member_keys.py)."""
     if (env.get("KOMGA_MEMBER_KEYS") or "").strip():
         problems.append("KOMGA_MEMBER_KEYS is not read from the environment; use KOMGA_MEMBER_KEYS_FILE")
     path = (env.get("KOMGA_MEMBER_KEYS_FILE") or "").strip()
     if not path:
-        return ()
+        return "", ()
+    from ..member_keys import KeysFileError, read_keys
+    if not Path(path).parent.is_dir():
+        problems.append("KOMGA_MEMBER_KEYS_FILE is in a folder that does not exist")
+        return "", ()
     try:
-        data = json.loads(Path(path).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        problems.append("KOMGA_MEMBER_KEYS_FILE cannot be read as JSON")
-        return ()
-    if not isinstance(data, dict) or len(data) > MAX_MEMBER_KEYS:
-        problems.append("KOMGA_MEMBER_KEYS_FILE must be a JSON object of at most %d entries" % MAX_MEMBER_KEYS)
-        return ()
-    from ..adapters.komga import member_key_id
-    pairs = []
-    for email, key in data.items():
-        if member_key_id(email) != email or not isinstance(key, str) or _KOMGA_KEY.fullmatch(key) is None:
-            problems.append("KOMGA_MEMBER_KEYS_FILE has an entry that is not lower-case email -> Komga API key")
-            return ()
-        pairs.append((email, key))
-    return tuple(sorted(pairs))
+        return path, read_keys(path)
+    except KeysFileError as exc:
+        problems.append(f"KOMGA_MEMBER_KEYS_FILE is refused: {exc}")
+        return "", ()
 
 
 def _read_key(env: Mapping[str, str], problems: list, name: str = "JELLYFIN_API_KEY") -> str:

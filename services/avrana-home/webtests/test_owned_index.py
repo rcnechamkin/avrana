@@ -104,7 +104,10 @@ class Builder(unittest.TestCase):
                                             missing BOOLEAN, library_platform TEXT);
                 INSERT INTO library_items VALUES ('11111111-2222-3333-4444-555555555555', 'Synthetic Dune', 'Frank Herbert',
                                                   NULL, 'B00B7NPRY8', 0, 'audiobookshelf'),
-                                                 ('li_gone0001', 'Gone', 'X', NULL, 'B000000001', 1, 'audiobookshelf');
+                                                 ('li_gone0001', 'Gone', 'X', NULL, 'B000000001', 1, 'audiobookshelf'),
+                                                 ('li_spoken01', 'Spoken', 'Y', '9780441013593', NULL, 0, 'audiobookshelf');
+                CREATE TABLE books (hardcover_id TEXT, isbn TEXT, book_type INTEGER);
+                INSERT INTO books VALUES ('777', '0-441-01359-7', 0), ('888', '9780441013593', 1), ('999', '9780000000002', 0);
             """)
             sh.commit(); sh.close()
             km = sqlite3.connect(d / "komga.sqlite")
@@ -125,7 +128,9 @@ class Builder(unittest.TestCase):
                                            "omnibus_db": d / "omnibus.db", "komga_db": d / "komga.sqlite"})
         self.assertEqual({"hardcover:312460": "45", "isbn:9780441013593": "45"}, index["ebook"])
         self.assertEqual({"t:synthetic dune|herbert": "45"}, index["ebook_likely"])
-        self.assertEqual({"asin:B00B7NPRY8": "11111111-2222-3333-4444-555555555555"}, index["audiobook"])
+        self.assertEqual({"asin:B00B7NPRY8": "11111111-2222-3333-4444-555555555555",
+                          "isbn:9780441013593": "li_spoken01",
+                          "hardcover:777": "li_spoken01"}, index["audiobook"])     # 888 is an ebook record; 999 no item
         self.assertEqual({"comicvine:91750": "0MEC2AAWWZCMN"}, index["comic"])
         text = json.dumps(index)
         self.assertNotIn("Synthetic Dune: Deluxe", text)      # titles only as folded keys

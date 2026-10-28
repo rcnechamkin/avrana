@@ -164,6 +164,7 @@ class Pages(unittest.TestCase):
         self.assertIn('href="/request/watch"', r.text)
         self.assertIn('href="/request/books"', r.text)
         self.assertIn("Search and ask here", r.text)
+        self.assertIn('href="/request/mine"', r.text)
         only_video = c.get("/request", headers=VIEWER)
         self.assertNotIn('href="/request/books"', only_video.text)
 

@@ -805,6 +805,23 @@ class Search(Base):
         r = self.adapter.search(self.a, "anything")
         self.assertEqual((r.state, r.items), (SectionState.EMPTY, ()))
 
+    def padded_search(self, size):
+        body = json.dumps({"book": [{"libraryItem": self.fake.items["li_book000001"]}], "tags": []}).encode("utf-8")
+        self.fake.overrides["/api/libraries/lib_aaa/search"] = ("body", body + b" " * (size - len(body)))
+
+    def test_a_search_body_over_the_shared_json_cap_is_still_read(self):
+        # Expanded search hits make a real 36-hit page 2-3 MB; the shared 1 MB cap turned that into UpstreamTooLarge.
+        from avrana_home.resilience import MAX_JSON_BYTES
+        self.padded_search(3 * MAX_JSON_BYTES)
+        r = self.adapter.search(self.a, "anything")
+        self.assertEqual((r.state, titles(r)), (SectionState.OK, ["Synthetic Audiobook One"]))
+
+    def test_a_search_body_over_the_search_cap_is_unavailable(self):
+        from avrana_home.adapters.audiobookshelf import MAX_SEARCH_BYTES
+        self.padded_search(MAX_SEARCH_BYTES + 1)
+        r = self.adapter.search(self.a, "anything")
+        self.assertEqual((r.state, r.reason), (SectionState.UNAVAILABLE, "UpstreamTooLarge"))
+
     def test_a_member_with_every_library_searches_the_listed_book_libraries_only(self):
         self.adapter.search(self.b, "Synthetic")
         self.assertIn("/api/libraries", self.fake.paths())
@@ -975,6 +992,12 @@ class Shelves(Base):
             self.assertNotIn(hidden, everything)
         self.assertEqual({"new", "classics", "short", "epic"}, {i.shelf for i in r.items})
         self.assertTrue(all(i.to_dict()["shelf"] == i.shelf for i in r.items))
+
+    def test_home_new_releases_is_the_new_releases_shelf_alone(self):
+        r = self.adapter.released_items(self.a)
+        self.assertEqual((r.section, [i.title for i in r.items]), ("released", ["Synthetic Fresh Release"]))
+        self.assertIsNone(r.items[0].shelf)
+        self.assertFalse(any("filter" in q for _m, p, q in self.fake.requests if p.endswith("/items")))
 
     def test_the_classics_filter_carries_only_genres_the_library_listed(self):
         self.adapter.shelves_items(self.a)

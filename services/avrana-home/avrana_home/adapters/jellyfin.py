@@ -14,6 +14,7 @@ below is the one place to change.
 from __future__ import annotations
 
 import re
+from datetime import datetime, timezone
 from typing import Any, Mapping, Optional, Tuple
 
 from ..contract import (ArtworkRef, ArtworkResult, Kind, MappingFailed, MediaItem, SectionResult,
@@ -66,8 +67,11 @@ ALLOWED_ROUTES = (
     # `userId` QUERY parameter. Search moved here from the legacy `/Users/{id}/Items`, which Jellyfin 10.9+
     # keeps only as an obsolete, hidden alias (doc-verified against the 10.11 ItemsController source,
     # 2026-10-16; not live-verified). The term travels only as `searchTerm`.
+    # New releases (owner decision 2026-10-28) is the same user-scoped listing sorted by premiere date, never later
+    # than today, without the placeholders of unaired episodes.
     Route("items", r"/Items", ("userId", "ids", "fields", "enableUserData", "enableImageTypes",
-                               "searchTerm", "includeItemTypes", "recursive", "limit"),
+                               "searchTerm", "includeItemTypes", "recursive", "limit", "sortBy", "sortOrder",
+                               "maxPremiereDate", "isMissing"),
           user_scoped=True, not_found=UserGone),
     # The image route cannot carry a userId, so ITS member scoping is not enforced here: it rests on
     # the adapter calling `_visible_item` (a userId-scoped lookup) for the same item first.
@@ -96,7 +100,8 @@ class GuardedTransport(_base.GuardedTransport):
 class JellyfinAdapter(GuardedAdapter):
     service = Service.JELLYFIN
     artwork_rechecks_visibility = True     # visibility is per member: re-checked before any cached cover
-    extra_sections = frozenset({"next_up"})
+    extra_sections = frozenset({"next_up", "released"})
+    RELEASED_ASK = 4          # episodes ask for more, because only the newest of each series is kept
 
     def __init__(self, transport: Transport, timeout: float = DEFAULT_TIMEOUT, *,
                  member_username: Optional[Tuple[str, str]] = None, **kw):
@@ -207,7 +212,7 @@ class JellyfinAdapter(GuardedAdapter):
                          artwork=artwork, year=year,
                          external_ids=media_ids.from_jellyfin(raw.get("ProviderIds")),
                          summary=clean_summary(raw.get("Overview")) if want_summary else None,
-                         backdrop=backdrop), "ok"
+                         backdrop=backdrop, released=_base.iso_day(raw.get("PremiereDate"))), "ok"
 
     def _parse_list(self, raws: Any, user_id: str, limit: int, kinds, want_progress,
                     require_progress, want_summary: bool = False,
@@ -250,6 +255,32 @@ class JellyfinAdapter(GuardedAdapter):
         items = self._parse_list(body.get("Items"), user.upstream_id, limit, ("Episode",),
                                  want_progress=False, require_progress=False)
         return SectionResult.of(Service.JELLYFIN, "next_up", items)
+
+    def _released_items(self, user: UpstreamUser, limit: int) -> SectionResult:
+        """Films and episodes by premiere date, newest first, none later than today; one episode per series (its
+        newest), so a show that drops a season is one card."""
+        guard = self._guard.bind(user.upstream_id)
+        today = datetime.now(timezone.utc).date().isoformat()
+        body = self._get_json(guard, self._budget(), "/Items", {
+            "userId": user.upstream_id, "includeItemTypes": "Movie,Episode", "recursive": "true",
+            "sortBy": "PremiereDate,SortName", "sortOrder": "Descending", "maxPremiereDate": today + "T23:59:59Z",
+            "isMissing": "false", "limit": str(min(50, limit * self.RELEASED_ASK)), "fields": _ITEM_FIELDS,
+            "enableImageTypes": _IMAGE_TYPES, "enableUserData": "true"})
+        if not isinstance(body, dict):
+            raise UpstreamMalformed()
+        # user data is requested only so the scope tripwire can run; it is never exposed here
+        found = self._parse_list(body.get("Items"), user.upstream_id, min(50, limit * self.RELEASED_ASK),
+                                 ("Movie", "Episode"), want_progress=False, require_progress=False)
+        shown, series = [], set()
+        for item in found:
+            if item.released is None or item.released > today:
+                continue
+            if item.kind is Kind.EPISODE:
+                if item.series in series:
+                    continue
+                series.add(item.series)
+            shown.append(item)
+        return SectionResult.of(Service.JELLYFIN, "released", tuple(shown[:limit]))
 
     def _search(self, user: UpstreamUser, query: str, limit: int) -> SectionResult:
         guard = self._guard.bind(user.upstream_id)
