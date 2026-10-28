@@ -197,16 +197,24 @@ What *is* different is the consequence, and the guardrails below exist for exact
 
 ### What Jellyfin answers, and what the member reads
 
-- `POST /me/devices/quick-connect` with `code` (exactly `\d{6}`) and the CSRF token, then 303 back with a status line.
+- As built (PR #127): `POST /me/tv` with `code` (exactly `\d{6}`) and the form token `t`, then a 303 back to
+  `/me/tv?r=<outcome>`. The Me tab lists it under **Devices**, ahead of Account (ME-01 reading order).
 - Outcomes:
-  - Jellyfin `true`: "Approved. Your TV should sign in within a few seconds. If it doesn't, check the code and try
-    again." This acknowledges the approval; it doesn't verify the sign-in.
+  - Jellyfin `true`: "Approved. Your TV should sign in within a few seconds; once it has, play something for a moment
+    to check." This acknowledges the approval; it doesn't verify the sign-in (the ME-04 checkpoint is the member's).
   - not found: "That code didn't work. Codes last 10 minutes."
-  - already approved: "That code was already used."
-  - 401 (switched off): only the hand-off is shown.
-  - timeout: "We couldn't tell whether it went through. Check your TV before trying again." No automatic retry, because
-    approving isn't idempotent.
-- The code is never logged, cached, stored or echoed.
+  - already approved (an unhandled 500 upstream): "That code didn't go through. It may already have been used."
+  - 401 (switched off): "switched off", and the page shows only the words and the sign-in advice.
+  - 403 (the key lacks rights): "couldn't be reached", with the hand-off; no retry fixes it.
+  - timeout: "We couldn't tell whether it went through. Look at your TV before trying again." No automatic retry,
+    because approving isn't idempotent.
+- **One write per form.** A double press is stopped in the browser (`home.js` part 11 disables the button), and on the
+  server a repeat of the same token and code shares the first post's answer; an approval is remembered for the token's
+  30 minutes, so a resend reads "approved" instead of "already used" (`forms.Replays`, a keyed HMAC in memory).
+- **Parity.** Someone without TV and Movies gets the same 501 for `POST /me/tv` as for a POST anywhere else.
+- **Cost.** The page's status (switched on? eligible?) is reused for 30 s per member (5 s after a failure), so reloads
+  make no upstream calls; the approval itself always checks again.
+- The code is never logged, cached, stored or echoed (the replay key is an HMAC under a per-process random key).
 - **Tests:** a fake Jellyfin covering every outcome; an admin target refused; a disabled or missing mapping refused;
   rate limit; CSRF refusals; a cross-member attempt impossible (the `userId` comes only from the verified principal);
   timeout without retry; no code in logs.

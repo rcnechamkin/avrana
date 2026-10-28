@@ -182,6 +182,40 @@ def library_view_from_scope(scope) -> Optional[str]:
     return _choice_from_scope(scope, "view")
 
 
+def tv_result_from_scope(scope) -> Optional[str]:
+    """`?r=<outcome>` on /me/tv after a post (forms.py). Bounded text only; the page checks it against the fixed
+    outcome list and never echoes it. It confers no identity and no access."""
+    return _choice_from_scope(scope, "r")
+
+
+def same_origin_form_post(scope) -> bool:
+    """True only for a browser form post from this site: `Content-Type: application/x-www-form-urlencoded`, and
+    `Sec-Fetch-Site: same-origin`, or (older browsers, no Sec-Fetch-Site) an `Origin` whose host equals `Host`. Each
+    header must appear exactly once. A cross-site page can't forge either header (forms.py, CSRF locks)."""
+    wanted = {b"content-type", b"sec-fetch-site", b"origin", b"host"}
+    seen: dict = {}
+    for raw_name, raw_value in scope.get("headers", ()):
+        name = bytes(raw_name).lower()
+        if name in wanted:
+            if name in seen:
+                return False
+            try:
+                seen[name] = bytes(raw_value).decode("ascii").strip()
+            except UnicodeDecodeError:
+                return False
+    ctype = seen.get(b"content-type", "").split(";", 1)[0].strip().lower()
+    if ctype != "application/x-www-form-urlencoded":
+        return False
+    site = seen.get(b"sec-fetch-site")
+    if site is not None:
+        return site == "same-origin"
+    origin, host = seen.get(b"origin", "").lower(), seen.get(b"host", "").lower()      # host names ignore case
+    for scheme in ("https://", "http://"):
+        if origin.startswith(scheme):
+            return bool(host) and origin[len(scheme):] == host
+    return False
+
+
 def security_state_from_scope(scope) -> Optional[str]:
     """The opaque return state on `/me/security/back?s=<state>` (security.py). Bounded text only; security.py checks
     its signature against the verified member. It confers no identity and no access, and is never echoed or logged."""

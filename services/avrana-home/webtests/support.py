@@ -166,10 +166,10 @@ class PeerOverride:
         await self.app(scope, receive, send)
 
 
-def make_client(settings=None, adapters=None, peer=("203.0.113.7", 50000), wrap=None):
+def make_client(settings=None, adapters=None, peer=("203.0.113.7", 50000), wrap=None, quick_connect=None):
     from fastapi.testclient import TestClient
     from avrana_home.app.main import create_app
-    app = create_app(settings or make_settings(), adapters=adapters)
+    app = create_app(settings or make_settings(), adapters=adapters, quick_connect=quick_connect)
     outer = PeerOverride(wrap(app) if wrap else app, peer)
     client = TestClient(outer, base_url="http://portal.test", follow_redirects=False,
                         raise_server_exceptions=False)
