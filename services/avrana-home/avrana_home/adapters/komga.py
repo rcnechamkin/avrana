@@ -23,7 +23,9 @@ ever have Komga restrictions, so there is nothing per member to enforce. What th
     that member's in-progress books, then their On Deck (the next unread book of a series they have started),
     read with their key through a separate two-route allow-list. The shared account is never used for it. A
     member without a key sees no Continue row (not offered), exactly as before. A refused member key is that
-    member's problem: an empty row, never a count against the circuit every member shares.
+    member's problem: an empty row, never a count against the circuit every member shares. An On Deck book carries
+    `shelf="next"` (UP_NEXT) and no progress, so Home can say "Up next" instead of passing it off as started.
+  * A book with no metadata has its file name as `metadata.title`; `_title` shows "<series> #<number>" instead.
   * The credential lives only inside the transport (a header, never a URL). Every request goes through
     `GuardedTransport`: GET only, an explicit three-route list (books, book, thumbnail), no query keys
     beyond the list.
@@ -70,6 +72,10 @@ RELEASE_AHEAD_DAYS = 92
 ADDED_SORT, RELEASED_SORT = "created,desc", "metadata.releaseDate,desc"     # fixed values, never member input
 READING_SORT, IN_PROGRESS = "readProgress.readDate,desc", "IN_PROGRESS"      # likewise
 _EMAIL = re.compile(r"[^@\s]{1,64}@[^@\s]{1,190}")
+# Two or more trailing "(...)" groups: the year, "(Digital)", the scanner's tag. Komga's `metadata.title` falls back to
+# the file name when a book has no metadata, and that is how file names end ("Saga 055 (2021) (Digital) (Group)").
+_FILE_TAGS = re.compile(r"(?:\s*\([^()]{0,60}\)){2,}\s*$")
+UP_NEXT = "next"                 # MediaItem.shelf for an On Deck book in Continue (fixed, never upstream text)
 
 ALLOWED_ROUTES = (
     Route("books", r"/api/v1/books", ("search", "sort", "page", "size"), user_scoped=False, not_found=RouteMissing),
@@ -131,6 +137,27 @@ def _creator(authors: Any) -> Optional[str]:
     named = [a for a in authors[:50] if isinstance(a, dict) and clean_text(a.get("name"))]
     pick = next((a for a in named if a.get("role") == "writer"), named[0] if named else None)
     return clean_text(pick.get("name")) if pick else None
+
+
+def _title(title: Optional[str], name: Optional[str], series: Optional[str], number: Optional[str]) -> str:
+    """The book's display title. A title that is really the file name (ending in scanner tags, or Komga's `name` that is
+    just the series and the padded number, "Saga 055") becomes "<series> #<number>" when Komga knows both, else the
+    title without its trailing tags. A file name that reads as a title is kept. Nothing is made up: every word comes
+    from the book's own fields."""
+    title = title or name
+    if not title:
+        return "Untitled"
+    tagged = _FILE_TAGS.search(title)
+    bare = (title == name and series and number
+            and re.fullmatch(re.escape(series) + r"\s*[-#:]?\s*0*" + re.escape(number.lstrip("0") or "0"),
+                             title, re.IGNORECASE))
+    if not tagged and not bare:
+        return title
+    if series and number:
+        return clean_text(f"{series} #{number}") or title
+    if tagged:
+        return title[:tagged.start()].strip() or title
+    return title
 
 
 def _today() -> date:
@@ -216,12 +243,12 @@ class KomgaAdapter(GuardedAdapter):
         if raw.get("deleted") is True or (isinstance(media, dict) and media.get("status") not in (None, "READY")):
             return None, "filtered"
         info = raw.get("metadata") if isinstance(raw.get("metadata"), dict) else {}
-        title = clean_text(info.get("title")) or clean_text(raw.get("name")) or "Untitled"
-        number = clean_text(info.get("number"), 20)
+        number, series = clean_text(info.get("number"), 20), clean_text(raw.get("seriesTitle"))
+        title = _title(clean_text(info.get("title")), clean_text(raw.get("name")), series, number)
         return MediaItem(creator=_creator(info.get("authors")), year=year_from(info.get("releaseDate")),
                          id=f"komga:{book_id}", service=Service.KOMGA, kind=Kind.COMIC, title=title,
                          handoff_url=build_handoff_url(Service.KOMGA, book_id),
-                         subtitle=f"#{number}" if number else None, series=clean_text(raw.get("seriesTitle")),
+                         subtitle=f"#{number}" if number else None, series=series,
                          artwork=ArtworkRef(f"komga/book/{book_id}", f"Cover of {title}"),
                          external_ids=media_ids.from_book_metadata(info)), "ok"
 
@@ -290,6 +317,8 @@ class KomgaAdapter(GuardedAdapter):
                 seen.add(item.id)
                 if in_progress:
                     item = dataclasses.replace(item, progress_fraction=self._progress(raw))
+                else:                                          # On Deck: the next unread book, nothing read yet
+                    item = dataclasses.replace(item, shelf=UP_NEXT)
                 shown.append(item)
         if not shown and bad:
             raise UpstreamMalformed()                          # nothing usable and some drift: never "empty"

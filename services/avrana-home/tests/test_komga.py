@@ -133,6 +133,42 @@ class SharedView(Base):
         self.assertEqual(len(self.fake.requests), n)
 
 
+class FileNameTitles(unittest.TestCase):
+    """Owner review 2026-10-28: a book with no metadata has its file name as `metadata.title` (scanner tags and all).
+    Home shows "<series> #<number>" from the book's own fields instead, and never makes anything up."""
+
+    @staticmethod
+    def title(title, name, series="Synthetic Saga", number="2"):
+        raw = {"id": "BOOKTITLE001", "name": name, "seriesTitle": series, "media": {"status": "READY"},
+               "metadata": {"title": title, "number": number}}
+        item, status = KomgaAdapter._book(raw)
+        assert status == "ok"
+        return item.title, item.series, item.subtitle
+
+    def test_a_file_name_with_scanner_tags_becomes_series_and_number(self):
+        raw = "Synthetic Saga 002 (2026) (Digital) (Synthetic-Scanner)"
+        self.assertEqual(self.title(raw, raw), ("Synthetic Saga #2", "Synthetic Saga", "#2"))
+
+    def test_a_bare_series_and_padded_number_file_name_becomes_series_and_number(self):
+        self.assertEqual(self.title("Synthetic Saga 002", "Synthetic Saga 002")[0], "Synthetic Saga #2")
+        self.assertEqual(self.title("synthetic saga - 2", "synthetic saga - 2")[0], "Synthetic Saga #2")
+
+    def test_a_real_title_or_a_file_name_that_reads_as_one_is_kept(self):
+        self.assertEqual(self.title("The Quiet Issue", "Synthetic Saga 002 (2026) (Digital)")[0], "The Quiet Issue")
+        self.assertEqual(self.title("Synthetic Comic One", "Synthetic Comic One")[0], "Synthetic Comic One")
+        self.assertEqual(self.title("Synthetic Saga (2016)", "x")[0], "Synthetic Saga (2016)")   # one group: a title
+
+    def test_without_series_or_number_only_the_tags_go(self):
+        raw = "Synthetic Saga 002 (2026) (Digital)"
+        self.assertEqual(self.title(raw, raw, series=None)[0], "Synthetic Saga 002")
+        self.assertEqual(self.title(raw, raw, number=None)[0], "Synthetic Saga 002")
+        self.assertEqual(self.title("(2026) (Digital)", "(2026) (Digital)", series=None)[0], "(2026) (Digital)")
+
+    def test_no_title_falls_back_to_the_name_then_untitled(self):
+        self.assertEqual(self.title(None, "Synthetic Saga 002 (2026) (Digital)")[0], "Synthetic Saga #2")
+        self.assertEqual(self.title(None, None, series=None)[0], "Untitled")
+
+
 class RecentAndReleased(Base):
     """Owner decision 2026-10-28: Recently added is sorted by `created`, keeps the last RECENT_DAYS only and shows one
     book per series; New releases is sorted by release date, one book per series."""

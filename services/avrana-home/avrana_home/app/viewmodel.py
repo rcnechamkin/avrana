@@ -33,6 +33,9 @@ KIND_LABEL = {"movie": "Movie", "episode": "Episode", "series": "Series", "audio
 _VERB = {"movie": "watched", "episode": "watched", "series": "watched", "audiobook": "listened",
          "comic": "read", "ebook": "read"}
 _MINUTES_KINDS = frozenset({"movie", "episode", "series"})   # time left in total minutes (_duration_words)
+# The contract shelf the Komga adapter gives an On Deck book in Continue: the next one, not yet started. Its card says
+# "Up next" where an in-progress card says how far along it is, so it is never passed off as started.
+UP_NEXT_SHELF, UP_NEXT = "next", "Up next"
 _HANDOFF_PREFIX = "https://"
 # A Home card's hand-off is rendered only when it starts with one of the contract's FIXED hosts followed by
 # "/", so the host can never be anything else (str.startswith takes the tuple). An upstream-supplied URL never
@@ -145,6 +148,7 @@ class ItemVM:
     fraction: Optional[float] = None  # 0 to 1, for the progress rule beside the words (progress_fraction)
     backdrop: Optional[str] = None # same-origin /art/... URL of a wide backdrop, for the hero only
     shelf: Optional[str] = None    # a "shelves" item's shelf (SHELF_ROWS key); never upstream text
+    up_next: bool = False          # the next unread book (contract shelf "next"), nothing read yet: "Up next"
 
 
 @dataclass(frozen=True)
@@ -182,15 +186,21 @@ def _item_vm(it: dict) -> Optional[ItemVM]:
     # An episode leads with its marker ("S3 E10 · Series"): a one-line clamp then cuts the series, never the
     # episode number. Everything else keeps series first.
     parts = (it.get("subtitle"), it.get("series")) if it.get("kind") == "episode" else (it.get("series"), it.get("subtitle"))
+    title = _plain(it.get("title") or "") or "Untitled"
+    if it.get("kind") == "comic" and it.get("series") and title.startswith(_plain(it["series"])):
+        # A "<series> #<number>" title: the series is not repeated below it, but the number stays (a card clamps a long
+        # title at two lines, and the number is what tells one issue from the next).
+        parts = (None, it.get("subtitle"))
     detail = " · ".join(_plain(x) for x in parts if x) or None
     finished, resumable = continue_state(it.get("progress"))
     service = it.get("service") if it.get("service") in SERVICE_LABEL else ""
     item_id = it.get("id") if isinstance(it.get("id"), str) else None
-    return ItemVM(_plain(it.get("title") or "") or "Untitled", href, str(it.get("kind", "")), detail,
+    return ItemVM(title, href, str(it.get("kind", "")), detail,
                   progress_words(it.get("kind", ""), it.get("progress")), _image(it.get("artwork")),
                   service=service, resumable=resumable, finished=finished, item_id=item_id,
                   fraction=progress_fraction(it.get("progress")), backdrop=_image(it.get("backdrop")),
-                  shelf=it.get("shelf") if it.get("shelf") in dict(SHELF_ROWS) else None)
+                  shelf=it.get("shelf") if it.get("shelf") in dict(SHELF_ROWS) else None,
+                  up_next=it.get("shelf") == UP_NEXT_SHELF and it.get("progress") is None)
 
 
 def build_sections(view: dict) -> Tuple[SectionVM, ...]:
@@ -322,6 +332,16 @@ class HomeVM:
     focus: Optional[str] = None          # the chosen place ("watch"), None for All
     rows: Tuple[RowVM, ...] = ()         # Watch: Up next, Movies, TV shows (in place of Recently added)
     focus_open: Optional[Tuple[object, str]] = None   # (place label, "/watch"): the chosen place's own site
+    continue_rail: str = ""              # the Continue rail's shape class: "stills" (all stills), "mixed", or ""
+
+
+def rail_shape(cards) -> str:
+    """"stills" when every card is a video still (the rail is a still's height, as Up next), "mixed" when stills share
+    the rail with taller covers (a still then fills the rail's height, so every card stands as tall), else ""."""
+    shapes = {c.shape for c in cards}
+    if "still" not in shapes:
+        return ""
+    return "stills" if shapes == {"still"} else "mixed"
 
 
 @dataclass(frozen=True)
@@ -569,8 +589,9 @@ def _cards(items, line_of, progress: bool = False, title_services=frozenset()) -
     for it in items:
         verb, name = action_of(it, progress)
         href = (None if progress else _details_href(it, title_services)) or it.href
+        words = (it.progress or (UP_NEXT if it.up_next else None)) if progress else None
         out.append(CardVM(it.title, href, SHAPE.get(it.kind, "poster"), line_of(it), it.image,
-                          it.progress if progress else None, kind_label=KIND_LABEL.get(it.kind),
+                          words, kind_label=KIND_LABEL.get(it.kind),
                           action=verb, action_label=name, bar=_bar(it) if progress else None))
     return tuple(out)
 
@@ -585,7 +606,7 @@ def hero_of(it: ItemVM, state: str, title_services=frozenset()) -> Optional[Hero
     library = SERVICE_LABEL[it.service]
     kind = KIND_LABEL.get(it.kind)
     if state == "continue":
-        meta = " · ".join(x for x in (it.progress or it.detail, library) if x)
+        meta = " · ".join(x for x in (it.progress or (UP_NEXT if it.up_next else it.detail), library) if x)
     elif it.detail:
         meta = f"{it.detail} · {library}"
     else:
@@ -739,8 +760,11 @@ def build_home(view: dict, tiles, *, new_tab: Optional[str] = None, limit: int =
     else:
         recent = _round_robin([[it for it in items_of("recent", s) if up(it)] for s in SERVICE_ORDER], 1)
         hero = hero_of(recent[0], "recent", title_services) if recent else None
+    # Every Continue card has a second line (what it is, when there is no series or episode line), so the progress words
+    # and the action stand at one height across the rail whatever the library.
+    cont_cards = _cards(cont, lambda it: it.detail or KIND_LABEL.get(it.kind), progress=True)
     return HomeVM(**base, no_library=False, notices=tuple(notices), show_continue=bool(cont_services),
-                  continue_items=_cards(cont, lambda it: it.detail, progress=True),
+                  continue_items=cont_cards, continue_rail=rail_shape(cont_cards),
                   continue_said=continue_said, show_new=not rows, rows=rows,
                   new_tabs=tuple((k, n, k == tab) for k, n in tabs), new_items=new, new_said=new_said,
                   retry_href=retry_href, setup_href=setup_href, hero=hero)

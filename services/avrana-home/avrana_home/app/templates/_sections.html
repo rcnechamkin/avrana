@@ -59,8 +59,8 @@
   <section class="shelf" aria-labelledby="h-continue">
     <h2 id="h-continue">Continue</h2>
 {% if home.continue_items %}
-    <ul class="rail">
-{% for c in home.continue_items %}{{ card(c, verb=True) }}
+    <ul class="rail cont{% if home.continue_rail %} {{ home.continue_rail }}{% endif %}">
+{% for c in home.continue_items %}{{ card(c, verb=True, glow=home.continue_rail == "mixed") }}
 {% endfor %}
     </ul>
 {% elif home.continue_said %}
