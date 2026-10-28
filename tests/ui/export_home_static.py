@@ -63,7 +63,9 @@ SEARCH_SEEDS = {"/search": "search", "/search?q=Synthetic": "search-results",
 # Member-a's own film: a title page in every state (ok, unavailable, not set up for member-c; 404 is skipped).
 TITLE_SEEDS = ("/title/jellyfin/aaaa0000000000000000000000000001",)
 TITLE = re.compile(r"^/title/([a-z-]+)/[A-Za-z0-9_-]+(?:\?q=[A-Za-z0-9%]+)?$")
-CRAWL = re.compile(r"^/(?:\?new=[a-z-]+)?$|^/(?:me|account|help|read|request|watch)$|^/help/[a-z0-9-]+$"
+# Home's filters (owner decision 2026-10-27) took the places bar's row, so a place such as /read is reached through
+# its filtered Home (/?for=read, "Open Read"): the filtered Homes are crawled too.
+CRAWL = re.compile(r"^/(?:\?(?:new|for)=[a-z-]+)?$|^/(?:me|account|help|read|request|watch)$|^/help/[a-z0-9-]+$"
                    r"|^/library(?:\?lib=[a-z-]+)?$"
                    r"|^/search(?:\?q=[A-Za-z0-9%]+)?$|" + TITLE.pattern[1:])
 ACTION = re.compile(r'(<form [^>]*action=")(/search)(")')
@@ -102,7 +104,9 @@ def slug_of(key: str) -> str:
     name = "home" if path == "/" else path.strip("/").replace("/", "-")
     if path.startswith("/title/"):                 # title pages: one file per item, the search term dropped
         return re.sub(r"[^A-Za-z0-9-]", "-", name)
-    return f"{name}-{query.replace('new=', 'new-').replace('lib=', 'lib-')}" if query else name
+    for key in ("new", "lib", "for"):              # ?new=jellyfin -> home-new-jellyfin, ?for=read -> home-for-read
+        query = query.replace(f"{key}=", f"{key}-")
+    return f"{name}-{query}" if query else name
 
 
 def placeholder(ref: str, shape: str, title: str) -> str:
