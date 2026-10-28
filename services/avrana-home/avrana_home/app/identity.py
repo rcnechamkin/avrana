@@ -182,6 +182,14 @@ def library_view_from_scope(scope) -> Optional[str]:
     return _choice_from_scope(scope, "view")
 
 
+def show_from_scope(scope) -> Optional[int]:
+    """`?show=<TMDB id>` on /request/watch: which show's seasons to list (the season picker). Digits only, at most
+    nine; anything else is None (the page then shows the search). It confers no identity and no access: the seasons
+    are read from Seerr as the member."""
+    value = _choice_from_scope(scope, "show")
+    return int(value) if value and value.isdigit() and len(value) <= 9 and int(value) > 0 else None
+
+
 def tv_result_from_scope(scope) -> Optional[str]:
     """`?r=<outcome>` on /me/tv after a post (forms.py). Bounded text only; the page checks it against the fixed
     outcome list and never echoes it. It confers no identity and no access."""

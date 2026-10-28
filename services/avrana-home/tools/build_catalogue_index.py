@@ -8,7 +8,8 @@ same id spaces the request tools search with. This joins them once, so Home can 
 instead of guessing from titles:
 
   * ebooks      Calibre metadata.db `identifiers` (hardcover-id, isbn)           -> Calibre book id (= Calibre-Web id)
-  * audiobooks  Shelfarr's mirror of Audiobookshelf (`library_items`: isbn, asin) -> Audiobookshelf item id
+  * audiobooks  Shelfarr's mirror of Audiobookshelf (`library_items`: isbn, asin) -> Audiobookshelf item id,
+                plus `books.hardcover_id` where an audiobook record shares that ISBN
   * comics      Omnibus `Series` (cvId, folderPath) joined by path to Komga `SERIES` (URL) -> Komga series id
 
 Catalogue identifiers only: no users, no progress, no requests, no titles in the output (title keys are folded,
@@ -134,6 +135,18 @@ def from_shelfarr(path) -> tuple[dict, dict]:
             key = title_key(title, author)
             if key:
                 likely.setdefault(key, item)
+        # Shelfarr's own audiobook records carry the Hardcover id its search returns; where one shares an ISBN with an
+        # Audiobookshelf item above, that Hardcover id is an exact key for the item too (Hardcover's search carries
+        # no ASINs, so this is how a search result can match an audiobook exactly). Older schemas: skipped.
+        try:
+            joined = db.execute("SELECT hardcover_id, isbn FROM books WHERE book_type = 0 "
+                                "AND hardcover_id IS NOT NULL AND isbn IS NOT NULL").fetchall()
+        except sqlite3.Error:
+            joined = []
+        for hardcover, isbn in joined:
+            number = isbn13(isbn)
+            if number and str(hardcover).isdigit() and len(str(hardcover)) <= 12 and f"isbn:{number}" in exact:
+                exact.setdefault(f"hardcover:{hardcover}", exact[f"isbn:{number}"])
     return exact, likely
 
 

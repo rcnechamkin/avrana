@@ -15,6 +15,7 @@ import http.client
 import io
 import logging
 import math
+import re
 import socket
 import threading
 import time
@@ -136,9 +137,10 @@ class Transport(Protocol):
 
     def request(self, method: str, path: str, query: Optional[Mapping[str, str]],
                 timeout: float, max_bytes: int, *, json_body: Optional[bytes] = None,
-                act_as: Optional[str] = None) -> TransportResponse: ...
-    # `json_body` is used only by the request brokers' POSTs (requests/shelfarr.py, requests/seerr.py) and `act_as`
-    # (Seerr's `X-API-User`, a numeric user id) only by requests/seerr.py; every adapter sends neither.
+                act_as: Optional[str] = None, act_as_name: Optional[str] = None) -> TransportResponse: ...
+    # `json_body` is used only by the request brokers' POSTs (requests/*.py), `act_as` (Seerr's `X-API-User`, a
+    # numeric user id) only by requests/seerr.py and `act_as_name` (the Omnibus fork's `X-Omnibus-User`, a username)
+    # only by requests/omnibus.py; every adapter sends none of them.
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -147,6 +149,7 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 
 
 READ_CHUNK = 16 * 1024
+_ACT_AS_NAME = re.compile(r"[A-Za-z0-9._@+-]{1,150}")      # the Omnibus fork's own username check
 MAX_TRANSPORT_TIMEOUT = 30.0     # a larger (finite) timeout is capped; a non-finite one is refused
 
 
@@ -321,7 +324,7 @@ class UrllibTransport:
     def __repr__(self) -> str:
         return "UrllibTransport(<redacted>)"
 
-    def request(self, method, path, query, timeout, max_bytes, *, json_body=None, act_as=None):
+    def request(self, method, path, query, timeout, max_bytes, *, json_body=None, act_as=None, act_as_name=None):
         from urllib.parse import urlencode
         url = self._base + path + (("?" + urlencode(query)) if query else "")
         headers = dict(self._headers)
@@ -333,6 +336,10 @@ class UrllibTransport:
             if not isinstance(act_as, str) or not act_as.isdigit() or not 0 < len(act_as) <= 9:
                 raise UpstreamMisbehaved()               # a programming error, never sent
             headers["X-API-User"] = act_as
+        if act_as_name is not None:
+            if not isinstance(act_as_name, str) or not _ACT_AS_NAME.fullmatch(act_as_name):
+                raise UpstreamMisbehaved()               # a programming error, never sent
+            headers["X-Omnibus-User"] = act_as_name
         req = urllib.request.Request(url, data=json_body, method=method, headers=headers)
         if (not isinstance(timeout, (int, float)) or isinstance(timeout, bool) or not math.isfinite(timeout)
                 or not timeout > 0):

@@ -13,6 +13,7 @@ from __future__ import annotations
 import base64
 import contextlib
 import dataclasses
+import datetime as dt
 import logging
 from pathlib import Path
 from typing import Optional, Sequence
@@ -44,16 +45,21 @@ from . import install as install_mod
 from . import notice as notice_mod
 from . import pwa as pwa_mod
 from . import bookrequests as bookreq_mod
-from ..requests.forms import Flash, FormSigner, RequestGuard, SearchCache, SearchLimiter, form_key
+from ..requests.forms import AttemptLimiter, Flash, FormSigner, RequestGuard, SearchCache, SearchLimiter, form_key
 from ..requests.owned import OwnedIndex
 from ..requests.seerr import MediaState, SeerrRequests
 from . import watchrequests as watch_mod
-from ..requests.shelfarr import FORMAT_GROUP, ShelfarrRequests, clean_term, member_username
+from . import myrequests as mine_mod
+from . import comicrequests as comic_mod
+from ..requests.omnibus import OmnibusRequests
+from ..requests.shelfarr import FORMAT_GROUP, Provisioned as ShelfarrProvisioned, ShelfarrRequests, clean_term, \
+    member_username
 from . import forms as forms_mod
 from . import security as security_mod
 from .identity import (IdentityResolver, Viewer, get_viewer, has_identity_headers, home_filter_from_scope,
                        if_none_match_from_scope, library_chip_from_scope, library_view_from_scope, new_tab_from_scope,
-                       same_origin_form_post, search_term_from_scope, security_state_from_scope, tv_result_from_scope)
+                       same_origin_form_post, search_term_from_scope, security_state_from_scope, show_from_scope,
+                       tv_result_from_scope)
 from .logsafe import app_log, log_event, silence_uvicorn_access
 from .middleware import MAX_FORM_BODY, NOT_IMPLEMENTED_BODY, HygieneMiddleware
 from . import recovery
@@ -181,6 +187,14 @@ def build_watch_requests(settings: Settings) -> Optional[SeerrRequests]:
     return SeerrRequests(transport, timeout=settings.timeout)
 
 
+def build_comic_requests(settings: Settings) -> Optional[OmnibusRequests]:
+    """The Omnibus (Avrana fork) request client, or None when HOME_COMIC_REQUESTS is off (settings.py validates)."""
+    if not (settings.home_sections and settings.comic_requests and settings.omnibus_base_url):
+        return None
+    transport = UrllibTransport(settings.omnibus_base_url, {"X-Api-Key": settings.omnibus_api_key})
+    return OmnibusRequests(transport, timeout=max(settings.timeout, 4.0))     # Omnibus asks ComicVine in-line
+
+
 def build_quick_connect(settings: Settings) -> Optional[QuickConnect]:
     """Embedded Quick Connect (quickconnect.py; owner decision 2026-10-27): built only where the real adapters are, with
     its own transport to the same Jellyfin address and key. Tests inject one, or get none (then /me/tv is the standard
@@ -199,6 +213,13 @@ TV_RESULTS = QC_OUTCOMES + ("expired",)
 # The request brokers' signed forms (bookrequests.py, watchrequests.py): exactly these fields, each once.
 BOOK_FIELDS = frozenset({"work_id", "book_type", "title", "author", "q", "token"})
 WATCH_FIELDS = frozenset({"media_type", "media_id", "title", "q", "token"})
+# The season picker posts the same signed fields plus `pick` and one checkbox per chosen season (unsigned: which seasons
+# is the member's choice; each must be a season number Seerr then checks against the show).
+SEASON_FIELDS = frozenset(f"season_{n}" for n in range(1, 61))
+WATCH_PICK_FIELDS = WATCH_FIELDS | SEASON_FIELDS | {"pick"}
+MINE_FIELDS = frozenset({"service", "request_id", "title", "token"})
+COMIC_FIELDS = frozenset({"cv_id", "title", "year", "publisher", "q", "token"})
+OPEN_CHECKS = 5                      # permission-checked Jellyfin lookups on My requests, at most
 
 
 def _is_loopback_peer(request: Request) -> bool:
@@ -210,10 +231,11 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
                quick_connect: Optional[QuickConnect] = None,
                book_requests: Optional[ShelfarrRequests] = None,
                watch_requests: Optional[SeerrRequests] = None,
+               comic_requests: Optional[OmnibusRequests] = None,
                provisioner: Optional[Provisioner] = None) -> FastAPI:
-    """`adapters`, `quick_connect`, `book_requests`, `watch_requests` and `provisioner` let tests inject fakes; otherwise
-    they are built from `settings`. Each broker exists only when its switch is on (an injected client is ignored
-    otherwise)."""
+    """`adapters`, `quick_connect`, `book_requests`, `watch_requests`, `comic_requests` and `provisioner` let tests
+    inject fakes; otherwise they are built from `settings`. Each broker exists only when its switch is on (an injected
+    client is ignored otherwise)."""
     silence_uvicorn_access()      # whoever serves this app, uvicorn must not log raw query strings
     cat = catalogue_mod.load(settings.catalogue_path)
     env = make_environment()
@@ -239,12 +261,17 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
     seerr = None
     if settings.home_sections and settings.watch_requests:
         seerr = watch_requests if watch_requests is not None else build_watch_requests(settings)
+    omnibus = None
+    if settings.home_sections and settings.comic_requests:
+        omnibus = comic_requests if comic_requests is not None else build_comic_requests(settings)
     # Forms are signed with a key derived from the JWT client secret when Home has one (open forms survive a
     # restart), else a random per-process key. Guards, the search limiter, caches and outcomes are per process.
     signer, guard = FormSigner(form_key(settings.jwt_secret)), RequestGuard()
     limiter, flash = SearchLimiter(), Flash()
     book_cache = SearchCache(ttl=600.0)           # Shelfarr searched as Home's account: the same for every member
     watch_cache = SearchCache(ttl=120.0)          # Seerr searched AS a member: keyed by that member's Seerr id
+    comic_cache = SearchCache(ttl=600.0)          # Omnibus search: metadata only, the same for every member
+    broker_accounts = AttemptLimiter()            # account creation by the brokers: once per member per hour
     owned_index = OwnedIndex(settings.library_ids_file)             # read-only; None = no "Already in" claims
     # Account & Security: the fixed hand-off table (from the catalogue's account address and the owner-verified flows)
     # and the per-process key for the opaque return state. A bad catalogue address stops startup.
@@ -381,11 +408,24 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
             mark_shell(scope, shell)
             username = broker_user(viewer)
             said, asked, back = flash.take(username, watch_mod.PATH) or (None, frozenset(), None)
+            show = show_from_scope(scope) if request.method != "HEAD" else None
+            if show is not None:                     # the season picker for one show, read from Seerr as the member
+                linked, seerr_id = await seerr_user(viewer, provision=True)
+                state, detail = (await run_in_threadpool(seerr.show, seerr_id, show) if linked == "ok"
+                                 else (linked, None))
+                log_event(app_log, logging.INFO, "watch_show", service="seerr", state=state)
+                if detail is not None:
+                    page = watch_mod.build_show(detail, search_term_from_scope(scope), username, signer)
+                elif state == "not_linked":
+                    page = watch_mod.not_linked(watch_place(viewer))
+                else:
+                    page = watch_mod.build_results("unavailable", (), search_term_from_scope(scope) or "", "", signer)
+                return render("request_watch.html", page=dataclasses.replace(page, notice=said), shell=shell)
             term = None if request.method == "HEAD" else (search_term_from_scope(scope) or back)   # HEAD never searches
             if term is None:
                 page = watch_mod.build_results("form", (), None, "", signer)
                 return render("request_watch.html", page=dataclasses.replace(page, notice=said), shell=shell)
-            linked, seerr_id = await seerr_user(viewer)
+            linked, seerr_id = await seerr_user(viewer, provision=True)
             if linked != "ok":
                 log_event(app_log, logging.INFO, "watch_search", service="seerr", state=linked)
                 page = (watch_mod.not_linked(watch_place(viewer)) if linked == "not_linked" else
@@ -397,6 +437,44 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
             owned = await watch_owned(viewer, offers) if offers else {}
             page = watch_mod.build_results(state, offers, term, username, signer, owned, asked)
             return render("request_watch.html", page=dataclasses.replace(page, notice=said), shell=shell)
+
+        if route == comic_mod.PATH and omnibus is not None:
+            # Ask for a comic series (request broker, the Omnibus fork): a shell page for a member holding Comics;
+            # anyone else gets the standard 404. Searched and asked AS the member; nothing is asked for on a GET.
+            if not comics_allowed(viewer):
+                scope["avrana_route"] = "not_found"
+                return respond(not_found())
+            scope["avrana_route"] = comic_mod.PATH
+            shell = shell_for(viewer, "search")
+            mark_shell(scope, shell)
+            username = broker_user(viewer)
+            said, asked, back = flash.take(username, comic_mod.PATH) or (None, frozenset(), None)
+            term = None if request.method == "HEAD" else (search_term_from_scope(scope) or back)   # HEAD never searches
+            state, offers = ("form", ())
+            if term is not None:
+                state, offers = await cached_search(comic_cache, ("comics", clean_term(term)), username,
+                                                    omnibus.search, viewer.principal.username, term)
+                log_event(app_log, logging.INFO, "comic_search", service="omnibus", state=state)
+            owned = comics_owned(offers)
+            page = comic_mod.build_results(state, offers, term, username, signer, owned, asked)
+            return render("request_comics.html", page=dataclasses.replace(page, notice=said), shell=shell)
+
+        if route == mine_mod.PATH and (broker is not None or seerr is not None or omnibus is not None):
+            # My requests: a shell page for a member who may use at least one broker; anyone else gets the standard
+            # 404. Each list is read fresh (it is about status), counted against the member's search allowance.
+            formats = broker_formats(viewer)
+            if not formats and not watch_allowed(viewer) and not comics_allowed(viewer):
+                scope["avrana_route"] = "not_found"
+                return respond(not_found())
+            scope["avrana_route"] = mine_mod.PATH
+            shell = shell_for(viewer, "search")
+            mark_shell(scope, shell)
+            username = broker_user(viewer)
+            said, _asked, _term = flash.take(username, mine_mod.PATH) or (None, frozenset(), None)
+            if request.method == "HEAD":                     # HEAD never reads upstream
+                return render("request_mine.html", page=mine_mod.MinePageVM(), shell=shell)
+            page = await my_requests(viewer, username, formats)
+            return render("request_mine.html", page=dataclasses.replace(page, notice=said), shell=shell)
 
         if route == "/library" and settings.home_sections and adapter_list:
             # The Library page (Concept K MK-5a, AVR-719): a shell page like /search, only with the shell on and for a
@@ -590,6 +668,14 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
                              frozenset({(fields["work_id"], fields["book_type"])}), back)
         outcome = await run_in_threadpool(broker.create, username, fields["work_id"], fields["book_type"],
                                           fields["title"], fields["author"])
+        if (outcome is bookreq_mod.Outcome.NOT_LINKED and settings.shelfarr_provision
+                and broker_accounts.allow(("shelfarr", username))):
+            # No Shelfarr account yet: create it (a plain user, random password never kept) and ask once more.
+            made = await run_in_threadpool(broker.provision, username, viewer.principal.name)
+            log_event(app_log, logging.INFO, "account_provision", service="shelfarr", state=made.value)
+            if made is ShelfarrProvisioned.CREATED:
+                outcome = await run_in_threadpool(broker.create, username, fields["work_id"], fields["book_type"],
+                                                  fields["title"], fields["author"])
         log_event(app_log, logging.INFO, "book_request", service="shelfarr", state=outcome.value,
                   reason=fields["book_type"])
         place = "/requestabook" if cat.service("requestabook") is not None and \
@@ -611,15 +697,24 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
         shell = shell_for(viewer, "search")
         mark_shell(scope, shell)
         username = broker_user(viewer)
-        fields = (await forms_mod.read_form(request, WATCH_FIELDS, MAX_FORM_BODY, exact=True)
+        fields = (await forms_mod.read_form(request, WATCH_PICK_FIELDS, MAX_FORM_BODY)
                   if same_origin_form_post(scope) else None)
+        if fields is not None and not WATCH_FIELDS <= set(fields):
+            fields = None                                             # the signed fields are always all there
+        chosen = tuple(sorted(int(k[7:]) for k in list(fields or ()) if k in SEASON_FIELDS
+                              and fields.pop(k) == "1")) if fields is not None else ()
+        picked = fields.pop("pick", None) == "1" if fields is not None else False
         token = fields.pop("token") if fields is not None else None
         back = clean_term(fields.pop("q")) if fields is not None else None     # navigation only, never signed
         if (fields is None or username is None or not signer.verify(token, username, fields)
                 or fields["media_type"] not in ("movie", "tv") or not fields["media_id"].isdigit()):
             log_event(app_log, logging.INFO, "watch_request", service="seerr", state="refused_form")
             return render("request_watch.html", 403, page=watch_mod.build_said(None, "expired", {}, None), shell=shell)
-        blocked = guard.check(username, "watch|" + fields["media_type"] + "|" + fields["media_id"])
+        if picked and (fields["media_type"] != "tv" or not chosen):
+            return see_other(username, watch_mod.PATH, watch_mod.build_said(None, "no_season", fields, None),
+                             frozenset(), back)
+        blocked = guard.check(username, "watch|" + fields["media_type"] + "|" + fields["media_id"]
+                              + ("|" + ",".join(map(str, chosen)) if chosen else ""))
         key = (fields["media_type"], int(fields["media_id"]))
         if blocked == "rate":
             log_event(app_log, logging.INFO, "watch_request", service="seerr", state=blocked)
@@ -628,11 +723,12 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
             log_event(app_log, logging.INFO, "watch_request", service="seerr", state=blocked)
             return see_other(username, watch_mod.PATH, watch_mod.build_said(None, blocked, fields, None),
                              frozenset({key}), back)
-        linked, seerr_id = await seerr_user(viewer)
+        linked, seerr_id = await seerr_user(viewer, provision=True)
         if linked != "ok":
             outcome = watch_mod.Outcome.NOT_LINKED if linked == "not_linked" else watch_mod.Outcome.UNAVAILABLE
         else:
-            outcome = await run_in_threadpool(seerr.create, seerr_id, fields["media_type"], int(fields["media_id"]))
+            outcome = await run_in_threadpool(seerr.create, seerr_id, fields["media_type"], int(fields["media_id"]),
+                                              chosen or None)
         log_event(app_log, logging.INFO, "watch_request", service="seerr", state=outcome.value,
                   reason=fields["media_type"])
         ok = outcome in (watch_mod.Outcome.CREATED, watch_mod.Outcome.AWAITING, watch_mod.Outcome.DUPLICATE)
@@ -640,6 +736,159 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
             watch_cache.drop((seerr_id, back))     # the next view of that search shows Seerr's new state
         return see_other(username, watch_mod.PATH, watch_mod.build_said(outcome, None, fields, watch_place(viewer)),
                          frozenset({key}) if ok else frozenset(), back)
+
+    @app.post(mine_mod.PATH, include_in_schema=False, response_model=None)
+    async def cancel_request(request: Request, viewer: Viewer = Depends(get_viewer)) -> Response:
+        """Take back one of the member's own requests. The same gates as asking (switch, group, same origin, exact
+        fields, a token this process signed for this member, the guard); the clients then check, upstream, that the
+        request is the member's own and still cancellable. Always a 303 back to My requests (except 403/429)."""
+        scope = request.scope
+        formats = broker_formats(viewer)
+        if broker is None and seerr is None or (not formats and not watch_allowed(viewer)):   # comics: no cancel
+            scope["avrana_route"] = "not_found"
+            return respond(not_found())
+        scope["avrana_route"] = mine_mod.PATH
+        shell = shell_for(viewer, "search")
+        mark_shell(scope, shell)
+        username = broker_user(viewer)
+        fields = (await forms_mod.read_form(request, MINE_FIELDS, MAX_FORM_BODY, exact=True)
+                  if same_origin_form_post(scope) else None)
+        token = fields.pop("token") if fields is not None else None
+        service = fields.get("service") if fields is not None else None
+        if (fields is None or username is None or not signer.verify(token, username, fields)
+                or not fields["request_id"].isdigit() or len(fields["request_id"]) > 12
+                or not ((service == "books" and formats) or (service == "watch" and watch_allowed(viewer)))):
+            log_event(app_log, logging.INFO, "request_cancel", state="refused_form")
+            page = await my_requests(viewer, username, formats)
+            return render("request_mine.html", 403, shell=shell,
+                          page=dataclasses.replace(page, notice=mine_mod.cancel_said(None, "expired", "")))
+        rid = int(fields["request_id"])
+        blocked = guard.check(username, f"cancel|{service}|{rid}")
+        if blocked == "rate":
+            log_event(app_log, logging.INFO, "request_cancel", state=blocked)
+            page = mine_mod.MinePageVM(notice=mine_mod.cancel_said(None, blocked, fields["title"]))
+            return render("request_mine.html", 429, page=page, shell=shell)
+        if blocked is not None:
+            outcome, said = None, mine_mod.cancel_said(None, blocked, fields["title"])
+        elif service == "books":
+            outcome = await run_in_threadpool(broker.cancel, username, rid)
+        else:
+            linked, seerr_id = await seerr_user(viewer)
+            outcome = (await run_in_threadpool(seerr.cancel, seerr_id, rid) if linked == "ok"
+                       else watch_mod.WatchCancel.UNAVAILABLE)
+        if blocked is None:
+            said = mine_mod.cancel_said(outcome, None, fields["title"])
+        log_event(app_log, logging.INFO, "request_cancel", service="shelfarr" if service == "books" else "seerr",
+                  state=outcome.value if outcome is not None else blocked)
+        return see_other(username, mine_mod.PATH, said, frozenset(), None)
+
+    @app.post(comic_mod.PATH, include_in_schema=False, response_model=None)
+    async def ask_for_comic(request: Request, viewer: Viewer = Depends(get_viewer)) -> Response:
+        """One request for one comic series, as the verified member (the fork acts as them, never as an
+        administrator). The same gates as books and films."""
+        scope = request.scope
+        if omnibus is None or not comics_allowed(viewer):
+            scope["avrana_route"] = "not_found"
+            return respond(not_found())
+        scope["avrana_route"] = comic_mod.PATH
+        shell = shell_for(viewer, "search")
+        mark_shell(scope, shell)
+        username = broker_user(viewer)
+        fields = (await forms_mod.read_form(request, COMIC_FIELDS, MAX_FORM_BODY, exact=True)
+                  if same_origin_form_post(scope) else None)
+        token = fields.pop("token") if fields is not None else None
+        back = clean_term(fields.pop("q")) if fields is not None else None     # navigation only, never signed
+        if (fields is None or username is None or not signer.verify(token, username, fields)
+                or not fields["cv_id"].isdigit() or len(fields["cv_id"]) > 10):
+            log_event(app_log, logging.INFO, "comic_request", service="omnibus", state="refused_form")
+            return render("request_comics.html", 403, page=comic_mod.build_said(None, "expired", {}, None), shell=shell)
+        cv = int(fields["cv_id"])
+        blocked = guard.check(username, f"comic|{cv}")
+        if blocked == "rate":
+            log_event(app_log, logging.INFO, "comic_request", service="omnibus", state=blocked)
+            return render("request_comics.html", 429, page=comic_mod.build_said(None, blocked, fields, None),
+                          shell=shell)
+        if blocked is not None:
+            log_event(app_log, logging.INFO, "comic_request", service="omnibus", state=blocked)
+            return see_other(username, comic_mod.PATH, comic_mod.build_said(None, blocked, fields, None),
+                             frozenset({cv}), back)
+        outcome = await run_in_threadpool(omnibus.create, viewer.principal.username, cv, fields["title"],
+                                          fields["year"], fields["publisher"])
+        log_event(app_log, logging.INFO, "comic_request", service="omnibus", state=outcome.value)
+        ok = outcome in (comic_mod.Outcome.CREATED, comic_mod.Outcome.AWAITING)
+        return see_other(username, comic_mod.PATH, comic_mod.build_said(outcome, None, fields, comics_place(viewer)),
+                         frozenset({cv}) if ok else frozenset(), back)
+
+    def comics_allowed(viewer: Viewer) -> bool:
+        return (omnibus is not None and viewer.principal is not None and bool(adapter_list)
+                and REQUIRED_GROUP[Service.KOMGA] in viewer.groups)
+
+    def comics_place(viewer: Viewer) -> Optional[str]:
+        svc = cat.service(comic_mod.PLACE.strip("/"))
+        return comic_mod.PLACE if svc is not None and svc.allows(viewer.groups) else None
+
+    def comics_owned(offers) -> dict:
+        """{cv_id: OwnedVM} from the catalogue-id index: Comics is a shared view, so holding the group (checked by
+        the caller) is the permission. The link is Komga's own series page."""
+        out = {}
+        for offer in offers:
+            series = owned_index.exact("comic", [f"comicvine:{offer.cv_id}"])
+            if series is not None:
+                out[offer.cv_id] = bookreq_mod.OwnedVM(comic_mod.LIBRARY, comic_mod.series_href(series), True)
+        return out
+
+    async def my_requests(viewer: Viewer, username: Optional[str], formats: tuple):
+        """The member's own requests from each broker they may use, as the page shows them."""
+        today = dt.date.today()
+        books = watch = None
+        if formats and broker is not None:
+            if username is None or not limiter.allow(username):
+                books = ("limited", ())
+            else:
+                state, rows = await run_in_threadpool(broker.mine, username)
+                rows = tuple(r for r in rows if r.book_type in formats)       # a library the member holds
+                books = (state if rows or state != "ok" else "empty",
+                         mine_mod.book_rows(rows, username, signer, today))
+                log_event(app_log, logging.INFO, "my_requests", service="shelfarr", state=books[0])
+        if watch_allowed(viewer):
+            linked, seerr_id = await seerr_user(viewer)
+            if linked != "ok":
+                watch = (linked, ())
+            elif username is None or not limiter.allow(username):
+                watch = ("limited", ())
+            else:
+                state, rows = await run_in_threadpool(seerr.mine, seerr_id)
+                opens = await watch_opens(viewer, rows)
+                watch = (state, mine_mod.watch_rows(rows, username, signer, today, opens))
+            log_event(app_log, logging.INFO, "my_requests", service="seerr", state=watch[0])
+        comics = None
+        if comics_allowed(viewer):
+            if username is None or not limiter.allow(username):
+                comics = ("limited", ())
+            else:
+                state, rows = await run_in_threadpool(omnibus.mine, viewer.principal.username)
+                comics = (state, mine_mod.comic_rows(rows, today))
+            log_event(app_log, logging.INFO, "my_requests", service="omnibus", state=comics[0])
+        return mine_mod.build_page(books, watch, comics, ask_books=bookreq_mod.PATH if formats else None,
+                                   ask_watch=watch_mod.PATH if watch_allowed(viewer) else None,
+                                   ask_comics=comic_mod.PATH if comics_allowed(viewer) else None,
+                                   watch_place=watch_place(viewer), comics_place=comics_place(viewer))
+
+    async def watch_opens(viewer: Viewer, rows) -> dict:
+        """{request_id: OwnedVM} for arrived titles this member's own permission-checked Jellyfin lookup finds (at most
+        OPEN_CHECKS); the link is Home's own title page."""
+        out, checks = {}, 0
+        jellyfin = next((a for a in adapter_list if a.service is Service.JELLYFIN), None)
+        for r in rows:
+            if (jellyfin is None or r.jellyfin_id is None or checks >= OPEN_CHECKS
+                    or r.state not in (watch_mod.WatchState.ARRIVED, watch_mod.WatchState.PARTIAL)):
+                continue
+            checks += 1
+            section = await run_in_threadpool(jellyfin.item, viewer.principal, r.jellyfin_id, True)
+            if section.state.value == "ok" and section.items:
+                out[r.request_id] = bookreq_mod.OwnedVM(watch_mod.LIBRARY,
+                                                        title_href(Service.JELLYFIN.value, r.jellyfin_id), False)
+        return out
 
     def see_other(username: str, path: str, said, asked: frozenset, term: Optional[str]) -> Response:
         """Post-redirect-get: the outcome, the titles just asked for and the search the form came from go into the
@@ -669,16 +918,24 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
         svc = cat.service(watch_mod.PLACE.strip("/"))
         return watch_mod.PLACE if svc is not None and svc.allows(viewer.groups) else None
 
-    async def seerr_user(viewer: Viewer):
+    async def seerr_user(viewer: Viewer, provision: bool = False):
         """("ok", seerr id) | ("not_linked", None) | ("unavailable", None): the member's Seerr user, found through the
-        Jellyfin user Home already maps them to. No Jellyfin adapter, or an unmapped member: not linked."""
+        Jellyfin user Home already maps them to. No Jellyfin adapter, or an unmapped member: not linked. Jellyfin
+        busy, cooling off or failing: unavailable (never "not set up", which would send the member off to sign in)."""
         jellyfin = next((a for a in adapter_list if a.service is Service.JELLYFIN), None)
         if jellyfin is None:
             return "not_linked", None
-        user = await run_in_threadpool(jellyfin.resolve_user, viewer.principal)
-        if user is None:
-            return "not_linked", None
-        return await run_in_threadpool(seerr.user_for, user.upstream_id)
+        linked, user = await run_in_threadpool(jellyfin.member_link, viewer.principal)
+        if linked != "ok":
+            return linked, None
+        state, seerr_id = await run_in_threadpool(seerr.user_for, user.upstream_id)
+        if (state == "not_linked" and provision and settings.seerr_provision
+                and broker_accounts.allow(("seerr", user.upstream_id))):
+            # The member has a Jellyfin account but no Seerr user: Seerr's own "Import Jellyfin users" for them alone,
+            # only from the pages where they set out to ask (never from viewing My requests).
+            state, seerr_id = await run_in_threadpool(seerr.link, user.upstream_id)
+            log_event(app_log, logging.INFO, "account_provision", service="seerr", state=state)
+        return state, seerr_id
 
     async def watch_owned(viewer: Viewer, offers) -> dict:
         """{(media_type, tmdb_id): OwnedVM} for titles Seerr says are in the library AND this member's own
@@ -703,6 +960,8 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
             out["requestabook"] = bookreq_mod.PATH
         if watch_allowed(viewer):
             out["requests"] = watch_mod.PATH
+        if comics_allowed(viewer):
+            out["requestacomic"] = comic_mod.PATH
         return out
 
     async def already_have(viewer: Viewer, offers, formats):
@@ -871,6 +1130,10 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
                        .render().encode("utf-8"),
                        post_paths=frozenset(path for path, on in ((forms_mod.TV_ROUTE, qc is not None),
                                                                    (bookreq_mod.PATH, broker is not None),
-                                                                   (watch_mod.PATH, seerr is not None)) if on))
+                                                                   (watch_mod.PATH, seerr is not None),
+                                                                   (comic_mod.PATH, omnibus is not None),
+                                                                   (mine_mod.PATH, broker is not None or seerr is not None
+                                                                    or omnibus is not None))
+                                                                  if on))
     log_event(app_log, logging.INFO, "app_created")
     return app

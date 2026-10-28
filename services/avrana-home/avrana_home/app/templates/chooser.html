@@ -30,6 +30,14 @@
 {% endfor %}
       </ul>
     </section>
+{% if own_pages %}
+    <section class="kgroup" aria-labelledby="g-mine">
+      <h3 class="kgroup-h" id="g-mine">What you have asked for</h3>
+      <ul class="krows">
+        {{ row("/request/mine", "My requests", "Where each one stands, and taking one back", "info", leaves=False) }}
+      </ul>
+    </section>
+{% endif %}
 {% if contribute %}
     <section class="kgroup" aria-labelledby="g-add">
       <h3 class="kgroup-h" id="g-add">Add to the library</h3>

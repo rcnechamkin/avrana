@@ -21,9 +21,29 @@
 {% if page.mode == "invalid" %}
       <p class="err" id="q-error" role="alert">{{ page.message }}</p>
 {% endif %}
-      <p class="hint" id="q-hint">Films and shows not in Movies and TV yet. Asking sends a request; it does not add it straight away.</p>
+      <p class="hint" id="q-hint">Films and shows not in Movies and TV yet. Asking sends a request; it does not add it straight away. <a class="link" href="/request/mine">See what you have asked for</a></p>
     </form>
   </section>
+{% if page.mode == "show" and page.show %}
+  <section class="shelf" aria-labelledby="h-show">
+    <h2 id="h-show">Choose seasons</h2>
+    <p class="said"><span class="t">{{ page.show.title }}</span>{% if page.show.line %} · {{ page.show.line }}{% endif %}</p>
+{% if page.show.ask %}
+    <form method="post" action="/request/watch" class="seasons">{% for k, v in page.show.ask.fields %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}<input type="hidden" name="q" value="{{ page.term }}"><input type="hidden" name="pick" value="1"><input type="hidden" name="token" value="{{ page.show.ask.token }}">
+      <fieldset class="season-list">
+        <legend class="sr">Seasons of {{ page.show.title }}</legend>
+{% for s in page.show.seasons %}
+        <div class="season">{% if s.field %}<input type="checkbox" id="{{ s.field }}" name="{{ s.field }}" value="1"><label for="{{ s.field }}">{{ s.label }}</label>{% else %}<span class="season-off">{{ s.label }}</span>{% endif %}{% if s.note %}<span class="d"> {{ s.note }}</span>{% endif %}</div>
+{% endfor %}
+      </fieldset>
+      <button type="submit">{{ page.show.ask.label }}<span class="sr">: {{ page.show.title }}</span></button>
+    </form>
+{% else %}
+    <p class="said">Every season is already in Movies and TV or has been asked for.</p>
+{% endif %}
+    <p><a class="link" href="{{ page.show.back_href }}">Back to the search</a></p>
+  </section>
+{% endif %}
 {% if page.mode in ("results", "empty", "unavailable") %}
   <section class="shelf" aria-labelledby="h-found">
     <h2 id="h-found">{{ page.outcome }}</h2>
@@ -36,7 +56,8 @@
 {% for o in page.offers %}
       <li><span class="meta"><span class="t">{{ o.title }}</span>{% if o.line %}<span class="d">{{ o.line }}</span>{% endif %}
 {%- if o.owned %}<span class="d owned">Already in {{ o.owned.library }}. <a class="link" href="{{ o.owned.href }}">Open<span class="sr"> {{ o.title }} in {{ o.owned.library }}</span></a></span>{% endif %}
-{%- if o.note %}<span class="d">{{ o.note }}</span>{% endif %}</span>
+{%- if o.note %}<span class="d">{{ o.note }}</span>{% endif %}
+{%- if o.choose_href %}<span class="d"><a class="link" href="{{ o.choose_href }}">Choose seasons<span class="sr"> of {{ o.title }}</span></a></span>{% endif %}</span>
 {% if o.ask %}
         <form method="post" action="/request/watch" class="ask-f">{% for k, v in o.ask.fields %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}<input type="hidden" name="q" value="{{ page.term }}"><input type="hidden" name="token" value="{{ o.ask.token }}"><button type="submit">{{ o.ask.label }}<span class="sr">: {{ o.title }}</span></button></form>
 {% endif %}

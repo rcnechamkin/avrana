@@ -536,6 +536,18 @@ class MediaAdapter:
         out = self._call(principal, lambda user: user, reaches_upstream=False)
         return out.value if out.kind == "ok" else None
 
+    def member_link(self, principal: MemberPrincipal) -> Tuple[str, Optional[UpstreamUser]]:
+        """`resolve_user` with the reason kept: ("ok", user) | ("not_linked", None) | ("unavailable", None). For a
+        caller that must not tell a member "you have no account" when the library merely could not be asked (the
+        request brokers). Never a fallback account."""
+        self._require_principal(principal)
+        if not principal.has_group(self.required_group):
+            return "not_linked", None
+        out = self._call(principal, lambda user: user, reaches_upstream=False)
+        if out.kind == "ok":
+            return "ok", out.value
+        return ("not_linked", None) if out.kind == "not_linked" else ("unavailable", None)
+
     def continue_items(self, principal: MemberPrincipal, limit: int = DEFAULT_LIMIT) -> SectionResult:
         limit = _limit(limit)
         return self._section(principal, "continue", f"continue:{limit}",
