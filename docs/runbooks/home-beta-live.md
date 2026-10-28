@@ -89,6 +89,21 @@ If either upstream refuses the account, Home shows that library as unavailable a
 **Undo:** redeploy the previous image, or remove the six `KOMGA_`/`CALIBRE_WEB_` lines, the two networks and the
 two secrets from the compose file and run `up -d` again.
 
+## Account creation (built 2026-10-28, off by default)
+
+Home can create a member's missing Jellyfin or Audiobookshelf account on their first visit
+(`docs/design/ACCOUNT-PROVISIONING.md`, ADAPTER-CONTRACT 15). It uses the keys Home already holds; no new secret.
+To turn it on for one library, add to the compose `environment:` and run `up -d`:
+
+```
+- HOME_PROVISION_ACCOUNTS=jellyfin          # or audiobookshelf, or jellyfin,audiobookshelf
+```
+
+It only acts for `HOME_ALLOWED_USERS` (settings refuse it without that list). Check:
+`docker logs avrana-home-beta 2>&1 | grep '"event": "provision"'` shows one line per attempt with a fixed reason.
+**Undo:** remove the line and run `up -d`. Accounts already created stay; they are ordinary accounts that the
+library's own first sign-in would have made.
+
 ## 4. Check it
 
 1. Private window, `https://media-beta.avrana.net/`: Authentik sign-in, never Home.

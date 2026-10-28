@@ -35,6 +35,7 @@ from urllib.parse import urlencode
 
 from ..contract import REQUIRED_GROUP, MediaAdapter, Service, build_handoff_url
 from ..cache import MemberCache
+from ..provision import Provisioner, build_provisioner
 from ..quickconnect import OUTCOMES as QC_OUTCOMES, QuickConnect
 from ..resilience import SystemClock, UrllibTransport
 from . import catalogue as catalogue_mod
@@ -44,7 +45,7 @@ from . import install as install_mod
 from . import notice as notice_mod
 from . import pwa as pwa_mod
 from . import bookrequests as bookreq_mod
-from ..requests.forms import Flash, FormSigner, RequestGuard, SearchCache, SearchLimiter, form_key
+from ..requests.forms import AttemptLimiter, Flash, FormSigner, RequestGuard, SearchCache, SearchLimiter, form_key
 from ..requests.owned import OwnedIndex
 from ..requests.seerr import MediaState, SeerrRequests
 from . import watchrequests as watch_mod
@@ -145,8 +146,13 @@ def build_adapters(settings: Settings, cache: MemberCache) -> list:
         # a Komga restriction. Mock mode (synthetic data) states it itself; real mode takes the value
         # settings.py only accepts when KOMGA_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS=yes.
         komga_confirmed = (settings.upstream_mode == "mock") or settings.komga_owner_confirms
+        # Members' OWN keys (owner decision 2026-10-28), for their Continue reading row only; settings.py accepts
+        # them only in real mode with signed identity. Nobody's key: Continue is not offered, as before.
+        komga_members = {email: UrllibTransport(settings.komga_base_url, {"X-API-Key": key})
+                         for email, key in settings.komga_member_keys}
         komga_adapter = KomgaAdapter(komga_transport, timeout=settings.timeout, cache=cache,
-                                     owner_confirms_no_member_restrictions=komga_confirmed)
+                                     owner_confirms_no_member_restrictions=komga_confirmed,
+                                     member_transports=komga_members)
         komga_adapter.cache = cache
         adapters.append(komga_adapter)
     if settings.calibre_web_base_url:             # off unless configured (settings.py validates)
@@ -225,9 +231,11 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
                quick_connect: Optional[QuickConnect] = None,
                book_requests: Optional[ShelfarrRequests] = None,
                watch_requests: Optional[SeerrRequests] = None,
-               comic_requests: Optional[OmnibusRequests] = None) -> FastAPI:
-    """`adapters`, `quick_connect`, `book_requests` and `watch_requests` let tests inject fakes; otherwise they are
-    built from `settings`. Each broker exists only when its switch is on (an injected client is ignored otherwise)."""
+               comic_requests: Optional[OmnibusRequests] = None,
+               provisioner: Optional[Provisioner] = None) -> FastAPI:
+    """`adapters`, `quick_connect`, `book_requests`, `watch_requests`, `comic_requests` and `provisioner` let tests
+    inject fakes; otherwise they are built from `settings`. Each broker exists only when its switch is on (an injected
+    client is ignored otherwise)."""
     silence_uvicorn_access()      # whoever serves this app, uvicorn must not log raw query strings
     cat = catalogue_mod.load(settings.catalogue_path)
     env = make_environment()
@@ -243,6 +251,10 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
     cache = MemberCache(SystemClock())
     adapter_list = list(adapters) if adapters is not None else build_adapters(settings, cache)
     notices = notice_mod.NoticeBoard(settings.notice_file)          # AVR-365: read-only; None = no notices
+    # Account creation (ACCOUNT-PROVISIONING.md): None unless HOME_PROVISION_ACCOUNTS names a library.
+    if provisioner is None and adapters is None:
+        provisioner = build_provisioner(
+            settings, log=lambda **f: log_event(app_log, logging.INFO, "provision", **f))
     broker = None
     if settings.home_sections and settings.book_requests:
         broker = book_requests if book_requests is not None else build_book_requests(settings)
@@ -259,6 +271,7 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
     book_cache = SearchCache(ttl=600.0)           # Shelfarr searched as Home's account: the same for every member
     watch_cache = SearchCache(ttl=120.0)          # Seerr searched AS a member: keyed by that member's Seerr id
     comic_cache = SearchCache(ttl=600.0)          # Omnibus search: metadata only, the same for every member
+    broker_accounts = AttemptLimiter()            # account creation by the brokers: once per member per hour
     owned_index = OwnedIndex(settings.library_ids_file)             # read-only; None = no "Already in" claims
     # Account & Security: the fixed hand-off table (from the catalogue's account address and the owner-verified flows)
     # and the per-process key for the opaque return state. A bad catalogue address stops startup.
@@ -655,7 +668,8 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
                              frozenset({(fields["work_id"], fields["book_type"])}), back)
         outcome = await run_in_threadpool(broker.create, username, fields["work_id"], fields["book_type"],
                                           fields["title"], fields["author"])
-        if outcome is bookreq_mod.Outcome.NOT_LINKED and settings.shelfarr_provision:
+        if (outcome is bookreq_mod.Outcome.NOT_LINKED and settings.shelfarr_provision
+                and broker_accounts.allow(("shelfarr", username))):
             # No Shelfarr account yet: create it (a plain user, random password never kept) and ask once more.
             made = await run_in_threadpool(broker.provision, username, viewer.principal.name)
             log_event(app_log, logging.INFO, "account_provision", service="shelfarr", state=made.value)
@@ -915,7 +929,8 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
         if linked != "ok":
             return linked, None
         state, seerr_id = await run_in_threadpool(seerr.user_for, user.upstream_id)
-        if state == "not_linked" and provision and settings.seerr_provision:
+        if (state == "not_linked" and provision and settings.seerr_provision
+                and broker_accounts.allow(("seerr", user.upstream_id))):
             # The member has a Jellyfin account but no Seerr user: Seerr's own "Import Jellyfin users" for them alone,
             # only from the pages where they set out to ask (never from viewing My requests).
             state, seerr_id = await run_in_threadpool(seerr.link, user.upstream_id)
@@ -1036,6 +1051,16 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
         (contract.DEFAULT_MAX_IN_FLIGHT_PER_MEMBER), so a third alongside them would only be refused as busy."""
         result = await run_in_threadpool(gather, viewer.principal, adapter_list, ("continue", "recent"),
                                         settings.section_limit)
+        if provisioner is not None and provisioner.candidates(result.sections):
+            # A library said "no account with this name": create it once, forget the cached "absent" mapping and
+            # read the page again, so the member's first visit already shows that library.
+            created = await run_in_threadpool(provisioner.provision, viewer.principal, result.sections)
+            if created:
+                for a in adapter_list:
+                    if a.service in created:
+                        a.cache.for_member(viewer.principal).delete(a.service.value, "mapping")
+                result = await run_in_threadpool(gather, viewer.principal, adapter_list, ("continue", "recent"),
+                                                settings.section_limit)
         sections = list(result.sections)
         view = result.member_view()
         if extras:

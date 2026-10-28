@@ -107,6 +107,18 @@ class Shelfarr(unittest.TestCase):
         self.assertIs(Provisioned.EXISTS, ShelfarrRequests(Taken()).provision("member_a", "A"))
 
 
+class AttemptLimit(unittest.TestCase):
+    def test_once_per_key_per_hour(self):
+        from avrana_home.requests.forms import AttemptLimiter
+        now = [0.0]
+        limit = AttemptLimiter(every=3600, now=lambda: now[0])
+        self.assertTrue(limit.allow(("shelfarr", "reader_a")))
+        self.assertFalse(limit.allow(("shelfarr", "reader_a")))
+        self.assertTrue(limit.allow(("seerr", "7")))
+        now[0] = 3601
+        self.assertTrue(limit.allow(("shelfarr", "reader_a")))
+
+
 class Seerr(unittest.TestCase):
     def run_search(self, on, path="/request/watch?q=film"):
         fake, jf = NewSeerrMember(), JellyfinStub()

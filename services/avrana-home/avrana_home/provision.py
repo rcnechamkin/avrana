@@ -1,0 +1,260 @@
+"""Create a member's missing Jellyfin or Audiobookshelf account (docs/design/ACCOUNT-PROVISIONING.md).
+
+Status: proposed, not deployed. Standard library only. Off unless HOME_PROVISION_ACCOUNTS names a library.
+
+The read adapters stay read-only: their guarded transports keep refusing every non-GET. This module is the only
+code in Home that creates LIBRARY accounts (the request brokers may create a member's Shelfarr or Seerr account on
+first ask, behind their own switches: HOME-APP.md section 5g), and it makes exactly two kinds of write
+(ADAPTER-CONTRACT 15; Home's other upstream writes are Quick Connect approval in quickconnect.py and the request
+brokers in requests/):
+
+  * Jellyfin: `POST /Users/New`, then `POST /Users/{id}/Policy` turning the new account into what the LDAP plugin
+    makes on a first sign-in (the plugin signs the member in and resets passwords; not an administrator; all
+    libraries). It is created with a random password that is used once and discarded, so an account whose policy
+    step failed is locked, never open.
+  * Audiobookshelf: `POST /api/users` with the member's username and e-mail, type `user`, the server's default
+    permissions and a random discarded password. ABS's "match existing by e-mail" then links the member's first
+    "Sign in with Avrana" to this account.
+
+It acts only when a section came back NOT_LINKED with reason `unmapped` (no account with that name in any letter
+case), the member holds the library's group, and a fresh upstream read confirms the name (and, for ABS, the
+e-mail) is still unused. Never more than one attempt per member and library per hour, one attempt at a time per
+member and library, and at most `cap_per_hour` creations in all. Every attempt logs one fixed event; never a
+password, token, username, e-mail or upstream id.
+"""
+from __future__ import annotations
+
+import collections
+import json
+import secrets
+import threading
+import time
+import urllib.error
+import urllib.request
+from typing import Any, Callable, Dict, Iterable, Mapping, Optional, Sequence, Tuple
+
+from .adapters._base import norm_name
+from .contract import REQUIRED_GROUP, SectionResult, SectionState, Service
+from .resilience import _NoRedirect
+
+PROVISIONABLE = (Service.JELLYFIN, Service.AUDIOBOOKSHELF)
+TRIGGER_REASON = "unmapped"            # MappingFailed reason: no account with that name, in any letter case
+RETRY_AFTER = 3600.0                   # one attempt per member and library per hour
+WINDOW = 3600.0
+DEFAULT_CAP = 10
+TIMEOUT = 5.0
+MAX_BODY = 4 * 1024 * 1024
+MAX_NAME = 64
+LDAP_PROVIDER = "Jellyfin.Plugin.LDAP_Auth.LdapAuthenticationProviderPlugin"
+
+
+class ProvisionFailed(Exception):
+    """`reason` is a fixed identifier (logsafe), never upstream text."""
+
+    def __init__(self, reason: str):
+        super().__init__(reason)
+        self.reason = reason
+
+
+# ---- the one write-capable HTTP helper ---------------------------------------------------------------------
+Send = Callable[[str, str, Optional[dict]], Any]      # (method, path, json body or None) -> parsed JSON
+
+
+def http_sender(base_url: str, headers: Mapping[str, str], timeout: float = TIMEOUT, opener=None) -> Send:
+    """JSON over HTTP to ONE upstream. Never a proxy, never a redirect (either could carry the admin credential
+    elsewhere), a bounded body, and every failure a fixed `ProvisionFailed` reason."""
+    if not base_url.startswith(("http://", "https://")) or base_url.endswith("/"):
+        raise ValueError("base_url must be http(s) without a trailing slash")
+    opener = opener or urllib.request.build_opener(urllib.request.ProxyHandler({}), _NoRedirect)
+    fixed = dict(headers)
+
+    def send(method: str, path: str, body: Optional[dict]) -> Any:
+        data = None if body is None else json.dumps(body).encode("utf-8")
+        hdrs = dict(fixed, Accept="application/json")
+        if data is not None:
+            hdrs["Content-Type"] = "application/json"
+        req = urllib.request.Request(base_url + path, data=data, method=method, headers=hdrs)
+        try:
+            with opener.open(req, timeout=timeout) as resp:
+                raw = resp.read(MAX_BODY + 1)
+        except urllib.error.HTTPError as exc:
+            raise ProvisionFailed(f"http_{exc.code}" if 400 <= exc.code < 600 else "http_other") from None
+        except Exception:
+            raise ProvisionFailed("unreachable") from None
+        if len(raw) > MAX_BODY:
+            raise ProvisionFailed("too_large")
+        if not raw.strip():
+            return None
+        try:
+            return json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, ValueError, RecursionError):
+            raise ProvisionFailed("malformed") from None
+    return send
+
+
+def _discarded_password() -> str:
+    return secrets.token_urlsafe(32)
+
+
+def _name_taken(wanted: str, names: Iterable[Any]) -> bool:
+    loose = norm_name(wanted)
+    return any(isinstance(n, str) and norm_name(n) == loose for n in names)
+
+
+# ---- per-library creators ----------------------------------------------------------------------------------
+class JellyfinCreator:
+    service = Service.JELLYFIN
+
+    def __init__(self, send: Send):
+        self._send = send
+
+    def create(self, username: str, email: Optional[str]) -> None:
+        users = self._send("GET", "/Users", None)
+        if not isinstance(users, list):
+            raise ProvisionFailed("malformed")
+        if _name_taken(username, (u.get("Name") for u in users if isinstance(u, dict))):
+            raise ProvisionFailed("exists")
+        made = self._send("POST", "/Users/New", {"Name": username, "Password": _discarded_password()})
+        uid = made.get("Id") if isinstance(made, dict) else None
+        policy = made.get("Policy") if isinstance(made, dict) else None
+        if not isinstance(uid, str) or not uid or not isinstance(policy, dict) or made.get("Name") != username:
+            raise ProvisionFailed("created_unverified")
+        policy = dict(policy, AuthenticationProviderId=LDAP_PROVIDER, PasswordResetProviderId=LDAP_PROVIDER,
+                      IsAdministrator=False, IsDisabled=False, EnableAllFolders=True, EnabledFolders=[],
+                      EnableContentDeletion=False, EnableContentDeletionFromFolders=[],
+                      EnableRemoteControlOfOtherUsers=False)
+        self._send("POST", f"/Users/{uid}/Policy", policy)
+        check = self._send("GET", f"/Users/{uid}", None)
+        got = check.get("Policy") if isinstance(check, dict) else None
+        if (not isinstance(got, dict) or got.get("AuthenticationProviderId") != LDAP_PROVIDER
+                or got.get("IsAdministrator") is not False):
+            raise ProvisionFailed("policy_unverified")       # the account stays locked by its discarded password
+
+
+class AudiobookshelfCreator:
+    service = Service.AUDIOBOOKSHELF
+
+    def __init__(self, send: Send):
+        self._send = send
+
+    def create(self, username: str, email: Optional[str]) -> None:
+        if not email or "@" not in email:
+            raise ProvisionFailed("no_email")              # ABS links the first sign-in by e-mail
+        body = self._send("GET", "/api/users", None)
+        users = body.get("users") if isinstance(body, dict) else None
+        if not isinstance(users, list):
+            raise ProvisionFailed("malformed")
+        rows = [u for u in users if isinstance(u, dict)]
+        if _name_taken(username, (u.get("username") for u in rows)):
+            raise ProvisionFailed("exists")
+        if any(isinstance(u.get("email"), str) and u["email"].strip().casefold() == email.strip().casefold()
+               for u in rows):
+            raise ProvisionFailed("email_in_use")          # a second account with it would make the link ambiguous
+        made = self._send("POST", "/api/users", {"username": username, "email": email,
+                                                 "password": _discarded_password(), "type": "user",
+                                                 "isActive": True})
+        user = made.get("user") if isinstance(made, dict) else None
+        if not isinstance(user, dict) or user.get("username") != username or user.get("type") != "user":
+            raise ProvisionFailed("created_unverified")
+
+
+# ---- the policy around them --------------------------------------------------------------------------------
+def _valid_username(name: Any) -> bool:
+    return (isinstance(name, str) and 0 < len(name) <= MAX_NAME and name == name.strip()
+            and name.isprintable() and "/" not in name and "\\" not in name)
+
+
+class Provisioner:
+    """Decides whether to create, and creates at most one account per library per call."""
+
+    def __init__(self, creators: Mapping[Service, Any], cap_per_hour: int = DEFAULT_CAP,
+                 clock: Callable[[], float] = time.monotonic, log: Optional[Callable[..., None]] = None):
+        for service in creators:
+            if service not in PROVISIONABLE:
+                raise ValueError("Home creates accounts in Jellyfin and Audiobookshelf only")
+        self._creators = dict(creators)
+        self._cap = cap_per_hour
+        self._clock = clock
+        self._log = log or (lambda **_kw: None)
+        self._lock = threading.Lock()
+        self._busy: set = set()
+        self._last: Dict[Tuple[str, Service], float] = {}
+        self._made: collections.deque = collections.deque()
+
+    @property
+    def services(self) -> Tuple[Service, ...]:
+        return tuple(self._creators)
+
+    def candidates(self, sections: Sequence[SectionResult]) -> Tuple[Service, ...]:
+        """The libraries whose sections say "no account with this name": the only trigger."""
+        out = []
+        for s in sections:
+            if (s.service in self._creators and s.state is SectionState.NOT_LINKED
+                    and s.reason == TRIGGER_REASON and s.service not in out):
+                out.append(s.service)
+        return tuple(out)
+
+    def provision(self, principal: Any, sections: Sequence[SectionResult]) -> Tuple[Service, ...]:
+        """Returns the libraries in which an account was created now."""
+        created = []
+        for service in self.candidates(sections):
+            if self._attempt(principal, service):
+                created.append(service)
+        return tuple(created)
+
+    def _attempt(self, principal: Any, service: Service) -> bool:
+        if not principal.has_group(REQUIRED_GROUP[service]):
+            return self._done(service, "refused", "no_group")
+        if not _valid_username(principal.username):
+            return self._done(service, "refused", "bad_username")
+        key = (principal.username, service)
+        now = self._clock()
+        with self._lock:
+            if key in self._busy:
+                return False                                  # another tab is creating it: nothing to log
+            last = self._last.get(key)
+            if last is not None and now - last < RETRY_AFTER:
+                return False                                  # tried within the hour: quiet
+            while self._made and now - self._made[0] >= WINDOW:
+                self._made.popleft()
+            if len(self._made) >= self._cap:
+                capped = True
+            else:
+                capped = False
+                self._busy.add(key)
+                self._last[key] = now
+                self._made.append(now)                        # counts the attempt, so a failing upstream is capped too
+        if capped:
+            return self._done(service, "refused", "cap")
+        try:
+            self._creators[service].create(principal.username, principal.email)
+        except ProvisionFailed as exc:
+            return self._done(service, "refused" if exc.reason in ("exists", "email_in_use", "no_email")
+                              else "failed", exc.reason)
+        except Exception as exc:                              # never escapes into the page
+            return self._done(service, "failed", type(exc).__name__)
+        finally:
+            with self._lock:
+                self._busy.discard(key)
+        self._done(service, "provisioned", "")
+        return True
+
+    def _done(self, service: Service, state: str, reason: str) -> bool:
+        self._log(service=service.value, state=state, reason=reason)
+        return False
+
+
+def build_provisioner(settings: Any, log: Optional[Callable[..., None]] = None) -> Optional[Provisioner]:
+    """None unless settings name at least one library (settings.py allows that only with real upstreams and
+    jwt_required identity)."""
+    wanted = tuple(getattr(settings, "provision_accounts", ()) or ())
+    if not wanted:
+        return None
+    creators: Dict[Service, Any] = {}
+    if "jellyfin" in wanted:
+        creators[Service.JELLYFIN] = JellyfinCreator(http_sender(
+            settings.jellyfin_base_url, {"Authorization": f'MediaBrowser Token="{settings.jellyfin_api_key}"'}))
+    if "audiobookshelf" in wanted and settings.audiobookshelf_base_url:
+        creators[Service.AUDIOBOOKSHELF] = AudiobookshelfCreator(http_sender(
+            settings.audiobookshelf_base_url, {"Authorization": f"Bearer {settings.audiobookshelf_token}"}))
+    return Provisioner(creators, settings.provision_cap_per_hour, log=log) if creators else None

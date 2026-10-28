@@ -26,7 +26,7 @@ import os
 import threading
 import time
 from collections import deque
-from typing import Callable, Dict, Mapping, Optional, Tuple
+from typing import Any, Callable, Dict, Mapping, Optional, Tuple
 
 TOKEN_TTL = 15 * 60             # long enough to read the page, short enough that an old tab expires
 DOUBLE_TAP_WINDOW = 60.0        # the same member asking for the same format of the same work again
@@ -149,6 +149,27 @@ class SearchCache:
     def drop(self, key) -> None:
         with self._lock:
             self._data.pop(key, None)
+
+
+class AttemptLimiter:
+    """At most one attempt per key per `every` seconds (in memory, per process): the request brokers' account creation
+    (HOME_SHELFARR_PROVISION, HOME_SEERR_PROVISION), like provision.py's once-an-hour rule, so a member whose account
+    cannot be made does not cause a write on every visit."""
+
+    def __init__(self, every: float = 3600.0, now: Callable[[], float] = time.monotonic, size: int = 5000):
+        self._every, self._now, self._size = every, now, size
+        self._lock = threading.Lock()
+        self._last: Dict[Any, float] = {}
+
+    def allow(self, key) -> bool:
+        with self._lock:
+            now = self._now()
+            if now - self._last.get(key, float("-inf")) < self._every:
+                return False
+            if len(self._last) >= self._size:
+                self._last = {k: t for k, t in self._last.items() if now - t < self._every}
+            self._last[key] = now
+            return True
 
 
 class Flash:

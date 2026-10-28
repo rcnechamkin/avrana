@@ -1,0 +1,327 @@
+"""Komga Continue reading with a member's OWN key (owner decision 2026-10-28; docs/runbooks/komga-member-keys.md),
+and the owner-run tool that issues those keys (tools/komga_member_keys.py). Offline, synthetic data only; the
+Komga routes and fields are from the 1.25.0 source, UNVERIFIED live."""
+import os as _os
+import sys as _sys
+
+_sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+from tests import _netguard  # noqa: E402,F401  (installs the network guard, also when run directly)
+import base64
+import json
+import os
+import tempfile
+import types
+import unittest
+
+from avrana_home.adapters.komga import MEMBER_ROUTES, KomgaAdapter, member_key_id
+from avrana_home.app.settings import Settings, SettingsError
+from avrana_home.contract import ForbiddenRequest, SectionState
+from avrana_home.principal import principal_from_headers
+from avrana_home.resilience import FakeClock
+from tests.fake_jellyfin import FakeTransport
+from tests.fake_komga import FakeKomga
+from tools import komga_member_keys as tool
+
+GROUPS = "avrana-users|avrana-comics"
+KEY_A = "0123456789abcdef0123456789abcdef"
+
+
+def member(name, email, groups=GROUPS):
+    headers = {"X-authentik-username": name, "X-authentik-groups": groups}
+    if email is not None:
+        headers["X-authentik-email"] = email
+    return principal_from_headers(headers)
+
+
+def book(n, series, page=None, pages=40, completed=False):
+    raw = {"id": f"READ{n:08d}", "seriesId": series, "seriesTitle": f"Series {series}", "name": f"Book {n}",
+           "metadata": {"title": f"Book {n}", "number": str(n)}, "media": {"status": "READY", "pagesCount": pages}}
+    if page is not None:
+        raw["readProgress"] = {"page": page, "completed": completed}
+    return raw
+
+
+class MemberKomga:
+    """One member's own view: their in-progress books and their On Deck. Records every request."""
+
+    def __init__(self):
+        self.reading = [book(1, "S1", page=10), book(2, "S2", page=39), book(3, "S3", page=0)]
+        self.ondeck = [book(4, "S4"), book(1, "S1")]
+        self.requests = []
+        self.status = None
+
+    def handle(self, method, path, query):
+        self.requests.append((method, path, dict(query or {})))
+        if self.status:
+            return self.status, b"{}", "application/json"
+        size = int(query.get("size", "20"))
+        if path == "/api/v1/books" and query.get("read_status") == "IN_PROGRESS":
+            content = self.reading[:size]
+        elif path == "/api/v1/books/ondeck":
+            content = self.ondeck[:size]
+        else:
+            return 400, b"{}", "application/json"
+        return 200, json.dumps({"content": content}).encode("utf-8"), "application/json"
+
+
+class Reading(unittest.TestCase):
+    def setUp(self):
+        self.clock = FakeClock()
+        self.shared = FakeKomga(self.clock)
+        self.mine = MemberKomga()
+        self.adapter = KomgaAdapter(FakeTransport(self.shared), clock=self.clock,
+                                    owner_confirms_no_member_restrictions=True,
+                                    member_transports={"alice@example.com": FakeTransport(self.mine)})
+        self.alice = member("alice", "Alice@Example.com")
+        self.bob = member("bob", "bob@example.com")
+
+    def test_a_member_with_a_key_gets_in_progress_then_on_deck_with_their_own_progress(self):
+        got = self.adapter.continue_items(self.alice)
+        self.assertEqual(got.state, SectionState.OK)
+        self.assertEqual([i.title for i in got.items], ["Book 1", "Book 2", "Book 3", "Book 4"])
+        self.assertEqual([i.progress_fraction for i in got.items], [0.25, 39 / 40, None, None])
+        self.assertEqual(self.shared.requests, [])                    # the shared account is never asked
+        self.assertEqual([r[1] for r in self.mine.requests], ["/api/v1/books", "/api/v1/books/ondeck"])
+        self.assertEqual(self.mine.requests[0][2]["sort"], "readProgress.readDate,desc")
+
+    def test_on_deck_is_not_asked_when_in_progress_fills_the_row(self):
+        got = self.adapter.continue_items(self.alice, limit=2)
+        self.assertEqual(len(got.items), 2)
+        self.assertEqual([r[1] for r in self.mine.requests], ["/api/v1/books"])
+
+    def test_a_member_without_a_key_is_not_offered_continue_and_nothing_is_called(self):
+        got = self.adapter.continue_items(self.bob)
+        self.assertEqual((got.state, got.reason), (SectionState.EMPTY, "not_offered"))
+        nomail = self.adapter.continue_items(member("carol", None))
+        self.assertEqual(nomail.reason, "not_offered")
+        self.assertEqual((self.shared.requests, self.mine.requests), ([], []))
+
+    def test_the_group_is_checked_before_the_key(self):
+        got = self.adapter.continue_items(member("alice", "alice@example.com", "avrana-users"))
+        self.assertEqual(got.state, SectionState.NOT_PERMITTED)
+        self.assertEqual(self.mine.requests, [])
+
+    def test_continue_is_offered_only_when_some_member_has_a_key(self):
+        self.assertEqual(self.adapter.not_offered, frozenset())
+        plain = KomgaAdapter(FakeTransport(self.shared), owner_confirms_no_member_restrictions=True)
+        self.assertIn("continue", plain.not_offered)
+        self.assertEqual(plain.continue_items(self.alice).reason, "not_offered")
+
+    def test_a_refused_member_key_is_an_empty_row_and_never_opens_the_shared_circuit(self):
+        self.mine.status = 401
+        for _ in range(5):
+            self.adapter.cache.clear()
+            got = self.adapter.continue_items(self.alice)
+            self.assertEqual((got.state, got.reason), (SectionState.EMPTY, "member_key_refused"))
+        self.assertEqual(self.adapter.recent_items(self.bob).state, SectionState.OK)
+
+    def test_the_row_is_cached_per_member(self):
+        self.adapter.continue_items(self.alice)
+        self.adapter.continue_items(self.alice)
+        self.assertEqual(len(self.mine.requests), 2)                  # one fetch (two calls), then the cache
+
+    def test_the_member_allow_list_has_only_the_two_reading_routes(self):
+        self.assertEqual([r.name for r in MEMBER_ROUTES], ["reading", "ondeck"])
+        guard = self.adapter._members["alice@example.com"].bind("shared")
+        for path, query in (("/api/v2/users/me/api-keys", {}), ("/api/v1/books/READ00000001", {}),
+                            ("/api/v1/books", {"search": "x"})):
+            with self.subTest(path=path), self.assertRaises(ForbiddenRequest):
+                guard.request("GET", path, query, 1.0, 1000)
+        with self.assertRaises(ForbiddenRequest):
+            guard.request("POST", "/api/v1/books/ondeck", {}, 1.0, 1000)
+
+    def test_transports_must_be_filed_under_the_normalised_email(self):
+        for key in ("Alice@Example.com", "alice", " alice@example.com"):
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                KomgaAdapter(FakeTransport(self.shared), owner_confirms_no_member_restrictions=True,
+                             member_transports={key: FakeTransport(self.mine)})
+        self.assertEqual(member_key_id(" Alice@Example.COM "), "alice@example.com")
+        self.assertIsNone(member_key_id("not an email"))
+
+
+REAL = {"HOME_SECTIONS": "on", "HOME_UPSTREAM_MODE": "real", "HOME_GATES_VERIFIED": "yes",
+        "HOME_IDENTITY_MODE": "jwt_required", "JELLYFIN_BASE_URL": "https://jellyfin.example.test",
+        "JELLYFIN_API_KEY": "k" * 32, "KOMGA_BASE_URL": "https://komga.example.test", "KOMGA_TOKEN": "t" * 32,
+        "KOMGA_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS": "yes", "HOME_JWT_SECRET": "s" * 48,
+        "HOME_JWT_ISSUER": "https://auth.example.test/application/o/avrana-home/", "HOME_JWT_AUDIENCE": "home"}
+
+
+class SettingsFile(unittest.TestCase):
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dir.cleanup)
+        self.path = os.path.join(self.dir.name, "komga_member_keys")
+
+    def env(self, data, **extra):
+        with open(self.path, "w", encoding="utf-8") as fh:
+            fh.write(data if isinstance(data, str) else json.dumps(data))
+        return dict(REAL, KOMGA_MEMBER_KEYS_FILE=self.path, **extra)
+
+    def from_env(self, env):
+        try:
+            return Settings.from_env(env)
+        except SettingsError as exc:
+            return exc
+
+    def test_a_valid_file_is_read(self):
+        got = self.from_env(self.env({"alice@example.com": KEY_A}))
+        self.assertIsInstance(got, Settings, got)
+        self.assertEqual(got.komga_member_keys, (("alice@example.com", KEY_A),))
+        self.assertNotIn(KEY_A, repr(got))
+
+    def test_a_bad_file_is_refused_without_echoing_it(self):
+        for data in ("not json", [], {"Alice@Example.com": KEY_A}, {"alice@example.com": "short"},
+                     {"alice": KEY_A}, {"alice@example.com": KEY_A.upper()}):
+            with self.subTest(data=data):
+                got = self.from_env(self.env(data))
+                self.assertIsInstance(got, SettingsError)
+                self.assertNotIn(KEY_A, str(got))
+                self.assertNotIn("alice", str(got).lower().replace("allowed", ""))
+
+    def test_it_needs_signed_identity_komga_and_real_mode(self):
+        cases = (dict(HOME_IDENTITY_MODE="jwt_log_only"),
+                 dict(KOMGA_BASE_URL="", KOMGA_TOKEN="", KOMGA_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS=""))
+        for extra in cases:
+            with self.subTest(extra=extra):
+                self.assertIsInstance(self.from_env(self.env({"alice@example.com": KEY_A}, **extra)), SettingsError)
+        mock = {"HOME_SECTIONS": "on", "KOMGA_BASE_URL": "http://127.0.0.1:9", "KOMGA_MEMBER_KEYS_FILE": self.path}
+        self.env({"alice@example.com": KEY_A})
+        self.assertIsInstance(self.from_env(mock), SettingsError)
+
+    def test_the_value_is_never_read_from_the_environment(self):
+        env = dict(REAL, KOMGA_MEMBER_KEYS=json.dumps({"alice@example.com": KEY_A}))
+        self.assertIsInstance(self.from_env(env), SettingsError)
+
+
+# ---- the owner-run tool ---------------------------------------------------------------------
+class FakeAdminKomga:
+    """Komga's user and API-key routes, as the 1.25.0 source declares them."""
+
+    def __init__(self):
+        self.users = {"U1": {"id": "U1", "email": "Alice@Example.com", "roles": ["FILE_DOWNLOAD", "USER"]},
+                      "U0": {"id": "U0", "email": "owner@example.com", "roles": ["ADMIN", "USER"]},
+                      "U2": {"id": "U2", "email": "viewer@example.com", "roles": ["USER"]}}
+        self.passwords = {"U1": "old", "U0": "owner", "U2": "viewer"}
+        self.keys = {"U1": [{"id": "K-old", "comment": "avrana-home"}, {"id": "K-own", "comment": "phone"}]}
+        self.calls = []
+        self.serial = 0
+
+    def _who(self, headers):
+        if headers.get("X-API-Key") == "ADMIN":
+            return "U0"
+        auth = headers.get("Authorization", "")
+        if auth.startswith("Basic "):
+            email, _, pw = base64.b64decode(auth[6:]).decode().partition(":")
+            for uid, u in self.users.items():
+                if u["email"] == email and self.passwords.get(uid) == pw:
+                    return uid
+        return None
+
+    def send(self, method, url, headers, body):
+        path = url.split("://", 1)[1].split("/", 1)[1]
+        path = "/" + path
+        self.calls.append((method, path))
+        who = self._who(headers)
+        data = json.loads(body) if body else None
+        if who is None:
+            return 401, b""
+        if path == "/api/v2/users" and method == "GET":
+            return (200, json.dumps(list(self.users.values())).encode()) if who == "U0" else (403, b"")
+        if path == "/api/v2/users" and method == "POST":
+            uid = f"U{len(self.users) + 1}"
+            self.users[uid] = {"id": uid, "email": data["email"], "roles": data["roles"] + ["USER"],
+                               "sharedAll": data["sharedLibraries"]["all"]}
+            self.passwords[uid] = data["password"]
+            return 201, json.dumps(self.users[uid]).encode()
+        if path.endswith("/password") and method == "PATCH":
+            self.passwords[path.split("/")[4]] = data["password"]
+            return 204, b""
+        if path == "/api/v2/users/me/api-keys" and method == "GET":
+            return 200, json.dumps(self.keys.get(who, [])).encode()
+        if path == "/api/v2/users/me/api-keys" and method == "POST":
+            self.serial += 1
+            key = f"{self.serial:032x}"
+            self.keys.setdefault(who, []).append({"id": f"K{self.serial}", "comment": data["comment"], "key": key})
+            return 200, json.dumps({"id": f"K{self.serial}", "key": key, "comment": data["comment"]}).encode()
+        if path.startswith("/api/v2/users/me/api-keys/") and method == "DELETE":
+            kid = path.rsplit("/", 1)[1]
+            self.keys[who] = [k for k in self.keys.get(who, []) if k["id"] != kid]
+            return 204, b""
+        return 404, b""
+
+
+class Tool(unittest.TestCase):
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dir.cleanup)
+        self.path = os.path.join(self.dir.name, "komga_member_keys")
+        self.fake = FakeAdminKomga()
+        self.komga = tool.Komga("http://komga.test", send=self.fake.send)
+        self.lines = []
+
+    def run_tool(self, answer=True, **kw):
+        args = types.SimpleNamespace(member=[], all=False, remove=[], skip=[], keys_file=self.path)
+        vars(args).update(kw)
+        asked = []
+
+        def ask(q):
+            asked.append(q)
+            return answer
+        code = tool.run(args, self.komga, "ADMIN", ask, out=self.lines.append)
+        return code, asked
+
+    def keys(self):
+        with open(self.path, encoding="utf-8") as fh:
+            return json.load(fh)
+
+    def test_an_existing_member_gets_a_fresh_home_key_and_their_own_keys_are_kept(self):
+        code, asked = self.run_tool(member=["alice@example.com"])
+        self.assertEqual(code, 0)
+        self.assertIn("signs them out of Komga once", asked[0])
+        key = self.keys()["alice@example.com"]
+        self.assertEqual(len(key), 32)
+        comments = sorted(k["comment"] for k in self.fake.keys["U1"])
+        self.assertEqual(comments, ["avrana-home", "phone"])            # the old Home key was replaced
+        self.assertNotEqual(self.fake.passwords["U1"], "old")
+        self.assertFalse(any(key in line for line in self.lines))
+        if os.name == "posix":
+            self.assertEqual(os.stat(self.path).st_mode & 0o777, 0o600)
+
+    def test_a_new_member_is_created_with_the_authentik_sign_in_defaults(self):
+        code, _ = self.run_tool(member=["New@Example.com"])
+        self.assertEqual(code, 0)
+        created = [u for u in self.fake.users.values() if u["email"] == "new@example.com"][0]
+        self.assertEqual(sorted(created["roles"]), ["FILE_DOWNLOAD", "PAGE_STREAMING", "USER"])
+        self.assertTrue(created["sharedAll"])
+        self.assertIn("new@example.com", self.keys())
+
+    def test_admins_and_skipped_accounts_are_never_touched(self):
+        code, asked = self.run_tool(all=True, skip=["viewer@example.com"])
+        self.assertEqual(code, 0)
+        self.assertEqual(self.fake.passwords["U0"], "owner")
+        self.assertEqual(self.fake.passwords["U2"], "viewer")
+        self.assertEqual(list(self.keys()), ["alice@example.com"])
+        self.assertEqual(len(asked), 1)
+
+    def test_a_no_changes_nothing(self):
+        code, _ = self.run_tool(answer=False, all=True)
+        self.assertEqual(code, 0)
+        self.assertEqual(self.fake.passwords, {"U1": "old", "U0": "owner", "U2": "viewer"})
+        self.assertFalse(os.path.exists(self.path))
+
+    def test_remove_revokes_the_key_in_komga_and_drops_it_from_the_file(self):
+        self.run_tool(member=["alice@example.com"])
+        code, _ = self.run_tool(remove=["alice@example.com"])
+        self.assertEqual(code, 0)
+        self.assertEqual([k["comment"] for k in self.fake.keys["U1"]], ["phone"])
+        self.assertEqual(self.keys(), {})
+
+    def test_a_non_admin_key_is_refused_before_anything_changes(self):
+        args = types.SimpleNamespace(member=["alice@example.com"], all=False, remove=[], skip=[], keys_file=self.path)
+        code = tool.run(args, self.komga, "NOT-ADMIN", lambda q: True, out=self.lines.append)
+        self.assertEqual(code, 2)
+        self.assertEqual(self.fake.passwords["U1"], "old")
+
+
+if __name__ == "__main__":
+    unittest.main()

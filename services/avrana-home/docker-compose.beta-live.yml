@@ -51,12 +51,17 @@ services:
       - AUDIOBOOKSHELF_TOKEN_FILE=/run/secrets/audiobookshelf_token
       - KOMGA_BASE_URL=http://komga:25600
       - KOMGA_TOKEN_FILE=/run/secrets/komga_token
+      # Members' own Komga keys, for their Continue reading row (docs/runbooks/komga-member-keys.md). Off until the
+      # owner's first tools/komga_member_keys.py run has written secrets/komga_member_keys; then uncomment this line,
+      # the komga_member_keys entry at the bottom, and use the second `secrets:` line below.
+      # - KOMGA_MEMBER_KEYS_FILE=/run/secrets/komga_member_keys
       - KOMGA_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS=yes
       - CALIBRE_WEB_BASE_URL=http://calibre-web-automated:8083
       - CALIBRE_WEB_CREDENTIAL_FILE=/run/secrets/calibre_web_credential
       - CALIBRE_WEB_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS=yes
       - TZ=America/Los_Angeles
     secrets: [home_jwt_secret, jellyfin_api_key, audiobookshelf_token, komga_token, calibre_web_credential]
+    # secrets: [home_jwt_secret, jellyfin_api_key, audiobookshelf_token, komga_token, calibre_web_credential, komga_member_keys]
     read_only: true
     tmpfs: ["/tmp:size=16m,mode=1777"]
     security_opt: [no-new-privileges:true]
@@ -96,5 +101,7 @@ secrets:
     file: ./secrets/audiobookshelf_token
   komga_token:
     file: ./secrets/komga_token
+  # komga_member_keys:
+  #   file: ./secrets/komga_member_keys
   calibre_web_credential:
     file: ./secrets/calibre_web_credential
