@@ -2,7 +2,7 @@
  "_synthetic": "Hand-written SYNTHETIC fixture, written from recollection of the public Audiobookshelf API. Hand-written, unverified against the deployed version; a recorded read-only contract check is a separate owner-approved step before any real data is read. Invented ids and titles.",
  "_schema": "Library item lists, keyed by library id: the `results` of GET /api/libraries/{id}/items?minified=1, before the fake sorts, filters and limits them. Unverified.",
  "_target_version": "Audiobookshelf 2.36 (the version the contract says is deployed; NOT confirmed against the deployed server)",
- "_provenance": "GET /api/libraries/{id}/items (query sort, desc, limit, minified, filter=genres.<base64>) answering {results, total, limit, page, ...} with minified library items (id, libraryId, mediaType, isMissing, isInvalid, addedAt in milliseconds, media.metadata.{title, authorName, seriesName, publishedYear, explicit, genres}, media.tags, media.duration, media.coverPath), and GET /api/libraries/{id}/filterdata answering {genres: [...], ...}, are recalled from the 2.x API and server source. SYNTHETIC assumption: '@this_year' is replaced by the fake with the current year. Live compatibility is UNPROVEN until the owner's recorded read-only capture is compared (ADAPTER-CONTRACT.md 11.7).",
+ "_provenance": "GET /api/libraries/{id}/items (query sort, desc, limit, minified, filter=genres.<base64>) answering {results, total, limit, page, ...} with minified library items (id, libraryId, mediaType, isMissing, isInvalid, addedAt in milliseconds, media.metadata.{title, authorName, seriesName, publishedYear, explicit, genres}, media.tags, media.duration, media.coverPath), and GET /api/libraries/{id}/filterdata answering {genres: [...], ...}, are recalled from the 2.x API and server source. SYNTHETIC assumption: '@this_year' is replaced by the fake with the current year, and '@days_ago:N' with the time N days ago in milliseconds. Live compatibility is UNPROVEN until the owner's recorded read-only capture is compared (ADAPTER-CONTRACT.md 11.7).",
  "response": {
   "lib_aaa": [
    {
@@ -11,7 +11,7 @@
     "mediaType": "book",
     "isMissing": false,
     "isInvalid": false,
-    "addedAt": 1790000900000,
+    "addedAt": "@days_ago:1",
     "media": {
      "metadata": {
       "title": "Synthetic Fresh Release",
@@ -34,7 +34,7 @@
     "mediaType": "book",
     "isMissing": false,
     "isInvalid": false,
-    "addedAt": 1790000800000,
+    "addedAt": "@days_ago:2",
     "media": {
      "metadata": {
       "title": "Synthetic Classic Novel",
@@ -58,7 +58,7 @@
     "mediaType": "book",
     "isMissing": false,
     "isInvalid": false,
-    "addedAt": 1790000700000,
+    "addedAt": "@days_ago:3",
     "media": {
      "metadata": {
       "title": "Synthetic Quick Story",
@@ -81,7 +81,7 @@
     "mediaType": "book",
     "isMissing": false,
     "isInvalid": false,
-    "addedAt": 1790000600000,
+    "addedAt": "@days_ago:4",
     "media": {
      "metadata": {
       "title": "Synthetic Grand Epic",
@@ -104,7 +104,7 @@
     "mediaType": "book",
     "isMissing": false,
     "isInvalid": false,
-    "addedAt": 1790000500000,
+    "addedAt": "@days_ago:5",
     "media": {
      "metadata": {
       "title": "Synthetic Explicit Short",
@@ -125,7 +125,7 @@
     "mediaType": "book",
     "isMissing": false,
     "isInvalid": false,
-    "addedAt": 1790000400000,
+    "addedAt": "@days_ago:6",
     "media": {
      "metadata": {
       "title": "Synthetic Tagged Short",
@@ -148,7 +148,7 @@
     "mediaType": "book",
     "isMissing": false,
     "isInvalid": false,
-    "addedAt": 1790000300000,
+    "addedAt": "@days_ago:7",
     "media": {
      "metadata": {
       "title": "Synthetic Classic Adventure",
@@ -258,7 +258,7 @@
     "mediaType": "book",
     "isMissing": false,
     "isInvalid": false,
-    "addedAt": 1795000000000,
+    "addedAt": "@days_ago:2",
     "media": {
      "metadata": {
       "title": "Synthetic Audiobook Three",

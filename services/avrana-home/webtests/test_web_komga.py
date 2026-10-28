@@ -24,8 +24,9 @@ A, B = member("a"), member("b")
 NO_COMICS = member("a", "avrana-users|avrana-videos")
 TOKEN = "mock-api-key-not-real"
 
-A_BOOKS = sorted(["Synthetic Comic One", "Synthetic Comic Two", "Synthetic Manga One", "Synthetic Mature One",
-                  "Synthetic Kids One", "Synthetic Teen One"])
+# One book per series (owner decision 2026-10-28): Comic One shares its series with the newer Comic Two.
+A_BOOKS = sorted(["Synthetic Comic Two", "Synthetic Manga One", "Synthetic Mature One", "Synthetic Kids One",
+                  "Synthetic Teen One"])
 TRACES = ("Comic", "Manga", "Kids One", "Mature", "Teen", "Recently added to Comics", "komga", "SERIES",
           "BOOKAAAA")
 
@@ -99,7 +100,7 @@ class RecentComicsTests(Fixture):
         c = self.client()
         a = [i["id"] for i in self.recent(c, A)["items"]]
         b = [i["id"] for i in self.recent(c, B)["items"]]
-        self.assertEqual(6, len(a))
+        self.assertEqual(5, len(a))
         self.assertEqual(a, b)
         self.assertEqual([i["title"] for i in self.recent(c, A)["items"]],
                          [i["title"] for i in self.recent(c, B)["items"]])
@@ -114,7 +115,7 @@ class RecentComicsTests(Fixture):
         paths = self.komga.paths()
         self.assertTrue(paths)
         self.assertEqual([], [p for p in paths if "/users" in p or "/api/v2" in p])
-        self.assertTrue(all(p.startswith("/api/v1/books/") for p in paths))
+        self.assertTrue(all(p.startswith("/api/v1/books") for p in paths))
 
     def test_nothing_selects_another_identity_and_no_read_progress_is_shown(self):
         c = self.client()
@@ -122,7 +123,7 @@ class RecentComicsTests(Fixture):
             ("cookie", "user=comics-b"), ("X-Forwarded-User", "comics-b")])
         self.assertEqual(200, r.status_code)
         sec = [s for s in r.json()["sections"] if s["service"] == "komga" and s["section"] == "recent"][0]
-        self.assertEqual(6, len(sec["items"]))
+        self.assertEqual(5, len(sec["items"]))
         for item in sec["items"]:
             self.assertIsNone(item.get("progress"))
         # the fixtures carry the shared account's read progress (page 77); it never appears

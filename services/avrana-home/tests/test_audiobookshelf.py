@@ -616,6 +616,7 @@ class AcceptanceScenarios(Base):
         self.assertIs(r.state, SectionState.OK)
         titles = [i.title for i in r.items]
         self.assertEqual(titles[:3], ["Synthetic Fresh Release", "Synthetic Classic Novel", "Synthetic Quick Story"])
+        self.assertNotIn("Synthetic Audiobook One", titles)              # added years ago: not "recent"
         self.assertNotIn("Synthetic Audiobook Three", titles)            # lib_bbb: not member-a's library
         self.assertNotIn("Synthetic Explicit Short", titles)             # explicit: member-a may not
         self.assertTrue(all(i.progress_fraction is None for i in r.items))
@@ -989,6 +990,13 @@ class Shelves(Base):
         self.assertEqual(self.adapter.recent_items(self.a).reason, "UpstreamMisbehaved")
         self.fake.serve("/api/libraries/lib_aaa/items", {"items": []})
         self.assertEqual(self.adapter.recent_items(self.b).reason, "UpstreamMalformed")
+
+    def test_nothing_added_in_two_months_is_an_empty_recently_added(self):
+        for entries in self.fake.lists.values():
+            for it in entries:
+                it["addedAt"] = 1_600_000_000_000                            # 2020
+        r = self.adapter.recent_items(self.a)
+        self.assertIs(r.state, SectionState.EMPTY)
 
     def test_no_group_no_call(self):
         outsider = make_principal("member-a", ("avrana-users",))

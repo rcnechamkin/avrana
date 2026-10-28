@@ -1,5 +1,5 @@
-"""Komga adapter, a SHARED regular-account view (ADAPTER-CONTRACT 12.2, owner decision 2026-10-15): one
-section ("Recently added"), proven against HAND-WRITTEN fixtures that are unverified against any real
+"""Komga adapter, a SHARED regular-account view (ADAPTER-CONTRACT 12.2, owner decision 2026-10-15): Recently
+added and the New releases shelf (owner decision 2026-10-28), proven against HAND-WRITTEN fixtures that are unverified against any real
 server. Offline, synthetic data only. Live compatibility is UNPROVEN."""
 import os as _os
 import sys as _sys
@@ -21,6 +21,7 @@ GROUPS = ("avrana-users", "avrana-comics")
 TOKEN = "SENTINEL-KOMGA-KEY-0000"
 ALL_TITLES = ["Synthetic Teen One", "Synthetic Kids One", "Synthetic Mature One", "Synthetic Manga One",
               "Synthetic Comic Two", "Synthetic Comic One"]            # newest first, as the shared account sees them
+RECENT_TITLES = ALL_TITLES[:5]          # one book per series: Comic One is older than Comic Two in the same series
 
 
 def titles(result):
@@ -51,7 +52,7 @@ class Constructor(Base):
             KomgaAdapter(self.transport)                               # the default is refusal
 
     def test_there_is_no_user_route_and_no_member_mapping(self):
-        self.assertEqual([r.name for r in ALLOWED_ROUTES], ["latest", "book", "search", "thumbnail"])
+        self.assertEqual([r.name for r in ALLOWED_ROUTES], ["books", "book", "thumbnail"])
         self.assertEqual(self.adapter.resolve_user(self.a).upstream_id, SHARED_VIEWER)
         self.assertEqual(self.adapter.resolve_user(self.b).upstream_id, SHARED_VIEWER)
         self.assertEqual(self.fake.requests, [])
@@ -60,8 +61,8 @@ class Constructor(Base):
 class SharedView(Base):
     def test_every_comics_member_sees_the_same_items_in_the_same_order(self):
         ra, rb = self.adapter.recent_items(self.a), self.adapter.recent_items(self.b)
-        self.assertEqual(titles(ra), ALL_TITLES)
-        self.assertEqual(titles(rb), ALL_TITLES)
+        self.assertEqual(titles(ra), RECENT_TITLES)
+        self.assertEqual(titles(rb), RECENT_TITLES)
         self.assertEqual([i.id for i in ra.items], [i.id for i in rb.items])
 
     def test_no_user_listing_is_ever_requested(self):
@@ -70,20 +71,20 @@ class SharedView(Base):
         self.adapter.fetch_artwork(self.a, "komga/book/BOOKAAAA0001")
         self.assertEqual([p for p in self.fake.paths() if "/users" in p or "/api/v2" in p], [])
         self.assertTrue(self.fake.paths())                              # calls did happen, all v1 book routes
-        self.assertTrue(all(p.startswith("/api/v1/books/") for p in self.fake.paths()))
+        self.assertTrue(all(p.startswith("/api/v1/books") for p in self.fake.paths()))
 
     def test_a_regular_key_works_when_the_user_list_is_forbidden(self):
         self.fake.overrides["/api/v2/users"] = ("status", 403)          # what a regular key gets, if it were asked
-        self.assertEqual(titles(self.adapter.recent_items(self.a)), ALL_TITLES)
+        self.assertEqual(titles(self.adapter.recent_items(self.a)), RECENT_TITLES)
 
     def test_the_item_shape_and_the_handoff_url_come_from_the_contract(self):
         r = self.adapter.recent_items(self.a)
         one = r.items[-1]
         self.assertIs(one.kind, Kind.COMIC)
-        self.assertEqual(one.id, "komga:BOOKAAAA0001")
-        self.assertEqual(one.handoff_url, "https://read.avrana.net/book/BOOKAAAA0001")
-        self.assertEqual((one.subtitle, one.series), ("#1", "Synthetic 001"))
-        self.assertEqual(one.artwork.ref, "komga/book/BOOKAAAA0001")
+        self.assertEqual(one.id, "komga:BOOKAAAA0002")
+        self.assertEqual(one.handoff_url, "https://read.avrana.net/book/BOOKAAAA0002")
+        self.assertEqual((one.subtitle, one.series), ("#2", "Synthetic 001"))
+        self.assertEqual(one.artwork.ref, "komga/book/BOOKAAAA0002")
 
     def test_the_shared_accounts_read_progress_is_never_a_members_own(self):
         for fixture_row in self.fake.latest["content"] + list(self.fake.books.values()):
@@ -116,20 +117,80 @@ class SharedView(Base):
 
     def test_the_page_is_bounded_and_a_larger_answer_is_misbehaviour(self):
         self.adapter.recent_items(self.a, limit=2)
-        latest = [q for _, p, q in self.fake.requests if p == "/api/v1/books/latest"]
-        self.assertEqual(latest, [{"page": "0", "size": "6"}])
+        latest = [q for _, p, q in self.fake.requests if p == "/api/v1/books"]
+        self.assertEqual(latest, [{"page": "0", "size": "100", "sort": "created,desc"}])
         page = self.fake.copy_of(self.fake.latest)
-        page["content"] = page["content"] * 5
+        page["content"] = page["content"] * 20
         self.reset()
-        self.fake.serve("/api/v1/books/latest", page)
+        self.fake.serve("/api/v1/books", page)
         self.assertEqual(self.adapter.recent_items(self.b, limit=1).reason, "UpstreamMisbehaved")
 
     def test_the_cache_is_per_member_and_serves_without_a_second_call(self):
         self.adapter.recent_items(self.a)
         self.adapter.recent_items(self.b)
         n = len(self.fake.requests)
-        self.assertEqual(titles(self.adapter.recent_items(self.a)), ALL_TITLES)
+        self.assertEqual(titles(self.adapter.recent_items(self.a)), RECENT_TITLES)
         self.assertEqual(len(self.fake.requests), n)
+
+
+class RecentAndReleased(Base):
+    """Owner decision 2026-10-28: Recently added is sorted by `created`, keeps the last RECENT_DAYS only and shows one
+    book per series; New releases is sorted by release date, one book per series."""
+
+    def test_recent_asks_for_the_created_order_never_the_latest_route(self):
+        self.adapter.recent_items(self.a)
+        self.assertEqual(self.fake.requests, [("GET", "/api/v1/books",
+                                               {"sort": "created,desc", "page": "0", "size": "100"})])
+
+    def test_books_added_more_than_two_months_ago_are_not_recent(self):
+        for b in self.fake.latest["content"]:
+            if b["id"] in ("BOOKEEEE0006", "BOOKDDDD0005"):
+                b["created"] = "2020-01-01T00:00:00Z"
+        self.assertEqual(titles(self.adapter.recent_items(self.a)), RECENT_TITLES[2:])
+
+    def test_a_missing_or_unreadable_added_time_is_never_recent(self):
+        for b, value in zip(self.fake.latest["content"], (None, "yesterday", 17, "2026-13-45T00:00:00Z")):
+            b["created"] = value
+        self.assertEqual(titles(self.adapter.recent_items(self.a)), ["Synthetic Comic Two"])
+
+    def test_nothing_added_in_two_months_is_an_empty_recently_added(self):
+        for b in self.fake.latest["content"]:
+            b["created"] = "2020-01-01T00:00:00Z"
+        r = self.adapter.recent_items(self.a)
+        self.assertEqual((r.state, r.items), (SectionState.EMPTY, ()))
+
+    def test_one_series_never_fills_the_row(self):
+        content = self.fake.latest["content"]
+        clones = [dict(content[-1], id=f"BOOKAAAA01{n:02d}") for n in range(10)]
+        self.fake.latest["content"] = clones + content
+        r = self.adapter.recent_items(self.a)
+        self.assertEqual([i.series for i in r.items].count("Synthetic 001"), 1)
+        self.assertEqual(len(r.items), 5)
+
+    def test_new_releases_are_newest_release_first_one_per_series_and_marked_with_their_shelf(self):
+        r = self.adapter.shelves_items(self.a)
+        self.assertIs(r.state, SectionState.OK)
+        # release dates (days ago): Mature 10, Comic Two -30 (a cover date ahead), Comic One 20 (same series),
+        # Teen 40, Kids 70, Manga 100
+        self.assertEqual(titles(r), ["Synthetic Comic Two", "Synthetic Mature One", "Synthetic Teen One",
+                                     "Synthetic Kids One", "Synthetic Manga One"])
+        self.assertEqual({i.shelf for i in r.items}, {"new"})
+        self.assertIn(("GET", "/api/v1/books", {"sort": "metadata.releaseDate,desc", "page": "0", "size": "100"}),
+                      self.fake.requests)
+
+    def test_a_release_date_far_in_the_future_or_missing_is_not_new(self):
+        for b in self.fake.latest["content"]:
+            if b["id"] == "BOOKAAAA0002":
+                b["metadata"] = dict(b["metadata"], releaseDate="2099-01-01")
+            if b["id"] == "BOOKCCCC0004":
+                b["metadata"] = {k: v for k, v in b["metadata"].items() if k != "releaseDate"}
+        self.assertEqual(titles(self.adapter.shelves_items(self.a)),
+                         ["Synthetic Comic One", "Synthetic Teen One", "Synthetic Kids One", "Synthetic Manga One"])
+
+    def test_the_shelf_needs_the_group_too(self):
+        outsider = make_principal("member-a", ("avrana-users",))
+        self.assertIs(self.adapter.shelves_items(outsider).state, SectionState.NOT_PERMITTED)
+        self.assertEqual(self.fake.requests, [])
 
 
 class NoGroup(Base):
@@ -185,41 +246,41 @@ class Failures(Base):
     def test_unreachable_costs_the_section_only_and_never_raises(self):
         for exc in (ConnectionRefusedError("refused"), OSError("unreachable"), TimeoutError()):
             self.reset()
-            self.fake.overrides["/api/v1/books/latest"] = ("raise", exc)
+            self.fake.overrides["/api/v1/books"] = ("raise", exc)
             r = self.adapter.recent_items(self.a)
             self.assertEqual((r.state, r.items), (SectionState.UNAVAILABLE, ()), exc)
 
     def test_a_timeout_costs_the_section_only_and_a_warm_cache_still_serves(self):
         self.adapter.recent_items(self.a)
-        self.fake.slow["/api/v1/books/latest"] = 5.0
+        self.fake.slow["/api/v1/books"] = 5.0
         self.assertEqual(self.adapter.recent_items(self.a).state, SectionState.OK)       # cache hit
         self.assertEqual(self.adapter.recent_items(self.b).reason, "UpstreamTimeout")
 
     def test_401_403_and_404_on_the_latest_route_are_unavailable(self):
         for code in (401, 403, 404):
             self.reset()
-            self.fake.overrides["/api/v1/books/latest"] = ("status", code)
+            self.fake.overrides["/api/v1/books"] = ("status", code)
             self.assertIs(self.adapter.recent_items(self.a).state, SectionState.UNAVAILABLE, code)
 
     def test_malformed_bodies_are_unavailable_not_exceptions(self):
         for body in (b"[" * 100000, b'{"id": 5}', b"not json", b"\xff\xfe", b"null", b"{}", b'"x"'):
             self.reset()
-            self.fake.overrides["/api/v1/books/latest"] = ("body", body)
+            self.fake.overrides["/api/v1/books"] = ("body", body)
             self.assertIs(self.adapter.recent_items(self.b).state, SectionState.UNAVAILABLE, body[:12])
         self.reset()                                           # every book unusable: drift, never "nothing new"
         page = self.fake.copy_of(self.fake.latest)
         page["content"] = [{"id": 5}, "x", None]
-        self.fake.serve("/api/v1/books/latest", page)
+        self.fake.serve("/api/v1/books", page)
         self.assertIs(self.adapter.recent_items(self.b).state, SectionState.UNAVAILABLE)
 
     def test_an_oversized_body_is_unavailable_and_counted(self):
-        self.fake.overrides["/api/v1/books/latest"] = ("body", b" " * (MAX_JSON_BYTES + 1))
+        self.fake.overrides["/api/v1/books"] = ("body", b" " * (MAX_JSON_BYTES + 1))
         r = self.adapter.recent_items(self.b)
         self.assertEqual((r.state, r.reason), (SectionState.UNAVAILABLE, "UpstreamTooLarge"))
         self.assertEqual(self.adapter.health().state, "failing")
 
     def test_a_breaker_trip_stops_all_traffic_for_every_member_until_the_cool_off(self):
-        self.fake.overrides["/api/v1/books/latest"] = ("raise", ConnectionRefusedError())
+        self.fake.overrides["/api/v1/books"] = ("raise", ConnectionRefusedError())
         for name in ("m1", "m2", "m3"):
             self.adapter.recent_items(make_principal(name, GROUPS))
         self.assertEqual(self.adapter.health().state, "cooling_off")
@@ -231,7 +292,7 @@ class Failures(Base):
         self.assertIs(self.adapter.recent_items(make_principal("m4", GROUPS)).state, SectionState.OK)
 
     def test_a_404_on_the_latest_route_is_route_drift_and_opens_the_circuit_after_three(self):
-        self.fake.overrides["/api/v1/books/latest"] = ("status", 404)
+        self.fake.overrides["/api/v1/books"] = ("status", 404)
         reasons = [self.adapter.recent_items(make_principal(n, GROUPS)).reason for n in ("m1", "m2", "m3")]
         self.assertEqual(reasons, ["RouteMissing"] * 3)
         self.assertEqual(self.adapter.health().state, "cooling_off")
@@ -240,7 +301,7 @@ class Failures(Base):
 class GuardAndSecrets(Base):
     def test_only_get_on_listed_routes_and_no_query_keys_beyond_the_list(self):
         g = GuardedTransport(self.transport).bind(SHARED_VIEWER)
-        for method, path, query in (("POST", "/api/v1/books/latest", None), ("GET", "/api/v2/users", None),
+        for method, path, query in (("POST", "/api/v1/books", None), ("GET", "/api/v2/users", None),
                                     ("GET", "/api/v2/users/me", None), ("GET", "/api/v1/users/me", None),
                                     ("DELETE", "/api/v1/books/BOOKAAAA0001", None),
                                     ("GET", "/api/v1/books/ondeck", None),
@@ -250,7 +311,7 @@ class GuardAndSecrets(Base):
                                     ("GET", "/api/v1/books/BOOKAAAA0001/pages/1", None),
                                     ("GET", "/api/v1/books/BOOKAAAA0001/file", None),
                                     ("GET", "/api/v1/books/%2e%2e", None),
-                                    ("GET", "/api/v1/books/latest", {"unpaged": "true"}),
+                                    ("GET", "/api/v1/books", {"unpaged": "true"}),
                                     ("GET", "/api/v1/books/BOOKAAAA0001", {"anything": "1"})):
             with self.assertRaises(ForbiddenRequest, msg=(method, path)):
                 g.request(method, path, query, 1.0, 1000)
@@ -258,12 +319,12 @@ class GuardAndSecrets(Base):
 
     def test_routes_need_the_shared_binding_and_reject_any_other_user_id(self):
         with self.assertRaises(ForbiddenRequest):
-            GuardedTransport(self.transport).bind(None).request("GET", "/api/v1/books/latest", None, 1.0, 1000)
+            GuardedTransport(self.transport).bind(None).request("GET", "/api/v1/books", None, 1.0, 1000)
         with self.assertRaises(ForbiddenRequest):
             GuardedTransport(self.transport).bind("../x")
         with self.assertRaises(ForbiddenRequest):
             GuardedTransport(self.transport).bind("USERAAAAAAAA1")      # a real-looking Komga user id is refused
-        self.assertEqual([r.name for r in ALLOWED_ROUTES], ["latest", "book", "search", "thumbnail"])
+        self.assertEqual([r.name for r in ALLOWED_ROUTES], ["books", "book", "thumbnail"])
         for word in ("latest", "updated"):
             self.assertEqual(self.adapter.item(self.a, word).items, ())
             self.assertEqual(self.adapter.fetch_artwork(self.a, f"komga/book/{word}").state, SectionState.EMPTY)
@@ -276,7 +337,7 @@ class GuardAndSecrets(Base):
         with self.assertLogs("avrana_home", level=logging.WARNING) as logs:
             logging.getLogger("avrana_home").warning("probe")
             ok = ad.recent_items(self.b)
-            self.fake.overrides["/api/v1/books/latest"] = ("status", 401)
+            self.fake.overrides["/api/v1/books"] = ("status", 401)
             ad.cache.clear()
             bad = ad.recent_items(self.b)
         blob = " ".join([repr(ad), repr(ok), repr(bad), repr(ad.health()), repr(ad._guard),
@@ -285,7 +346,7 @@ class GuardAndSecrets(Base):
         self.assertTrue(opener.seen_headers)                   # requests went out through the transport
 
     def test_logs_carry_no_username_title_or_id(self):
-        self.fake.overrides["/api/v1/books/latest"] = ("status", 500)
+        self.fake.overrides["/api/v1/books"] = ("status", 500)
         with self.assertLogs("avrana_home", level=logging.WARNING) as logs:
             self.adapter.recent_items(self.b)
         text = " ".join(logs.output)

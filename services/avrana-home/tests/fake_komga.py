@@ -4,6 +4,8 @@ use. It stands for the ONE regular (non-admin) shared account (ADAPTER-CONTRACT 
 account sees, and has no user list at all (`/api/v2/users` is a 404 here, as it is for a regular key)."""
 import copy
 import json
+import re
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "komga"
@@ -23,7 +25,13 @@ class FakeKomga:
     def __init__(self, clock=None):
         self.clock = clock
         self.books = load("books.json")
-        self.latest = load("books_latest.json")
+        now = datetime.now(timezone.utc).replace(microsecond=0)
+        text = json.dumps(load("books_latest.json"))
+        text = re.sub(r'"@days_ago:(-?\d+)"', lambda m: json.dumps(
+            (now - timedelta(days=int(m.group(1)))).isoformat().replace("+00:00", "Z")), text)
+        text = re.sub(r'"@date_ago:(-?\d+)"', lambda m: json.dumps(
+            (now - timedelta(days=int(m.group(1)))).date().isoformat()), text)
+        self.latest = json.loads(text)        # newest `created` first, as GET /api/v1/books?sort=created,desc
         self.requests = []
         self.overrides = {}        # path -> ("status", int) | ("body", bytes) | ("raise", exc)
         self.slow = {}
@@ -47,9 +55,14 @@ class FakeKomga:
             return val, b"{}", "application/json"
         if kind == "body":
             return 200, val, "application/json"
-        if path == "/api/v1/books/latest":
+        if path == "/api/v1/books" and "search" not in query:
             page = dict(self.latest)
-            page["content"] = page["content"][:int(query.get("size", "20"))]
+            content = list(page["content"])
+            if query.get("sort") == "metadata.releaseDate,desc":
+                content.sort(key=lambda b: b["metadata"].get("releaseDate") or "", reverse=True)
+            elif query.get("sort") != "created,desc":
+                return 400, b"{}", "application/json"
+            page["content"] = content[:int(query.get("size", "20"))]
             return self._json(page)
         if path == "/api/v1/books":
             term = query.get("search", "").casefold()
