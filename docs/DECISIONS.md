@@ -298,3 +298,11 @@ redundant ... too rounded of corners ... a balance that's based on genuinely int
 | **Recently added means the last two months** | Audiobooks' Recently added keeps only items added in the last 60 days (`RECENT_DAYS`), however few. When none were, Listen's first row is titled Recently released and shows the newest releases instead; the separate New releases row is then not repeated. |
 | **Library top right is one icon button** | The Search utility is gone from the Library (Search is already a tab) and the layout button shows only the current layout's icon; its name stays for screen readers. The Library is otherwise left as it is for now. |
 | **Artwork corners scale with the art** | Cover and poster corners are about 5% of the frame's width, clamped to 4–12px (a 180px cover gets 9px, a rail poster 6px, a list thumbnail 4px, wide backdrops 12px), replacing one 20px radius. Containers keep their larger radii, so an inner curve is always the tighter one. |
+
+## Owner decisions, 2026-10-28: Home may create missing library accounts
+
+Recorded from the owner's chat of 2026-10-28 ("Yes it should", on Home creating a member's library accounts).
+
+| Decision | Consequence |
+|---|---|
+| **Home creates missing Jellyfin and Audiobookshelf accounts** | Direction approved; the how is the plan in `docs/design/ACCOUNT-PROVISIONING.md` (owner choices P1-P5 still open). Nothing is built or enabled until those are answered. |
