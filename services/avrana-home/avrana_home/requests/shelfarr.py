@@ -9,9 +9,13 @@ tokens (Media 2.0: no manual member keys).
 
 Rules this module keeps:
 
-  * Exactly two upstream calls exist, on a fixed allow-list (`ROUTES`): `GET /api/v1/search` and
-    `POST /api/v1/requests`. Nothing else can be sent: no request listing (an admin-scoped token would see
-    everyone's), no cancel, retry, grab, users or settings.
+  * A fixed allow-list (`ROUTES`): `GET /api/v1/search`, `POST /api/v1/requests`, and for "My requests"
+    `GET /api/v1/requests`, `GET /api/v1/requests/<id>` and `DELETE /api/v1/requests/<id>`, each naming the member
+    (`username`). No retry, grab, users or settings.
+  * Listing and cancelling are member-scoped TWICE. The Avrana fork's `requests:on_behalf` token honours
+    `username` and returns only that member's requests; upstream's `requests:admin` token ignores it and returns
+    everyone's, so every row whose owner is not the member is dropped here, and a cancel first reads the request
+    and refuses unless its owner is the member and it is still cancellable.
   * The member is named by `username` only, taken from the verified principal by the caller and checked here
     against Shelfarr's username shape (lower case, as Shelfarr compares). A username Shelfarr does not know is a
     404 ("User not found"): the member has never signed in to Shelfarr, which is `NOT_LINKED`, never an error.
@@ -44,7 +48,34 @@ MAX_KEYS = 20                      # sources and editions read per result
 WORK_ID = re.compile(r"[a-z][a-z_]{1,23}:[A-Za-z0-9][A-Za-z0-9._:-]{0,95}")
 USERNAME = re.compile(r"[a-z0-9][a-z0-9._@+-]{0,149}")
 ROUTES = {("GET", "/api/v1/search"): frozenset({"q", "limit", "content_kind"}),
-          ("POST", "/api/v1/requests"): frozenset()}
+          ("POST", "/api/v1/requests"): frozenset(),
+          ("GET", "/api/v1/requests"): frozenset({"username", "limit"}),
+          ("GET", "/api/v1/requests/<id>"): frozenset({"username"}),
+          ("DELETE", "/api/v1/requests/<id>"): frozenset({"username"}),
+          ("POST", "/api/v1/users"): frozenset()}
+# Shelfarr's own username rule (user.rb): a member whose name cannot be a Shelfarr username is never provisioned.
+SHELFARR_USERNAME = re.compile(r"[a-z0-9_]{1,150}")
+REQUEST_PATH = re.compile(r"/api/v1/requests/([0-9]{1,12})")
+LIST_LIMIT = 100                   # rows read (the fork's are the member's own; upstream's are everyone's, filtered)
+MINE_LIMIT = 30                    # rows shown
+
+
+class RequestState(enum.Enum):
+    """Shelfarr's request status, reduced to what a member is told."""
+    LOOKING = "looking"            # pending, searching
+    NOT_FOUND = "not_found"        # not found yet; Shelfarr searches again later
+    WAITING = "waiting"            # awaiting_purchase: only a paid copy was found, the owner decides
+    COMING = "coming"              # downloading, processing
+    ARRIVED = "arrived"            # completed
+    STOPPED = "stopped"            # failed: cancelled, or given up on
+
+
+_REQUEST_STATE = {"pending": RequestState.LOOKING, "searching": RequestState.LOOKING,
+                  "not_found": RequestState.NOT_FOUND, "awaiting_purchase": RequestState.WAITING,
+                  "downloading": RequestState.COMING, "processing": RequestState.COMING,
+                  "completed": RequestState.ARRIVED, "failed": RequestState.STOPPED}
+# A member may cancel only before anything is being fetched (never a half-finished download or import).
+CANCELLABLE = frozenset({"pending", "searching", "not_found", "awaiting_purchase"})
 
 
 class Outcome(enum.Enum):
@@ -65,6 +96,31 @@ class BookOffer:
     formats: Tuple[str, ...]       # subset of FORMAT_ORDER the upstream says exist
     keys: Tuple[str, ...] = ()     # exact catalogue keys ("hardcover:123", "isbn:978…") for owned.OwnedIndex
     title_key: Optional[str] = None   # folded title|surname, the LIKELY tier only
+
+
+@dataclass(frozen=True)
+class BookRequest:
+    """One of the member's own requests, as "My requests" shows it."""
+    request_id: int
+    title: str
+    author: str
+    book_type: str                 # "ebook" | "audiobook"
+    state: RequestState
+    asked_on: str                  # "2026-10-28", or "" when Shelfarr sent no usable date
+    cancellable: bool
+    told: bool                     # Shelfarr flagged it for the owner's attention
+
+
+class Provisioned(enum.Enum):
+    CREATED = "created"            # a Shelfarr account now exists for the member
+    EXISTS = "exists"              # Shelfarr refused: the name is taken (or invalid); nothing was changed
+    UNAVAILABLE = "unavailable"
+
+
+class CancelOutcome(enum.Enum):
+    CANCELLED = "cancelled"
+    NOT_ALLOWED = "not_allowed"    # not the member's, gone, or no longer cancellable
+    UNAVAILABLE = "unavailable"
 
 
 class ForbiddenCall(Exception):
@@ -109,6 +165,25 @@ def _offer(item: Any) -> Optional[BookOffer]:
     author = _text(item.get("author"), MAX_AUTHOR)
     return BookOffer(work_id, title, author, year, _text(item.get("series_name"), MAX_SERIES), formats,
                      _keys(work_id, item), title_key(title, author))
+
+
+def _request(item: Any, name: str) -> Optional[BookRequest]:
+    """A row of the member's own, or None: wrong owner, unknown status or format, or malformed."""
+    if not isinstance(item, dict):
+        return None
+    user, book = item.get("user"), item.get("book")
+    rid, status = item.get("id"), item.get("status")
+    if (not isinstance(user, dict) or user.get("username") != name or not isinstance(book, dict)
+            or not isinstance(rid, int) or isinstance(rid, bool) or not 0 < rid < 10**12
+            or status not in _REQUEST_STATE or book.get("book_type") not in FORMAT_GROUP):
+        return None
+    title = _text(book.get("title"), MAX_TITLE)
+    if not title:
+        return None
+    created = item.get("created_at")
+    asked_on = created[:10] if isinstance(created, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", created[:10]) else ""
+    return BookRequest(rid, title, _text(book.get("author"), MAX_AUTHOR), book["book_type"], _REQUEST_STATE[status],
+                       asked_on, status in CANCELLABLE, item.get("attention_needed") is True)
 
 
 def _keys(work_id: str, item: dict) -> Tuple[str, ...]:
@@ -184,6 +259,75 @@ class ShelfarrRequests:
             return answer.outcome
         return Outcome.UNAVAILABLE
 
+    # ---- accounts --------------------------------------------------------------------------
+    def provision(self, username: Any, display_name: Any) -> Provisioned:
+        """Create the member's Shelfarr account (HOME_SHELFARR_PROVISION=on; token scope `users:write`). Only a plain
+        user: Shelfarr's API takes name, username and password, never a role. The password is random, used once and
+        never kept: the member signs in to Shelfarr through Authentik, and Shelfarr's "link existing users" setting
+        joins that sign-in to this account by username (Shelfarr's own auto-create would name it after the e-mail
+        address instead, which Home could not find)."""
+        import secrets
+        name = member_username(username)
+        if name is None or not SHELFARR_USERNAME.fullmatch(name):
+            return Provisioned.EXISTS
+        shown = _text(display_name, MAX_AUTHOR) or name
+        password = secrets.token_urlsafe(24) + "Aa1"          # Shelfarr: 12+ characters, upper, lower, digit
+        body = json.dumps({"name": shown, "username": name, "password": password}, ensure_ascii=True).encode("ascii")
+        try:
+            self._send("POST", "/api/v1/users", None, body)
+        except _Answered as answer:
+            if answer.outcome in (Outcome.CREATED, Outcome.QUEUED):
+                return Provisioned.CREATED
+            if answer.outcome is Outcome.REFUSED:              # 422: taken or invalid
+                return Provisioned.EXISTS
+        return Provisioned.UNAVAILABLE
+
+    # ---- My requests -----------------------------------------------------------------------
+    def mine(self, username: Any) -> Tuple[str, Tuple[BookRequest, ...]]:
+        """("ok", rows) | ("empty", ()) | ("not_linked", ()) | ("unavailable", ()): the member's own requests, newest
+        first. Rows owned by anyone else never leave this method (see the module notes)."""
+        name = member_username(username)
+        if name is None:
+            return "not_linked", ()
+        body = self._call("GET", "/api/v1/requests", {"username": name, "limit": str(LIST_LIMIT)})
+        if body is None:
+            return "unavailable", ()
+        rows = body.get("requests") if isinstance(body, dict) else None
+        if not isinstance(rows, list):
+            self._fail("malformed")
+            return "unavailable", ()
+        out = [r for r in (_request(item, name) for item in rows[:LIST_LIMIT]) if r is not None]
+        return ("ok" if out else "empty"), tuple(out[:MINE_LIMIT])
+
+    def cancel(self, username: Any, request_id: Any) -> CancelOutcome:
+        """Cancel one of the member's own requests. Read first, as the member: refused unless Shelfarr says the owner
+        is this member and the status is still cancellable. Never retried."""
+        name = member_username(username)
+        if name is None or not isinstance(request_id, int) or isinstance(request_id, bool) \
+                or not 0 < request_id < 10**12:
+            return CancelOutcome.NOT_ALLOWED
+        path = f"/api/v1/requests/{request_id}"
+        try:
+            self._send("GET", path, {"username": name}, None)
+        except _Answered as answer:
+            if answer.outcome is Outcome.NOT_LINKED:            # 404: not theirs (fork) or gone
+                return CancelOutcome.NOT_ALLOWED
+            if answer.outcome not in (Outcome.CREATED, Outcome.QUEUED):
+                return CancelOutcome.UNAVAILABLE
+            row = _request(answer.body, name)
+            if row is None or not row.cancellable or row.request_id != request_id:
+                return CancelOutcome.NOT_ALLOWED
+        else:
+            return CancelOutcome.UNAVAILABLE                    # breaker open
+        try:
+            self._send("DELETE", path, {"username": name}, None)
+        except _Answered as answer:
+            if answer.outcome in (Outcome.CREATED, Outcome.QUEUED):
+                return CancelOutcome.CANCELLED
+            if answer.outcome in (Outcome.REFUSED, Outcome.NOT_LINKED):
+                return CancelOutcome.NOT_ALLOWED
+        return CancelOutcome.UNAVAILABLE
+
     # ---- internals -------------------------------------------------------------------------
     def _call(self, method: str, path: str, query) -> Optional[Any]:
         try:
@@ -195,9 +339,12 @@ class ShelfarrRequests:
     def _send(self, method: str, path: str, query, json_body: Optional[bytes]) -> None:
         """Raises _Answered with the outcome (and, for a 2xx, the parsed body). Returns only when the breaker is
         open."""
-        allowed = ROUTES.get((method, path))
+        template = "/api/v1/requests/<id>" if REQUEST_PATH.fullmatch(path) else path
+        allowed = ROUTES.get((method, template))
         if allowed is None or not set(query or {}) <= allowed:
-            raise ForbiddenCall(f"{method} {path}")
+            raise ForbiddenCall(f"{method} {template}")
+        if template != path and not member_username((query or {}).get("username")):
+            raise ForbiddenCall("as whom")              # a single request is only ever read or cancelled for a member
         if json_body is not None and len(json_body) > MAX_REQUEST_BODY:
             raise ForbiddenCall("body")
         token = self.breaker.acquire()

@@ -538,6 +538,47 @@ page ("Search and ask here") instead of the request website; otherwise the row i
 The fork plan (`REQUEST-FORKS-PLAN.md`, Seerr E-S1..E-S3) replaces the global key with a scoped key that cannot act as
 an administrator at all; until then the rules above are the lock.
 
+## 5d. My requests
+
+Status: proposed, not deployed; there whenever either broker is on (sections 5b, 5c). `GET /request/mine` (a shell
+page) lists the member's own requests from Shelfarr and Seerr, newest first, in two groups: **On the way** and
+**Done**. A member who may use neither broker gets the standard 404. The ask pages and the Request menu link here.
+
+**Only the member's own rows, twice over.**
+
+- Shelfarr: `GET /api/v1/requests?username=<member>&limit=100`. The Avrana fork's `requests:on_behalf` token
+  scopes this to that member (and never to an administrator). Upstream's `requests:admin` token ignores
+  `username` and returns everyone's, so the client drops every row whose `user.username` is not the member; only
+  formats whose library the member holds are shown.
+- Seerr: `GET /api/v1/request?requestedBy=<member's Seerr id>`, sent AS the member (`X-API-User`); rows whose
+  `requestedBy.id` is anyone else are dropped. Titles come from `GET /api/v1/movie/<id>` / `tv/<id>` as the member,
+  cached per process for a day; at most three seconds a view are spent looking titles up, and a row still unnamed
+  says "Reload to see its name".
+
+**What each row says** (fixed words; nothing upstream sends is shown): Looking for it · Not found yet (looked for
+again) · Waiting for the owner (only a paid copy found) · On its way · Waiting for approval · Partly arrived ·
+Arrived · Declined · Could not be fetched · Stopped (Shelfarr records a cancel as "failed" with no attention flag,
+so cancelled and given-up requests read the same). "The owner has been told" appears when Shelfarr flagged it.
+Arrived titles link to Home's own pages: a film or show to its title page after this member's own Jellyfin lookup
+(at most five a view), anything else to Home's search for the title. Nothing links to the request services.
+
+**Taking a request back.** `POST /request/mine` with exactly `service`, `request_id`, `title`, `token`: the same
+locks as asking (switch, group, same origin, exact fields, a signed token for this member and these fields, the
+guard), then:
+
+- Shelfarr: read the request as the member first; only if its owner is the member and it is pending, searching,
+  not found or awaiting purchase (never a download or import in progress) is `DELETE /api/v1/requests/<id>` sent.
+- Seerr: only a request in the member's own list that still waits for approval. Seerr itself lets any
+  non-manager delete any pending request, so this check is Home's.
+
+The answer is a 303 back to `/request/mine` with a one-shot outcome ("Cancelled your request for …").
+
+**Errors are said as errors.** A member whose Jellyfin lookup is busy or failing is told film requests "could not be
+reached", never "not set up" (which would send them off to sign in). This uses the contract's `member_link`, which
+is `resolve_user` with the reason kept; the watch ask page uses it too.
+
+Each view reads both lists fresh and counts against the member's search allowance (section 5b); HEAD reads nothing.
+
 ## 6. Logging
 
 Structured JSON, one object per line, to stderr. Fields: `route` (the route **template** such as

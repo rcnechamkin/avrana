@@ -116,6 +116,11 @@ class Settings:
     watch_requests: bool = False                 # HOME_WATCH_REQUESTS=on: ask Seerr for films and shows as the member
     seerr_base_url: str = ""                     # required with watch_requests
     seerr_api_key: str = field(default="", repr=False)   # Seerr's global key (full admin): jwt_required in real mode
+    shelfarr_provision: bool = False             # HOME_SHELFARR_PROVISION=on: create a member's Shelfarr account on ask
+    seerr_provision: bool = False                # HOME_SEERR_PROVISION=on: import a member's Jellyfin user into Seerr
+    comic_requests: bool = False                 # HOME_COMIC_REQUESTS=on: ask Omnibus (Avrana fork) for comics
+    omnibus_base_url: str = ""                   # required with comic_requests
+    omnibus_api_key: str = field(default="", repr=False)  # an on-behalf API key (fork): jwt_required in real mode
     timeout: float = 2.0
     section_limit: int = 12
     health_detail: str = "loopback"              # "loopback" | "off"
@@ -274,6 +279,22 @@ class Settings:
         watch_requests = boolean("HOME_WATCH_REQUESTS", False)
         seerr_url = get("SEERR_BASE_URL")
         seerr_key = _read_key(env, problems, "SEERR_API_KEY")
+        shelfarr_provision = boolean("HOME_SHELFARR_PROVISION", False)
+        seerr_provision = boolean("HOME_SEERR_PROVISION", False)
+        if shelfarr_provision and not book_requests:
+            problems.append("HOME_SHELFARR_PROVISION needs HOME_BOOK_REQUESTS=on")
+        if seerr_provision and not watch_requests:
+            problems.append("HOME_SEERR_PROVISION needs HOME_WATCH_REQUESTS=on")
+        comic_requests = boolean("HOME_COMIC_REQUESTS", False)
+        omnibus_url = get("OMNIBUS_BASE_URL")
+        omnibus_key = _read_key(env, problems, "OMNIBUS_API_KEY")
+        if comic_requests:
+            if not sections:
+                problems.append("HOME_COMIC_REQUESTS needs HOME_SECTIONS=on")
+            if not omnibus_url:
+                problems.append("HOME_COMIC_REQUESTS needs OMNIBUS_BASE_URL")
+        elif omnibus_url or omnibus_key:
+            problems.append("OMNIBUS_BASE_URL or OMNIBUS_API_KEY is set but HOME_COMIC_REQUESTS is off")
         if watch_requests:
             if not sections:
                 problems.append("HOME_WATCH_REQUESTS needs HOME_SECTIONS=on")
@@ -351,6 +372,12 @@ class Settings:
             if seerr_url and not is_loopback_host(url_host(seerr_url) or ""):
                 problems.append("SEERR_BASE_URL must be a loopback address in mock mode")
             seerr_key = MOCK_API_KEY if seerr_url else ""
+            if omnibus_key:
+                problems.append("an Omnibus key is set but HOME_UPSTREAM_MODE is mock "
+                                "(mock mode never sends a real key; unset it or choose real)")
+            if omnibus_url and not is_loopback_host(url_host(omnibus_url) or ""):
+                problems.append("OMNIBUS_BASE_URL must be a loopback address in mock mode")
+            omnibus_key = MOCK_API_KEY if omnibus_url else ""
         else:
             if not owner_preview and get("HOME_GATES_VERIFIED").lower() != "yes":
                 problems.append("HOME_UPSTREAM_MODE=real needs HOME_GATES_VERIFIED=yes "
@@ -390,13 +417,16 @@ class Settings:
                 problems.append("HOME_BOOK_REQUESTS needs SHELFARR_TOKEN (or _FILE) in real mode")
             if watch_requests and not seerr_key:
                 problems.append("HOME_WATCH_REQUESTS needs SEERR_API_KEY (or _FILE) in real mode")
+            if comic_requests and not omnibus_key:
+                problems.append("HOME_COMIC_REQUESTS needs OMNIBUS_API_KEY (or _FILE) in real mode")
         # HTTPS across machines (owner decision 2026-10-27, ABS admin-token review HIGH): in real mode a plain-http
         # upstream must stay on this machine or inside Docker's isolated networking, so a service key never
         # crosses the LAN in clear text. See `plain_http_allowed`.
         if mode == "real":
             for name, value in (("JELLYFIN_BASE_URL", base_url), ("AUDIOBOOKSHELF_BASE_URL", abs_url),
                                 ("KOMGA_BASE_URL", komga_url), ("CALIBRE_WEB_BASE_URL", cw_url),
-                                ("SHELFARR_BASE_URL", shelfarr_url), ("SEERR_BASE_URL", seerr_url)):
+                                ("SHELFARR_BASE_URL", shelfarr_url), ("SEERR_BASE_URL", seerr_url),
+                                ("OMNIBUS_BASE_URL", omnibus_url)):
                 if value and urlsplit(value).scheme == "http" and not plain_http_allowed(url_host(value) or ""):
                     problems.append(f"{name} uses plain http to another machine: use https, or a Docker service "
                                     "name on a shared network (HTTPS across machines)")
@@ -412,6 +442,8 @@ class Settings:
             _check_url(shelfarr_url, problems, "SHELFARR_BASE_URL")
         if seerr_url:
             _check_url(seerr_url, problems, "SEERR_BASE_URL")
+        if omnibus_url:
+            _check_url(omnibus_url, problems, "OMNIBUS_BASE_URL")
 
         # Identity mode (AVR-498). The default keeps today's behaviour exactly; an unknown or empty
         # value is an error, never a silent fallback. The JWT modes need the provider's issuer,
@@ -452,6 +484,8 @@ class Settings:
             problems.append("HOME_BOOK_REQUESTS acts as the member: real mode needs HOME_IDENTITY_MODE=jwt_required")
         if mode == "real" and watch_requests and id_mode != "jwt_required" and not sealed:
             problems.append("HOME_WATCH_REQUESTS acts as the member: real mode needs HOME_IDENTITY_MODE=jwt_required")
+        if mode == "real" and comic_requests and id_mode != "jwt_required" and not sealed:
+            problems.append("HOME_COMIC_REQUESTS acts as the member: real mode needs HOME_IDENTITY_MODE=jwt_required")
         # The same holds for Jellyfin: Jellyfin gives every API key the Administrator role (CustomAuthenticationHandler,
         # 10.11), and Home reads each member's viewing with it through `userId` (owner decision 2026-10-27, with
         # Quick Connect approval planned on the same key: ME-PREFERENCES-PROFILE-QUICKCONNECT.md section 4).
@@ -474,6 +508,8 @@ class Settings:
                    calibre_web_credential=cw_cred, calibre_web_owner_confirms=cw_confirms,
                    book_requests=book_requests, shelfarr_base_url=shelfarr_url, shelfarr_token=shelfarr_token,
                    watch_requests=watch_requests, seerr_base_url=seerr_url, seerr_api_key=seerr_key,
+                   shelfarr_provision=shelfarr_provision, seerr_provision=seerr_provision,
+                   comic_requests=comic_requests, omnibus_base_url=omnibus_url, omnibus_api_key=omnibus_key,
                    timeout=timeout, section_limit=limit,
                    health_detail=detail, pwa_sw=pwa_sw, motion_proposal=motion_proposal, catalogue_path=catalogue, notice_file=notice_file, library_ids_file=library_ids_file, log_level=level,
                    security_flows=security_flows, security_return_origin=security_return_origin,

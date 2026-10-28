@@ -136,7 +136,9 @@ class Client(unittest.TestCase):
     def test_only_allow_listed_calls(self):
         c = ShelfarrRequests(Recorder(TransportResponse(200, b"{}")))
         with self.assertRaises(ForbiddenCall):
-            c._send("GET", "/api/v1/requests", None, None)
+            c._send("POST", "/api/v1/requests/1/retry", None, None)
+        with self.assertRaises(ForbiddenCall):
+            c._send("GET", "/api/v1/requests", {"username": "a", "status": "pending"}, None)
         with self.assertRaises(ForbiddenCall):
             c._send("GET", "/api/v1/search", {"q": "x", "username": "y"}, None)
         with self.assertRaises(ForbiddenCall):

@@ -11,7 +11,8 @@ from dataclasses import dataclass
 from typing import Optional, Tuple
 
 from ..requests.forms import FormSigner
-from ..requests.seerr import MAX_TERM, MediaState, Outcome, WatchOffer
+from ..requests.seerr import CancelOutcome as WatchCancel, MAX_TERM, MediaState, Outcome, RequestState as WatchState, \
+    WatchOffer
 from .bookrequests import GUARD_COPY, LIMITED, AskVM, OwnedVM
 
 PATH = "/request/watch"

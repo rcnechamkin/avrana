@@ -22,7 +22,7 @@
 {% if page.mode == "invalid" %}
       <p class="err" id="q-error" role="alert">{{ page.message }}</p>
 {% endif %}
-      <p class="hint" id="q-hint">Books not in your libraries yet. Asking sends a request; it does not add the book straight away.</p>
+      <p class="hint" id="q-hint">Books not in your libraries yet. Asking sends a request; it does not add the book straight away. <a class="link" href="/request/mine">See what you have asked for</a></p>
     </form>
   </section>
 {% if page.mode in ("results", "empty", "unavailable") %}
