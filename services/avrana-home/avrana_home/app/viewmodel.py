@@ -480,19 +480,23 @@ NOTHING_UP_NEXT = "Nothing up next. The next episode of a show you are watching 
 # The Audiobooks shelves (owner decision 2026-10-27), in this order after Recently added. Keys are the adapter's.
 SHELF_ROWS = (("new", "New releases"), ("classics", "Classics"), ("short", "Short listens"),
               ("epic", "Epic listens"))
-_EXTRA_FOR = {"jellyfin": "next_up", "audiobookshelf": "shelves"}
+_EXTRA_FOR = {"jellyfin": "next_up", "audiobookshelf": "shelves", "komga": "shelves"}
+# Libraries whose Recently added gives way to Recently released when nothing was added in the last two months
+# (owner decisions 2026-10-27 Audiobookshelf, 2026-10-28 Komga).
+RELEASED_FALLBACK = ("audiobookshelf", "komga")
 
 
-def extra_sections_for(raw_focus) -> Tuple[str, ...]:
-    """The extra sections a Home filter needs (Watch: Up next; Listen: the shelves), so the caller gathers them too.
+def extra_sections_for(raw_focus) -> Tuple[Tuple[str, str], ...]:
+    """The (library, section) pairs a Home filter needs beyond Continue and Recently added (Watch: Up next; Listen:
+    the shelves; Comics and Read: Komga's New releases), so the caller gathers them too, from that library only.
     It only decides what to ask for; `build_home` still checks the member's own places."""
     services = _PLACE_SERVICES.get(raw_focus, ()) if isinstance(raw_focus, str) else ()
-    return tuple(_EXTRA_FOR[s] for s in services if s in _EXTRA_FOR) if len(services) == 1 else ()
+    return tuple((s, _EXTRA_FOR[s]) for s in services if s in _EXTRA_FOR)
 
 
-def library_extra_sections(raw_chip) -> Tuple[str, ...]:
-    """The extra sections a Library chip needs: the Audiobooks shelves when that library is chosen."""
-    return ("shelves",) if raw_chip == "audiobookshelf" else ()
+def library_extra_sections(raw_chip) -> Tuple[Tuple[str, str], ...]:
+    """The extra (library, section) pairs a Library chip needs: the Audiobooks shelves when that library is chosen."""
+    return (("audiobookshelf", "shelves"),) if raw_chip == "audiobookshelf" else ()
 
 
 def shelf_rows(shelved, limit: int, title_services, rows_of=SHELF_ROWS) -> list:
@@ -693,19 +697,24 @@ def build_home(view: dict, tiles, *, new_tab: Optional[str] = None, limit: int =
         # Listen (owner decision 2026-10-27): Recently added, then the library's shelves, so the page leads with what
         # the library holds. Read (two libraries): one row per library. A single row keeps the plain section.
         services = [s for s in _PLACE_SERVICES[focus] if s in held]
-        built = []
+        built, released_only = [], False
         if len(services) > 1:
             for s in services:
                 cards = _cards(items_of("recent", s)[:limit], lambda it: it.detail or KIND_LABEL.get(it.kind),
                                title_services=title_services)
-                if cards:
+                if not cards and s in RELEASED_FALLBACK:      # nothing new in two months: the newest releases
+                    released = shelf_rows(items_of("shelves", s), limit, title_services,
+                                          (("new", f"Recently released {SERVICE_LABEL[s].lower()}"),))
+                    built += [RowVM(s.replace("-", ""), r.heading, r.items) for r in released]
+                    released_only = released_only or bool(released)
+                elif cards:
                     built.append(RowVM(s.replace("-", ""), SERVICE_LABEL[s], cards))
         elif services:
             s = services[0]
             cards = _cards(items_of("recent", s)[:limit], lambda it: it.detail or KIND_LABEL.get(it.kind),
                            title_services=title_services)
             shelved = items_of("shelves", s)
-            if cards or s != "audiobookshelf":
+            if cards or s not in RELEASED_FALLBACK:
                 built.append(RowVM("new", "Recently added", cards, None if cards else NOTHING_NEW))
                 built += shelf_rows(shelved, limit, title_services)
             else:
@@ -714,7 +723,9 @@ def build_home(view: dict, tiles, *, new_tab: Optional[str] = None, limit: int =
                 released = shelf_rows(shelved, limit, title_services, (("new", "Recently released"),))
                 built += [RowVM("new", r.heading, r.items) for r in released]
                 built += shelf_rows(shelved, limit, title_services, SHELF_ROWS[1:])
-        rows = tuple(built) if len(built) > 1 else ()
+                released_only = bool(released)
+        # One row alone is the plain Recently added section, unless it is Recently released (it must keep its name).
+        rows = tuple(built) if len(built) > 1 or released_only else ()
 
     # The hero (memo section 4, Actual states only): the member's own next thing. H1: the first Continue item that
     # is not from a library said to be down (a stale card stays in its rail, but is never the one big promise).
@@ -916,6 +927,9 @@ REQUEST_FOR = {"jellyfin": ("requests", "a film or show"), "audiobookshelf": ("r
 # Request services with a DOCUMENTED search address that takes the term (Seerr/Jellyseerr web route
 # `/search?query=`, UNVERIFIED live). Every other request service gets its home through our own route.
 REQUEST_SEARCH = {"requests": "/search?query="}
+# The request brokers' own ask pages (bookrequests.py, watchrequests.py), used instead of the request website when
+# that broker is on: catalogue request path -> Home route.
+BROKER_PAGES = {"requestabook": "/request/books", "requests": "/request/watch"}
 _HOST = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+")
 TITLE_PREFIX = "/title/"
 
@@ -1028,18 +1042,22 @@ def _result_vm(it: dict, service: str, label: str, term: Optional[str], title_se
     return ResultVM(title, href, medium, line, SHAPE.get(kind, "poster"), _image(it.get("artwork")), opens)
 
 
-def request_options(empty_services, term: Optional[str], request_hosts) -> Tuple[RequestVM, ...]:
+def request_options(empty_services, term: Optional[str], request_hosts,
+                    own_pages=None) -> Tuple[RequestVM, ...]:
     """"Request this title" for each library that answered with no match, ONLY where the member's catalogue holds
     the request service that fills it (`request_hosts`: request path -> host, already group-filtered by the
     caller). Seerr gets the term through its documented search address (allowlisted host, percent-encoded); the
-    others get their own home through our route. Nothing is ever submitted."""
+    others get their own home through our route. Nothing is ever submitted. `own_pages` (request path -> Home route, for each
+    broker that is on and that this member may use): those go to Home's own ask page with the term instead."""
     by_href: dict = {}
     for service in empty_services:
         path, noun = REQUEST_FOR.get(service, (None, None))
         host = (request_hosts or {}).get(path)
         if not path or not isinstance(host, str) or not _HOST.fullmatch(host):
             continue
-        if path in REQUEST_SEARCH and term:
+        if path in (own_pages or {}):
+            href, leaves = own_pages[path] + (f"?q={quote(term, safe='')}" if term else ""), False
+        elif path in REQUEST_SEARCH and term:
             href, leaves = f"https://{host}{REQUEST_SEARCH[path]}{quote(term, safe='')}", True
         else:
             href, leaves = "/" + path, False
@@ -1056,7 +1074,7 @@ def _names(labels) -> str:
 
 
 def build_search(view: dict, raw_term: Optional[str], *, title_services=frozenset(),
-                 request_hosts=None) -> SearchVM:
+                 request_hosts=None, own_pages=None) -> SearchVM:
     """`view` is `SearchResults.search_view()`; `raw_term` the bounded text from the address (or None).
     Libraries the member cannot use are not in `view`, and nothing here can name them.
 
@@ -1114,7 +1132,7 @@ def build_search(view: dict, raw_term: Optional[str], *, title_services=frozense
                             result_state="unsearchable", outcome="Not searched", **base)
         return SearchVM("results", message="Search is not set up for your account yet.",
                         result_state="not_set_up", outcome="Not searched", **base)
-    reqs = request_options(empty, clean, request_hosts)
+    reqs = request_options(empty, clean, request_hosts, own_pages)
     if down:
         msg = (f"No matches in {_names(SERVICE_LABEL[s] for s in empty)}. "
                f"{_names(down)} could not be searched right now, so it may still be there.")

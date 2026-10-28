@@ -70,6 +70,36 @@ class ViewModel(unittest.TestCase):
         heads = [r.heading for r in build_home(v, TILES_AV, focus="listen").rows]
         self.assertEqual(["Recently added", "New releases", "Epic listens"], heads)
 
+    def test_comics_without_anything_added_in_two_months_says_recently_released(self):
+        """Owner decision 2026-10-28: Komga follows Audiobooks; one row alone still keeps the Recently released name."""
+        released = dict(item("komga", "BOOKREL000001", "Synthetic Cover Date Issue", "comic"), shelf="new")
+        v = view(sec("komga", "recent", "empty"), sec("komga", "shelves", "ok", [released]))
+        home = build_home(v, TILES_AV[:2] + [("comics", Trusted("Comics"), Trusted(""))], focus="comics")
+        self.assertEqual([("new", "Recently released")], [(r.key, r.heading) for r in home.rows])
+        self.assertFalse(home.show_new)
+        v["sections"][0] = sec("komga", "recent", "ok", [item("komga", "BOOKNEW000001", "Synthetic New Issue", "comic")])
+        home = build_home(v, TILES_AV[:2] + [("comics", Trusted("Comics"), Trusted(""))], focus="comics")
+        self.assertEqual(["Recently added", "New releases"], [r.heading for r in home.rows])
+        self.assertEqual(["Synthetic New Issue"], [c.title for c in home.rows[0].items])
+
+    def test_read_falls_back_to_recently_released_comics_beside_books(self):
+        released = dict(item("komga", "BOOKREL000001", "Synthetic Cover Date Issue", "comic"), shelf="new")
+        books = [item("calibre-web", "17", "Synthetic Novel", "ebook")]
+        v = view(sec("komga", "recent", "empty"), sec("komga", "shelves", "ok", [released]),
+                 sec("calibre-web", "recent", "ok", books))
+        home = build_home(v, TILES_ALL, focus="read")
+        self.assertEqual([("komga", "Recently released comics"), ("calibreweb", "Books")],
+                         [(r.key, r.heading) for r in home.rows])
+
+    def test_extra_sections_are_asked_of_their_own_library_only(self):
+        from avrana_home.app.viewmodel import extra_sections_for, library_extra_sections
+        self.assertEqual(extra_sections_for("listen"), (("audiobookshelf", "shelves"),))
+        self.assertEqual(extra_sections_for("comics"), (("komga", "shelves"),))
+        self.assertEqual(extra_sections_for("read"), (("komga", "shelves"),))
+        self.assertEqual(extra_sections_for("watch"), (("jellyfin", "next_up"),))
+        self.assertEqual(extra_sections_for(None), ())
+        self.assertEqual(library_extra_sections("komga"), ())
+
     def test_layouts_are_a_fixed_list_and_keep_the_chosen_library(self):
         page = build_library(av_view(), TILES_AV, chip="jellyfin", view_mode="list")
         self.assertEqual(("list", "List", "lib-grid lib-v-list"), (page.view, page.view_label, page.list_class))

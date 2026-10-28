@@ -19,6 +19,8 @@ FORBIDDEN = [r"query_params", r"query_string", r"\.cookies", r"path_params",
              r"request\.headers", r"\.headers\.get", r"\.headers\[", r"scope\[.headers.\]",
              r"scope\.get\(.headers.", r"\.url\b", r"\.base_url"]
 IDENTITY_ONLY = {"identity.py"}
+# forms.py (owner decision 2026-10-27, "Sign in on a TV") is the ONE module that reads a request body, and only that.
+BODY_ONLY = {"forms.py": r"\.stream\("}
 
 
 def sources():
@@ -37,6 +39,8 @@ class RouteLayerTests(unittest.TestCase):
             if name in IDENTITY_ONLY:
                 continue
             body = code(text)
+            if name in BODY_ONLY:
+                body = body.replace(".stream(", "", 1)          # its one bounded read; every other pattern still applies
             for pattern in FORBIDDEN:
                 with self.subTest(module=name, pattern=pattern):
                     self.assertIsNone(re.search(pattern, body), f"{name} reads request input: {pattern}")
@@ -91,6 +95,15 @@ class RouteLayerTests(unittest.TestCase):
         self.assertNotIn("RedirectResponse", main)
         self.assertEqual(1, len(re.findall(r'"Location"', main)))
         self.assertIn("decision.location", main)
+        # Account & Security's hand-off: a fixed table in security.py, chosen by an allowlisted action id only.
+        self.assertIn("action = security_mod.action_from_route(route)", main)
+        # "Sign in on a TV": its one 303 is built in forms.py from the fixed route and an outcome id on a fixed list.
+        forms = code(sources()["forms.py"])
+        self.assertEqual(1, len(re.findall(r'"Location"', forms)))
+        self.assertIn("if outcome not in allowed:", forms)
+        sec = code(sources()["security.py"])
+        self.assertIn("if action not in ACTIONS:", sec)
+        self.assertEqual(1, len(re.findall(r'"Location"', sec)))
 
     def test_no_import_time_side_effects_in_the_package(self):
         for name, text in sources().items():
@@ -106,3 +119,15 @@ class RouteLayerTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BodyReaderTests(unittest.TestCase):
+    def test_forms_py_reads_the_body_once_bounded_and_nothing_else(self):
+        body = code(sources()["forms.py"])
+        self.assertEqual(1, body.count(".stream("))
+        self.assertIn("if size > limit:", body)
+        for other in ("query_string", ".headers", "scope", "cookies", ".body(", ".form(", ".json("):
+            self.assertNotIn(other, body, other)
+        for name, text in sources().items():
+            if name != "forms.py":
+                self.assertNotIn(".stream(", code(text), name)

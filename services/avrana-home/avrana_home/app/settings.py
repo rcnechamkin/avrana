@@ -28,6 +28,8 @@ from pathlib import Path
 from typing import Mapping, Optional
 from urllib.parse import urlsplit
 
+from .security import SecurityConfigError, parse_flows, parse_return_origin
+
 MOCK_API_KEY = "mock-api-key-not-real"          # obviously fake; the only key mock mode accepts
 DEFAULT_MOCK_JELLYFIN_URL = "http://127.0.0.1:18096"
 DEFAULT_CATALOGUE = Path(__file__).resolve().parents[3] / "avrana-portal" / "portal.py"
@@ -108,6 +110,12 @@ class Settings:
     calibre_web_base_url: str = ""               # "" = the Calibre-Web adapter is not built
     calibre_web_credential: str = field(default="", repr=False)    # "user:password" of the viewer account
     calibre_web_owner_confirms: bool = False     # the owner's statement that no member is restricted
+    book_requests: bool = False                  # HOME_BOOK_REQUESTS=on: ask Shelfarr for books on the member's behalf
+    shelfarr_base_url: str = ""                  # required with book_requests
+    shelfarr_token: str = field(default="", repr=False)  # search:read requests:write requests:admin, never more
+    watch_requests: bool = False                 # HOME_WATCH_REQUESTS=on: ask Seerr for films and shows as the member
+    seerr_base_url: str = ""                     # required with watch_requests
+    seerr_api_key: str = field(default="", repr=False)   # Seerr's global key (full admin): jwt_required in real mode
     timeout: float = 2.0
     section_limit: int = 12
     health_detail: str = "loopback"              # "loopback" | "off"
@@ -115,6 +123,9 @@ class Settings:
     motion_proposal: bool = False                # HOME_MOTION_PROPOSAL=on: the 600 ms Proposal for page transitions (MK-6)
     catalogue_path: Path = DEFAULT_CATALOGUE
     notice_file: Optional[Path] = None           # HOME_NOTICE_FILE: the operator notice OliveTin writes (AVR-365)
+    library_ids_file: Optional[Path] = None      # HOME_LIBRARY_IDS_FILE: the catalogue-id index (requests/owned.py)
+    security_flows: tuple = ()                   # HOME_SECURITY_FLOWS: owner-verified Authentik flows (security.py)
+    security_return_origin: str = ""             # HOME_SECURITY_RETURN_ORIGIN: "" = no `next` on the hand-off
     log_level: str = "INFO"
     host: str = "127.0.0.1"
     port: int = 8096
@@ -221,6 +232,24 @@ class Settings:
         if notice_file is not None and not notice_file.is_absolute():
             problems.append("HOME_NOTICE_FILE must be an absolute path")
             notice_file = None
+        # The catalogue-id index tools/build_catalogue_index.py writes on the host (mounted read-only). It may be
+        # absent (no "Already in" claims); Home never writes it. Unset = no claims.
+        library_ids_file = Path(get("HOME_LIBRARY_IDS_FILE")) if get("HOME_LIBRARY_IDS_FILE") else None
+        if library_ids_file is not None and not library_ids_file.is_absolute():
+            problems.append("HOME_LIBRARY_IDS_FILE must be an absolute path")
+            library_ids_file = None
+        # Account & Security (security.py): Authentik flows the owner has verified on the deployed instance, and the
+        # origin Authentik may send members back to. Both default to off: every action opens Authentik's own settings.
+        try:
+            security_flows = parse_flows(get("HOME_SECURITY_FLOWS"))
+        except SecurityConfigError as exc:
+            problems.append(str(exc))
+            security_flows = ()
+        try:
+            security_return_origin = parse_return_origin(get("HOME_SECURITY_RETURN_ORIGIN"))
+        except SecurityConfigError as exc:
+            problems.append(str(exc))
+            security_return_origin = ""
 
         base_url = get("JELLYFIN_BASE_URL")
         key = _read_key(env, problems)
@@ -232,6 +261,28 @@ class Settings:
         cw_url = get("CALIBRE_WEB_BASE_URL")
         cw_cred = _read_key(env, problems, "CALIBRE_WEB_CREDENTIAL")
         cw_confirms = boolean("CALIBRE_WEB_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS", False)
+        book_requests = boolean("HOME_BOOK_REQUESTS", False)
+        shelfarr_url = get("SHELFARR_BASE_URL")
+        shelfarr_token = _read_key(env, problems, "SHELFARR_TOKEN")
+        # The request broker (requests/shelfarr.py) is off unless switched on, needs the shell, and its two
+        # settings travel together; with it off, a Shelfarr setting is an error so nobody believes it is in use.
+        if book_requests:
+            if not sections:
+                problems.append("HOME_BOOK_REQUESTS needs HOME_SECTIONS=on")
+            if not shelfarr_url:
+                problems.append("HOME_BOOK_REQUESTS needs SHELFARR_BASE_URL")
+        elif shelfarr_url or shelfarr_token:
+            problems.append("SHELFARR_BASE_URL or SHELFARR_TOKEN is set but HOME_BOOK_REQUESTS is off")
+        watch_requests = boolean("HOME_WATCH_REQUESTS", False)
+        seerr_url = get("SEERR_BASE_URL")
+        seerr_key = _read_key(env, problems, "SEERR_API_KEY")
+        if watch_requests:
+            if not sections:
+                problems.append("HOME_WATCH_REQUESTS needs HOME_SECTIONS=on")
+            if not seerr_url:
+                problems.append("HOME_WATCH_REQUESTS needs SEERR_BASE_URL")
+        elif seerr_url or seerr_key:
+            problems.append("SEERR_BASE_URL or SEERR_API_KEY is set but HOME_WATCH_REQUESTS is off")
 
         preview_env = get("HOME_OWNER_PREVIEW").lower() == "yes"
         sealed = owner_preview_seal is _OWNER_PREVIEW_SEAL
@@ -290,6 +341,18 @@ class Settings:
                 problems.append("CALIBRE_WEB_BASE_URL must be a loopback address in mock mode")
             cw_cred = "viewer:" + MOCK_API_KEY if cw_url else ""
             cw_confirms = False                  # a real-mode statement; mock mode passes its own constant
+            if shelfarr_token:
+                problems.append("a Shelfarr token is set but HOME_UPSTREAM_MODE is mock "
+                                "(mock mode never sends a real token; unset it or choose real)")
+            if shelfarr_url and not is_loopback_host(url_host(shelfarr_url) or ""):
+                problems.append("SHELFARR_BASE_URL must be a loopback address in mock mode")
+            shelfarr_token = MOCK_API_KEY if shelfarr_url else ""
+            if seerr_key:
+                problems.append("a Seerr key is set but HOME_UPSTREAM_MODE is mock "
+                                "(mock mode never sends a real key; unset it or choose real)")
+            if seerr_url and not is_loopback_host(url_host(seerr_url) or ""):
+                problems.append("SEERR_BASE_URL must be a loopback address in mock mode")
+            seerr_key = MOCK_API_KEY if seerr_url else ""
         else:
             if not owner_preview and get("HOME_GATES_VERIFIED").lower() != "yes":
                 problems.append("HOME_UPSTREAM_MODE=real needs HOME_GATES_VERIFIED=yes "
@@ -325,12 +388,17 @@ class Settings:
             if bool(abs_url) != bool(abs_token):
                 problems.append("AUDIOBOOKSHELF_BASE_URL and AUDIOBOOKSHELF_TOKEN (or _FILE) must be "
                                 "set together, or both left unset")
+            if book_requests and not shelfarr_token:
+                problems.append("HOME_BOOK_REQUESTS needs SHELFARR_TOKEN (or _FILE) in real mode")
+            if watch_requests and not seerr_key:
+                problems.append("HOME_WATCH_REQUESTS needs SEERR_API_KEY (or _FILE) in real mode")
         # HTTPS across machines (owner decision 2026-10-27, ABS admin-token review HIGH): in real mode a plain-http
         # upstream must stay on this machine or inside Docker's isolated networking, so a service key never
         # crosses the LAN in clear text. See `plain_http_allowed`.
         if mode == "real":
             for name, value in (("JELLYFIN_BASE_URL", base_url), ("AUDIOBOOKSHELF_BASE_URL", abs_url),
-                                ("KOMGA_BASE_URL", komga_url), ("CALIBRE_WEB_BASE_URL", cw_url)):
+                                ("KOMGA_BASE_URL", komga_url), ("CALIBRE_WEB_BASE_URL", cw_url),
+                                ("SHELFARR_BASE_URL", shelfarr_url), ("SEERR_BASE_URL", seerr_url)):
                 if value and urlsplit(value).scheme == "http" and not plain_http_allowed(url_host(value) or ""):
                     problems.append(f"{name} uses plain http to another machine: use https, or a Docker service "
                                     "name on a shared network (HTTPS across machines)")
@@ -342,6 +410,10 @@ class Settings:
             _check_url(komga_url, problems, "KOMGA_BASE_URL")
         if cw_url:
             _check_url(cw_url, problems, "CALIBRE_WEB_BASE_URL")
+        if shelfarr_url:
+            _check_url(shelfarr_url, problems, "SHELFARR_BASE_URL")
+        if seerr_url:
+            _check_url(seerr_url, problems, "SEERR_BASE_URL")
 
         # Identity mode (AVR-498). The default keeps today's behaviour exactly; an unknown or empty
         # value is an error, never a silent fallback. The JWT modes need the provider's issuer,
@@ -375,6 +447,18 @@ class Settings:
         # sealed owner preview is exempt: it strips every inbound identity header and serves only the owner.
         if mode == "real" and abs_url and id_mode != "jwt_required" and not sealed:
             problems.append("AUDIOBOOKSHELF_TOKEN is an admin token: real mode needs HOME_IDENTITY_MODE=jwt_required")
+        # The request brokers' credentials can act as ANY member (Shelfarr `requests:admin` names a username; Seerr's
+        # global key names a user with X-API-User), so a forged username would ask as someone else. Same rule as the
+        # ABS token: real mode only with verified identity.
+        if mode == "real" and book_requests and id_mode != "jwt_required" and not sealed:
+            problems.append("HOME_BOOK_REQUESTS acts as the member: real mode needs HOME_IDENTITY_MODE=jwt_required")
+        if mode == "real" and watch_requests and id_mode != "jwt_required" and not sealed:
+            problems.append("HOME_WATCH_REQUESTS acts as the member: real mode needs HOME_IDENTITY_MODE=jwt_required")
+        # The same holds for Jellyfin: Jellyfin gives every API key the Administrator role (CustomAuthenticationHandler,
+        # 10.11), and Home reads each member's viewing with it through `userId` (owner decision 2026-10-27, with
+        # Quick Connect approval planned on the same key: ME-PREFERENCES-PROFILE-QUICKCONNECT.md section 4).
+        if mode == "real" and id_mode != "jwt_required" and not sealed:
+            problems.append("JELLYFIN_API_KEY is an admin key: real mode needs HOME_IDENTITY_MODE=jwt_required")
 
         # Beta allowlist (AVR-373): a second lock behind the Authentik application binding. It only
         # means something when the username comes from a verified token, so any other mode refuses it.
@@ -404,8 +488,12 @@ class Settings:
                    audiobookshelf_token=abs_token, komga_base_url=komga_url,
                    komga_token=komga_token, komga_owner_confirms=komga_confirms,
                    calibre_web_base_url=cw_url,
-                   calibre_web_credential=cw_cred, calibre_web_owner_confirms=cw_confirms, timeout=timeout, section_limit=limit,
-                   health_detail=detail, pwa_sw=pwa_sw, motion_proposal=motion_proposal, catalogue_path=catalogue, notice_file=notice_file, log_level=level,
+                   calibre_web_credential=cw_cred, calibre_web_owner_confirms=cw_confirms,
+                   book_requests=book_requests, shelfarr_base_url=shelfarr_url, shelfarr_token=shelfarr_token,
+                   watch_requests=watch_requests, seerr_base_url=seerr_url, seerr_api_key=seerr_key,
+                   timeout=timeout, section_limit=limit,
+                   health_detail=detail, pwa_sw=pwa_sw, motion_proposal=motion_proposal, catalogue_path=catalogue, notice_file=notice_file, library_ids_file=library_ids_file, log_level=level,
+                   security_flows=security_flows, security_return_origin=security_return_origin,
                    host=host, port=port, owner_preview=owner_preview, owner_preview_username=owner_name,
                    jellyfin_member_username=jf_member, audiobookshelf_member_username=abs_member,
                    preview_seal=_OWNER_PREVIEW_SEAL if owner_preview else None,

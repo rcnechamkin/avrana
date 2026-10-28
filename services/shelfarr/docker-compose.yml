@@ -12,9 +12,9 @@
 # Shelfmark until the evaluation concludes. Both write into the same inboxes,
 # so a title requested in both places will be fetched twice.
 #
-# UPSTREAM IS v0.1.0. This is early software: pinned by tag AND digest so an
-# unattended pull cannot move it. `latest` is already ahead of 0.1.0 on GHCR.
-# Bump deliberately, and read the upstream changelog first.
+# Young, fast-moving upstream (calendar releases since 2026-08). Pinned by tag AND
+# digest so an unattended pull cannot move it. Bump deliberately, read the upstream
+# changelog first, and snapshot ./data (with its key files) with the container stopped.
 #
 # Lives here (avrana/services/<name>/) matching audiobookshelf, komga,
 # shelfmark and the rest. services/*/* is gitignored except this file, so
@@ -23,9 +23,11 @@
 
 services:
   shelfarr:
-    # Digest pin resolved 2026-08-20 for tag 0.1.0, matching the repo-wide
-    # convention (23 of 32 running containers are digest-pinned).
-    image: ghcr.io/pedro-revez-silva/shelfarr:0.1.0@sha256:61c38fc13aeabeb6bdb71ec2f53fe2008fd38571444ebea0fc26394c1c664cca
+    # 2026.10.19.1 (image revision 61028d0 = tag v2026.10.19.1), applied on avrana
+    # 2026-10-28 from 0.1.0 (f69538a); pre-upgrade snapshot in
+    # /home/cody/backups/shelfarr-pre-upgrade-20261028T053926Z. Repo-wide convention:
+    # tag and digest.
+    image: ghcr.io/pedro-revez-silva/shelfarr:2026.10.19.1@sha256:182e91e26249a35a21a95dd727ebf95632f73a4c8191bf6e29b1ca05ea203460
     container_name: shelfarr
 
     # PUID/PGID rather than `user:` -- the image runs a root startup flow that

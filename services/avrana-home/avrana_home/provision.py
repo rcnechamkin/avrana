@@ -2,8 +2,9 @@
 
 Status: proposed, not deployed. Standard library only. Off unless HOME_PROVISION_ACCOUNTS names a library.
 
-The read adapters stay read-only: their guarded transports keep refusing every non-GET. This module is the ONLY
-code in Home that writes to an upstream, and it makes exactly two kinds of write (ADAPTER-CONTRACT 14):
+The read adapters stay read-only: their guarded transports keep refusing every non-GET. This module is the only
+code in Home that creates accounts, and it makes exactly two kinds of write (ADAPTER-CONTRACT 15; Home's other
+upstream writes are Quick Connect approval in quickconnect.py and the request brokers in requests/):
 
   * Jellyfin: `POST /Users/New`, then `POST /Users/{id}/Policy` turning the new account into what the LDAP plugin
     makes on a first sign-in (the plugin signs the member in and resets passwords; not an administrator; all

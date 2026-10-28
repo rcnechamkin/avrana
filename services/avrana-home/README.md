@@ -84,7 +84,8 @@ very high count means another process is running socket-heavy suites; wait and r
 Environment variables, read once at start; an invalid or incomplete value stops the process.
 `HOME_SECTIONS` (default `off`), `HOME_UPSTREAM_MODE` (`mock` default, loopback only), the real-mode
 group `HOME_GATES_VERIFIED=yes` + `JELLYFIN_BASE_URL` + `JELLYFIN_API_KEY_FILE`, `HOME_TIMEOUT`,
-`HOME_SECTION_LIMIT`, `HOME_HEALTH_DETAIL` (`loopback` or `off`), `HOME_HOST`/`HOME_PORT`,
+`HOME_SECTION_LIMIT`, `HOME_HEALTH_DETAIL` (`loopback` or `off`), `HOME_HOST`/`HOME_PORT`, the request broker
+(`HOME_BOOK_REQUESTS` + `SHELFARR_*`, `HOME_WATCH_REQUESTS` + `SEERR_*`, `HOME_LIBRARY_IDS_FILE`; off by default),
 `LOG_LEVEL`. Full table with failure behaviour: HOME-APP.md section 7. Secrets only via the
 environment or a file the environment names, as `docs/SECRETS.md` describes; never logged.
 
@@ -127,7 +128,7 @@ dropped by default. A route with no allowlist is never written. What is kept sti
   the real title behind a placeholder. External URLs are never kept, with or without the flag.
 - Timestamps are kept only where an adapter reads them (Audiobookshelf `mediaProgress.lastUpdate`).
 - Komga is a shared regular-account view: the tool uses the regular key only and never requests `GET /api/v2/users`
-  (admin-only). It captures `/api/v1/books/latest`, one book and (with `--images`) its thumbnail: the routes the
+  (admin-only). It captures `/api/v1/books?sort=created,desc`, one book and (with `--images`) its thumbnail: the routes the
   shared-view adapter uses (#50). No series, restriction, age or sharing-label fields are kept.
 - A search term (optional; prefer `$env:AVRANA_CAPTURE_SEARCH_TERM`, which wins over `--search-term WORD`, because a
   command-line argument is visible in the process list and stays in shell history) also captures each adapter's

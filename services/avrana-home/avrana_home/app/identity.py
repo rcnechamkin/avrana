@@ -159,6 +159,16 @@ def library_chip_from_scope(scope) -> Optional[str]:
     return _choice_from_scope(scope, "lib")
 
 
+def if_none_match_from_scope(scope) -> Optional[str]:
+    """The request's If-None-Match value for `/art` revalidation, or None when absent, repeated or over 512 bytes.
+    Only ever compared with the validator of an image the member was just allowed to fetch (artwork.not_modified);
+    it confers no identity and no access."""
+    found = [v for k, v in scope.get("headers", ()) if bytes(k).lower() == b"if-none-match"]
+    if len(found) != 1 or len(found[0]) > 512:
+        return None
+    return bytes(found[0]).decode("latin-1")
+
+
 def home_filter_from_scope(scope) -> Optional[str]:
     """Home's filter (owner decision 2026-10-27): `?for=<place>` shows Home for one library place only (Watch,
     Listen, Read). Exactly as `?new=`: bounded text only, checked by the view-model against the member's own places,
@@ -170,6 +180,63 @@ def library_view_from_scope(scope) -> Optional[str]:
     """The Library's layout (owner decision 2026-10-27): `?view=<large|small|details|list>`. Bounded text only,
     checked by the view-model against its fixed list, never echoed. It confers no identity and no access."""
     return _choice_from_scope(scope, "view")
+
+
+def tv_result_from_scope(scope) -> Optional[str]:
+    """`?r=<outcome>` on /me/tv after a post (forms.py). Bounded text only; the page checks it against the fixed
+    outcome list and never echoes it. It confers no identity and no access."""
+    return _choice_from_scope(scope, "r")
+
+
+def same_origin_form_post(scope) -> bool:
+    """True only for a browser form post from this site: `Content-Type: application/x-www-form-urlencoded`, and
+    `Sec-Fetch-Site: same-origin`, or (older browsers, no Sec-Fetch-Site) an `Origin` whose host equals `Host`. Each
+    header must appear exactly once. A cross-site page can't forge either header (forms.py, CSRF locks)."""
+    wanted = {b"content-type", b"sec-fetch-site", b"origin", b"host"}
+    seen: dict = {}
+    for raw_name, raw_value in scope.get("headers", ()):
+        name = bytes(raw_name).lower()
+        if name in wanted:
+            if name in seen:
+                return False
+            try:
+                seen[name] = bytes(raw_value).decode("ascii").strip()
+            except UnicodeDecodeError:
+                return False
+    ctype = seen.get(b"content-type", "").split(";", 1)[0].strip().lower()
+    if ctype != "application/x-www-form-urlencoded":
+        return False
+    site = seen.get(b"sec-fetch-site")
+    if site is not None:
+        return site == "same-origin"
+    origin, host = seen.get(b"origin", "").lower(), seen.get(b"host", "").lower()      # host names ignore case
+    for scheme in ("https://", "http://"):
+        if origin.startswith(scheme):
+            return bool(host) and origin[len(scheme):] == host
+    return False
+
+
+def security_state_from_scope(scope) -> Optional[str]:
+    """The opaque return state on `/me/security/back?s=<state>` (security.py). Bounded text only; security.py checks
+    its signature against the verified member. It confers no identity and no access, and is never echoed or logged."""
+    from urllib.parse import parse_qsl
+    raw = scope.get("query_string") or b""
+    if not isinstance(raw, (bytes, bytearray)) or len(raw) > 512:
+        return None
+    for key, value in parse_qsl(bytes(raw).decode("ascii", "ignore"), keep_blank_values=False):
+        if key == "s":
+            return value[:160]
+    return None
+
+
+def content_length_from_scope(scope) -> Optional[int]:
+    """The request's single, plain-decimal Content-Length, or None (absent, repeated, chunked, malformed). Read by the
+    middleware's POST gate only (middleware.py)."""
+    found = [v for k, v in scope.get("headers", ()) if bytes(k).lower() == b"content-length"]
+    chunked = any(bytes(k).lower() == b"transfer-encoding" for k, _ in scope.get("headers", ()))
+    if len(found) != 1 or chunked or not bytes(found[0]).isdigit() or len(found[0]) > 9:
+        return None
+    return int(found[0])
 
 
 def _choice_from_scope(scope, name: str) -> Optional[str]:
