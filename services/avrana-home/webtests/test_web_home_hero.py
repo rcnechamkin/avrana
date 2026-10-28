@@ -225,7 +225,7 @@ class Markup(unittest.TestCase):
         self.assertIn('<span class="frame"><span class="ph" aria-hidden="true">Z</span></span>', hero)
         self.assertNotIn("hero-details", hero)                             # no title services: no Details
         self.assertIn('<h2 id="h-new">Recently added</h2>', html)
-        self.assertIn('aria-label="Recently added, by library"', html)
+        self.assertNotIn('aria-label="Recently added, by library"', html)   # one library: no filter row
         self.assertNotIn("New this week", html)
 
     def test_continue_cards_carry_the_rule_and_keep_one_link(self):

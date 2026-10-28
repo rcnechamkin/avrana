@@ -7,12 +7,13 @@
         active transition, ending it on the first press, so a touch tap then reaches the page (MK-6, AVR-720), and
      6. art that fades in once it has loaded, and the letter back in its frame if an image fails (owner review
         2026-10-27),
-     7. a press state on iPhone (Safari shows :active only when the page listens for touches), and
+     7. a press state on iPhone (Safari shows :active only when the page listens for touches),
      8. the title sheet: a title link on a shell page opens the title page as a sheet that grows out of the art that
         was tapped, over the page, which stays as it was underneath (owner decision 2026-10-27). It is the one request
         this script makes and the one place it prevents the browser's navigation: it fetches the same-origin title
         page the link names, with the member's own cookies, and shows that page's title section. Anything unexpected
-        (a redirect, an error, an older browser) and the link simply navigates, as it does with the script off.
+        (a redirect, an error, an older browser) and the link simply navigates, as it does with the script off, and
+     9. chrome that follows the scroll: two marks on <html> the stylesheet reads (part 9).
    It uses no browser storage, writes no HTML from text and does nothing when its elements are absent; only the
    title sheet (8) reads member data, and only the title page the member asked for. Inline preview behaviour (MK-4) is not here yet. */
 (function () {
@@ -532,6 +533,53 @@
     });
   }
 
+  /* 9. Chrome that follows the scroll (owner decision 2026-10-27, after streaming and community apps). Two marks on
+     <html>, read only by the stylesheet: data-scrolled once the page is off its top, and data-chrome="tucked" while
+     the reader is moving down the page. The stylesheet slims the header, tucks the places (or the Library's filters)
+     under it and shrinks the tab bar down and in; scrolling up a little, reaching the top or the end, or moving focus
+     into any of them brings everything back at once. Small movements are ignored (the run must pass 12px down or
+     10px up), and so is the overscroll bounce past either end. Nothing changes size, so the page never jumps. */
+  function chrome() {
+    if (!document.querySelector('.mast')) return;
+    var root = document.documentElement;
+    var last = Math.max(0, window.scrollY || 0), run = 0, tucked = false, scrolled = false;
+
+    function mark(tuck, off) {
+      if (tuck !== tucked) {
+        tucked = tuck;
+        if (tuck) root.setAttribute('data-chrome', 'tucked');
+        else root.removeAttribute('data-chrome');
+      }
+      if (off !== scrolled) {
+        scrolled = off;
+        if (off) root.setAttribute('data-scrolled', '');
+        else root.removeAttribute('data-scrolled');
+      }
+    }
+
+    /* Scroll events come at most once a frame, and this reads two numbers and writes at most two attributes. */
+    function update() {
+      var y = window.scrollY || 0;
+      var end = root.scrollHeight - window.innerHeight;
+      if (y <= 8) { mark(false, false); last = Math.max(0, y); run = 0; return; }
+      if (end > 0 && y >= end - 4) { mark(false, true); last = Math.min(y, end); run = 0; return; }
+      var dy = y - last;
+      last = y;
+      if ((dy > 0 && run < 0) || (dy < 0 && run > 0)) run = 0;
+      run += dy;
+      if (run > 12 && y > 64) { mark(true, true); run = 0; }
+      else if (run < -10) { mark(false, true); run = 0; }
+      else mark(tucked, true);
+    }
+
+    window.addEventListener('scroll', update, { passive: true });
+    document.addEventListener('focusin', function (event) {
+      var to = event.target;
+      if (to && typeof to.closest === 'function' && to.closest('header, nav.tabbar, nav.chips')) mark(false, scrolled);
+    });
+    update();
+  }
+
   lens();
   bfcache();
   worker();
@@ -540,4 +588,5 @@
   arrive();
   press();
   sheet();
+  chrome();
 })();

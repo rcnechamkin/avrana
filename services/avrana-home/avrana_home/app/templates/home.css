@@ -760,6 +760,82 @@
   @media (prefers-reduced-transparency:reduce),(prefers-contrast:more){.k-sheet-scrim{background:rgb(0 0 0 / 0.8);
     -webkit-backdrop-filter:none;backdrop-filter:none;}}
   @media (forced-colors:active){.k-sheet-card{border:1px solid CanvasText;}.k-sheet-scrim{background:Canvas;}}
+  /* ---- MK-8 Chrome pass (owner decision 2026-10-27) ---- */
+  /* Glass only where something floats over moving art: the tab bar, the corner buttons, the sheet's close button, and
+     the header once the page has scrolled under it. Everything that sits on the page itself is matte. */
+  /* The places: matte launch tiles that share the row equally, so a missing place leaves no gap; an arrow marks the
+     ones that leave Avrana. */
+  .places{display:grid;grid-template-columns:repeat(auto-fit,minmax(4.25rem,1fr));gap:0.5rem;}
+  .places>*{gap:0.3125rem;padding:0 0.5rem;border:1px solid var(--line);border-radius:var(--radius-button);
+    background:var(--surface);font-weight:600;}
+  .places a:hover{border-color:var(--control);background:var(--raised);}
+  .places .out{flex:none;width:0.75rem;height:0.75rem;fill:none;stroke:var(--stone);stroke-width:1.75;stroke-linecap:round;
+    stroke-linejoin:round;}
+  .places .off{background:transparent;border-style:dashed;}
+  @media (forced-colors:active){.places>*{border-color:CanvasText;}.places .out{stroke:CanvasText;}}
+  /* Filters (Home's Recently added, the Library's libraries): a ledger of words on one hairline, the chosen one in
+     Cream with a short yellow rule under it (the page script's transitions carry the rule across). Shown only when
+     there is something to choose between. */
+  .tabs,.chips{display:flex;flex-wrap:nowrap;gap:1.5rem;overflow-x:auto;scrollbar-width:none;
+    border-bottom:1px solid var(--line);margin:0 calc(0rem - max(1.25rem,env(safe-area-inset-right))) 0
+    calc(0rem - max(1.25rem,env(safe-area-inset-left)));padding:0 max(1.25rem,env(safe-area-inset-right)) 0
+    max(1.25rem,env(safe-area-inset-left));}
+  .tabs::-webkit-scrollbar,.chips::-webkit-scrollbar{display:none;}
+  .tabs a,.chip{position:relative;flex:none;min-height:2.75rem;min-width:0;padding:0;gap:0.375rem;border:0;border-radius:0;
+    background:none;color:var(--stone);font-size:var(--text-body);font-weight:500;}
+  .tabs a:hover,.chip:hover{color:var(--cream);border-color:transparent;}
+  .tabs a[aria-current],.chip[aria-current],.chip.off[aria-current]{padding-left:0;background:none;border-color:transparent;
+    color:var(--cream);font-weight:600;}
+  .tabs a:focus-visible,.chip:focus-visible{outline:2px solid var(--focus);outline-offset:2px;}
+  .tabs .ul,.chips .ul{position:absolute;left:0;right:0;bottom:0;height:2px;border-radius:1px;background:var(--accent);}
+  @media (forced-colors:active){.tabs .ul,.chips .ul{background:Highlight;}.tabs a,.chip{border:0;}}
+  /* The header stays at the top of every shell page. Its box never changes size (so the page never jumps); what
+     changes is drawn: once the page has scrolled (data-scrolled, set by the page script), Home's lockup shrinks into a
+     slim glass ceiling, and on the way down (data-chrome="tucked") the places slide up under it, coming back the
+     moment the page scrolls up, from anywhere. Without the script the header simply stays, as it is at the top. */
+  body:has(.mast) header{position:sticky;top:0;z-index:15;overflow-x:clip;pointer-events:none;}
+  body:has(.mast) header>*{pointer-events:auto;}
+  .mast.at-home,.places{position:relative;}
+  .mast.at-home{z-index:2;transform-origin:left top;transition:transform 320ms var(--ease-meaningful);}
+  .mast.at-home .lockup{transform-origin:left center;transition:transform 320ms var(--ease-meaningful);}
+  .places{z-index:1;transition:transform 320ms var(--ease-meaningful),opacity 200ms var(--ease-responsive);}
+  .mast.at-home::before,.places::before{content:"";position:absolute;z-index:-1;left:-100vmax;right:-100vmax;opacity:0;
+    background:rgb(18 18 20 / 0.74);-webkit-backdrop-filter:blur(20px) saturate(1.6);backdrop-filter:blur(20px) saturate(1.6);
+    transition:opacity 200ms var(--ease-responsive);pointer-events:none;}
+  .mast.at-home::before{top:-100px;bottom:-0.25rem;}
+  .places::before{top:-0.5rem;bottom:-0.625rem;border-bottom:1px solid var(--line);}
+  html[data-scrolled] .mast.at-home::before,html[data-scrolled] .places::before{opacity:1;}
+  html[data-scrolled] .mast.at-home{transform:translateY(-0.75rem);}
+  html[data-scrolled] .mast.at-home .lockup{transform:scale(0.7);}
+  html[data-scrolled] .places{transform:translateY(-1.25rem);}
+  html[data-chrome="tucked"] .places:not(:focus-within){transform:translateY(calc(-100% - 2rem));opacity:0;pointer-events:none;}
+  html[data-chrome="tucked"] .mast.at-home::before{border-bottom:1px solid var(--line);}
+  html:has(.mast.at-home){scroll-padding-top:7.5rem;}
+  /* The Library's filter ledger stays reachable the same way: it sticks under the top of the screen with a glass
+     ceiling once scrolled, and tucks away on the way down. */
+  body:has(.mast) .chips{position:sticky;top:0;z-index:14;padding-top:env(safe-area-inset-top);
+    transition:transform 320ms var(--ease-meaningful),opacity 200ms var(--ease-responsive);}
+  body:has(.mast) .chips::before{content:"";position:absolute;z-index:-1;inset:0;opacity:0;
+    background:rgb(18 18 20 / 0.74);-webkit-backdrop-filter:blur(20px) saturate(1.6);backdrop-filter:blur(20px) saturate(1.6);
+    transition:opacity 200ms var(--ease-responsive);pointer-events:none;}
+  html[data-scrolled] body:has(.mast) .chips::before{opacity:1;}
+  html[data-chrome="tucked"] body:has(.mast) .chips:not(:focus-within){transform:translateY(-110%);opacity:0;pointer-events:none;}
+  /* The tab bar shrinks down and in on the way down (labels fade, icons stay, still a full target) and comes back on
+     the way up, at the top and at the end of the page. */
+  .tabbar{transform-origin:50% 100%;transition:transform 340ms var(--ease-spring);}
+  .tabbar .tl{transition:opacity 160ms var(--ease-responsive);}
+  html[data-chrome="tucked"] .tabbar:not(:focus-within){transform:translateY(0.625rem) scale(0.84);}
+  html[data-chrome="tucked"] .tabbar:not(:focus-within) .tl{opacity:0;}
+  @media (prefers-reduced-transparency:reduce),(prefers-contrast:more){
+    .mast.at-home::before,.places::before,body:has(.mast) .chips::before{background:var(--bg);
+      -webkit-backdrop-filter:none;backdrop-filter:none;}}
+  @media (forced-colors:active){.mast.at-home::before,.places::before,body:has(.mast) .chips::before{background:Canvas;}}
+  /* The title's one action stays pinned at the bottom of the screen while the page scrolls (above the tab bar on the
+     page, at the foot of the sheet), as the main action of a streaming app's details view does. */
+  .title-page .act,.title-page .hint{position:relative;z-index:1;}
+  .title-page .act{position:sticky;bottom:calc(5.5rem + max(24px, env(safe-area-inset-bottom)));z-index:3;}
+  dialog.k-sheet .title-page .act{bottom:calc(1rem + env(safe-area-inset-bottom));}
+  .title-page a.open{box-shadow:0 12px 32px rgb(0 0 0 / 0.55);}
   /* ---- MK-6 Motion (AVR-720) ---- */
   /* Page-to-page motion (memo section 10; the motion tiers above). One block, appended last. Everything that moves is
      inside the no-preference query: with Reduce Motion there is no transition at all, not even a fade, and the
@@ -795,6 +871,7 @@
     ::view-transition-old(k-dock){opacity:0;}
     .title-page .frame,.frame.k-flight{view-transition-name:k-art;}
     .tabbar .lens{view-transition-name:k-lens;}
+    .tabs .ul,.chips .ul{view-transition-name:k-filter;}
     @keyframes k-leave{to{opacity:0;}}
     @keyframes k-arrive{0%,45%{opacity:0;transform:translateY(6px);}}
   }

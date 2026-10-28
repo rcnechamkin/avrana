@@ -114,7 +114,7 @@ class Stylesheet(unittest.TestCase):
         left, the one frame the script marks while it is captured), the tab bar's one lens, and the tab bar itself
         (k-dock, held still while the pages change; owner review 2026-10-27)."""
         self.assertEqual({".title-page .frame": "k-art", ".frame.k-flight": "k-art", ".tabbar .lens": "k-lens",
-                          ".tabbar": "k-dock"},
+                          ".tabbar": "k-dock", ".tabs .ul": "k-filter", ".chips .ul": "k-filter"},
                          named_selectors(self.css))
         for sel in named_selectors(self.css):
             self.assertRegex(sel, r"^(\.[\w-]+)+( (\.[\w-]+)+)*$", sel)
@@ -172,6 +172,18 @@ class PageScript(unittest.TestCase):
         # one element, one class for the flight; the only other class the script adds is the art's k-wait
         self.assertEqual(2, self.js.count("classList.add("))
         self.assertIn("img.classList.add('k-wait')", self.js)
+
+    def test_the_chrome_follows_the_scroll_through_two_marks_only(self):
+        """Owner decision 2026-10-27: the header slims and tucks, the tab bar shrinks, on the way down; both come back
+        on the way up, at either end, or on focus. The script writes only two attributes on <html>; no style."""
+        part = self.js.split("function chrome()", 1)[1].split("\n  }\n", 1)[0]
+        self.assertIn("window.addEventListener('scroll', update, { passive: true })", part)
+        self.assertEqual({"data-chrome", "data-scrolled"}, set(re.findall(r"'(data-[a-z]+)'", part)))
+        self.assertIn("closest('header, nav.tabbar, nav.chips')", part)
+        css = strip_comments(css_text := (TEMPLATES / "home.css").read_text(encoding="utf-8"))
+        self.assertIn('html[data-chrome="tucked"] .tabbar:not(:focus-within){transform:translateY(0.625rem) scale(0.84);}', css)
+        self.assertIn('html[data-chrome="tucked"] .places:not(:focus-within)', css)
+        self.assertIn("body:has(.mast) header{position:sticky;top:0;", css_text)
 
     def test_the_flight_only_aims_at_a_title_page_on_this_origin(self):
         self.assertIn("to.origin !== window.location.origin || to.pathname.indexOf('/title/') !== 0", self.js)

@@ -84,8 +84,8 @@ class WarmCacheIsolation(unittest.TestCase):
         for path in ("/library", "/library?lib=jellyfin"):
             status, html, *_ = self.b.get(path, only_books)
             self.assertEqual(200, status, path)
-            self.assertEqual(["/library", "/library?lib=audiobookshelf"],
-                             re.findall(r'<a class="chip[^"]*" href="([^"]*)"', html), path)
+            # one library left: nothing to choose between, so no filter row at all (owner decision 2026-10-27)
+            self.assertEqual([], re.findall(r'<a class="chip[^"]*" href="([^"]*)"', html), path)
             for gone in ("/art/jellyfin/", "/art/komga/", "/art/calibre-web/", "Movies and TV", "Comics", "lib=jellyfin"):
                 self.assertNotIn(gone, html, (path, gone))
 

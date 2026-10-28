@@ -250,3 +250,15 @@ the title page from Home's own origin.)
 | **`connect-src 'self'` on shell pages** | Replaces D13's "no requests of its own" for one request: the same-origin title page the member opened, with the member's cookies, no redirect followed, parsed inert and stripped of script, frames, objects and forms. The worker's own `connect-src` (D12) is unchanged; other routes still have none. |
 | **Recently added cards open the title page** | Where the library offers the permission-checked item lookup; Continue cards still open the item where it plays. |
 | **Backdrop on the title page** | A Jellyfin item with a backdrop leads its title page (and the sheet) with it, full width. |
+
+## Owner decisions, 2026-10-27: Media chrome pass (after streaming and community app reviews)
+
+Recorded from the owner's chat of 2026-10-27 ("Perfect... the bottom should still shrink down and in some. Proceed").
+
+| Decision | Consequence |
+|---|---|
+| **Glass only on floating chrome** | The tab bar, corner buttons, the sheet's close button and the scrolled header. Everything on the page itself is matte. |
+| **Places are matte launch tiles** | Equal columns that share the row (a place a member cannot use is absent, so the others widen); an arrow, and words for assistive technology, on Watch, Listen and Read, which leave Avrana. |
+| **Filters are a ledger** | Home's Recently added and the Library's libraries: words on one hairline, the chosen one Cream with a short yellow rule. Shown only with two or more libraries. |
+| **Header and dock follow the scroll** | The header stays at the top; once scrolled, Home's lockup slims into a glass ceiling; on the way down the places (or the Library's filters) tuck under it and the tab bar shrinks down and in (icons only, still a full target). Scrolling up a little, either end, or focus brings everything back. Nothing changes size, so the page never jumps. |
+| **The title's action stays pinned** | On the title page (above the tab bar) and at the foot of the sheet. |

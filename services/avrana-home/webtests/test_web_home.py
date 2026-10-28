@@ -207,7 +207,9 @@ class HomePageTests(unittest.TestCase):
             self.assertEqual(base, main_of(r.text), value)
             self.assertNotIn("<script>", r.text)
         one = main_of(self.client.get("/?new=jellyfin", headers=A).text)
-        self.assertRegex(one, r'<a href="/\?new=jellyfin#h-new" aria-current="true">')
+        # this member has one library: nothing to choose between, so no filter row (owner decision 2026-10-27)
+        self.assertNotIn('class="tabs"', one)
+        self.assertIn('<h2 id="h-new">Recently added</h2>', one)
 
     def test_a_member_cannot_select_a_library_they_cannot_use(self):
         r = self.client.get("/?new=audiobookshelf", headers=A)

@@ -9,7 +9,8 @@
    crisp at its natural shape over a blurred, dimmed copy (CSS only); with no art, the letter frame and no backdrop.
    The title takes the display role; progress stays in words, with the 3px Cream rule beside them (decoration, hidden
    from assistive technology, never the yellow). One Cream action. The synopsis (R2-C, R3-A AVR-748), when the library
-   has one, sits last under "About" as plain, autoescaped text at a reading measure.
+   has one, sits last under "About" as plain, autoescaped text at a reading measure. The action is a child of the
+   section itself (owner decision 2026-10-27), so it stays pinned at the bottom of the screen while the page scrolls.
    With a Jellyfin backdrop (owner review 2026-10-27) the wide picture leads the page instead, full width, as the
    details view of a streaming app does; the same page is what the title sheet shows over Home. #}
 {% if page.state == "ok" %}
@@ -35,9 +36,9 @@
 {% if page.bar is not none %}      <span class="bar title-bar" aria-hidden="true"><span class="fill pc{{ page.bar }}"></span></span>
 {% endif %}
 {% endif %}
-      <p class="act"><a class="open" href="{{ page.action_href }}" aria-label="{{ page.action_label }}">{{ page.action }}</a></p>
-      <p class="hint">Opens in {{ page.library }}. If it does not open there, see <a class="inline" href="/help/trouble">If something doesn&#x27;t open</a>.</p>
     </div>
+    <p class="act"><a class="open" href="{{ page.action_href }}" aria-label="{{ page.action_label }}">{{ page.action }}</a></p>
+    <p class="hint">Opens in {{ page.library }}. If it does not open there, see <a class="inline" href="/help/trouble">If something doesn&#x27;t open</a>.</p>
 {% if page.summary %}
     <div class="title-about">
       <h3 class="kicker" id="h-about">About</h3>

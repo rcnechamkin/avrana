@@ -256,7 +256,7 @@ class LibraryPage(Fixture):
         self.assertEqual((200, 200), (a.status_code, b.status_code))
         self.assertEqual(["/library", "/library?lib=jellyfin", "/library?lib=audiobookshelf"], chips(a.text))
         self.assertEqual(["/library", "/library?lib=jellyfin", "/library?lib=komga"], chips(b.text))
-        self.assertIn('<a class="chip" href="/library" aria-current="true"><svg class="ck"', a.text)
+        self.assertIn('<a class="chip" href="/library" aria-current="true">All<span class="ul" aria-hidden="true"></span></a>', a.text)
         self.assertEqual(1, a.text.count('aria-current="true"'))          # the chosen chip, nothing else on this page
         self.assertIn("<title>Library · Avrana</title>", a.text)
         self.assertIn('<a class="shelf-open" href="/watch">Open Jellyfin', a.text)
@@ -267,7 +267,7 @@ class LibraryPage(Fixture):
     def test_a_chosen_chip_shows_that_library_alone_and_an_unknown_or_foreign_one_is_all(self):
         c = self.client()
         one = c.get("/library?lib=jellyfin", headers=A).text
-        self.assertIn('<a class="chip" href="/library?lib=jellyfin" aria-current="true"><svg class="ck"', one)
+        self.assertIn('<a class="chip" href="/library?lib=jellyfin" aria-current="true">Movies and TV<span class="ul"', one)
         self.assertIn("<title>Movies and TV · Library · Avrana</title>", one)
         self.assertIn('<ul class="lib-grid">', one)
         self.assertIn('<p class="lib-browse"><a href="/watch">', one)
@@ -472,6 +472,20 @@ class TitleSheetLinks(Fixture):
         self.assertTrue(own)                                  # cccc0000 items are shared by both members in the mock
         for h in own:
             self.assertEqual(404, c.get(h, headers=B).status_code, h)
+
+
+class LaunchTiles(Fixture):
+    """Owner decision 2026-10-27: the places are matte tiles; the ones that leave Avrana carry an arrow (decorative)
+    and say so to assistive technology; Request and Help stay inside and carry none."""
+
+    def test_leaving_places_are_marked_and_staying_ones_are_not(self):
+        home = self.client().get("/", headers=A).text
+        places = home.split('<nav class="places" aria-label="Avrana">', 1)[1].split("</nav>", 1)[0]
+        for link in re.findall(r'<a href="([^"]*)">(.*?)</a>', places, re.S):
+            href, inner = link
+            leaves = href in ("/watch", "/listen", "/read")
+            self.assertEqual(leaves, '<svg class="out"' in inner, href)
+            self.assertEqual(leaves, "opens its own site" in inner, href)
 
 
 if __name__ == "__main__":
