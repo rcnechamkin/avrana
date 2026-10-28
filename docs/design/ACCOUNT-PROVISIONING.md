@@ -1,6 +1,8 @@
-# Home creates missing library accounts (plan, awaiting owner sign-off)
+# Home creates missing library accounts
 
-Status: PLAN, nothing built. Owner direction 2026-10-28: "Yes it should" (Home should create a member's
+Status: BUILT, NOT ENABLED. Owner answered section 6 on 2026-10-28 ("Go with your recommendations"). Code:
+`avrana_home/provision.py`, wired in `app/main.py` (`_gather`); contract: ADAPTER-CONTRACT 15. Off until
+`HOME_PROVISION_ACCOUNTS` names a library; section 5's live proof is still to do. Owner direction 2026-10-28: "Yes it should" (Home should create a member's
 library accounts so nobody has to visit each library first). This document says how, what it will never do,
 and the choices left for the owner (section 6).
 
@@ -72,14 +74,16 @@ ADAPTER-CONTRACT read-only clause gets an amendment naming exactly these two wri
 * **Offline:** fakes for both create APIs. Tests cover every refusal in "What it never does", the cap, the
   lock, idempotence (two tabs at once create one account), and logs carrying no secrets.
 * **Parity:** read-only, compare the policy of a Jellyfin account the LDAP plugin created (e.g. Tyler's) with
-  the one Home would create, field by field. For ABS, confirm on the live 2.36.0 that an email-matched OIDC
+  the one Home would create, field by field. Done 2026-10-28 across all 15 accounts (counts only): LDAP-made
+  accounts differ from Jellyfin's defaults only in `AuthenticationProviderId` and `PasswordResetProviderId` (both
+  the plugin), which provision.py sets; it also pins non-admin, all libraries, no deletion, no remote control. For ABS, confirm on the live 2.36.0 that an email-matched OIDC
   sign-in links to a pre-created account (unverified until tested).
 * **One real member:** the owner turns it on for Jellyfin, a member without an account opens Home, the account
   appears, and that member then signs in to Jellyfin directly and lands in the same account.
 
-## 6. Owner choices
+## 6. Owner choices (answered 2026-10-28: all as recommended)
 
-| # | Question | Recommendation |
+| # | Question | Recommendation (chosen) |
 |---|---|---|
 | P1 | Trigger: first Home visit, or a background sync too? | Home visit now, sync later if wanted |
 | P2 | Jellyfin library access for created accounts | All libraries (what the LDAP plugin gives today) |
