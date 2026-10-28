@@ -308,3 +308,17 @@ plan: "this works for now", may change later).
 |---|---|
 | **Comics Recently added is by date added, one per series, last two months** | Komga's Recently added reads `GET /api/v1/books?sort=created,desc` instead of `/api/v1/books/latest`: live, that route orders by last modification, so one new issue lifted its whole series, and 1,214 of 1,788 books share the 2025-07-26 bulk-scan second. Only books added in the last 60 days count, one book (the newest) per series. |
 | **Comics fall back to Recently released** | A New releases shelf (sorted by `metadata.releaseDate`, one per series; release dates more than 92 days ahead are ignored, since comics carry cover dates about two months ahead) follows Recently added on Comics. With nothing added in 60 days, Comics shows Recently released instead, and Read shows "Recently released comics" in the Comics row. The Library page is unchanged. |
+
+## Owner decision, 2026-10-28: comics Continue reading with members' own Komga keys
+
+Recorded from the owner's chat of 2026-10-28 (asked whether each member's Komga On Deck could be shown; agreed to a
+temporary admin key for a one-time run: "Yes"; asked that new members be covered; chose to build the run, the
+invite-time step and the fallback).
+
+| Decision | Consequence |
+|---|---|
+| **Comics Continue reading is each member's own** | Home holds one Komga API key per member (`secrets/komga_member_keys`, KOMGA_MEMBER_KEYS_FILE, filed by signed email) and reads, with it alone, that member's in-progress books and then their On Deck. A separate two-route GET allow-list; the shared account (ADAPTER-CONTRACT 12.2) is never used for it and keeps its three routes. Needs real mode and `HOME_IDENTITY_MODE=jwt_required`. |
+| **Keys are made by an owner-run tool with a temporary admin key** | Komga makes keys only for the signed-in account, so `tools/komga_member_keys.py` sets a random password for the member (one Komga sign-out), makes the `avrana-home` key as them and forgets the password. The admin key is typed at a hidden prompt and deleted afterwards; Home never holds it (decision of 2026-10-15 unchanged). ADMIN accounts are never touched. |
+| **New members are covered at invite time** | `--member <email>` creates the Komga account by email with the Authentik first-sign-in defaults when none exists; Komga links the first Authentik sign-in to it by email. Runbook: docs/runbooks/komga-member-keys.md. |
+| **No key, no change** | A member without a key sees the shared rows only, as before. A refused member key is an empty row and never counts against the shared circuit. |
+| **Members pasting their own key: not built** | It needs Home to store data it writes (Home's container is read-only and has no store) and encryption at rest (no crypto library in Home today): open owner decision. |

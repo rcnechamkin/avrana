@@ -16,8 +16,14 @@ ever have Komga restrictions, so there is nothing per member to enforce. What th
     itself applies that account's library sharing to the answers. The invariant that no member is restricted
     is the owner's, and the constructor refuses unless `owner_confirms_no_member_restrictions` is True.
   * Read progress in a book response belongs to the shared account, not the member: it is never read, so it
-    can never be shown as a member's own. "Continue" is not offered. The `ondeck`, read-list, collection and
-    per-user routes are not in the route table.
+    can never be shown as a member's own. The shared account's route table has no `ondeck`, read-list,
+    collection or per-user route.
+  * Continue reading (owner decision 2026-10-28) is offered ONLY to a member whose OWN Komga API key Home holds
+    (`member_transports`, filed under the member's signed email; docs/runbooks/komga-member-keys.md). It is
+    that member's in-progress books, then their On Deck (the next unread book of a series they have started),
+    read with their key through a separate two-route allow-list. The shared account is never used for it. A
+    member without a key sees no Continue row (not offered), exactly as before. A refused member key is that
+    member's problem: an empty row, never a count against the circuit every member shares.
   * The credential lives only inside the transport (a header, never a URL). Every request goes through
     `GuardedTransport`: GET only, an explicit three-route list (books, book, thumbnail), no query keys
     beyond the list.
@@ -40,16 +46,16 @@ from __future__ import annotations
 import dataclasses
 import re
 from datetime import date, datetime, timedelta, timezone
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Mapping, Optional, Tuple
 
 from ..contract import (ArtworkRef, ArtworkResult, DEFAULT_LIMIT, Kind, MediaItem, SectionResult,
-                        SectionState, Service, UpstreamUser, build_handoff_url, clean_summary, clean_text,
+                        SectionState, Service, UpstreamUser, _limit, build_handoff_url, clean_summary, clean_text,
                         valid_upstream_id)
 from .. import media_ids
 from ..principal import MemberPrincipal
 from ..resilience import (DEFAULT_TIMEOUT, ItemGone, RouteMissing, Transport, UpstreamAuthError,
                           UpstreamMalformed, UpstreamMisbehaved)
-from ._base import GuardedAdapter, Route, year_from
+from ._base import GuardedAdapter, Route, bounded_int, year_from
 from ._base import GuardedTransport as _Guard
 
 SHARED_VIEWER = "shared"                      # the fixed, non-member upstream "user": a shared view, by design
@@ -62,6 +68,8 @@ RECENT_DAYS = 60
 # Comics carry cover dates about two months ahead of sale; a release date further out than this is not "new".
 RELEASE_AHEAD_DAYS = 92
 ADDED_SORT, RELEASED_SORT = "created,desc", "metadata.releaseDate,desc"     # fixed values, never member input
+READING_SORT, IN_PROGRESS = "readProgress.readDate,desc", "IN_PROGRESS"      # likewise
+_EMAIL = re.compile(r"[^@\s]{1,64}@[^@\s]{1,190}")
 
 ALLOWED_ROUTES = (
     Route("books", r"/api/v1/books", ("search", "sort", "page", "size"), user_scoped=False, not_found=RouteMissing),
@@ -79,6 +87,33 @@ class GuardedTransport(_Guard):
 
     def _clone(self, user_id):
         return GuardedTransport(self._inner, user_id)
+
+
+# One member's OWN key (never the shared account's): their in-progress books and their On Deck, nothing else.
+MEMBER_ROUTES = (
+    Route("reading", r"/api/v1/books", ("read_status", "sort", "page", "size"), user_scoped=False,
+          not_found=RouteMissing),
+    Route("ondeck", r"/api/v1/books/ondeck", ("page", "size"), user_scoped=False, not_found=RouteMissing),
+)
+
+
+class MemberGuardedTransport(_Guard):
+    """The allow-list around ONE member's own-key transport."""
+
+    def __init__(self, inner, bound_user_id: Optional[str] = None):
+        super().__init__(inner, MEMBER_ROUTES, _BOUND_ID, bound_user_id)
+
+    def _clone(self, user_id):
+        return MemberGuardedTransport(self._inner, user_id)
+
+
+def member_key_id(email: Any) -> Optional[str]:
+    """What a member's own Komga key is filed under: their email, trimmed and case-folded (Komga matches sign-ins
+    by email, ignoring case). None for anything that is not a plausible email."""
+    if not isinstance(email, str):
+        return None
+    value = email.strip().casefold()
+    return value if _EMAIL.fullmatch(value) else None
 
 
 _RESERVED = frozenset({"latest", "updated", "ondeck"})     # Komga sub-routes that look like ids (UNVERIFIED list)
@@ -131,21 +166,37 @@ class KomgaAdapter(GuardedAdapter):
     extra_sections = frozenset({"shelves"})
 
     def __init__(self, transport: Transport, timeout: float = DEFAULT_TIMEOUT, *,
-                 owner_confirms_no_member_restrictions: bool = False, **kw):
+                 owner_confirms_no_member_restrictions: bool = False,
+                 member_transports: Optional[Mapping[str, Transport]] = None, **kw):
         # A shared view (contract 12.2, owner decision 2026-10-15): every member sees what the regular
         # account sees, so Komga's own per-member restrictions are NOT applied. The owner must opt in on
         # purpose, and only while no member has a Komga restriction.
         if owner_confirms_no_member_restrictions is not True:
             raise ValueError("Komga adapter is a shared view; the owner must confirm no member is restricted")
         super().__init__(GuardedTransport(transport), timeout, **kw)
+        members = {}
+        for key, inner in (member_transports or {}).items():
+            if member_key_id(key) != key:
+                raise ValueError("member transports are filed under member_key_id(email)")
+            members[key] = MemberGuardedTransport(inner)
+        self._members = members
+        if members:                                    # Continue is offered (to the members with a key)
+            self.not_offered = frozenset()
 
     def __repr__(self) -> str:
         return "KomgaAdapter(<redacted>)"
 
     # -- what this adapter does not offer: no upstream call, nothing cached ----------------
     def continue_items(self, principal: MemberPrincipal, limit: int = DEFAULT_LIMIT) -> SectionResult:
-        """Read progress belongs to the shared account, not the member: not offered."""
-        return self._not_offered(principal, "continue")
+        """The member's own reading, with their own key; without one, not offered (the shared account's progress
+        is never anyone's). The group is checked first (in `_not_offered` or `_section`), before any cache read."""
+        self._require_principal(principal)
+        guard = self._members.get(member_key_id(principal.email))
+        if guard is None:
+            return self._not_offered(principal, "continue")
+        limit = _limit(limit)
+        return self._section(principal, "continue", f"continue:{limit}",
+                             lambda user: self._reading(guard, limit))
 
     # -- mapping: none. A shared view (OWNER DECISION, contract 12.2) ------------------------
     def _resolve_user(self, principal) -> UpstreamUser:
@@ -199,6 +250,50 @@ class KomgaAdapter(GuardedAdapter):
             info = raw.get("metadata") if isinstance(raw.get("metadata"), dict) else {}
             item = dataclasses.replace(item, summary=clean_summary(info.get("summary")))
         return item
+
+    @staticmethod
+    def _progress(raw: dict) -> Optional[float]:
+        """The member's OWN progress (their key's `readProgress`), as a fraction, or None."""
+        prog, media = raw.get("readProgress"), raw.get("media")
+        if not isinstance(prog, dict) or not isinstance(media, dict) or prog.get("completed") is True:
+            return None
+        page, pages = bounded_int(prog.get("page")), bounded_int(media.get("pagesCount"))
+        if page is None or pages is None or pages <= 0 or not 0 < page < pages:
+            return None
+        return page / pages
+
+    def _reading(self, member_guard: MemberGuardedTransport, limit: int) -> SectionResult:
+        """In-progress books (most recently read first), then On Deck, as one list. Both calls use the member's own
+        key. A refused key (401/403) is the member's, not the service's: an empty row, never counted."""
+        guard, budget = member_guard.bind(SHARED_VIEWER), self._budget()
+        shown, bad, seen = [], 0, set()
+        pages = (("/api/v1/books", {"read_status": IN_PROGRESS, "sort": READING_SORT}, True),
+                 ("/api/v1/books/ondeck", {}, False))
+        for path, params, in_progress in pages:
+            if len(shown) >= limit:
+                break
+            size = limit - len(shown)
+            try:
+                body = self._get_json(guard, budget, path, dict(params, page="0", size=str(size)))
+            except UpstreamAuthError:
+                return SectionResult(Service.KOMGA, "continue", SectionState.EMPTY, reason="member_key_refused")
+            raws = body.get("content") if isinstance(body, dict) else None
+            if not isinstance(raws, list):
+                raise UpstreamMalformed()
+            if len(raws) > size:
+                raise UpstreamMisbehaved()                     # the page size was ignored
+            for raw in raws:
+                item, status = self._book(raw)
+                bad += status == "bad"
+                if item is None or item.id in seen:
+                    continue
+                seen.add(item.id)
+                if in_progress:
+                    item = dataclasses.replace(item, progress_fraction=self._progress(raw))
+                shown.append(item)
+        if not shown and bad:
+            raise UpstreamMalformed()                          # nothing usable and some drift: never "empty"
+        return SectionResult.of(Service.KOMGA, "continue", tuple(shown))
 
     # -- hooks -----------------------------------------------------------------------------
     def _recent_items(self, user: UpstreamUser, limit: int) -> SectionResult:
