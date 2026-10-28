@@ -415,15 +415,19 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
     async def _gather(viewer: Viewer, extras: tuple = ()) -> dict:
         """The sections for the verified member, via the adapters' own principal checks and
         bounded timeouts. One failing adapter costs its own section only. `extras` (Up next for Watch, the shelves for
-        Listen and the Audiobooks chip) are asked of the libraries that offer them, AFTER the others: a member holds at
-        most two upstream calls per library at once (contract.DEFAULT_MAX_IN_FLIGHT_PER_MEMBER), so a third
-        alongside them would only be refused as busy."""
+        Listen and the Audiobooks chip, New releases for Comics and Read) are (library, section) pairs, asked of those
+        libraries only, AFTER the others: a member holds at most two upstream calls per library at once
+        (contract.DEFAULT_MAX_IN_FLIGHT_PER_MEMBER), so a third alongside them would only be refused as busy."""
         result = await run_in_threadpool(gather, viewer.principal, adapter_list, ("continue", "recent"),
                                         settings.section_limit)
         sections = list(result.sections)
         view = result.member_view()
         if extras:
-            more = await run_in_threadpool(gather, viewer.principal, adapter_list, tuple(extras), settings.section_limit)
+            wanted = {service for service, _section in extras}
+            more = await run_in_threadpool(gather, viewer.principal,
+                                           [a for a in adapter_list if a.service.value in wanted],
+                                           tuple(dict.fromkeys(section for _service, section in extras)),
+                                           settings.section_limit)
             sections += more.sections
             view["sections"] += more.member_view()["sections"]
         for s in sections:

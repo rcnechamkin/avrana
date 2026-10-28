@@ -369,11 +369,11 @@ def capture_komga(c: Client, o: Options) -> List[Capture]:
     admin-only and is never requested. The adapters' route check needs some bound label; it is never sent."""
     caps: List[Capture] = []
     bound = KOMGA_SHARED
-    lr = c.get("/api/v1/books/latest", {"page": "0", "size": "5"}, bound)
-    caps.append(Capture(c.name, "latest", "/api/v1/books/latest", lr, "json"))
+    lr = c.get("/api/v1/books", {"sort": "created,desc", "page": "0", "size": "5"}, bound)
+    caps.append(Capture(c.name, "latest", "/api/v1/books?sort=created,desc", lr, "json"))
     page = _json(lr) if not c.dry else {"content": [{"id": _DUMMY_KOMGA, "seriesId": _DUMMY_KOMGA}]}
     books = page.get("content") if isinstance(page, dict) else None
-    # The shared view reads latest, a book and its thumbnail only (#50); series is not a route it uses.
+    # The shared view reads the newest books, a book and its thumbnail only (#50); series is not a route it uses.
     for b in (books if isinstance(books, list) else [])[:o.max_items]:
         if not isinstance(b, dict) or not _kg._item_id(b.get("id")):
             continue
@@ -745,7 +745,7 @@ ALLOWLIST: Dict[Tuple[str, str], Tuple[str, Any]] = {
     ("komga", "search"): ("/api/v1/books?search=", {"content": _KG_BOOK}),
     # Komga: shared regular-account view. Only the book and series fields a shared-view adapter shows or
     # checks (identity, library, deleted/ready state, title, number). No users, no restriction records.
-    ("komga", "latest"): ("/api/v1/books/latest", {"content": _KG_BOOK}),
+    ("komga", "latest"): ("/api/v1/books?sort=created,desc", {"content": _KG_BOOK}),
     ("komga", "book"): ("/api/v1/books/{id}", _KG_BOOK),
 }
 # Opt-in extras for --keep-provider-ids (IMDb/TMDB/TVDB, ISBN, ASIN). Off by default.
