@@ -319,3 +319,37 @@ Recorded from the owner's chat of 2026-10-27 ("Do 3 and then 4", 4 being "artwor
 | **`/art` is `private, no-cache` with an `ETag`** (amends D11 for `/art` only) | The browser may keep a cover but must ask before each use. The request runs the full check (group, then per-member visibility for Jellyfin and Audiobookshelf); only a member allowed to see it gets `304 Not Modified`, everyone else the same 404. No proxy may keep it (`private`). The ETag is a digest of the image bytes. Every other response stays `no-store` |
 | **No `max-age`** | A `max-age` would let the browser show a cover without asking, past a removed group or a hidden item. Revalidation saves the bytes over the tunnel, not the round trip |
 | Sign-out unchanged | `/signout`'s `Clear-Site-Data: "cache", "storage"` (D10) still clears the kept covers on that device |
+
+## Proposed, 2026-10-28: Home asks Shelfarr for books on the member's behalf
+
+Recorded from the owner's chat of 2026-10-27 ("Upgrade Shelfarr and proceed with implementing that part even").
+Proposed in a draft PR; nothing is deployed and the switch is off by default.
+
+| Decision | Consequence |
+|---|---|
+| **Shelfarr 2026.10.19.1 is the API** | The upgrade (PR #122) adds `/api/v1` with scoped tokens. Home holds ONE owner-minted token with `search:read requests:write requests:admin`; `requests:admin` is what lets it name the member. Members never mint keys. |
+| **The member is the principal** | The request names the verified principal's username, lower-cased. A form never carries a person; a member Shelfarr does not know is "not set up" (sign in to the request website once), never a request as someone else. |
+| **One signed form, no script** | Each format button is a small POST form whose fields Home signed for that member (HMAC, 15 minutes, per-process key), behind a same-origin check and a 4 KiB body limit. With "Sign in on a TV" (`/me/tv`), these are the only POSTs Home answers; every other path stays 501. |
+| **Formats follow library groups** | Ask for the ebook needs `avrana-books`; Ask for the audiobook needs `avrana-audiobooks`. A member with neither gets the standard 404. |
+| **Nothing is promised** | The words say a request was sent and where the book appears once it arrives; never that it has arrived, and never a queue position. |
+
+## Decided by the delegate, 2026-10-28: request brokers, matching and forks
+
+Recorded from the owner's chat of 2026-10-28 ("Proceed building this, make your own decisions, but do it
+intelligently and weigh the scope and philosophy of the rest of the project"). Each is the delegate's call under that
+instruction; the owner can reverse any of them.
+
+| Decision | Consequence |
+|---|---|
+| **Brokers need verified identity in real mode (F-D5, extended)** | Seerr's global key is accepted for the beta, on the same terms as the Audiobookshelf admin token: real mode only with `HOME_IDENTITY_MODE=jwt_required`. The rule also covers Shelfarr, whose token can name any member. The Seerr fork (scoped keys) stays the long-term fix. |
+| **Home never acts as an administrator** | Seerr user 1 and any user with ADMIN or MANAGE_* bits are refused; the owner asks in Seerr itself. |
+| **No approval step in Shelfarr for now (F-D2)** | Members' book requests go straight through, behind Home's per-member guard (no repeat within a minute, at most 10 asks an hour across books and films). Seerr keeps its own per-user approval and quotas. Revisit if downloads become a problem. |
+| **Exact matches only are claimed (M-3)** | "Already in Books / Audiobooks / Movies and TV" only from a shared id, and for per-member libraries only after the member's own lookup. A title-only match is a hint ("may already have this. Check") linking to Home's own search. |
+| **The index reads the databases read-only now (M-2)** | `tools/build_catalogue_index.py` reads Calibre, Shelfarr, Omnibus and Komga databases with `mode=ro`; fork API routes can replace it later. |
+| **Cap monitor installed (M-1)** | `api-caps-monitor.timer` runs on avrana from `~/.local/share/avrana-api-caps` (outside the canonical tree, so drift stays clean until #125 lands). Alert mail is not configured on the host (`services/backups/.env.alert` absent), so incidents go to the journal only. |
+| **Forks are published to the owner's GitHub, not upstream (F-D1)** | The owner chose this on 2026-10-28: `rcnechamkin/shelfarr` (`avrana/2026.10.19.1`) and `rcnechamkin/omnibus` (`avrana/v1.4.4`) carry the patches and build images to GHCR; nothing is proposed upstream without the owner. |
+| **Post-redirect-get for the ask pages** | A POST answers 303 to the page's fixed path; the outcome and search term ride a one-shot in-memory flash. No request input is ever in a `Location`, and a reload never re-asks. |
+| **Form key from the JWT secret** | Open ask pages survive a Home restart; the key is labelled so it cannot be confused with any other use of the secret. |
+| **Search cache and per-member allowance** | Shelfarr results are shared for ten minutes (Home's own account), Seerr results per member for two; 40 upstream searches per member per ten minutes. Protects Hardcover/Google Books caps behind Shelfarr and Seerr's TMDB quota. |
+| **A stale index makes no claims** | Older than 36 hours or no build time: no "Already in" at all. |
+| **Credentials left in place (F-D3, F-D4)** | The Omnibus `JobLog` row and Shelfarr's legacy `api_token` are not touched: deleting rows in a live database or clearing a token whose consumer is unknown could break something for little gain (both are visible only to the owner). The fork fixes the leak at its source. |

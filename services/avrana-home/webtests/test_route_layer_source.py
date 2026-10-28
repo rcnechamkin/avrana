@@ -125,7 +125,7 @@ class BodyReaderTests(unittest.TestCase):
     def test_forms_py_reads_the_body_once_bounded_and_nothing_else(self):
         body = code(sources()["forms.py"])
         self.assertEqual(1, body.count(".stream("))
-        self.assertIn("if size > MAX_FORM_BYTES:", body)
+        self.assertIn("if size > limit:", body)
         for other in ("query_string", ".headers", "scope", "cookies", ".body(", ".form(", ".json("):
             self.assertNotIn(other, body, other)
         for name, text in sources().items():

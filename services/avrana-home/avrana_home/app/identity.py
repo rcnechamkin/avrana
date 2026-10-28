@@ -229,6 +229,16 @@ def security_state_from_scope(scope) -> Optional[str]:
     return None
 
 
+def content_length_from_scope(scope) -> Optional[int]:
+    """The request's single, plain-decimal Content-Length, or None (absent, repeated, chunked, malformed). Read by the
+    middleware's POST gate only (middleware.py)."""
+    found = [v for k, v in scope.get("headers", ()) if bytes(k).lower() == b"content-length"]
+    chunked = any(bytes(k).lower() == b"transfer-encoding" for k, _ in scope.get("headers", ()))
+    if len(found) != 1 or chunked or not bytes(found[0]).isdigit() or len(found[0]) > 9:
+        return None
+    return int(found[0])
+
+
 def _choice_from_scope(scope, name: str) -> Optional[str]:
     from urllib.parse import parse_qsl
     raw = scope.get("query_string") or b""

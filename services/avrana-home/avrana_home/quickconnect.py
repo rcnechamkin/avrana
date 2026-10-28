@@ -3,8 +3,8 @@
 A member types the 6-digit code their TV shows; Home approves it AS THAT MEMBER through Jellyfin's
 `POST /QuickConnect/Authorize?code=<code>&userId=<member's Jellyfin id>`, using the server's API key (Jellyfin gives
 every API key the Administrator role, which is what lets `userId` name another user: 10.11 QuickConnectController and
-RequestHelpers.GetUserId). It is the one upstream WRITE Home makes, so it lives here, apart from the read-only adapters
-and their GET-only allow-list, with its own allow-list of exactly three requests:
+RequestHelpers.GetUserId). It is an upstream WRITE (as are the request brokers in requests/), so it lives here,
+apart from the read-only adapters and their GET-only allow-list, with its own allow-list of exactly three requests:
 
   GET  /QuickConnect/Enabled                       is Quick Connect switched on (no auth needed upstream)
   GET  /Users                                      the member's account, matched by exact username, and its Policy

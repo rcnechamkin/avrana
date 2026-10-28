@@ -84,7 +84,8 @@ very high count means another process is running socket-heavy suites; wait and r
 Environment variables, read once at start; an invalid or incomplete value stops the process.
 `HOME_SECTIONS` (default `off`), `HOME_UPSTREAM_MODE` (`mock` default, loopback only), the real-mode
 group `HOME_GATES_VERIFIED=yes` + `JELLYFIN_BASE_URL` + `JELLYFIN_API_KEY_FILE`, `HOME_TIMEOUT`,
-`HOME_SECTION_LIMIT`, `HOME_HEALTH_DETAIL` (`loopback` or `off`), `HOME_HOST`/`HOME_PORT`,
+`HOME_SECTION_LIMIT`, `HOME_HEALTH_DETAIL` (`loopback` or `off`), `HOME_HOST`/`HOME_PORT`, the request broker
+(`HOME_BOOK_REQUESTS` + `SHELFARR_*`, `HOME_WATCH_REQUESTS` + `SEERR_*`, `HOME_LIBRARY_IDS_FILE`; off by default),
 `LOG_LEVEL`. Full table with failure behaviour: HOME-APP.md section 7. Secrets only via the
 environment or a file the environment names, as `docs/SECRETS.md` describes; never logged.
 

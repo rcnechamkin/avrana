@@ -1,13 +1,16 @@
-"""Home's form posts (first one: "Sign in on a TV", Quick Connect; owner decision 2026-10-27). No member data at import.
+"""Home's form posts ("Sign in on a TV", Quick Connect, owner decision 2026-10-27; the request brokers' ask pages,
+bookrequests.py and watchrequests.py). No member data at import.
 
 This is the ONLY module that reads a request body, as `identity.py` is the only one that reads headers (the route-layer
 guard, webtests/test_route_layer_source.py, pins both). A post is accepted only when every lock holds:
 
-  * the path is in FORM_ROUTES and the shell is on (otherwise the method gate answers 501, as for every other path);
+  * main.py has that form switched on, so the middleware lets a POST to its exact path through (otherwise 501, as for
+    every other path), with a Content-Length of at most middleware.MAX_FORM_BODY;
   * identity.py says it is a same-origin `application/x-www-form-urlencoded` post (Sec-Fetch-Site, or Origin = Host);
-  * the body is at most MAX_FORM_BYTES and holds only the allow-listed fields, each at most once;
-  * the form token is an HMAC over form, expiry and the verified member's username, under a per-process random key,
-    issued by the page the member just loaded (so a restart simply makes the member reload the page);
+  * the body is at most the form's limit (MAX_FORM_BYTES unless the form needs more) and holds only the allow-listed
+    fields, each at most once (and, for an `exact` form, every one of them);
+  * the form token is an HMAC over the form's fields, expiry and the verified member's username (FormTokens here for
+    the TV form; requests/forms.FormSigner for the brokers), issued by the page the member just loaded;
   * the page itself carries CSP `form-action 'self'` (middleware.py).
 """
 from __future__ import annotations
@@ -23,23 +26,25 @@ from typing import Awaitable, Callable, Dict, FrozenSet, Optional, Tuple
 from urllib.parse import parse_qsl
 
 TV_ROUTE = "/me/tv"
-FORM_ROUTES = frozenset({TV_ROUTE})
 MAX_FORM_BYTES = 1024
 TOKEN_TTL = 30 * 60
 _TOKEN = re.compile(r"([0-9]{1,12})\.([A-Za-z0-9_-]{1,40})\Z")
 
 
-async def read_form(request, fields: FrozenSet[str]) -> Optional[Dict[str, str]]:
-    """The posted fields, or None for an oversized, non-ASCII, malformed or unexpected body. Never logged."""
+async def read_form(request, fields: FrozenSet[str], limit: int = MAX_FORM_BYTES,
+                    exact: bool = False) -> Optional[Dict[str, str]]:
+    """The posted fields, or None for an oversized, non-ASCII, malformed or unexpected body (or, with `exact`, one
+    missing a field). Values are percent-decoded as strict UTF-8. Never logged."""
     chunks, size = [], 0
     async for chunk in request.stream():
         size += len(chunk)
-        if size > MAX_FORM_BYTES:
+        if size > limit:
             return None
         chunks.append(chunk)
     try:
         text = b"".join(chunks).decode("ascii")
-        pairs = parse_qsl(text, keep_blank_values=True, strict_parsing=bool(text), max_num_fields=len(fields))
+        pairs = parse_qsl(text, keep_blank_values=True, strict_parsing=bool(text), max_num_fields=len(fields),
+                          encoding="utf-8", errors="strict")
     except (UnicodeDecodeError, ValueError):
         return None
     out: Dict[str, str] = {}
@@ -47,6 +52,8 @@ async def read_form(request, fields: FrozenSet[str]) -> Optional[Dict[str, str]]
         if key not in fields or key in out:
             return None
         out[key] = value
+    if exact and set(out) != fields:
+        return None
     return out
 
 

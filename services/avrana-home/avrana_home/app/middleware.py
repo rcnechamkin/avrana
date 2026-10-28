@@ -7,8 +7,10 @@ carry these headers; they contain no application data (documented in HOME-APP.md
 
   * Methods other than GET and HEAD get 501 before any routing or identity work, for every path
     and every identity, like the portal (http.server answers 501 before looking at groups). The
-    body is fixed text and does NOT echo the method. The one exception is POST to a form route (forms.FORM_ROUTES),
-    and only when main.py turns that form on (`form_routes`); with it off, those paths are 501 like any other.
+    body is fixed text and does NOT echo the method. The ONE exception is POST to an exact path in
+    `post_paths` (main.py lists a form route only while its form is on: "Sign in on a TV", the request brokers;
+    with it off, that path is 501 like any other), and only with a `Content-Length` of at most MAX_FORM_BODY: a
+    missing length is 411, a larger one 413, both fixed text, before the application runs.
   * A request whose header block exceeds identity.MAX_HEADER_BYTES gets 431 with fixed text before any routing or
     identity work (AVR-732). h11 enforces its own 16 KiB limit only while a request is still incomplete, so
     a request that arrives in one read (Linux asyncio reads up to 256 KiB at once) reached the application
@@ -28,7 +30,7 @@ import logging
 import time
 from typing import Callable
 
-from .identity import header_block_too_large
+from .identity import content_length_from_scope, header_block_too_large
 from .logsafe import access_log, app_log, log_event
 
 CSP = (b"default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; "
@@ -62,6 +64,10 @@ NOT_IMPLEMENTED_BODY = (b"<!DOCTYPE HTML>\n<html lang=\"en\">\n<head>\n<meta cha
                         b"<p>Error code: 501</p>\n<p>Message: Unsupported method.</p>\n</body>\n</html>\n")
 
 
+LENGTH_REQUIRED_BODY = NOT_IMPLEMENTED_BODY.replace(b"501", b"411").replace(b"Unsupported method.", b"Length required.")
+TOO_LARGE_BODY = NOT_IMPLEMENTED_BODY.replace(b"501", b"413").replace(b"Unsupported method.", b"Request too large.")
+MAX_FORM_BODY = 4096          # the largest form, the broker's: a work id, a format, a title, an author and a token
+
 HEADERS_TOO_LARGE_BODY = (b"<!DOCTYPE HTML>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n"
                           b"<title>Error response</title>\n</head>\n<body>\n<h1>Error response</h1>\n"
                           b"<p>Error code: 431</p>\n<p>Message: Request header fields too large.</p>\n</body>\n</html>\n")
@@ -88,10 +94,10 @@ def with_hygiene(headers, form_self: bool = False, manifest: bool = False, route
 
 
 class HygieneMiddleware:
-    def __init__(self, app, render_error: Callable[[], bytes], form_routes: frozenset = frozenset()):
+    def __init__(self, app, render_error: Callable[[], bytes], post_paths: frozenset = frozenset()):
         self.app = app
         self._render_error = render_error
-        self._form_routes = frozenset(form_routes)
+        self._post_paths = frozenset(post_paths)
 
     async def __call__(self, scope, receive, send):
         kind = scope["type"]
@@ -115,7 +121,7 @@ class HygieneMiddleware:
                 else:
                     route = scope.get("avrana_route")
                     message = dict(message, headers=with_hygiene(message.get("headers", ()),
-                                                                 route == "/search" or route in self._form_routes,
+                                                                 route == "/search" or route in self._post_paths,
                                                                  scope.get("avrana_shell") is True,
                                                                  scope.get("avrana_route") or ""))
             await send(message)
@@ -124,7 +130,17 @@ class HygieneMiddleware:
             if header_block_too_large(scope):
                 scope["avrana_route"] = "headers_too_large"
                 await self._plain(wrapped_send, 431, HEADERS_TOO_LARGE_BODY, head=(method == "HEAD"))
-            elif method not in ("GET", "HEAD") and not (method == "POST" and self._is_form_route(scope)):
+            elif method == "POST" and self._is_post_path(scope):
+                length = content_length_from_scope(scope)
+                if length is None:
+                    scope["avrana_route"] = "length_required"
+                    await self._plain(wrapped_send, 411, LENGTH_REQUIRED_BODY, head=False)
+                elif length > MAX_FORM_BODY:
+                    scope["avrana_route"] = "too_large"
+                    await self._plain(wrapped_send, 413, TOO_LARGE_BODY, head=False)
+                else:
+                    await self.app(scope, receive, wrapped_send)
+            elif method not in ("GET", "HEAD"):
                 scope["avrana_route"] = "method_not_supported"
                 await self._plain(wrapped_send, 501, NOT_IMPLEMENTED_BODY, head=False)
             else:
@@ -143,12 +159,12 @@ class HygieneMiddleware:
                       status=state["status"],
                       duration_ms=round((time.perf_counter() - started) * 1000, 1))
 
-    def _is_form_route(self, scope) -> bool:
-        if not self._form_routes:
+    def _is_post_path(self, scope) -> bool:
+        if not self._post_paths:
             return False
         # The exact path only: no trailing slash, no doubled slash (those stay 501, like every other path).
         raw = scope.get("raw_path") or scope.get("path", "").encode("latin-1", "replace")
-        return bytes(raw).decode("latin-1") in self._form_routes
+        return bytes(raw).decode("latin-1") in self._post_paths
 
     @staticmethod
     async def _plain(send, status: int, body: bytes, head: bool) -> None:
@@ -156,3 +172,4 @@ class HygieneMiddleware:
             (b"content-type", b"text/html; charset=utf-8"),
             (b"content-length", str(len(body)).encode())]})
         await send({"type": "http.response.body", "body": b"" if head else body})
+
