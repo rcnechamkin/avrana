@@ -478,6 +478,21 @@ Shelfarr site while the broker is on.
 The token can name any Shelfarr user (`requests:admin`); that is why the username comes only from the verified
 principal and why the client can send exactly the two allow-listed calls (no listing, cancel, users or settings).
 
+**Already in the library.** With `HOME_LIBRARY_IDS_FILE` set, each result is checked against the catalogue-id index
+(`requests/owned.py`, written on the host by `tools/build_catalogue_index.py`, design in
+`API-CAPS-AND-MATCHING.md`). The keys are the ids Shelfarr returns (`hardcover:<id>` from every provider it merged,
+edition ISBNs) and the ids CWA and Shelfarr's Audiobookshelf mirror stamped on the files. Rules:
+
+- Only the member's own formats are looked at; a library the member does not hold is never mentioned.
+- Books (a shared view): an exact hit shows "Already in Books. Open", linking to the book in Books, and that format
+  loses its ask button.
+- Audiobooks (per member): an exact hit is shown only after the adapter's permission-checked item lookup finds it for
+  this member (at most three lookups a page); the link is Home's own title page.
+- A likely hit (same folded title and author surname, no shared id) keeps the ask button and adds "Audiobooks may
+  already have this. Check", linking to Home's own search. It is never shown as owned.
+- No file, an unreadable or malformed file, or a wrong version: no claims at all. The file holds catalogue ids and
+  folded title keys only, no member data.
+
 ## 6. Logging
 
 Structured JSON, one object per line, to stderr. Fields: `route` (the route **template** such as
@@ -510,6 +525,7 @@ variables (never the values).
 | `AUDIOBOOKSHELF_TOKEN` / `AUDIOBOOKSHELF_TOKEN_FILE` | none | Real mode only, with the URL, exactly one of the two; a token in mock mode is an error. It is an admin token, so real mode also needs `HOME_IDENTITY_MODE=jwt_required` (ABS admin-token review 2026-10-27, HIGH; the sealed owner preview is exempt). Never in a repr, log line or error message. |
 | `KOMGA_BASE_URL` / `KOMGA_TOKEN` (`_FILE`) / `KOMGA_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS` | unset (adapter not built) | Optional. Mock mode: loopback URL, the token is fixed and fake, the flag is ignored. Real mode (owner decision 2026-10-15, ADAPTER-CONTRACT 12.2): needs `HOME_GATES_VERIFIED=yes`, the URL, a REGULAR (non-admin) account's key and `KOMGA_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS=yes`; otherwise a startup error. |
 | `HOME_BOOK_REQUESTS` / `SHELFARR_BASE_URL` / `SHELFARR_TOKEN` (`_FILE`) | `off` / unset / unset | The request broker (section 5b). `on` needs `HOME_SECTIONS=on` and the URL; the URL or token without the switch is a startup error. Mock mode: loopback URL, the token is fixed and fake, a real token is an error. Real mode: the token is required; the same URL rules as the adapters (plain http only to loopback or a single-label Docker name). The token is minted by the owner in Shelfarr with exactly `search:read requests:write requests:admin`. Never in a repr, log line or error message. |
+| `HOME_LIBRARY_IDS_FILE` | unset | Absolute path of the catalogue-id index (section 5b), mounted read-only; re-read at most every minute when it changes. Absent or malformed: no "Already in" claims. A relative path refuses to start. |
 | `CALIBRE_WEB_BASE_URL` / `CALIBRE_WEB_CREDENTIAL` (`_FILE`) / `CALIBRE_WEB_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS` | unset / unset / `off` | Optional. Mock mode: loopback URL, fixed fake credential. Real mode is refused unless the owner setting is `yes` (default off; Calibre-Web is a shared view, ADAPTER-CONTRACT 13.2), and then also needs `HOME_GATES_VERIFIED=yes`, the URL and a `user:password` credential together. The constructor's `owner_confirms_no_member_restrictions` is `True` only in mock mode or from that setting. |
 | `HOME_IDENTITY_MODE` | `headers` | `headers`, `jwt_log_only` or `jwt_required` (section 2). Unknown, empty or miscased: refuses to start. |
 | `HOME_JWT_ISSUER`, `HOME_JWT_AUDIENCE` | unset | Required in a JWT mode (the provider's issuer URL and client id); refused in `headers` mode. |

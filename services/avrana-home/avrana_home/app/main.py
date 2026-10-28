@@ -30,7 +30,9 @@ from ..adapters.jellyfin import JellyfinAdapter
 from ..adapters.calibre_web import CalibreWebAdapter
 from ..adapters.komga import KomgaAdapter
 from ..aggregate import gather, health_summary, search as run_search
-from ..contract import MediaAdapter
+from urllib.parse import urlencode
+
+from ..contract import MediaAdapter, Service, build_handoff_url
 from ..cache import MemberCache
 from ..resilience import SystemClock, UrllibTransport
 from . import catalogue as catalogue_mod
@@ -41,6 +43,7 @@ from . import notice as notice_mod
 from . import pwa as pwa_mod
 from . import bookrequests as bookreq_mod
 from ..requests.forms import FormSigner, RequestGuard
+from ..requests.owned import OwnedIndex
 from ..requests.shelfarr import FORMAT_GROUP, ShelfarrRequests, member_username
 from .identity import (IdentityResolver, Viewer, broker_form, get_viewer, has_identity_headers, home_filter_from_scope,
                        library_chip_from_scope, library_view_from_scope, new_tab_from_scope, same_origin_post,
@@ -53,7 +56,7 @@ from .routing import (ME_ROUTE, AccountFacts, Decision, chooser_intro, decide, l
 from .settings import Settings, is_sealed_preview
 from .viewmodel import (ACCOUNT_LIBRARY, CONTRIBUTE_PATH, INTERSTITIAL_SHELL, LIBRARY_PLACE, NO_LIBRARY, REQUEST_FOR,
                         SERVICE_LABEL, account_access, build_home, build_library, build_me, build_search, build_shell,
-                        build_title, has_library, place_link, wants_next_up)
+                        build_title, has_library, place_link, title_href, wants_next_up)
 
 TEMPLATES = Path(__file__).resolve().parent / "templates"
 HTML = "text/html; charset=utf-8"
@@ -187,6 +190,7 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
     if settings.home_sections and settings.book_requests:
         broker = book_requests if book_requests is not None else build_book_requests(settings)
     signer, guard = FormSigner(), RequestGuard()                    # per process: a restart expires open forms
+    owned_index = OwnedIndex(settings.library_ids_file)             # read-only; None = no "Already in" claims
 
     @contextlib.asynccontextmanager
     async def lifespan(_app):
@@ -283,7 +287,8 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
             if term is not None:
                 state, offers = await run_in_threadpool(broker.search, term)
                 log_event(app_log, logging.INFO, "book_search", service="shelfarr", state=state)
-            page = bookreq_mod.build_results(state, offers, term, formats, broker_user(viewer), signer)
+            owned, maybe = await already_have(viewer, offers, formats) if offers else ({}, {})
+            page = bookreq_mod.build_results(state, offers, term, formats, broker_user(viewer), signer, owned, maybe)
             scope["avrana_route"] = bookreq_mod.PATH
             mark_shell(scope, shell_for(viewer, "search"))
             return render("request_books.html", page=page, shell=shell_for(viewer, "search"))
@@ -439,6 +444,34 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
             cat.service("requestabook").allows(viewer.groups) else None
         return render("request_books.html", page=bookreq_mod.build_said(outcome, None, fields, place, formats),
                       shell=shell)
+
+    async def already_have(viewer: Viewer, offers, formats):
+        """({(work_id, format): OwnedVM}, {(work_id, format): MaybeVM}) for this member, from the catalogue-id index.
+        Only the member's own formats are looked at (a library they do not hold is never mentioned). Books is a
+        shared view, so holding the group is the permission; Audiobooks is per member, so an exact hit is shown only
+        after the adapter's own permission-checked lookup finds the item for this member (at most OWNED_CHECKS).
+        A likely match (title and author only) is a hint linking to Home's own search, never a claim."""
+        owned, maybe, checks = {}, {}, 0
+        by_service = {a.service: a for a in adapter_list}
+        for offer in offers:
+            for fmt in formats:
+                upstream = owned_index.exact(fmt, offer.keys)
+                if upstream is not None and fmt == "ebook":
+                    owned[(offer.work_id, fmt)] = bookreq_mod.OwnedVM(
+                        bookreq_mod.LIBRARY_LABEL[fmt], build_handoff_url(Service.CALIBRE_WEB, upstream), True)
+                    continue
+                adapter = by_service.get(Service.AUDIOBOOKSHELF)
+                if upstream is not None and adapter is not None and checks < bookreq_mod.OWNED_CHECKS:
+                    checks += 1
+                    section = await run_in_threadpool(adapter.item, viewer.principal, upstream, True)
+                    if section.state.value == "ok" and section.items:
+                        owned[(offer.work_id, fmt)] = bookreq_mod.OwnedVM(
+                            bookreq_mod.LIBRARY_LABEL[fmt], title_href(Service.AUDIOBOOKSHELF.value, upstream), False)
+                        continue
+                if owned_index.likely(fmt, offer.title_key) is not None:
+                    maybe[(offer.work_id, fmt)] = bookreq_mod.MaybeVM(
+                        bookreq_mod.LIBRARY_LABEL[fmt], "/search?" + urlencode({"q": offer.title[:100]}))
+        return owned, maybe
 
     def broker_formats(viewer: Viewer) -> tuple:
         """The formats this member may ask for through the broker; () when the broker is off or nobody verified."""

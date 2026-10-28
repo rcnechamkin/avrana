@@ -118,6 +118,7 @@ class Settings:
     motion_proposal: bool = False                # HOME_MOTION_PROPOSAL=on: the 600 ms Proposal for page transitions (MK-6)
     catalogue_path: Path = DEFAULT_CATALOGUE
     notice_file: Optional[Path] = None           # HOME_NOTICE_FILE: the operator notice OliveTin writes (AVR-365)
+    library_ids_file: Optional[Path] = None      # HOME_LIBRARY_IDS_FILE: the catalogue-id index (requests/owned.py)
     log_level: str = "INFO"
     host: str = "127.0.0.1"
     port: int = 8096
@@ -222,6 +223,12 @@ class Settings:
         if notice_file is not None and not notice_file.is_absolute():
             problems.append("HOME_NOTICE_FILE must be an absolute path")
             notice_file = None
+        # The catalogue-id index tools/build_catalogue_index.py writes on the host (mounted read-only). It may be
+        # absent (no "Already in" claims); Home never writes it. Unset = no claims.
+        library_ids_file = Path(get("HOME_LIBRARY_IDS_FILE")) if get("HOME_LIBRARY_IDS_FILE") else None
+        if library_ids_file is not None and not library_ids_file.is_absolute():
+            problems.append("HOME_LIBRARY_IDS_FILE must be an absolute path")
+            library_ids_file = None
 
         base_url = get("JELLYFIN_BASE_URL")
         key = _read_key(env, problems)
@@ -416,7 +423,7 @@ class Settings:
                    calibre_web_credential=cw_cred, calibre_web_owner_confirms=cw_confirms,
                    book_requests=book_requests, shelfarr_base_url=shelfarr_url, shelfarr_token=shelfarr_token,
                    timeout=timeout, section_limit=limit,
-                   health_detail=detail, pwa_sw=pwa_sw, motion_proposal=motion_proposal, catalogue_path=catalogue, notice_file=notice_file, log_level=level,
+                   health_detail=detail, pwa_sw=pwa_sw, motion_proposal=motion_proposal, catalogue_path=catalogue, notice_file=notice_file, library_ids_file=library_ids_file, log_level=level,
                    host=host, port=port, owner_preview=owner_preview, owner_preview_username=owner_name,
                    jellyfin_member_username=jf_member, audiobookshelf_member_username=abs_member,
                    preview_seal=_OWNER_PREVIEW_SEAL if owner_preview else None,

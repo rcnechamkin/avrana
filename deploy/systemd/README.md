@@ -10,6 +10,7 @@ User units, installed in `/home/cody/.config/systemd/user/` (lingering is enable
 | `avrana-restore-test.timer` | Sunday 04:30 | `services/backups/restore-test.py --alert` |
 | `services-health.timer` | every 15 minutes | `scripts/services-health.sh` |
 | `omnibus-cache-purge.timer` | daily | clears the Omnibus cache |
+| `avrana-catalogue-index.timer` | every 15 minutes (proposed, not installed) | `services/avrana-home/tools/build_catalogue_index.py`: Home's catalogue-id index for "Already in" on requests |
 | `../storage/systemd/avrana-boot-verify.timer` | 5 minutes after boot | `deploy/storage/boot-verify.sh` |
 
 `avrana-cloudflared-restart.path` and `.service` are **system** units for the OliveTin "restart tunnel"

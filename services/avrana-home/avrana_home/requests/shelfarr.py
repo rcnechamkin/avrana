@@ -29,6 +29,7 @@ import unicodedata
 from dataclasses import dataclass
 from typing import Any, Optional, Tuple
 
+from .owned import KEY as OWNED_KEY, isbn13, title_key
 from ..resilience import (MAX_JSON_BYTES, MAX_REQUEST_BODY, CircuitBreaker, Clock, SystemClock, UpstreamAuthError,
                           UpstreamError, UpstreamHTTPError, UpstreamNotFound, coerce, log_failure)
 
@@ -39,6 +40,7 @@ FORMAT_ORDER = ("ebook", "audiobook")
 SEARCH_LIMIT = 10
 MIN_TERM, MAX_TERM = 2, 100
 MAX_TITLE, MAX_AUTHOR, MAX_SERIES = 300, 200, 200
+MAX_KEYS = 20                      # sources and editions read per result
 WORK_ID = re.compile(r"[a-z][a-z_]{1,23}:[A-Za-z0-9][A-Za-z0-9._:-]{0,95}")
 USERNAME = re.compile(r"[a-z0-9][a-z0-9._@+-]{0,149}")
 ROUTES = {("GET", "/api/v1/search"): frozenset({"q", "limit", "content_kind"}),
@@ -61,6 +63,8 @@ class BookOffer:
     year: Optional[int]
     series: str
     formats: Tuple[str, ...]       # subset of FORMAT_ORDER the upstream says exist
+    keys: Tuple[str, ...] = ()     # exact catalogue keys ("hardcover:123", "isbn:978…") for owned.OwnedIndex
+    title_key: Optional[str] = None   # folded title|surname, the LIKELY tier only
 
 
 class ForbiddenCall(Exception):
@@ -102,8 +106,30 @@ def _offer(item: Any) -> Optional[BookOffer]:
     formats = tuple(f for f in FORMAT_ORDER if flags[f] is True)
     year = item.get("year")
     year = year if isinstance(year, int) and not isinstance(year, bool) and 0 < year < 3000 else None
-    return BookOffer(work_id, title, _text(item.get("author"), MAX_AUTHOR), year,
-                     _text(item.get("series_name"), MAX_SERIES), formats)
+    author = _text(item.get("author"), MAX_AUTHOR)
+    return BookOffer(work_id, title, author, year, _text(item.get("series_name"), MAX_SERIES), formats,
+                     _keys(work_id, item), title_key(title, author))
+
+
+def _keys(work_id: str, item: dict) -> Tuple[str, ...]:
+    """The result's own work id, its other providers' work ids and its editions' ISBN-13s, as index keys. Only the
+    shapes the index uses survive (owned.KEY); everything else is ignored."""
+    found = [work_id]
+    sources = item.get("sources")
+    for source in sources[:MAX_KEYS] if isinstance(sources, list) else ():
+        if isinstance(source, dict) and isinstance(source.get("work_id"), str):
+            found.append(source["work_id"])
+    editions = item.get("editions")
+    for edition in editions[:MAX_KEYS] if isinstance(editions, list) else ():
+        if isinstance(edition, dict):
+            for field in ("isbn_13", "isbn_10"):
+                number = isbn13(edition.get(field))
+                if number:
+                    found.append("isbn:" + number)
+            asin = edition.get("asin")
+            if isinstance(asin, str) and len(asin) == 10 and asin.isalnum():
+                found.append("asin:" + asin.upper())
+    return tuple(dict.fromkeys(k for k in found if OWNED_KEY.fullmatch(k)))
 
 
 class ShelfarrRequests:

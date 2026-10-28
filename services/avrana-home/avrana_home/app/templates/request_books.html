@@ -34,7 +34,9 @@
 {% else %}
     <ul class="hits asks-list">
 {% for o in page.offers %}
-      <li><span class="meta"><span class="t">{{ o.title }}</span>{% if o.line %}<span class="d">{{ o.line }}</span>{% endif %}{% if o.unavailable %}<span class="d">{{ o.unavailable }}</span>{% endif %}</span>
+      <li><span class="meta"><span class="t">{{ o.title }}</span>{% if o.line %}<span class="d">{{ o.line }}</span>{% endif %}{% if o.unavailable %}<span class="d">{{ o.unavailable }}</span>{% endif %}
+{%- for h in o.owned %}<span class="d owned">Already in {{ h.library }}. <a class="link" href="{{ h.href }}">Open<span class="sr"> {{ o.title }} in {{ h.library }}{% if h.leaves %}, opens another website{% endif %}</span></a></span>{% endfor %}
+{%- for m in o.maybe %}<span class="d maybe">{{ m.library }} may already have this. <a class="link" href="{{ m.href }}">Check<span class="sr"> {{ m.library }} for {{ o.title }}</span></a></span>{% endfor %}</span>
 {% for a in o.asks %}
         <form method="post" action="/request/books" class="ask-f">{% for k, v in a.fields %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}<input type="hidden" name="token" value="{{ a.token }}"><button type="submit">{{ a.label }}<span class="sr"> of {{ o.title }}</span></button></form>
 {% endfor %}

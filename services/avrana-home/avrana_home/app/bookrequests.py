@@ -15,6 +15,7 @@ from ..requests.shelfarr import FORMAT_GROUP, MAX_TERM, BookOffer, Outcome
 PATH = "/request/books"
 FORMAT_LABEL = {"ebook": "ebook", "audiobook": "audiobook"}
 LIBRARY_LABEL = {"ebook": "Books", "audiobook": "Audiobooks"}
+OWNED_CHECKS = 3               # permission-checked Audiobookshelf lookups per page, at most
 
 OUTCOME_COPY = {
     Outcome.CREATED: "Asked for the {fmt} of {title}. It appears in {library} once it arrives. That can take a "
@@ -42,11 +43,28 @@ class AskVM:
 
 
 @dataclass(frozen=True)
+class OwnedVM:
+    """A format the member already has: "Already in Books", with the way in."""
+    library: str                   # "Books"
+    href: str                      # Home's title page, or the library's own page for the book
+    leaves: bool                   # True: the link opens the library's website (the page says so)
+
+
+@dataclass(frozen=True)
+class MaybeVM:
+    """A LIKELY match (same title and author, no shared id): a hint with a link to Home's own search, never a claim."""
+    library: str
+    href: str                      # /search?q=<title>
+
+
+@dataclass(frozen=True)
 class OfferVM:
     title: str
     line: str                      # "Frank Herbert · 1965 · Dune Chronicles"
     asks: Tuple[AskVM, ...]
     unavailable: str = ""          # why no button: "Only as an audiobook, which you have no library for"
+    owned: Tuple[OwnedVM, ...] = ()
+    maybe: Tuple[MaybeVM, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -75,7 +93,11 @@ def _fields(offer: BookOffer, book_type: str) -> dict:
 
 
 def build_results(state: str, offers, term: Optional[str], formats, username: str,
-                  signer: FormSigner) -> RequestPageVM:
+                  signer: FormSigner, owned=None, maybe=None) -> RequestPageVM:
+    """`owned` / `maybe`: {(work_id, format): OwnedVM / MaybeVM}, already decided by the caller for THIS member (a
+    library the member holds, and a permission-checked lookup where the library is per member). An owned format
+    gets no ask button."""
+    owned, maybe = owned or {}, maybe or {}
     shown = (term or "")[:MAX_TERM]
     if term is None:
         return RequestPageVM("form", formats=formats)
@@ -87,20 +109,25 @@ def build_results(state: str, offers, term: Optional[str], formats, username: st
                              outcome="Unavailable", formats=formats)
     rows = []
     for offer in offers:
-        asks = []
+        asks, have, hints = [], [], []
         for fmt in formats:
+            if (offer.work_id, fmt) in owned:
+                have.append(owned[(offer.work_id, fmt)])
+                continue
+            if (offer.work_id, fmt) in maybe:
+                hints.append(maybe[(offer.work_id, fmt)])
             if fmt in offer.formats:
                 fields = _fields(offer, fmt)
                 asks.append(AskVM(f"Ask for the {FORMAT_LABEL[fmt]}", tuple(sorted(fields.items())),
                                   signer.sign(username, fields)))
         why = ""
-        if not asks:
+        if not asks and not have:
             if not offer.formats:
                 why = "No edition found to ask for."
             else:
                 only = " or ".join(FORMAT_LABEL[f] for f in offer.formats)
                 why = f"Only as an {only}, which is not one of your libraries."
-        rows.append(OfferVM(offer.title, _line(offer), tuple(asks), why))
+        rows.append(OfferVM(offer.title, _line(offer), tuple(asks), why, tuple(have), tuple(hints)))
     if not rows:
         return RequestPageVM("empty", shown, message="No book matches that. Check the spelling, or try the author.",
                              outcome="No match", formats=formats)
