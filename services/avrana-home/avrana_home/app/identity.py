@@ -159,6 +159,16 @@ def library_chip_from_scope(scope) -> Optional[str]:
     return _choice_from_scope(scope, "lib")
 
 
+def if_none_match_from_scope(scope) -> Optional[str]:
+    """The request's If-None-Match value for `/art` revalidation, or None when absent, repeated or over 512 bytes.
+    Only ever compared with the validator of an image the member was just allowed to fetch (artwork.not_modified);
+    it confers no identity and no access."""
+    found = [v for k, v in scope.get("headers", ()) if bytes(k).lower() == b"if-none-match"]
+    if len(found) != 1 or len(found[0]) > 512:
+        return None
+    return bytes(found[0]).decode("latin-1")
+
+
 def home_filter_from_scope(scope) -> Optional[str]:
     """Home's filter (owner decision 2026-10-27): `?for=<place>` shows Home for one library place only (Watch,
     Listen, Read). Exactly as `?new=`: bounded text only, checked by the view-model against the member's own places,
@@ -172,8 +182,51 @@ def library_view_from_scope(scope) -> Optional[str]:
     return _choice_from_scope(scope, "view")
 
 
-FORM_FIELDS = frozenset({"work_id", "book_type", "title", "author", "q", "token"})          # /request/books
-WATCH_FORM_FIELDS = frozenset({"media_type", "media_id", "title", "q", "token"})             # /request/watch
+def tv_result_from_scope(scope) -> Optional[str]:
+    """`?r=<outcome>` on /me/tv after a post (forms.py). Bounded text only; the page checks it against the fixed
+    outcome list and never echoes it. It confers no identity and no access."""
+    return _choice_from_scope(scope, "r")
+
+
+def same_origin_form_post(scope) -> bool:
+    """True only for a browser form post from this site: `Content-Type: application/x-www-form-urlencoded`, and
+    `Sec-Fetch-Site: same-origin`, or (older browsers, no Sec-Fetch-Site) an `Origin` whose host equals `Host`. Each
+    header must appear exactly once. A cross-site page can't forge either header (forms.py, CSRF locks)."""
+    wanted = {b"content-type", b"sec-fetch-site", b"origin", b"host"}
+    seen: dict = {}
+    for raw_name, raw_value in scope.get("headers", ()):
+        name = bytes(raw_name).lower()
+        if name in wanted:
+            if name in seen:
+                return False
+            try:
+                seen[name] = bytes(raw_value).decode("ascii").strip()
+            except UnicodeDecodeError:
+                return False
+    ctype = seen.get(b"content-type", "").split(";", 1)[0].strip().lower()
+    if ctype != "application/x-www-form-urlencoded":
+        return False
+    site = seen.get(b"sec-fetch-site")
+    if site is not None:
+        return site == "same-origin"
+    origin, host = seen.get(b"origin", "").lower(), seen.get(b"host", "").lower()      # host names ignore case
+    for scheme in ("https://", "http://"):
+        if origin.startswith(scheme):
+            return bool(host) and origin[len(scheme):] == host
+    return False
+
+
+def security_state_from_scope(scope) -> Optional[str]:
+    """The opaque return state on `/me/security/back?s=<state>` (security.py). Bounded text only; security.py checks
+    its signature against the verified member. It confers no identity and no access, and is never echoed or logged."""
+    from urllib.parse import parse_qsl
+    raw = scope.get("query_string") or b""
+    if not isinstance(raw, (bytes, bytearray)) or len(raw) > 512:
+        return None
+    for key, value in parse_qsl(bytes(raw).decode("ascii", "ignore"), keep_blank_values=False):
+        if key == "s":
+            return value[:160]
+    return None
 
 
 def content_length_from_scope(scope) -> Optional[int]:
@@ -184,49 +237,6 @@ def content_length_from_scope(scope) -> Optional[int]:
     if len(found) != 1 or chunked or not bytes(found[0]).isdigit() or len(found[0]) > 9:
         return None
     return int(found[0])
-
-
-def same_origin_post(scope) -> bool:
-    """True when the browser says this POST came from a page of this site: `Sec-Fetch-Site: same-origin`, or, from a
-    browser that does not send it, an `Origin` whose host equals the `Host` header. Anything else (cross-site, no
-    signal at all, repeated headers) is refused. A CSRF check only; it confers no identity."""
-    def one(name: bytes) -> Optional[str]:
-        found = [v for k, v in scope.get("headers", ()) if bytes(k).lower() == name]
-        return bytes(found[0]).decode("latin-1").strip() if len(found) == 1 else None
-    site = one(b"sec-fetch-site")
-    if site is not None:
-        return site == "same-origin"
-    origin, host = one(b"origin"), one(b"host")
-    if not origin or not host or origin == "null":
-        return False
-    from urllib.parse import urlsplit
-    try:
-        return urlsplit(origin).netloc.lower() == host.lower() and urlsplit(origin).scheme in ("https", "http")
-    except ValueError:
-        return False
-
-
-async def broker_form(request, limit: int, fields_wanted: frozenset = FORM_FIELDS) -> Optional[dict]:
-    """The request broker's confirmation form (application/x-www-form-urlencoded, at most `limit` bytes; the
-    middleware already refused a missing or larger Content-Length): exactly FORM_FIELDS, each once, ASCII-decodable
-    after percent-decoding as UTF-8, or None. `fields_wanted`: FORM_FIELDS (books) or WATCH_FORM_FIELDS (films and shows). The fields name a book, never a person: who asks is the verified
-    principal only."""
-    from urllib.parse import parse_qsl
-    ctype = [v for k, v in request.scope.get("headers", ()) if bytes(k).lower() == b"content-type"]
-    if len(ctype) != 1 or bytes(ctype[0]).split(b";")[0].strip().lower() != b"application/x-www-form-urlencoded":
-        return None
-    raw = await request.body()
-    if len(raw) > limit:
-        return None
-    try:
-        pairs = parse_qsl(raw.decode("ascii"), keep_blank_values=True, strict_parsing=True,
-                          max_num_fields=len(fields_wanted), encoding="utf-8", errors="strict")
-    except (ValueError, UnicodeDecodeError):
-        return None
-    fields = dict(pairs)
-    if len(pairs) != len(fields_wanted) or set(fields) != fields_wanted:
-        return None
-    return fields
 
 
 def _choice_from_scope(scope, name: str) -> Optional[str]:

@@ -37,6 +37,8 @@ except ImportError:                        # run as a script: dev/ itself is on 
     from synthetic_art import JELLYFIN_SHAPE, cover
 
 FIXTURES = Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "jellyfin"
+QC_WAITING = "123456"                        # the code a synthetic TV is showing
+QC_USED = "111111"                           # a code that was already approved
 MOCK_KEY = "mock-api-key-not-real"
 MODES = ("ok", "slow", "down", "500", "malformed", "wrong-user")
 LOOPBACK = ("127.0.0.1", "::1")
@@ -64,6 +66,9 @@ class MockJellyfin:
         self.slow_seconds = slow_seconds
         self.api_key = api_key
         self.requests = []                   # (method, path, userId-or-None)
+        # Quick Connect (SYNTHETIC): a TV waiting with QC_WAITING; QC_USED is "already authorized" (Jellyfin's 500).
+        self.quick_connect_on = True
+        self.approvals = []                  # (code, userId) of every approval the mock accepted
         self.users = _fixture("users.json")
         self._by_id = {_hex(u["Id"]): u["Name"] for u in self.users}
         self._by_name = {u["Name"]: _hex(u["Id"]) for u in self.users}
@@ -134,6 +139,7 @@ class MockJellyfin:
     def reset(self) -> None:
         with self._lock:
             self.requests = []
+            self.approvals = []
 
     def paths(self):
         with self._lock:
@@ -150,6 +156,8 @@ class MockJellyfin:
         auth = h.headers.get("Authorization", "")
         if self.api_key not in auth:
             return self._send(h, 401, b"{}")
+        if path.startswith("/QuickConnect/"):
+            return self._quick_connect(h, path, query)
         if h.command != "GET":
             return self._send(h, 405, b"{}")
         mode = self.mode
@@ -166,6 +174,23 @@ class MockJellyfin:
         if mode == "malformed":
             return self._send(h, 200, b'{"Items": [{"Id": "aaaa')
         self._answer(h, path, query, wrong_user=(mode == "wrong-user"))
+
+    def _quick_connect(self, h, path, query):
+        """The two Quick Connect routes Home uses (quickconnect.py), shaped like Jellyfin 10.11. SYNTHETIC."""
+        if h.command == "GET" and path == "/QuickConnect/Enabled":
+            return self._send(h, 200, b"true" if self.quick_connect_on else b"false")
+        if h.command == "POST" and path == "/QuickConnect/Authorize":
+            if not self.quick_connect_on:
+                return self._send(h, 401, b"{}")
+            code = query.get("code", "")
+            if code == QC_USED:
+                return self._send(h, 500, b"{}")
+            if code != QC_WAITING:
+                return self._send(h, 404, b"{}")
+            with self._lock:
+                self.approvals.append((code, query.get("userId")))
+            return self._send(h, 200, b"true")
+        return self._send(h, 405, b"{}")
 
     def _control(self, h, path):
         if h.command == "GET" and path == "/__mock/requests":

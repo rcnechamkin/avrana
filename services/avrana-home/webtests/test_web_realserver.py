@@ -5,12 +5,13 @@ import re
 import socket
 import unittest
 
-from .support import (GROUPS, IDENTITIES, USER, RealServer, ident_headers, make_client, make_settings,
+from .support import (GROUPS, IDENTITIES, USER, RealServer, StubAdapter, ident_headers, make_client, make_settings,
                       normalise, portal_raw, require_framework, valid_principal_identity, wire)
 
 require_framework()
 
 from avrana_home.app import identity, logsafe, main, middleware, routing, viewmodel  # noqa: E402
+from avrana_home.contract import ArtworkResult, SectionState  # noqa: E402
 
 ODD_TARGETS = [
     "/", "/watch", "/watch/", "/watch//", "/watch?x=1", "/watch?next=https://evil.example",
@@ -172,6 +173,40 @@ class ServerGeneratedErrorTests(unittest.TestCase):
                 self.assertIn(r.status, (-1, 0, 400, 505))
                 self.assertNotIn("tile", r.text)
                 self.assertNotIn("<!doctype", r.text.lower())
+
+
+class _Cover(StubAdapter):
+    def fetch_artwork(self, principal, ref):
+        return ArtworkResult(SectionState.OK, "image/png", b"\x89PNG\r\n\x1a\n" + b"x" * 64)
+
+
+class ArtworkRevalidationWireTests(unittest.TestCase):
+    """The 304 over h11: no body, no Content-Length of the image, the validator and cache header kept."""
+
+    @classmethod
+    def setUpClass(cls):
+        app = make_client(make_settings(home_sections=True), adapters=[_Cover({"member-a": []})]).fastapi_app
+        cls.server = RealServer(app).__enter__()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.server.__exit__(None, None, None)
+
+    def test_if_none_match_gets_a_bodiless_304(self):
+        path, who = "/art/jellyfin/primary/aaaa0000000000000000000000000001", [
+            (USER, "member-a"), (GROUPS, "avrana-users|avrana-videos")]
+        full = self.server.exchange(wire(path, who, host="127.0.0.1"))
+        self.assertEqual(200, full.status)
+        etag = full.header("ETag")
+        self.assertTrue(etag)
+        for method in ("GET", "HEAD"):
+            with self.subTest(method=method):
+                r = self.server.exchange(wire(path, who + [("If-None-Match", etag)], method, "127.0.0.1"))
+                self.assertEqual(304, r.status)
+                self.assertEqual(b"", r.body)
+                self.assertEqual(etag, r.header("ETag"))
+                self.assertEqual("private, no-cache", r.header("Cache-Control"))
+                self.assertIn(r.header("Content-Length"), (None, "0"))
 
 
 class FactoryTests(unittest.TestCase):

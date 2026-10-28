@@ -285,10 +285,23 @@ class AudiobookshelfSim:
                     if len(hits) >= limit:
                         break
             return 200, {"book": hits, "tags": [], "authors": [], "series": [], "narrators": [], "genres": []}
+        m = re.fullmatch(r"/api/libraries/([a-z0-9_]+)/items", path)
+        if m:                                  # newest first: the highest numbers were added last
+            lib, limit = m.group(1), int(q.get("limit", "12"))
+            listed = [self.items[iid] for iid in reversed(self.order) if self.items[iid]["libraryId"] == lib][:limit]
+            return 200, {"results": [dict(it, addedAt=1_700_000_000_000 + int(it["id"][5:])) for it in listed],
+                         "total": len(listed), "limit": limit, "page": 0}
+        if re.fullmatch(r"/api/libraries/([a-z0-9_]+)/filterdata", path):
+            return 200, {"genres": [], "authors": [], "tags": [], "series": [], "narrators": []}
         m = re.fullmatch(r"/api/items/(li_[a-z0-9]+)(/cover)?", path)
         if m and m.group(1) in self.items:
             return (200, ("image/jpeg", self.image)) if m.group(2) else (200, self.items[m.group(1)])
         return 404, {}
+
+
+def _iso_days_ago(n: int, suffix: str) -> str:
+    """Now minus `n` minutes as an ISO date, so thousands of books stay inside Recently added's 60-day window."""
+    return time.strftime("%Y-%m-%d", time.gmtime(time.time() - n * 60)) + suffix
 
 
 class KomgaSim:
@@ -300,13 +313,15 @@ class KomgaSim:
         self.books = [{"id": self.ids[n], "seriesId": f"SR{n // 10:08d}", "seriesTitle": f"Synthetic Series {n // 10}",
                        "libraryId": "LIBCOMICS1", "name": self.titles[n], "number": n % 10 + 1, "deleted": False,
                        "media": {"status": "READY", "mediaType": "application/zip", "pagesCount": 24},
-                       "metadata": {"title": self.titles[n], "number": str(n % 10 + 1), "tags": []}}
+                       "created": _iso_days_ago(size - n, "T00:00:00Z"),        # newest last, within Recently added's window
+                       "metadata": {"title": self.titles[n], "number": str(n % 10 + 1), "tags": [],
+                                    "releaseDate": _iso_days_ago(size - n, "")}}
                       for n in range(size)]
         self.image = _png(b"komga")
 
     def handle(self, path, q):
         size = int(q.get("size", "20"))
-        if path == "/api/v1/books/latest":
+        if path == "/api/v1/books" and "search" not in q:       # Recently added and New releases
             content = self.books[-size:][::-1]
             return 200, {"content": content, "number": 0, "size": size, "totalElements": len(self.books)}
         if path == "/api/v1/books":

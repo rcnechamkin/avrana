@@ -1,8 +1,8 @@
 {
   "_synthetic": "Hand-written SYNTHETIC fixture, written from recollection of the public Komga API. Hand-written, unverified against the deployed version; a recorded read-only contract check is a separate owner-approved step before any real data is read. Invented users, ids and titles.",
-  "_schema": "Shaped like GET /api/v1/books/latest?page=0&size=N: a Spring page object. Unverified.",
+  "_schema": "Shaped like GET /api/v1/books?sort=created,desc&page=0&size=N: a Spring page object. Unverified.",
   "_target_version": "Komga 1.x REST API (v1 books and series, v2 users); the deployed version is not recorded in this repository and was NOT confirmed",
-  "_provenance": "GET /api/v1/books/latest: the page wrapper (content, number, size, totalElements) and the book fields as for books.json are recalled from the public API documentation and not re-checked. SYNTHETIC assumption: newest first. Live compatibility is UNPROVEN until the owner's recorded read-only capture is compared (ADAPTER-CONTRACT.md section 12.5).",
+  "_provenance": "GET /api/v1/books?sort=created,desc: the page wrapper (content, number, size, totalElements) and the book fields as for books.json are recalled from the public API documentation and not re-checked. SYNTHETIC assumption: newest first. `created` and `metadata.releaseDate` are written as \"@days_ago:N\" / \"@date_ago:N\" and filled in relative to today by the fake (the live shapes, ISO instant and ISO date, were seen read-only on 2026-10-28). Live compatibility is UNPROVEN until the owner's recorded read-only capture is compared (ADAPTER-CONTRACT.md section 12.5).",
   "response": {
     "content": [
       {
@@ -21,13 +21,15 @@
         "metadata": {
           "title": "Synthetic Teen One",
           "number": "1",
-          "tags": []
+          "tags": [],
+          "releaseDate": "@date_ago:40"
         },
         "readProgress": {
           "page": 77,
           "completed": false,
           "readDate": "2026-01-01T00:00:00Z"
-        }
+        },
+        "created": "@days_ago:1"
       },
       {
         "id": "BOOKDDDD0005",
@@ -45,13 +47,15 @@
         "metadata": {
           "title": "Synthetic Kids One",
           "number": "1",
-          "tags": []
+          "tags": [],
+          "releaseDate": "@date_ago:70"
         },
         "readProgress": {
           "page": 77,
           "completed": false,
           "readDate": "2026-01-01T00:00:00Z"
-        }
+        },
+        "created": "@days_ago:2"
       },
       {
         "id": "BOOKCCCC0004",
@@ -69,13 +73,15 @@
         "metadata": {
           "title": "Synthetic Mature One",
           "number": "1",
-          "tags": []
+          "tags": [],
+          "releaseDate": "@date_ago:10"
         },
         "readProgress": {
           "page": 77,
           "completed": false,
           "readDate": "2026-01-01T00:00:00Z"
-        }
+        },
+        "created": "@days_ago:3"
       },
       {
         "id": "BOOKBBBB0003",
@@ -93,13 +99,15 @@
         "metadata": {
           "title": "Synthetic Manga One",
           "number": "1",
-          "tags": []
+          "tags": [],
+          "releaseDate": "@date_ago:100"
         },
         "readProgress": {
           "page": 77,
           "completed": false,
           "readDate": "2026-01-01T00:00:00Z"
-        }
+        },
+        "created": "@days_ago:5"
       },
       {
         "id": "BOOKAAAA0002",
@@ -117,13 +125,15 @@
         "metadata": {
           "title": "Synthetic Comic Two",
           "number": "2",
-          "tags": []
+          "tags": [],
+          "releaseDate": "@date_ago:-30"
         },
         "readProgress": {
           "page": 77,
           "completed": false,
           "readDate": "2026-01-01T00:00:00Z"
-        }
+        },
+        "created": "@days_ago:8"
       },
       {
         "id": "BOOKAAAA0001",
@@ -141,13 +151,15 @@
         "metadata": {
           "title": "Synthetic Comic One",
           "number": "1",
-          "tags": []
+          "tags": [],
+          "releaseDate": "@date_ago:20"
         },
         "readProgress": {
           "page": 77,
           "completed": false,
           "readDate": "2026-01-01T00:00:00Z"
-        }
+        },
+        "created": "@days_ago:9"
       }
     ],
     "number": 0,

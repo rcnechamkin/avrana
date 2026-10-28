@@ -8,9 +8,9 @@ carry these headers; they contain no application data (documented in HOME-APP.md
   * Methods other than GET and HEAD get 501 before any routing or identity work, for every path
     and every identity, like the portal (http.server answers 501 before looking at groups). The
     body is fixed text and does NOT echo the method. The ONE exception is POST to an exact path in
-    `post_paths` (empty unless the request broker is switched on, see main.py), and only with a
-    `Content-Length` of at most MAX_FORM_BODY: a missing length is 411, a larger one 413, both fixed text,
-    before the application runs.
+    `post_paths` (main.py lists a form route only while its form is on: "Sign in on a TV", the request brokers;
+    with it off, that path is 501 like any other), and only with a `Content-Length` of at most MAX_FORM_BODY: a
+    missing length is 411, a larger one 413, both fixed text, before the application runs.
   * A request whose header block exceeds identity.MAX_HEADER_BYTES gets 431 with fixed text before any routing or
     identity work (AVR-732). h11 enforces its own 16 KiB limit only while a request is still incomplete, so
     a request that arrives in one read (Linux asyncio reads up to 256 KiB at once) reached the application
@@ -41,7 +41,8 @@ HYGIENE = (
     (b"x-content-type-options", b"nosniff"),
     (b"content-security-policy", CSP),
 )
-# /search is the one page with a form (a plain GET to itself), so it alone may submit to its own origin.
+# /search (a plain GET to itself) and the form pages (forms.py, a POST to themselves) alone may submit to their own
+# origin.
 CSP_SEARCH = CSP.replace(b"form-action 'none'", b"form-action 'self'")
 # Shell pages (Home with sections, Library, Search, Me, Account, Help) link the web app manifest (install.py), load
 # the brand font, Plus Jakarta Sans (brand.py, home.css; AVR-584, AVR-715), and load the one first-party page script (pwa.py; MK-3, AVR-717, owner
@@ -65,18 +66,16 @@ NOT_IMPLEMENTED_BODY = (b"<!DOCTYPE HTML>\n<html lang=\"en\">\n<head>\n<meta cha
 
 LENGTH_REQUIRED_BODY = NOT_IMPLEMENTED_BODY.replace(b"501", b"411").replace(b"Unsupported method.", b"Length required.")
 TOO_LARGE_BODY = NOT_IMPLEMENTED_BODY.replace(b"501", b"413").replace(b"Unsupported method.", b"Request too large.")
-MAX_FORM_BODY = 4096          # the broker's form: a work id, a format, a title, an author and a token
-# Routes with a form that submits to this origin (form-action 'self'): /search (GET to itself) and the request
-# broker's confirmation page.
-FORM_ROUTES = frozenset({"/search", "/request/books", "/request/watch"})
+MAX_FORM_BODY = 4096          # the largest form, the broker's: a work id, a format, a title, an author and a token
 
 HEADERS_TOO_LARGE_BODY = (b"<!DOCTYPE HTML>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n"
                           b"<title>Error response</title>\n</head>\n<body>\n<h1>Error response</h1>\n"
                           b"<p>Error code: 431</p>\n<p>Message: Request header fields too large.</p>\n</body>\n</html>\n")
 
 
-# The artwork route sets "private, no-store" itself; that is the only value allowed to replace the default.
-_PRIVATE_NO_STORE = (b"cache-control", b"private, no-store")
+# The artwork route sets "private, no-cache" itself (revalidated on every use, see artwork.py); that is the only
+# value allowed to replace the default.
+_PRIVATE_NO_CACHE = (b"cache-control", b"private, no-cache")
 
 
 def csp_for(form_self: bool = False, manifest: bool = False, route: str = "") -> bytes:
@@ -87,8 +86,8 @@ def csp_for(form_self: bool = False, manifest: bool = False, route: str = "") ->
 def with_hygiene(headers, form_self: bool = False, manifest: bool = False, route: str = "") -> list:
     headers = list(headers)
     cache = HYGIENE[0]
-    if any((bytes(k).lower(), bytes(v).lower()) == _PRIVATE_NO_STORE for k, v in headers):
-        cache = _PRIVATE_NO_STORE
+    if any((bytes(k).lower(), bytes(v).lower()) == _PRIVATE_NO_CACHE for k, v in headers):
+        cache = _PRIVATE_NO_CACHE
     csp = csp_for(form_self, manifest, route)
     return ([(k, v) for k, v in headers if bytes(k).lower() not in _HYGIENE_NAMES]
             + [cache] + [(k, csp if k == b"content-security-policy" else v) for k, v in HYGIENE[1:]])
@@ -120,8 +119,9 @@ class HygieneMiddleware:
                 if state.get("error_page"):        # the generic 500 page: base CSP, whatever the failed route marked
                     message = dict(message, headers=with_hygiene(message.get("headers", ())))
                 else:
+                    route = scope.get("avrana_route")
                     message = dict(message, headers=with_hygiene(message.get("headers", ()),
-                                                                 scope.get("avrana_route") in FORM_ROUTES,
+                                                                 route == "/search" or route in self._post_paths,
                                                                  scope.get("avrana_shell") is True,
                                                                  scope.get("avrana_route") or ""))
             await send(message)
@@ -130,7 +130,7 @@ class HygieneMiddleware:
             if header_block_too_large(scope):
                 scope["avrana_route"] = "headers_too_large"
                 await self._plain(wrapped_send, 431, HEADERS_TOO_LARGE_BODY, head=(method == "HEAD"))
-            elif method == "POST" and scope.get("path") in self._post_paths:
+            elif method == "POST" and self._is_post_path(scope):
                 length = content_length_from_scope(scope)
                 if length is None:
                     scope["avrana_route"] = "length_required"
@@ -158,6 +158,13 @@ class HygieneMiddleware:
                       route=scope.get("avrana_route", "unmatched"), method=method,
                       status=state["status"],
                       duration_ms=round((time.perf_counter() - started) * 1000, 1))
+
+    def _is_post_path(self, scope) -> bool:
+        if not self._post_paths:
+            return False
+        # The exact path only: no trailing slash, no doubled slash (those stay 501, like every other path).
+        raw = scope.get("raw_path") or scope.get("path", "").encode("latin-1", "replace")
+        return bytes(raw).decode("latin-1") in self._post_paths
 
     @staticmethod
     async def _plain(send, status: int, body: bytes, head: bool) -> None:

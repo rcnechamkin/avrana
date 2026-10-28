@@ -111,7 +111,7 @@ class States(Base):
         self.assertEqual(self.adapter.continue_items(self.b).reason, "UpstreamTimeout")
 
     def test_unoffered_sections_make_no_upstream_call(self):
-        r = self.adapter.recent_items(self.a)          # item lookup is offered since AVR-384 (title pages)
+        r = self.adapter.next_up_items(self.a)         # Recently added is offered since 2026-10-27; Up next is not
         self.assertEqual((r.state, r.reason), (SectionState.EMPTY, "not_offered"))
         self.assertEqual(self.fake.requests, [])
 
@@ -402,7 +402,7 @@ class GuardAttacks(unittest.TestCase):
     def test_only_get_on_listed_routes(self):
         for method in ("POST", "PUT", "PATCH", "DELETE", "HEAD", "get", None):
             self.refused(method, f"/api/users/{UA}")
-        for path in ("/api/me", "/api/authorize", "/api/libraries/lib_aaa", "/api/libraries/lib_aaa/items",
+        for path in ("/api/me", "/api/authorize", "/api/libraries/lib_aaa", "/api/libraries/lib_aaa/stats",
                      "/api/users/", f"/api/users/{UA}/listening-stats",
                      "/api/items/li_book000001/cover/x", "/api/items/li_book000001/covers",
                      "/api/items/li_book000001/cover/", "/api/items", "/ping", "//api/users", "/api/users?x=1"):
@@ -434,7 +434,8 @@ class GuardAttacks(unittest.TestCase):
         self.refused("GET", "/api/users", {"x": "1"}, uid=None)
 
     def test_route_names(self):
-        self.assertEqual([r.name for r in ALLOWED_ROUTES], ["users", "user", "item", "cover", "libraries", "search"])
+        self.assertEqual([r.name for r in ALLOWED_ROUTES], ["users", "user", "item", "cover", "libraries", "search",
+                                                             "library_items", "filterdata"])
 
 
 class FailureClasses(Base):
@@ -610,10 +611,19 @@ class AcceptanceScenarios(Base):
         self.assertIs(self.adapter.fetch_artwork(self.b, "audiobookshelf/cover/li_book000003").state,
                       SectionState.OK)
 
-    def test_recently_added_is_not_offered_in_this_unit(self):
+    def test_recently_added_is_the_members_own_libraries_newest_first(self):
         r = self.adapter.recent_items(self.a)
-        self.assertEqual((r.state, r.reason), (SectionState.EMPTY, "not_offered"))
-        self.assertEqual(self.fake.requests, [])
+        self.assertIs(r.state, SectionState.OK)
+        titles = [i.title for i in r.items]
+        self.assertEqual(titles[:3], ["Synthetic Fresh Release", "Synthetic Classic Novel", "Synthetic Quick Story"])
+        self.assertNotIn("Synthetic Audiobook One", titles)              # added years ago: not "recent"
+        self.assertNotIn("Synthetic Audiobook Three", titles)            # lib_bbb: not member-a's library
+        self.assertNotIn("Synthetic Explicit Short", titles)             # explicit: member-a may not
+        self.assertTrue(all(i.progress_fraction is None for i in r.items))
+        lists = [(p, q) for _m, p, q in self.fake.requests if p.endswith("/items")]
+        self.assertEqual(["/api/libraries/lib_aaa/items"], [p for p, _q in lists])
+        self.assertEqual({"sort": "addedAt", "desc": "1", "minified": "1"}, {k: lists[0][1][k] for k in
+                                                                           ("sort", "desc", "minified")})
 
     def test_fixtures_declare_their_target_version_and_which_shapes_are_synthetic(self):
         from tests.fake_abs import FIXTURES
@@ -889,7 +899,9 @@ class Search(Base):
                             ("/api/libraries/LIB_AAA/search", {"q": "ab"}),
                             ("/api/libraries/lib_a/search", {"q": "ab"}),
                             ("/api/libraries/lib_aaa/../../users/" + UB + "/search", {"q": "ab"}),
-                            ("/api/libraries/lib_aaa/items", None),
+                            ("/api/libraries/lib_aaa/items", {"q": "ab"}),
+                            ("/api/libraries/lib_aaa/items", {"limit": "3", "include": "rssfeed"}),
+                            ("/api/libraries/lib_aaa/filterdata", {"x": "1"}),
                             ("/api/libraries/lib_aaa/search/x", {"q": "ab"})):
             with self.assertRaises(ForbiddenRequest, msg=path):
                 guard.request("GET", path, query, 1.0, 10000)
@@ -932,13 +944,64 @@ class WithJellyfinThroughGather(unittest.TestCase):
         self.assertIs(res[(Service.AUDIOBOOKSHELF, "continue")].state, SectionState.NOT_PERMITTED)
         self.assertEqual(self.abs_fake.requests, [])
 
-    def test_the_default_sections_do_not_request_a_recent_the_adapter_declares_not_offered(self):
+    def test_the_default_sections_include_recently_added_and_the_shelves_only_when_asked(self):
         listener = make_principal("member-a", ("avrana-users", "avrana-audiobooks"))
         res = self.by_service(gather(listener, [self.abs]))
-        self.assertNotIn((Service.AUDIOBOOKSHELF, "recent"), res)          # skipped: no noise in the member view
+        self.assertIn((Service.AUDIOBOOKSHELF, "recent"), res)
         self.assertIn((Service.AUDIOBOOKSHELF, "continue"), res)
+        self.assertNotIn((Service.AUDIOBOOKSHELF, "shelves"), res)
         self.assertEqual(self.abs_fake.paths().count("/api/users"), 1)
-        self.assertEqual(self.abs.recent_items(listener).reason, "not_offered")   # called directly it still answers
+        res = self.by_service(gather(listener, [self.abs], sections=("shelves",)))
+        self.assertIs(res[(Service.AUDIOBOOKSHELF, "shelves")].state, SectionState.OK)
+
+
+
+class Shelves(Base):
+    """Owner decision 2026-10-27: Listen leads with what the library holds, in shelves, each checked per member."""
+
+    def shelf(self, result, key):
+        return [i.title for i in result.items if i.shelf == key]
+
+    def test_each_shelf_holds_only_what_fits_it_and_this_member_may_see(self):
+        r = self.adapter.shelves_items(self.a)
+        self.assertIs(r.state, SectionState.OK)
+        self.assertEqual(self.shelf(r, "new"), ["Synthetic Fresh Release"])            # this year or last
+        self.assertEqual(self.shelf(r, "classics"), ["Synthetic Classic Novel", "Synthetic Classic Adventure"])
+        self.assertEqual(self.shelf(r, "short"), ["Synthetic Tagged Short", "Synthetic Quick Story",
+                                                  "Synthetic Classic Adventure"])          # shortest first
+        self.assertEqual(self.shelf(r, "epic"), ["Synthetic Grand Epic"])
+        everything = [i.title for i in r.items]
+        for hidden in ("Synthetic Explicit Short", "Synthetic Audiobook Three"):     # explicit; another library
+            self.assertNotIn(hidden, everything)
+        self.assertEqual({"new", "classics", "short", "epic"}, {i.shelf for i in r.items})
+        self.assertTrue(all(i.to_dict()["shelf"] == i.shelf for i in r.items))
+
+    def test_the_classics_filter_carries_only_genres_the_library_listed(self):
+        self.adapter.shelves_items(self.a)
+        filters = sorted(q["filter"] for _m, p, q in self.fake.requests if p.endswith("/items") and "filter" in q)
+        self.assertEqual(filters, sorted(["genres.Q2xhc3NpYyBMaXRlcmF0dXJl", "genres.Q2xhc3NpY3M="]))
+        self.assertIn("/api/libraries/lib_aaa/filterdata", self.fake.paths())
+
+    def test_a_list_from_another_library_or_without_results_fails_closed(self):
+        body = json.loads(self.fake.handle("GET", "/api/libraries/lib_aaa/items",
+                                           {"sort": "addedAt", "desc": "1", "limit": "8", "minified": "1"})[1])
+        body["results"][0]["libraryId"] = "lib_bbb"
+        self.fake.serve("/api/libraries/lib_aaa/items", body)
+        self.assertEqual(self.adapter.recent_items(self.a).reason, "UpstreamMisbehaved")
+        self.fake.serve("/api/libraries/lib_aaa/items", {"items": []})
+        self.assertEqual(self.adapter.recent_items(self.b).reason, "UpstreamMalformed")
+
+    def test_nothing_added_in_two_months_is_an_empty_recently_added(self):
+        for entries in self.fake.lists.values():
+            for it in entries:
+                it["addedAt"] = 1_600_000_000_000                            # 2020
+        r = self.adapter.recent_items(self.a)
+        self.assertIs(r.state, SectionState.EMPTY)
+
+    def test_no_group_no_call(self):
+        outsider = make_principal("member-a", ("avrana-users",))
+        self.assertIs(self.adapter.shelves_items(outsider).state, SectionState.NOT_PERMITTED)
+        self.assertEqual(self.fake.requests, [])
 
 
 if __name__ == "__main__":

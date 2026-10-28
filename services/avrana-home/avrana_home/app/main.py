@@ -34,6 +34,7 @@ from urllib.parse import urlencode
 
 from ..contract import REQUIRED_GROUP, MediaAdapter, Service, build_handoff_url
 from ..cache import MemberCache
+from ..quickconnect import OUTCOMES as QC_OUTCOMES, QuickConnect
 from ..resilience import SystemClock, UrllibTransport
 from . import catalogue as catalogue_mod
 from .catalogue import Trusted
@@ -47,18 +48,20 @@ from ..requests.owned import OwnedIndex
 from ..requests.seerr import MediaState, SeerrRequests
 from . import watchrequests as watch_mod
 from ..requests.shelfarr import FORMAT_GROUP, ShelfarrRequests, clean_term, member_username
-from .identity import (WATCH_FORM_FIELDS, IdentityResolver, Viewer, broker_form, get_viewer, has_identity_headers, home_filter_from_scope,
-                       library_chip_from_scope, library_view_from_scope, new_tab_from_scope, same_origin_post,
-                       search_term_from_scope)
+from . import forms as forms_mod
+from . import security as security_mod
+from .identity import (IdentityResolver, Viewer, get_viewer, has_identity_headers, home_filter_from_scope,
+                       if_none_match_from_scope, library_chip_from_scope, library_view_from_scope, new_tab_from_scope,
+                       same_origin_form_post, search_term_from_scope, security_state_from_scope, tv_result_from_scope)
 from .logsafe import app_log, log_event, silence_uvicorn_access
-from .middleware import MAX_FORM_BODY, HygieneMiddleware
+from .middleware import MAX_FORM_BODY, NOT_IMPLEMENTED_BODY, HygieneMiddleware
 from . import recovery
 from .routing import (ME_ROUTE, AccountFacts, Decision, chooser_intro, decide, library_decision, me_decision,
                       normalise_target, not_found, parse_title_route, search_decision, title_decision, trouble_decision)
 from .settings import Settings, is_sealed_preview
 from .viewmodel import (ACCOUNT_LIBRARY, CONTRIBUTE_PATH, INTERSTITIAL_SHELL, LIBRARY_PLACE, NO_LIBRARY, REQUEST_FOR,
                         SERVICE_LABEL, account_access, build_home, build_library, build_me, build_search, build_shell,
-                        build_title, has_library, place_link, title_href, wants_next_up)
+                        build_title, extra_sections_for, has_library, library_extra_sections, place_link, title_href)
 
 TEMPLATES = Path(__file__).resolve().parent / "templates"
 HTML = "text/html; charset=utf-8"
@@ -172,16 +175,37 @@ def build_watch_requests(settings: Settings) -> Optional[SeerrRequests]:
     return SeerrRequests(transport, timeout=settings.timeout)
 
 
+def build_quick_connect(settings: Settings) -> Optional[QuickConnect]:
+    """Embedded Quick Connect (quickconnect.py; owner decision 2026-10-27): built only where the real adapters are, with
+    its own transport to the same Jellyfin address and key. Tests inject one, or get none (then /me/tv is the standard
+    404 and a POST to it the standard 501)."""
+    if not settings.home_sections:
+        return None
+    transport = UrllibTransport(settings.jellyfin_base_url,
+                                {"Authorization": f'MediaBrowser Token="{settings.jellyfin_api_key}"'})
+    return QuickConnect(transport, timeout=settings.timeout,
+                        member_username=_member_username(settings, settings.jellyfin_member_username))
+
+
+# "Sign in on a TV" (forms.py, quickconnect.py): the posted fields, and every result the page may be sent back with.
+TV_FIELDS = frozenset({"code", "t"})
+TV_RESULTS = QC_OUTCOMES + ("expired",)
+# The request brokers' signed forms (bookrequests.py, watchrequests.py): exactly these fields, each once.
+BOOK_FIELDS = frozenset({"work_id", "book_type", "title", "author", "q", "token"})
+WATCH_FIELDS = frozenset({"media_type", "media_id", "title", "q", "token"})
+
+
 def _is_loopback_peer(request: Request) -> bool:
     client = request.client
     return client is not None and client.host in ("127.0.0.1", "::1")
 
 
 def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]] = None,
+               quick_connect: Optional[QuickConnect] = None,
                book_requests: Optional[ShelfarrRequests] = None,
                watch_requests: Optional[SeerrRequests] = None) -> FastAPI:
-    """`adapters`, `book_requests` and `watch_requests` let tests inject fakes; otherwise they are built from
-    `settings`. Each broker exists only when its switch is on (an injected client is ignored otherwise)."""
+    """`adapters`, `quick_connect`, `book_requests` and `watch_requests` let tests inject fakes; otherwise they are
+    built from `settings`. Each broker exists only when its switch is on (an injected client is ignored otherwise)."""
     silence_uvicorn_access()      # whoever serves this app, uvicorn must not log raw query strings
     cat = catalogue_mod.load(settings.catalogue_path)
     env = make_environment()
@@ -210,6 +234,21 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
     book_cache = SearchCache(ttl=600.0)           # Shelfarr searched as Home's account: the same for every member
     watch_cache = SearchCache(ttl=120.0)          # Seerr searched AS a member: keyed by that member's Seerr id
     owned_index = OwnedIndex(settings.library_ids_file)             # read-only; None = no "Already in" claims
+    # Account & Security: the fixed hand-off table (from the catalogue's account address and the owner-verified flows)
+    # and the per-process key for the opaque return state. A bad catalogue address stops startup.
+    security_config = security_mod.SecurityConfig.build(cat.account_url, settings.security_flows,
+                                                        settings.security_return_origin)
+    return_states = security_mod.ReturnStates()
+    # "Sign in on a TV": only with the shell on. Injected adapters without an injected Quick Connect mean none.
+    qc = quick_connect if quick_connect is not None else (build_quick_connect(settings) if adapters is None else None)
+    if not (settings.home_sections and adapter_list):
+        qc = None
+    form_tokens = forms_mod.FormTokens()
+    tv_replays = forms_mod.Replays(keep=frozenset({"approved"}))
+    watch = cat.service("watch")
+    # Jellyfin's own Quick Connect page (jellyfin-web 10.11 route `quickconnect`), from the catalogue's fixed host.
+    tv_handoff = f"https://{watch.host}/web/#/quickconnect" if watch is not None else None
+
 
     @contextlib.asynccontextmanager
     async def lifespan(_app):
@@ -228,6 +267,7 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
     app.state.adapters = adapter_list
     app.state.env = env
     app.state.notices = notices
+    app.state.form_tokens = form_tokens            # tests mint a token without loading the page
     # Libraries whose search results link to a title page: those whose adapter offers the permission-checked
     # item lookup (`item`). The others' results link straight to the library.
     title_services = frozenset(a.service.value for a in adapter_list if "item" not in a.not_offered)
@@ -354,8 +394,10 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
                 scope["avrana_route"] = "not_found"
                 return respond(not_found())
             tiles = decide("/", viewer.groups, cat).context["tiles"]
-            view = await _gather(viewer) if has_library(tiles) else {"sections": []}
-            page = build_library(view, tiles, chip=library_chip_from_scope(scope), limit=settings.section_limit,
+            chip = library_chip_from_scope(scope)
+            view = (await _gather(viewer, extras=library_extra_sections(chip)) if has_library(tiles)
+                    else {"sections": []})
+            page = build_library(view, tiles, chip=chip, limit=settings.section_limit,
                                  open_paths=place_paths(viewer), title_services=title_services,
                                  view_mode=library_view_from_scope(scope))
             decision = library_decision(page)
@@ -393,8 +435,10 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
                 scope["avrana_route"] = "not_found"          # trouble: one and the same 404
                 return respond(not_found())
             scope["avrana_route"] = "/art/{ref}"
-            return Response(result.data, media_type=result.content_type,
-                            headers={"Cache-Control": artwork_mod.CACHE_CONTROL})
+            headers = {"Cache-Control": artwork_mod.CACHE_CONTROL, "ETag": artwork_mod.etag_for(result.data)}
+            if artwork_mod.not_modified(if_none_match_from_scope(scope), headers["ETag"]):
+                return Response(status_code=304, headers=headers)     # checked above like any fetch
+            return Response(result.data, media_type=result.content_type, headers=headers)
 
         # Installable Home and the approved brand files (install.py, brand.py): only where the shell can render, so
         # with sections off these paths stay the portal's 404. Static bytes, the same for every viewer, so no
@@ -427,17 +471,52 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
             decision = trouble_decision(viewer.groups)
             scope["avrana_route"] = decision.label
             return respond(decision, scope, shell=shell_for(viewer, "help-topic"))
+        if route.startswith(security_mod.PREFIX) and settings.home_sections and p is not None and adapter_list:
+            # Me -> Account & Security (security.py). Shell only and a verified member only; any other path under the
+            # prefix, or no member, is the standard 404 (parity). The hand-off is a 303 to a fixed Authentik address.
+            if route == security_mod.JSON_ROUTE:
+                scope["avrana_route"] = route
+                return JSONResponse(security_config.summary())
+            action = security_mod.action_from_route(route)
+            if action is not None:
+                scope["avrana_route"] = security_mod.GO_PREFIX + "{action}"
+                log_event(app_log, logging.INFO, "security_handoff", reason=action,
+                          state=security_config.via(action))
+                return Response(b"", status_code=303, media_type=HTML, headers=security_mod.handoff_headers(
+                    security_config, return_states, action, p.username))
+            result = (return_states.check(security_state_from_scope(scope), p.username)
+                      if route == security_mod.BACK_ROUTE else None)
+            page = security_mod.build_page(route, security_config, groups=viewer.groups, username=p.username,
+                                           signout_href=pwa_mod.SIGNOUT_PATH, result=result)
+            if page is None:
+                scope["avrana_route"] = "not_found"
+                return respond(not_found())
+            if result is not None:
+                log_event(app_log, logging.INFO, "security_return", state=result.outcome,
+                          reason="expired" if result.expired else (result.action or "none"))
+            scope["avrana_route"] = route
+            return respond(Decision(route, 200, "me_security.html", {"sec": page}), scope,
+                           shell=shell_for(viewer, "me"))
+        if route == forms_mod.TV_ROUTE and qc is not None and p is not None and tv_member(viewer):
+            # "Sign in on a TV" (quickconnect.py). Only for members with TV and Movies; otherwise the standard 404.
+            status = await run_in_threadpool(qc.status, p)
+            result = tv_result_from_scope(scope)
+            scope["avrana_route"] = route
+            return respond(Decision(route, 200, "me_tv.html", {"tv": {
+                "status": status, "result": result if result in TV_RESULTS else None,
+                "token": form_tokens.issue("tv", p.username), "handoff": tv_handoff}}),
+                scope, shell=shell_for(viewer, "me"))
         if route == ME_ROUTE and settings.home_sections and p is not None and adapter_list:
             # The Me hub (Concept K, AVR-719) exists only with the shell; otherwise the path stays unknown (parity).
             decision = me_decision(build_me(tiles_for(viewer), p.username, pwa_mod.SIGNOUT_PATH))
             scope["avrana_route"] = decision.label
-            return respond(decision, scope, shell=shell_for(viewer, "me"))
+            return respond(decision, scope, shell=shell_for(viewer, "me"), me_tv=qc is not None and tv_member(viewer))
         decision = decide(route, viewer.groups, cat, facts)
         scope["avrana_route"] = decision.label
         extra = {}
         if decision.label == "/" and settings.home_sections and p is not None and adapter_list:
             focus = home_filter_from_scope(scope)
-            home = build_home(await _gather(viewer, next_up=wants_next_up(focus)), decision.context["tiles"],
+            home = build_home(await _gather(viewer, extras=extra_sections_for(focus)), decision.context["tiles"],
                               new_tab=new_tab_from_scope(scope), limit=settings.section_limit,
                               member_name=(facts.name or facts.username), title_services=title_services,
                               focus=focus)
@@ -479,7 +558,8 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
         shell = shell_for(viewer, "search")
         mark_shell(scope, shell)
         username = broker_user(viewer)
-        fields = await broker_form(request, MAX_FORM_BODY) if same_origin_post(scope) else None
+        fields = (await forms_mod.read_form(request, BOOK_FIELDS, MAX_FORM_BODY, exact=True)
+                  if same_origin_form_post(scope) else None)
         token = fields.pop("token") if fields is not None else None
         back = clean_term(fields.pop("q")) if fields is not None else None     # navigation only, never signed
         if (fields is None or username is None or fields.get("book_type") not in formats
@@ -519,7 +599,8 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
         shell = shell_for(viewer, "search")
         mark_shell(scope, shell)
         username = broker_user(viewer)
-        fields = await broker_form(request, MAX_FORM_BODY, WATCH_FORM_FIELDS) if same_origin_post(scope) else None
+        fields = (await forms_mod.read_form(request, WATCH_FIELDS, MAX_FORM_BODY, exact=True)
+                  if same_origin_form_post(scope) else None)
         token = fields.pop("token") if fields is not None else None
         back = clean_term(fields.pop("q")) if fields is not None else None     # navigation only, never signed
         if (fields is None or username is None or not signer.verify(token, username, fields)
@@ -691,23 +772,60 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
         seen = notice_mod.visible_notice(notices.current(), place_paths(viewer))
         return dataclasses.replace(shell, notice=seen) if seen is not None else shell
 
-    async def _gather(viewer: Viewer, next_up: bool = False) -> dict:
+    async def _gather(viewer: Viewer, extras: tuple = ()) -> dict:
         """The sections for the verified member, via the adapters' own principal checks and
-        bounded timeouts. One failing adapter costs its own section only. `next_up` (Home's Watch filter) also asks
-        the libraries that offer Up next, AFTER the others: a member holds at most two upstream calls per library at
-        once (contract.DEFAULT_MAX_IN_FLIGHT_PER_MEMBER), so a third alongside them would only be refused as busy."""
+        bounded timeouts. One failing adapter costs its own section only. `extras` (Up next for Watch, the shelves for
+        Listen and the Audiobooks chip, New releases for Comics and Read) are (library, section) pairs, asked of those
+        libraries only, AFTER the others: a member holds at most two upstream calls per library at once
+        (contract.DEFAULT_MAX_IN_FLIGHT_PER_MEMBER), so a third alongside them would only be refused as busy."""
         result = await run_in_threadpool(gather, viewer.principal, adapter_list, ("continue", "recent"),
                                         settings.section_limit)
         sections = list(result.sections)
         view = result.member_view()
-        if next_up:
-            more = await run_in_threadpool(gather, viewer.principal, adapter_list, ("next_up",), settings.section_limit)
+        if extras:
+            wanted = {service for service, _section in extras}
+            more = await run_in_threadpool(gather, viewer.principal,
+                                           [a for a in adapter_list if a.service.value in wanted],
+                                           tuple(dict.fromkeys(section for _service, section in extras)),
+                                           settings.section_limit)
             sections += more.sections
             view["sections"] += more.member_view()["sections"]
         for s in sections:
             log_event(app_log, logging.INFO, "section", service=s.service.value,
                       section=s.section, state=s.state.value, reason=s.reason or "")
         return view
+
+    def tv_member(viewer: Viewer) -> bool:
+        return REQUIRED_GROUP[Service.JELLYFIN] in viewer.groups
+
+    if qc is not None:
+        @app.post(forms_mod.TV_ROUTE, include_in_schema=False, response_model=None)
+        async def tv_approve(request: Request, viewer: Viewer = Depends(get_viewer)) -> Response:
+            """Approve a TV's Quick Connect code as this member (quickconnect.py has the guardrails). Every lock in
+            forms.py first; the answer is always a 303 back to the page with a fixed result id (post/redirect/get)."""
+            scope = request.scope
+            p = viewer.principal
+            if p is None or not tv_member(viewer):
+                # The same 501 as a POST to any other path (middleware.py): nobody without TV and Movies can tell
+                # from outside that this path takes a form.
+                scope["avrana_route"] = "method_not_supported"
+                return Response(NOT_IMPLEMENTED_BODY, status_code=501, media_type="text/html; charset=utf-8")
+            scope["avrana_route"] = forms_mod.TV_ROUTE
+            if not same_origin_form_post(scope):
+                return render("error.html", 403)
+            form = await forms_mod.read_form(request, TV_FIELDS)
+            if form is None:
+                return render("error.html", 400)
+            token, code = form.get("t"), form.get("code", "")
+            if form_tokens.check(token, "tv", p.username):
+                # A double-click or a resent page shares the first post's answer: one approval per form (forms.Replays).
+                outcome = await tv_replays.once((p.username, token, code),
+                                                lambda: run_in_threadpool(qc.approve, p, code))
+            else:
+                outcome = "expired"
+            log_event(app_log, logging.INFO, "quick_connect", state=outcome)       # never the code or the member
+            return Response(b"", status_code=303, media_type=HTML,
+                            headers=forms_mod.result_headers(outcome, TV_RESULTS))
 
     @app.exception_handler(StarletteHTTPException)
     async def _http_error(request: Request, exc: StarletteHTTPException) -> Response:
@@ -723,7 +841,8 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
 
     app.add_middleware(HygieneMiddleware, render_error=lambda: env.get_template("error.html")
                        .render().encode("utf-8"),
-                       post_paths=frozenset(path for path, on in ((bookreq_mod.PATH, broker is not None),
+                       post_paths=frozenset(path for path, on in ((forms_mod.TV_ROUTE, qc is not None),
+                                                                   (bookreq_mod.PATH, broker is not None),
                                                                    (watch_mod.PATH, seerr is not None)) if on))
     log_event(app_log, logging.INFO, "app_created")
     return app

@@ -28,6 +28,8 @@ from pathlib import Path
 from typing import Mapping, Optional
 from urllib.parse import urlsplit
 
+from .security import SecurityConfigError, parse_flows, parse_return_origin
+
 MOCK_API_KEY = "mock-api-key-not-real"          # obviously fake; the only key mock mode accepts
 DEFAULT_MOCK_JELLYFIN_URL = "http://127.0.0.1:18096"
 DEFAULT_CATALOGUE = Path(__file__).resolve().parents[3] / "avrana-portal" / "portal.py"
@@ -122,6 +124,8 @@ class Settings:
     catalogue_path: Path = DEFAULT_CATALOGUE
     notice_file: Optional[Path] = None           # HOME_NOTICE_FILE: the operator notice OliveTin writes (AVR-365)
     library_ids_file: Optional[Path] = None      # HOME_LIBRARY_IDS_FILE: the catalogue-id index (requests/owned.py)
+    security_flows: tuple = ()                   # HOME_SECURITY_FLOWS: owner-verified Authentik flows (security.py)
+    security_return_origin: str = ""             # HOME_SECURITY_RETURN_ORIGIN: "" = no `next` on the hand-off
     log_level: str = "INFO"
     host: str = "127.0.0.1"
     port: int = 8096
@@ -232,6 +236,18 @@ class Settings:
         if library_ids_file is not None and not library_ids_file.is_absolute():
             problems.append("HOME_LIBRARY_IDS_FILE must be an absolute path")
             library_ids_file = None
+        # Account & Security (security.py): Authentik flows the owner has verified on the deployed instance, and the
+        # origin Authentik may send members back to. Both default to off: every action opens Authentik's own settings.
+        try:
+            security_flows = parse_flows(get("HOME_SECURITY_FLOWS"))
+        except SecurityConfigError as exc:
+            problems.append(str(exc))
+            security_flows = ()
+        try:
+            security_return_origin = parse_return_origin(get("HOME_SECURITY_RETURN_ORIGIN"))
+        except SecurityConfigError as exc:
+            problems.append(str(exc))
+            security_return_origin = ""
 
         base_url = get("JELLYFIN_BASE_URL")
         key = _read_key(env, problems)
@@ -436,6 +452,11 @@ class Settings:
             problems.append("HOME_BOOK_REQUESTS acts as the member: real mode needs HOME_IDENTITY_MODE=jwt_required")
         if mode == "real" and watch_requests and id_mode != "jwt_required" and not sealed:
             problems.append("HOME_WATCH_REQUESTS acts as the member: real mode needs HOME_IDENTITY_MODE=jwt_required")
+        # The same holds for Jellyfin: Jellyfin gives every API key the Administrator role (CustomAuthenticationHandler,
+        # 10.11), and Home reads each member's viewing with it through `userId` (owner decision 2026-10-27, with
+        # Quick Connect approval planned on the same key: ME-PREFERENCES-PROFILE-QUICKCONNECT.md section 4).
+        if mode == "real" and id_mode != "jwt_required" and not sealed:
+            problems.append("JELLYFIN_API_KEY is an admin key: real mode needs HOME_IDENTITY_MODE=jwt_required")
 
         # Beta allowlist (AVR-373): a second lock behind the Authentik application binding. It only
         # means something when the username comes from a verified token, so any other mode refuses it.
@@ -455,6 +476,7 @@ class Settings:
                    watch_requests=watch_requests, seerr_base_url=seerr_url, seerr_api_key=seerr_key,
                    timeout=timeout, section_limit=limit,
                    health_detail=detail, pwa_sw=pwa_sw, motion_proposal=motion_proposal, catalogue_path=catalogue, notice_file=notice_file, library_ids_file=library_ids_file, log_level=level,
+                   security_flows=security_flows, security_return_origin=security_return_origin,
                    host=host, port=port, owner_preview=owner_preview, owner_preview_username=owner_name,
                    jellyfin_member_username=jf_member, audiobookshelf_member_username=abs_member,
                    preview_seal=_OWNER_PREVIEW_SEAL if owner_preview else None,

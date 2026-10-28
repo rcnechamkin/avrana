@@ -1,0 +1,10 @@
+[Unit]
+Description=Watch capped metadata APIs (TMDB, Hardcover, ComicVine, Metron, Google Books) for rate limits and breakage
+After=docker.service
+
+[Service]
+Type=oneshot
+# Passive: reads container logs and two read-only SQLite tables; spends no API quota. Exit 1 means an
+# incident is open (already mailed once through avrana-alert.py), so it is not a unit failure.
+SuccessExitStatus=1
+ExecStart=/usr/bin/python3 /home/cody/avrana/scripts/api-caps-monitor.py

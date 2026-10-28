@@ -128,7 +128,7 @@ dropped by default. A route with no allowlist is never written. What is kept sti
   the real title behind a placeholder. External URLs are never kept, with or without the flag.
 - Timestamps are kept only where an adapter reads them (Audiobookshelf `mediaProgress.lastUpdate`).
 - Komga is a shared regular-account view: the tool uses the regular key only and never requests `GET /api/v2/users`
-  (admin-only). It captures `/api/v1/books/latest`, one book and (with `--images`) its thumbnail: the routes the
+  (admin-only). It captures `/api/v1/books?sort=created,desc`, one book and (with `--images`) its thumbnail: the routes the
   shared-view adapter uses (#50). No series, restriction, age or sharing-label fields are kept.
 - A search term (optional; prefer `$env:AVRANA_CAPTURE_SEARCH_TERM`, which wins over `--search-term WORD`, because a
   command-line argument is visible in the process list and stays in shell history) also captures each adapter's

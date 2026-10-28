@@ -276,6 +276,50 @@ multiple options for views ... Go at it").
 | **Watch has Up next, Movies and TV shows** | The Watch filter shows Continue, then Up next (the next unwatched episode of each series the member watches, from the library's own Next Up list, minus what Continue already shows), then Recently added split into Movies and TV shows. Up next is a new read-only, user-scoped Jellyfin route (`/Shows/NextUp`), added to the allow-list, the contract and the OpenAPI subset (regenerated from the same two spec files, hashes unchanged). It is asked for only on the Watch filter, after the other sections, so a member never holds more than two calls to that library at once. |
 | **The Library has four layouts** | Large artwork (the default), small artwork, details (a small cover beside the words) and a plain list, chosen with `?view=` from four icon links; the chosen library and the chosen layout keep each other. Not remembered between visits (the page script stores nothing). |
 
+## Owner decisions, 2026-10-27: Library layout menu, Listen shelves, comics and ebooks on the live beta
+
+Recorded from the owner's chat of 2026-10-27 ("condensed into one small button ... more fluid ... reevaluate the
+view types ... categories for Listen ... flip the switch for doing comics and ebooks now").
+
+| Decision | Consequence |
+|---|---|
+| **One layout button** | The four layout icons become one small glass button beside Search ("Shelves ⌄") that opens a menu. With the page script, choosing a layout rearranges the cards in place, each gliding from its old place to its new one (about 0.4 s), and replaces the address; without it each choice is an ordinary link. |
+| **Layouts reworked** | Shelves (rows that scroll sideways, the default; a page with one row shows it as a grid), Grid (large covers), Compact (a dense wall of small covers, one line of title) and List (a small cover beside its words). The text-only list was dropped: covers are how people find media. `large`, `small` and `details` still open the layouts that replaced them. Choosing one library now shows its own rows (Movies and TV shows; Audiobooks' Recently added and shelves). |
+| **Audiobooks lead with what the library holds** | Audiobooks now has Recently added (it had none, so the Library said "Nothing recently added"), from each of the member's own libraries, every item checked against the member's own permissions exactly as search. Listen (Home) and the Audiobooks chip add four shelves: New releases (published this year or last), Classics (the library's own genres named "classic"), Short listens (30 minutes to 5 hours) and Epic listens (20 hours or more). No "trending" shelf: the upstream has no listening signal that is not another member's own history. Read shows one row per library (Comics, Books). |
+| **Comics and ebooks on the live beta** | The live beta compose adds Komga (`http://komga:25600`) and Calibre-Web (`http://calibre-web-automated:8083`) as shared views with the owner preview's existing secret files, on the owner's no-restriction statement of 2026-10-15 (recorded here: no member is restricted in either). A member still needs `avrana-comics` or `avrana-books`. Runbook: `docs/runbooks/home-beta-live.md`. |
+
+## Owner decisions, 2026-10-27: Recently added window, Library top right, artwork corners
+
+Recorded from the owner's chat of 2026-10-27 ("don't add just any old recently added books ... 'Search' feels
+redundant ... too rounded of corners ... a balance that's based on genuinely intelligent design principles").
+
+| Decision | Consequence |
+|---|---|
+| **Recently added means the last two months** | Audiobooks' Recently added keeps only items added in the last 60 days (`RECENT_DAYS`), however few. When none were, Listen's first row is titled Recently released and shows the newest releases instead; the separate New releases row is then not repeated. |
+| **Library top right is one icon button** | The Search utility is gone from the Library (Search is already a tab) and the layout button shows only the current layout's icon; its name stays for screen readers. The Library is otherwise left as it is for now. |
+| **Artwork corners scale with the art** | Cover and poster corners are about 5% of the frame's width, clamped to 4–12px (a 180px cover gets 9px, a rail poster 6px, a list thumbnail 4px, wide backdrops 12px), replacing one 20px radius. Containers keep their larger radii, so an inner curve is always the tighter one. |
+
+## Owner decision, 2026-10-28: comics Recently added
+
+Recorded from the owner's chat of 2026-10-28 ("the 'recent comics added' ... are not accurate what so ever"; agreed
+plan: "this works for now", may change later).
+
+| Decision | Consequence |
+|---|---|
+| **Comics Recently added is by date added, one per series, last two months** | Komga's Recently added reads `GET /api/v1/books?sort=created,desc` instead of `/api/v1/books/latest`: live, that route orders by last modification, so one new issue lifted its whole series, and 1,214 of 1,788 books share the 2025-07-26 bulk-scan second. Only books added in the last 60 days count, one book (the newest) per series. |
+| **Comics fall back to Recently released** | A New releases shelf (sorted by `metadata.releaseDate`, one per series; release dates more than 92 days ahead are ignored, since comics carry cover dates about two months ahead) follows Recently added on Comics. With nothing added in 60 days, Comics shows Recently released instead, and Read shows "Recently released comics" in the Comics row. The Library page is unchanged. |
+
+## Owner decision, 2026-10-27: artwork may be revalidated from the browser cache
+
+Recorded from the owner's chat of 2026-10-27 ("Do 3 and then 4", 4 being "artwork caching": artwork was
+`private, no-store`, so the phone fetched every cover again on every page).
+
+| Decision | Consequence |
+|---|---|
+| **`/art` is `private, no-cache` with an `ETag`** (amends D11 for `/art` only) | The browser may keep a cover but must ask before each use. The request runs the full check (group, then per-member visibility for Jellyfin and Audiobookshelf); only a member allowed to see it gets `304 Not Modified`, everyone else the same 404. No proxy may keep it (`private`). The ETag is a digest of the image bytes. Every other response stays `no-store` |
+| **No `max-age`** | A `max-age` would let the browser show a cover without asking, past a removed group or a hidden item. Revalidation saves the bytes over the tunnel, not the round trip |
+| Sign-out unchanged | `/signout`'s `Clear-Site-Data: "cache", "storage"` (D10) still clears the kept covers on that device |
+
 ## Proposed, 2026-10-28: Home asks Shelfarr for books on the member's behalf
 
 Recorded from the owner's chat of 2026-10-27 ("Upgrade Shelfarr and proceed with implementing that part even").
@@ -285,7 +329,7 @@ Proposed in a draft PR; nothing is deployed and the switch is off by default.
 |---|---|
 | **Shelfarr 2026.10.19.1 is the API** | The upgrade (PR #122) adds `/api/v1` with scoped tokens. Home holds ONE owner-minted token with `search:read requests:write requests:admin`; `requests:admin` is what lets it name the member. Members never mint keys. |
 | **The member is the principal** | The request names the verified principal's username, lower-cased. A form never carries a person; a member Shelfarr does not know is "not set up" (sign in to the request website once), never a request as someone else. |
-| **One signed form, no script** | Each format button is a small POST form whose fields Home signed for that member (HMAC, 15 minutes, per-process key), behind a same-origin check and a 4 KiB body limit. It is the first POST Home answers; every other path stays 501. |
+| **One signed form, no script** | Each format button is a small POST form whose fields Home signed for that member (HMAC, 15 minutes, per-process key), behind a same-origin check and a 4 KiB body limit. With "Sign in on a TV" (`/me/tv`), these are the only POSTs Home answers; every other path stays 501. |
 | **Formats follow library groups** | Ask for the ebook needs `avrana-books`; Ask for the audiobook needs `avrana-audiobooks`. A member with neither gets the standard 404. |
 | **Nothing is promised** | The words say a request was sent and where the book appears once it arrives; never that it has arrived, and never a queue position. |
 
@@ -309,4 +353,3 @@ instruction; the owner can reverse any of them.
 | **Search cache and per-member allowance** | Shelfarr results are shared for ten minutes (Home's own account), Seerr results per member for two; 40 upstream searches per member per ten minutes. Protects Hardcover/Google Books caps behind Shelfarr and Seerr's TMDB quota. |
 | **A stale index makes no claims** | Older than 36 hours or no build time: no "Already in" at all. |
 | **Credentials left in place (F-D3, F-D4)** | The Omnibus `JobLog` row and Shelfarr's legacy `api_token` are not touched: deleting rows in a live database or clearing a token whose consumer is unknown could break something for little gain (both are visible only to the owner). The fork fixes the leak at its source. |
-

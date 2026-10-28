@@ -63,7 +63,7 @@ class CoverTests(Fixture):
         self.assertEqual(200, r.status_code)
         self.assertEqual("image/jpeg", r.headers["content-type"])
         self.assertTrue(r.content.startswith(b"\xff\xd8\xff"))
-        self.assertEqual("private, no-store", r.headers["cache-control"])
+        self.assertEqual("private, no-cache", r.headers["cache-control"])
         self.assertEqual("nosniff", r.headers["x-content-type-options"])
         self.assertIn("/api/items/li_book000001/cover", self.abs.paths())
 
@@ -120,11 +120,10 @@ class ContinueListeningTests(Fixture):
         text = self.client().get("/", headers=BOTH_A).text
         for it in books["items"]:
             self.assertIn(f'href="{it["handoff_url"]}"', text)
-        # the adapter declares "recent" not offered (AVR-385): gather does not request it, so the member view
-        # has no audiobookshelf recent entry at all, and the HTML renders nothing for it
-        self.assertEqual([], [s for s in view["sections"]
-                              if s["service"] == "audiobookshelf" and s["section"] == "recent"])
-        self.assertNotIn("Recently added to Audiobooks", text)
+        # Recently added is offered since 2026-10-27 (owner decision): the member's own libraries, newest first
+        recent = [s for s in view["sections"] if s["service"] == "audiobookshelf" and s["section"] == "recent"]
+        self.assertEqual(1, len(recent))
+        self.assertIn(recent[0]["state"], ("ok", "empty"))
 
     def test_a_video_only_member_has_no_audiobook_trace_in_html_or_json_and_no_call(self):
         c = self.client()
@@ -234,7 +233,7 @@ class SettingsTests(unittest.TestCase):
 
     def test_real_mode_needs_url_and_token_together_and_the_gates(self):
         from avrana_home.app.settings import Settings, SettingsError
-        real = {"HOME_UPSTREAM_MODE": "real", "HOME_GATES_VERIFIED": "yes",
+        real = {"HOME_UPSTREAM_MODE": "real", "HOME_GATES_VERIFIED": "yes", **JWT_REQUIRED,
                 "JELLYFIN_BASE_URL": "https://jf.example.test", "JELLYFIN_API_KEY": "k"}
         Settings.from_mapping(real)                                   # Audiobookshelf stays off
         with self.assertRaises(SettingsError):
@@ -266,8 +265,11 @@ class SettingsTests(unittest.TestCase):
                 self.assertNotIn("sentinel-token", str(cm.exception))
         ok = Settings.from_mapping({**real, **JWT_REQUIRED})
         self.assertEqual("jwt_required", ok.identity_mode)
-        # Without Audiobookshelf nothing changes: real mode with headers keeps today's behaviour.
-        Settings.from_mapping({k: v for k, v in real.items() if not k.startswith("AUDIOBOOKSHELF_")})
+        # Without Audiobookshelf, real mode still needs verified identity: the Jellyfin key is an admin key too
+        # (owner decision 2026-10-27; test_settings.test_the_jellyfin_admin_key_in_real_mode_needs_verified_identity).
+        with self.assertRaises(SettingsError) as cm:
+            Settings.from_mapping({k: v for k, v in real.items() if not k.startswith("AUDIOBOOKSHELF_")})
+        self.assertIn("JELLYFIN_API_KEY is an admin key", str(cm.exception))
         # Mock mode is synthetic data: unaffected.
         Settings.from_mapping({"HOME_UPSTREAM_MODE": "mock", "AUDIOBOOKSHELF_BASE_URL": "http://127.0.0.1:18097"})
 

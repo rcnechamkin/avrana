@@ -12,6 +12,12 @@
 # (the second lock behind the avrana-beta group). A member is matched to their Jellyfin and Audiobookshelf
 # account by EXACT username (no mapping table); a name that differs shows "not set up".
 #
+# Comics (Komga) and ebooks (Calibre-Web) were added 2026-10-27 (owner: "flip the switch"). Both are SHARED views
+# (ADAPTER-CONTRACT 12.2, 13.2): one regular, non-admin Komga account's API key and one Calibre-Web viewer account,
+# the same secret files the owner preview uses. They are allowed only because the owner confirmed on 2026-10-15
+# that no member is restricted in either (docs/DECISIONS.md); a member still needs the avrana-comics or
+# avrana-books group to see them.
+#
 # Networks: `authentik_home_beta` (shared with authentik-server alone, the G1 pattern) and the existing
 # Docker networks of the libraries it reads, so every upstream is a Docker service name or the host gateway:
 # HTTPS across machines (settings.plain_http_allowed); a LAN address over http is refused. All external:
@@ -28,7 +34,7 @@ services:
         portal: ../avrana-portal
     image: avrana-home-live:local
     container_name: avrana-home-beta
-    networks: [authentik_home_beta, audiobookshelf_default]
+    networks: [authentik_home_beta, audiobookshelf_default, komga_default, calibre-web-automated_default]
     # Jellyfin runs on the host network (:8096): reached as host.docker.internal, never the LAN address.
     extra_hosts: ["host.docker.internal:host-gateway"]
     env_file: [beta-live.env]
@@ -43,8 +49,14 @@ services:
       - JELLYFIN_API_KEY_FILE=/run/secrets/jellyfin_api_key
       - AUDIOBOOKSHELF_BASE_URL=http://audiobookshelf:80
       - AUDIOBOOKSHELF_TOKEN_FILE=/run/secrets/audiobookshelf_token
+      - KOMGA_BASE_URL=http://komga:25600
+      - KOMGA_TOKEN_FILE=/run/secrets/komga_token
+      - KOMGA_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS=yes
+      - CALIBRE_WEB_BASE_URL=http://calibre-web-automated:8083
+      - CALIBRE_WEB_CREDENTIAL_FILE=/run/secrets/calibre_web_credential
+      - CALIBRE_WEB_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS=yes
       - TZ=America/Los_Angeles
-    secrets: [home_jwt_secret, jellyfin_api_key, audiobookshelf_token]
+    secrets: [home_jwt_secret, jellyfin_api_key, audiobookshelf_token, komga_token, calibre_web_credential]
     read_only: true
     tmpfs: ["/tmp:size=16m,mode=1777"]
     security_opt: [no-new-privileges:true]
@@ -68,6 +80,12 @@ networks:
   # Audiobookshelf's own compose network (service name `audiobookshelf`, container port 80; checked 2026-10-27).
   audiobookshelf_default:
     external: true
+  # Komga's and Calibre-Web Automated's own compose networks (container names `komga` port 25600 and
+  # `calibre-web-automated` port 8083; checked read-only on avrana 2026-10-27).
+  komga_default:
+    external: true
+  calibre-web-automated_default:
+    external: true
 
 secrets:
   home_jwt_secret:
@@ -76,3 +94,7 @@ secrets:
     file: ./secrets/jellyfin_api_key
   audiobookshelf_token:
     file: ./secrets/audiobookshelf_token
+  komga_token:
+    file: ./secrets/komga_token
+  calibre_web_credential:
+    file: ./secrets/calibre_web_credential

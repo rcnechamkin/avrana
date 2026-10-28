@@ -70,7 +70,7 @@ class ArtworkRouteTests(Fixture):
                 self.assertEqual(200, r.status_code)
                 self.assertEqual("image/png", r.headers["content-type"])
                 self.assertTrue(r.content.startswith(PNG))
-                self.assertEqual("private, no-store", r.headers["cache-control"])
+                self.assertEqual("private, no-cache", r.headers["cache-control"])
                 self.assertNotIn("public", r.headers["cache-control"])
                 self.assertEqual("nosniff", r.headers["x-content-type-options"])
                 self.assertEqual("no-referrer", r.headers["referrer-policy"])
@@ -153,6 +153,65 @@ class ArtworkRouteTests(Fixture):
         self.assertEqual(200, c.head(A_ONLY_FILM, headers=JF_A).status_code)
 
 
+class RevalidationTests(Fixture):
+    """`private, no-cache` + ETag: a 304 only after the same checks as a first fetch, never instead of them."""
+
+    def first(self, c, path, headers):
+        r = c.get(path, headers=headers)
+        self.assertEqual(200, r.status_code)
+        return r.headers["etag"]
+
+    def test_a_cover_carries_a_strong_validator_of_its_bytes_only(self):
+        c = self.client()
+        for path, headers in ((A_ONLY_FILM, JF_A), (COMIC_BOOK, KG_A)):
+            with self.subTest(path=path):
+                r = c.get(path, headers=headers)
+                self.assertRegex(r.headers["etag"], r'^"[0-9a-f]{32}"$')
+                self.assertEqual(r.headers["etag"], c.get(path, headers=headers).headers["etag"])
+        # Shared view: two members see the same bytes, so the same validator; it names no member.
+        self.assertEqual(self.first(c, ADULT_BOOK, KG_A), self.first(c, ADULT_BOOK, KG_B))
+
+    def test_a_matching_validator_gets_304_with_no_body_and_the_usual_headers(self):
+        c = self.client()
+        etag = self.first(c, A_ONLY_FILM, JF_A)
+        for value in (etag, "W/" + etag, '"other", ' + etag, "*"):
+            with self.subTest(value=value):
+                r = c.get(A_ONLY_FILM, headers=JF_A + [("If-None-Match", value)])
+                self.assertEqual(304, r.status_code)
+                self.assertEqual(b"", r.content)
+                self.assertEqual(etag, r.headers["etag"])
+                self.assertEqual("private, no-cache", r.headers["cache-control"])
+                self.assertEqual("nosniff", r.headers["x-content-type-options"])
+                self.assertIn("content-security-policy", r.headers)
+        self.assertEqual(304, c.head(A_ONLY_FILM, headers=JF_A + [("If-None-Match", etag)]).status_code)
+
+    def test_a_different_absent_or_oversized_validator_gets_the_full_image(self):
+        c = self.client()
+        etag = self.first(c, A_ONLY_FILM, JF_A)
+        for extra in ([("If-None-Match", '"0000"')], [], [("If-None-Match", etag + "," + " " * 600)],
+                      [("If-None-Match", etag), ("If-None-Match", etag)]):
+            with self.subTest(extra=extra[:1]):
+                r = c.get(A_ONLY_FILM, headers=JF_A + extra)
+                self.assertEqual(200, r.status_code)
+                self.assertTrue(r.content.startswith(PNG))
+
+    def test_a_member_who_may_not_see_the_cover_gets_404_even_with_the_right_validator(self):
+        c = self.client()
+        etag = self.first(c, A_ONLY_FILM, JF_A)
+        for headers in (JF_B, NO_VIDEO):
+            for value in (etag, "*"):
+                with self.subTest(user=headers[0][1], value=value):
+                    self.assertStandard404(c.get(A_ONLY_FILM, headers=headers + [("If-None-Match", value)]))
+
+    def test_no_304_when_the_visibility_check_cannot_run(self):
+        c = self.client()
+        etag = self.first(c, A_ONLY_FILM, JF_A)
+        self.jf.set_mode("down")
+        r = c.get(A_ONLY_FILM, headers=JF_A + [("If-None-Match", etag)])
+        self.assertEqual(404, r.status_code)
+        self.assertNotIn("etag", r.headers)
+
+
 class _Svg(StubAdapter):
     """Whatever the adapter hands back, the gateway re-checks it."""
     result = ArtworkResult(SectionState.OK, "image/svg+xml", b"<svg onload=alert(1)></svg>")
@@ -185,7 +244,7 @@ class GatewayRecheckTests(unittest.TestCase):
         self.assertEqual(404, self.serve(ArtworkResult(SectionState.OK, "image/png", b"")).status_code)
         ok = self.serve(ArtworkResult(SectionState.OK, "image/png", PNG + b"x"))
         self.assertEqual(200, ok.status_code)
-        self.assertEqual("private, no-store", ok.headers["cache-control"])
+        self.assertEqual("private, no-cache", ok.headers["cache-control"])
 
     def test_every_non_ok_state_is_the_same_404(self):
         for state in (SectionState.EMPTY, SectionState.NOT_PERMITTED, SectionState.UNAVAILABLE,

@@ -327,7 +327,7 @@ own cached bytes be served; a hidden item, a lost mapping or an unreachable upst
 entry is dropped. Only the image bytes are cached, never the permission. For a shared view (Komga,
 Calibre-Web) there is no per-member visibility: the group is checked first on every request, and a
 book removed from the one account's view can still have its cover served from that member's own cache
-for up to `ARTWORK_TTL` (300 s). The browser is told `Cache-Control: private, no-store`; a browser that
+for up to `ARTWORK_TTL` (300 s). The browser is told `Cache-Control: private, no-cache` with an `ETag`, so it must revalidate (same checks, 304 only if allowed) before every use; a browser that
 already holds the bytes in an open page keeps showing them until the page is reloaded (residual, not
 fixable from the server). Tests: `tests/test_h2_security.py`.
 

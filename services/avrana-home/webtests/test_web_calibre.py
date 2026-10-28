@@ -109,7 +109,7 @@ class ArtworkTests(Fixture):
         r = self.client().get("/art/calibre-web/cover/101", headers=BOOKS)
         self.assertEqual(200, r.status_code)
         self.assertEqual("image/png", r.headers["content-type"])
-        self.assertEqual("private, no-store", r.headers["cache-control"])
+        self.assertEqual("private, no-cache", r.headers["cache-control"])
         self.assertEqual("nosniff", r.headers["x-content-type-options"])
 
     def test_the_same_404_rules_apply(self):
@@ -142,7 +142,8 @@ class ArtworkTests(Fixture):
 
 class SettingsTests(unittest.TestCase):
     REAL = {"HOME_UPSTREAM_MODE": "real", "HOME_GATES_VERIFIED": "yes",
-            "JELLYFIN_BASE_URL": "https://jf.example.test", "JELLYFIN_API_KEY": "k"}
+            "JELLYFIN_BASE_URL": "https://jf.example.test", "JELLYFIN_API_KEY": "k",
+            "HOME_IDENTITY_MODE": "jwt_required", "HOME_JWT_ISSUER": "https://auth.example.test/application/o/t/", "HOME_JWT_AUDIENCE": "t", "HOME_JWT_SECRET": "x" * 48}
     CW = {"CALIBRE_WEB_BASE_URL": "https://cw.example.test", "CALIBRE_WEB_CREDENTIAL": "viewer:sentinel-cw"}
     OWNER = {"CALIBRE_WEB_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS": "yes"}
 
