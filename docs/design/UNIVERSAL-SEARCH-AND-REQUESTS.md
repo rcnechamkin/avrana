@@ -162,9 +162,10 @@ no index is needed for library search.
    - Film and TV: exact. Seerr's `mediaInfo.jellyfinMediaId`, or Jellyfin `ProviderIds.Tmdb`
      (`media_ids.py` already reads upstream ids).
    - Audiobooks: ISBN or ASIN from Audiobookshelf (`Book.isbn`, `Book.asin`) against Shelfarr editions.
-   - Ebooks: Calibre-Web's OPDS carries no ISBN (R1 `books.md` §3), so title plus author, normalised; mark
-     it as a likely match, never certain.
-   - Comics: Omnibus records ComicVine ids, Komga rarely has ISBNs; title, year and issue number, likely only.
+   - Ebooks: Calibre-Web's OPDS carries no ISBN (R1 `books.md` §3), but Calibre's own database does: every book
+     carries a Hardcover id, the same id Shelfarr returns. Exact join, see `API-CAPS-AND-MATCHING.md`.
+   - Comics: Omnibus records ComicVine ids with each series folder; joined to Komga by path, exact at series
+     level (`API-CAPS-AND-MATCHING.md`).
    - The match must use only the member's own library results, so a match never reveals a title the member
      cannot see.
 4. **Request status overlay** per member (part 1): *Requested by you* with the upstream stage; *Already
@@ -198,6 +199,11 @@ no index is needed for library search.
 3. Seerr write path behind the confirmation page, after AVR-348.
 4. Shelfarr upgrade, then its discovery and write path.
 5. Comics: keep the link-out; propose the Omnibus API change upstream if the owner wants in-app comic requests.
+
+## Follow-up documents (2026-10-28)
+
+- `REQUEST-FORKS-PLAN.md`: what to change in Seerr, Shelfarr and Omnibus (security and features), and in what order.
+- `API-CAPS-AND-MATCHING.md`: the API-cap monitor and exact id matching for books and comics.
 
 ## Open owner decisions
 
