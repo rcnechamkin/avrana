@@ -56,7 +56,7 @@ the Jellyfin key and the Audiobookshelf token in their admin pages.
 ## 3. Build and start
 
 ```sh
-docker build -f Dockerfile.live --build-context portal=../avrana-portal -t avrana-home-live:local .
+docker compose -p avrana-home-beta -f docker-compose.beta-live.yml build   # avrana has no buildx; compose builds it
 docker compose -p avrana-home-beta -f docker-compose.beta-live.yml config --quiet && echo config-ok
 docker compose -p avrana-home-beta -f docker-compose.beta-live.yml up -d --dry-run   # one container, no network created
 docker compose -p avrana-home-beta -f docker-compose.beta-live.yml up -d
