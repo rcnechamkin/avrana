@@ -10,6 +10,7 @@ User units, installed in `/home/cody/.config/systemd/user/` (lingering is enable
 | `avrana-restore-test.timer` | Sunday 04:30 | `services/backups/restore-test.py --alert` |
 | `services-health.timer` | every 15 minutes | `scripts/services-health.sh` |
 | `omnibus-cache-purge.timer` | daily | clears the Omnibus cache |
+| `api-caps-monitor.timer` | every 30 minutes (proposed, not installed) | `scripts/api-caps-monitor.py`: TMDB, Hardcover, ComicVine, Metron and Google Books rate limits and key failures, from logs and read-only tables; mails new incidents |
 | `../storage/systemd/avrana-boot-verify.timer` | 5 minutes after boot | `deploy/storage/boot-verify.sh` |
 
 `avrana-cloudflared-restart.path` and `.service` are **system** units for the OliveTin "restart tunnel"
