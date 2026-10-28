@@ -6,9 +6,15 @@
      4. the art flight into a title page during a page-to-page transition, 5. where the browser exposes the
         active transition, ending it on the first press, so a touch tap then reaches the page (MK-6, AVR-720), and
      6. art that fades in once it has loaded, and the letter back in its frame if an image fails (owner review
-        2026-10-27).
-   It reads no member data, uses no browser storage, builds no HTML from text and does nothing when its elements
-   are absent. Inline preview behaviour (MK-4) is not here yet. */
+        2026-10-27),
+     7. a press state on iPhone (Safari shows :active only when the page listens for touches), and
+     8. the title sheet: a title link on a shell page opens the title page as a sheet that grows out of the art that
+        was tapped, over the page, which stays as it was underneath (owner decision 2026-10-27). It is the one request
+        this script makes and the one place it prevents the browser's navigation: it fetches the same-origin title
+        page the link names, with the member's own cookies, and shows that page's title section. Anything unexpected
+        (a redirect, an error, an older browser) and the link simply navigates, as it does with the script off.
+   It uses no browser storage, writes no HTML from text and does nothing when its elements are absent; only the
+   title sheet (8) reads member data, and only the title page the member asked for. Inline preview behaviour (MK-4) is not here yet. */
 (function () {
   'use strict';
 
@@ -188,8 +194,8 @@
      in; one already loaded is left alone. An image that fails is taken out of its frame, so the frame's letter shows
      again (the stylesheet hides the letter only while the frame holds an image). Lazy images below the fold are
      covered too: they are simply incomplete until the browser fetches them. */
-  function arrive() {
-    var images = document.querySelectorAll('img.art');
+  function arrive(root) {
+    var images = (root || document).querySelectorAll('img.art');
     Array.prototype.forEach.call(images, function (img) {
       function done() { img.classList.remove('k-wait'); }
       function failed() { if (img.parentNode) img.parentNode.removeChild(img); }
@@ -203,10 +209,335 @@
     });
   }
 
+  /* 7. iPhone press state. Safari applies :active to a tapped element only when the document has a touch listener;
+     this one does nothing else. */
+  function press() {
+    document.addEventListener('touchstart', noop, { passive: true });
+  }
+
+  /* 8. Title sheet. Contract: a link on a shell page (one with the tab bar, and not itself a title page) whose
+     same-origin path starts /title/. On a plain press it opens <dialog class="k-sheet"> (modal: focus stays inside,
+     Escape closes, the page behind is inert), pushes the title's own URL (so Back closes it, and a reload or a shared
+     link is the full title page), and grows a card from the tapped art to the sheet. The art stands in, blurred,
+     until the title page arrives; its .title-page section (or .title-down, when the library is unavailable) is
+     brought in without any script, frame, object or form it might contain. Closing (the close button, Escape, a press
+     outside, Back, or a downward pull from the top of the sheet, which follows the finger) shrinks the card back into
+     the art when that is still on screen, or lets it fall away. With Reduce Motion everything happens at once. No
+     style is written: movement is Web Animations, the look is the stylesheet's. */
+  var EASE_SHEET = 'cubic-bezier(0.32, 0.72, 0, 1)';
+  var OPEN_MS = 380;
+  var CLOSE_MS = 300;
+
+  function still() {
+    return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  }
+
+  function svgClose() {
+    var ns = 'http://www.w3.org/2000/svg';
+    var svg = document.createElementNS(ns, 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('width', '20');
+    svg.setAttribute('height', '20');
+    svg.setAttribute('aria-hidden', 'true');
+    svg.setAttribute('focusable', 'false');
+    var path = document.createElementNS(ns, 'path');
+    path.setAttribute('d', 'M6 6l12 12M18 6 6 18');
+    svg.appendChild(path);
+    return svg;
+  }
+
+  function sheet() {
+    if (!document.querySelector('nav.tabbar') || document.querySelector('.title-page, .title-down')) return;
+    if (typeof window.HTMLDialogElement !== 'function' || typeof window.fetch !== 'function' ||
+        typeof window.DOMParser !== 'function' || !window.history || !window.history.pushState) return;
+    if (typeof document.createElement('div').animate !== 'function') return;
+
+    var dialog = null, scrim = null, card = null, body = null;
+    var origin = null, opener = null, pageTitle = document.title, busy = false, pushed = false, generation = 0, pendingFrom = null;
+
+    function build() {
+      dialog = document.createElement('dialog');
+      dialog.className = 'k-sheet';
+      dialog.setAttribute('aria-label', 'Title');
+      scrim = document.createElement('div');
+      scrim.className = 'k-sheet-scrim';
+      card = document.createElement('div');
+      card.className = 'k-sheet-card';
+      var closer = document.createElement('button');
+      closer.type = 'button';
+      closer.className = 'k-sheet-close glass';
+      closer.setAttribute('aria-label', 'Close');
+      closer.appendChild(svgClose());
+      body = document.createElement('div');
+      body.className = 'k-sheet-body';
+      card.appendChild(closer);
+      card.appendChild(body);
+      dialog.appendChild(scrim);
+      dialog.appendChild(card);
+      document.body.appendChild(dialog);
+      closer.addEventListener('click', ask);
+      scrim.addEventListener('click', ask);
+      dialog.addEventListener('cancel', function (event) { event.preventDefault(); ask(); });
+      pull();
+    }
+
+    /* The card's own box, untransformed (the dialog fills the viewport, so this is its place on screen). */
+    function box() {
+      return { left: card.offsetLeft, top: card.offsetTop, width: card.offsetWidth, height: card.offsetHeight };
+    }
+
+    function full() {
+      var r = window.getComputedStyle(card).borderTopLeftRadius || '0px';
+      return 'inset(0px 0px 0px 0px round ' + r + ' ' + r + ' 0px 0px)';
+    }
+
+    /* The card scaled evenly (so nothing distorts) onto `rect`, and cropped to its height. */
+    function onto(rect) {
+      var b = box();
+      var scale = rect.width / b.width;
+      var cut = Math.max(0, b.height - rect.height / scale);
+      return {
+        transform: 'translate(' + (rect.left - b.left) + 'px, ' + (rect.top - b.top) + 'px) scale(' + scale + ')',
+        clipPath: 'inset(0px 0px ' + cut + 'px 0px round ' + (12 / scale) + 'px)'
+      };
+    }
+
+    function shown(element) {
+      return !!element && element.isConnected && visible(element);
+    }
+
+    function standIn(src) {
+      var holder = document.createElement('div');
+      holder.className = 'k-sheet-standin';
+      holder.setAttribute('aria-hidden', 'true');
+      if (src) {
+        var img = document.createElement('img');
+        img.alt = '';
+        img.src = src;
+        holder.appendChild(img);
+      }
+      return holder;
+    }
+
+    function clean(section) {
+      Array.prototype.forEach.call(section.querySelectorAll('script, iframe, object, embed, form'), function (bad) {
+        bad.parentNode.removeChild(bad);
+      });
+      return section;
+    }
+
+    function load(href, mine) {
+      return window.fetch(href, { credentials: 'same-origin', redirect: 'manual', cache: 'no-store' })
+        .then(function (response) {
+          if (!response.ok || response.type !== 'basic' || response.redirected) throw new Error('not a title page');
+          return response.text();
+        })
+        .then(function (text) {
+          if (mine !== generation) return null;
+          var doc = new window.DOMParser().parseFromString(text, 'text/html');
+          var section = doc.querySelector('main .title-page, main .title-down');
+          if (!section) throw new Error('not a title page');
+          return { section: document.importNode(clean(section), true), title: doc.title };
+        });
+    }
+
+    function open(link) {
+      if (busy) return;
+      busy = true;
+      var mine = ++generation;
+      if (!dialog) build();
+      opener = link;
+      var holder = link.closest('.hero, li');
+      origin = holder ? holder.querySelector('.frame, .hero-backdrop') : null;
+      if (!shown(origin)) origin = shown(link) ? link : null;
+      var img = origin ? origin.querySelector('img.art') : null;
+      var href = link.href;
+      while (body.firstChild) body.removeChild(body.firstChild);
+      var stand = standIn(img && img.complete && img.naturalWidth ? img.currentSrc || img.src : null);
+      card.insertBefore(stand, body);
+      dialog.removeAttribute('aria-labelledby');
+      dialog.setAttribute('aria-label', 'Title');
+      dialog.setAttribute('aria-busy', 'true');
+      dialog.showModal();
+      card.scrollTop = 0;
+      window.history.pushState({ kSheet: true }, '', href);
+      pushed = true;
+
+      var moving = Promise.resolve();
+      if (!still()) {
+        var from = origin ? onto(origin.getBoundingClientRect()) : { transform: 'translateY(100%)', clipPath: full() };
+        var grow = card.animate([from, { transform: 'none', clipPath: full() }], { duration: OPEN_MS, easing: EASE_SHEET });
+        /* A hidden page may hold animations still: the title shows when the growth ends, or shortly after it should
+           have, whichever comes first. */
+        moving = Promise.race([grow.finished.catch(noop), new Promise(function (resolve) {
+          window.setTimeout(resolve, OPEN_MS + 120);
+        })]);
+        scrim.animate([{ opacity: 0 }, { opacity: 1 }], { duration: OPEN_MS, easing: 'ease-out' });
+      }
+      Promise.all([load(href, mine), moving]).then(function (done) {
+        var page = done[0];
+        if (!page || mine !== generation) return;
+        body.appendChild(page.section);
+        arrive(body);
+        if (body.querySelector('#h-title')) {
+          dialog.removeAttribute('aria-label');
+          dialog.setAttribute('aria-labelledby', 'h-title');
+        }
+        dialog.removeAttribute('aria-busy');
+        if (page.title) document.title = page.title;
+        busy = false;
+        if (still()) { stand.parentNode.removeChild(stand); return; }
+        body.animate([{ opacity: 0, transform: 'translateY(8px)' }, { opacity: 1, transform: 'none' }],
+          { duration: 200, easing: EASE_SHEET });
+        stand.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 200, easing: 'ease-out', fill: 'forwards' })
+          .finished.then(function () { if (stand.parentNode) stand.parentNode.removeChild(stand); }, noop);
+      }, function () {
+        /* Not a title page this script can show (signed out, a redirect, an error): load it for real. */
+        if (mine === generation) window.location.assign(href);
+      });
+    }
+
+    /* Close from the sheet's own controls: going back pops the title's URL, and that closes it (popstate, below). */
+    function ask() {
+      if (!dialog || !dialog.open) return;
+      if (pushed) window.history.back();
+      else shut(null);
+    }
+
+    function finish() {
+      generation++;
+      busy = false;
+      pushed = false;
+      var inside = dialog.contains(document.activeElement);
+      if (dialog.open) dialog.close();
+      /* Focus goes back to the link that opened the sheet (the dialog returns it only to what had focus before). */
+      if (inside && opener && opener.isConnected) opener.focus({ preventScroll: true });
+      while (body.firstChild) body.removeChild(body.firstChild);
+      var stand = card.querySelector('.k-sheet-standin');
+      if (stand) stand.parentNode.removeChild(stand);
+      card.getAnimations().forEach(function (a) { a.cancel(); });
+      scrim.getAnimations().forEach(function (a) { a.cancel(); });
+      document.title = pageTitle;
+    }
+
+    /* `from`: the dragged state to start from, or null for the card at rest. */
+    function shut(from) {
+      if (!dialog || !dialog.open) return;
+      if (still()) { finish(); return; }
+      var home = shown(origin);
+      var to = home ? onto(origin.getBoundingClientRect()) : { transform: 'translateY(100%)', clipPath: full() };
+      var scrimFrom = window.getComputedStyle(scrim).opacity;
+      card.getAnimations().forEach(function (a) { a.cancel(); });
+      scrim.getAnimations().forEach(function (a) { a.cancel(); });
+      card.animate([from || { transform: 'none', clipPath: full() }, to],
+        { duration: CLOSE_MS, easing: EASE_SHEET, fill: 'forwards' });
+      if (home) {
+        card.animate([{ opacity: 1, offset: 0 }, { opacity: 1, offset: 0.7 }, { opacity: 0, offset: 1 }],
+          { duration: CLOSE_MS, fill: 'forwards' });
+      }
+      var mine = generation, done = false;
+      function once() { if (!done && mine === generation) { done = true; finish(); } }
+      scrim.animate([{ opacity: scrimFrom }, { opacity: 0 }], { duration: CLOSE_MS, easing: 'ease-out', fill: 'forwards' })
+        .finished.then(once, once);
+      window.setTimeout(once, CLOSE_MS + 120);       /* a hidden page may hold the animation still */
+    }
+
+    /* A downward pull that starts with the sheet scrolled to its top follows the finger: the card drops and shrinks
+       a little and the page behind clears. Let go past a third of the way (or with a flick) and it closes; otherwise
+       it settles back. Touch only: a mouse uses the close button, Escape or a press outside. */
+    function pull() {
+      var startY = 0, lastY = 0, lastT = 0, speed = 0, dragging = false, armed = false, drag = null, dim = null;
+      var reach = 1;
+      function state(progress) {
+        var k = 1 - 0.3 * progress;
+        return {
+          transform: 'translate(' + (box().width * (1 - k) / 2) + 'px, ' + (progress * reach) + 'px) scale(' + k + ')',
+          clipPath: full()
+        };
+      }
+      card.addEventListener('touchstart', function (event) {
+        armed = !busy && event.touches.length === 1 && card.scrollTop <= 0;
+        if (!armed) return;
+        startY = lastY = event.touches[0].clientY;
+        lastT = Date.now();
+        speed = 0;
+      }, { passive: true });
+      card.addEventListener('touchmove', function (event) {
+        if (!armed) return;
+        var y = event.touches[0].clientY;
+        var dy = y - startY;
+        if (!dragging) {
+          if (dy < -4) { armed = false; return; }
+          if (dy <= 4) return;
+          dragging = true;
+          reach = window.innerHeight * 0.6;
+          drag = card.animate([state(0), state(1)], { duration: 1000, fill: 'both' });
+          drag.pause();
+          dim = scrim.animate([{ opacity: 1 }, { opacity: 0.15 }], { duration: 1000, fill: 'both' });
+          dim.pause();
+        }
+        event.preventDefault();
+        var now = Date.now();
+        speed = (y - lastY) / Math.max(1, now - lastT);
+        lastY = y;
+        lastT = now;
+        var progress = Math.max(0, Math.min(1, dy / reach));
+        drag.currentTime = progress * 1000;
+        dim.currentTime = progress * 1000;
+      }, { passive: false });
+      function release() {
+        armed = false;
+        if (!dragging) return;
+        dragging = false;
+        var progress = (drag.currentTime || 0) / 1000;
+        if (progress > 0.33 || (speed > 0.6 && progress > 0.05)) {
+          var from = state(progress);
+          drag.cancel();
+          if (pushed) { pendingFrom = from; window.history.back(); }
+          else shut(from);
+        } else {
+          drag.reverse();
+          dim.reverse();
+          var settling = drag, clearing = dim;
+          settling.finished.then(function () { settling.cancel(); clearing.cancel(); }, noop);
+        }
+      }
+      card.addEventListener('touchend', release, { passive: true });
+      card.addEventListener('touchcancel', release, { passive: true });
+    }
+
+    window.addEventListener('popstate', function (event) {
+      if (dialog && dialog.open) {
+        var from = pendingFrom;
+        pendingFrom = null;
+        pushed = false;
+        shut(from);
+        return;
+      }
+      /* Forward onto a title's URL while the sheet is closed: show that title page for real. */
+      if (event.state && event.state.kSheet) window.location.reload();
+    });
+
+    document.addEventListener('click', function (event) {
+      if (event.defaultPrevented || event.button !== 0 ||
+          event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      var from = event.target;
+      var link = from && typeof from.closest === 'function' ? from.closest('a[href]') : null;
+      if (!link || (dialog && dialog.contains(link))) return;
+      if (link.origin !== window.location.origin || link.pathname.indexOf('/title/') !== 0) return;
+      var target = link.getAttribute('target');
+      if ((target && target !== '_self') || link.hasAttribute('download')) return;
+      event.preventDefault();
+      open(link);
+    });
+  }
+
   lens();
   bfcache();
   worker();
   flight();
   interrupt();
   arrive();
+  press();
+  sheet();
 })();

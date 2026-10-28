@@ -29,7 +29,8 @@ from .support import GROUPS, USER, StubAdapter, make_client, make_settings, requ
 require_framework()
 
 TEMPLATES = Path(__file__).resolve().parents[1] / "avrana_home" / "app" / "templates"
-SHELL_SOURCES = "; manifest-src 'self'; font-src 'self'; script-src 'self'; worker-src 'self'"   # + MK-3, O1
+SHELL_SOURCES = ("; manifest-src 'self'; font-src 'self'; script-src 'self'; worker-src 'self'"   # + MK-3, O1
+                 "; connect-src 'self'")                                                    # + the title sheet
 KEY = "mock-api-key-not-real"
 CRED = "viewer:mock-api-key-not-real"
 NAME = "X-authentik-name"

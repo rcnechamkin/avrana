@@ -16,7 +16,7 @@ require_framework()
 MEMBER = [(USER, "member-a"), (GROUPS, "avrana-users|avrana-videos")]
 NO_GROUPS_HEADER = [(USER, "member-a")]                     # no principal: the portal's no-group view
 # MK-3 (AVR-717, owner decision O1): shell pages alone also get script-src and worker-src, both 'self'.
-SHELL_SOURCES = "; manifest-src 'self'; font-src 'self'; script-src 'self'; worker-src 'self'"
+SHELL_SOURCES = "; manifest-src 'self'; font-src 'self'; script-src 'self'; worker-src 'self'; connect-src 'self'"
 MANIFEST_CSP = CSP.decode() + SHELL_SOURCES
 HEAD_TAGS = ('<link rel="manifest" href="/manifest.webmanifest" crossorigin="use-credentials">',
              '<link rel="icon" href="/brand/favicon.svg" type="image/svg+xml">',
@@ -143,7 +143,8 @@ class HeadTagsAndCsp(Base):
                 self.assertEqual(1, csp.count("unsafe-inline"))                 # style-src only
                 self.assertIn("style-src 'unsafe-inline'", csp)
                 self.assertIn("script-src 'self'; worker-src 'self'", csp)
-                self.assertNotIn("connect-src", csp)                            # D12: the worker's response alone
+                # the title sheet's one same-origin fetch (owner decision 2026-10-27; was D12, the worker alone)
+                self.assertEqual(1, csp.count("connect-src 'self'"))
 
     def test_every_other_route_keeps_the_csp_unchanged(self):
         c = self.client()

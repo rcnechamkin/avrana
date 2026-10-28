@@ -29,7 +29,7 @@ A = [(USER, "member-a"), (NAME, "Alice Aardvark"), (GROUPS, "avrana-users|avrana
 B = [(USER, "member-b"), (NAME, "Bertram Bobcat"), (GROUPS, "avrana-users|avrana-videos|avrana-audiobooks|avrana-books")]
 NO_GROUPS = [(USER, "member-a")]
 BASE = CSP.decode()
-SHELL = BASE + "; manifest-src 'self'; font-src 'self'; script-src 'self'; worker-src 'self'"
+SHELL = BASE + "; manifest-src 'self'; font-src 'self'; script-src 'self'; worker-src 'self'; connect-src 'self'"
 SIGNOUT = "/outpost.goauthentik.io/sign_out"
 SCRIPT = '<script src="%s" defer></script>'
 JS_FORBIDDEN = re.compile(r"innerHTML|outerHTML|insertAdjacentHTML|\beval\b|new Function|document\.write|setTimeout\(\s*['\"]"
@@ -78,10 +78,16 @@ class PageScript(Base):
             self.assertEqual((404, nf), (r.status_code, r.text), path)
 
     def test_the_script_source_has_no_dangerous_api_and_reads_no_member_data(self):
-        """Threat 1 and 12: no HTML from text, no eval, no storage, no cookies, no network of its own."""
+        """Threat 1 and 12: no HTML written from text, no eval, no storage, no cookies. One request only: the title
+        sheet's fetch of the same-origin title page a member opened (owner decision 2026-10-27, replacing D13's "no
+        requests"), with the member's own cookies, no redirect followed, parsed inert and stripped of anything active."""
         source = pwa.script_bytes().decode("utf-8")
         self.assertIsNone(JS_FORBIDDEN.search(source), JS_FORBIDDEN.search(source))
-        self.assertNotIn("fetch(", source)                                         # D13: no heartbeat, no requests
+        self.assertEqual(1, source.count("fetch("))
+        self.assertIn("window.fetch(href, { credentials: 'same-origin', redirect: 'manual', cache: 'no-store' })", source)
+        self.assertIn("link.origin !== window.location.origin || link.pathname.indexOf('/title/') !== 0", source)
+        self.assertIn("querySelectorAll('script, iframe, object, embed, form')", source)
+        self.assertIn("window.location.assign(href)", source)                      # anything unexpected: navigate
         self.assertNotIn("/home.json", source)
         self.assertNotIn("http://", source.replace("http://www.w3.org", ""))
         self.assertNotIn("https://", source)
@@ -90,7 +96,9 @@ class PageScript(Base):
         source = pwa.script_bytes().decode("utf-8")
         for needle in ("nav.tabbar", "a.tab", "data-at", "aria-current", "prefers-reduced-motion"):
             self.assertIn(needle, source)
-        self.assertNotIn("preventDefault", source)                                 # the browser always navigates
+        # the browser always navigates, except a title link the sheet takes (and the sheet's own Escape and pull)
+        self.assertEqual(3, source.count("preventDefault"))
+        self.assertNotIn("preventDefault", source.split("function sheet()", 1)[0])
         # a tab whose URL differs from this page's only by the hash is a same-document jump: the lens is left alone
         self.assertIn("tab.origin + tab.pathname + tab.search === window.location.origin + window.location.pathname"
                       " + window.location.search", source)
@@ -109,7 +117,8 @@ class PageScript(Base):
             self.assertIn(needle, source)
         self.assertLess(source.index("document.body.appendChild(box)"), source.index("text.textContent ="))
         self.assertEqual(1, source.count("text.textContent ="))
-        self.assertEqual(1, source.count("setTimeout("))
+        # the banner's words, and the title sheet's two safety nets (a hidden page may hold its animations still)
+        self.assertEqual(3, source.count("setTimeout("))
 
     def test_only_the_script_and_the_worker_answer_with_a_script_type(self):
         """Threat 1, 7 and 8: nosniff everywhere, and no other route can be executed as script or as a worker."""
@@ -231,9 +240,13 @@ class Worker(Base):
         self.assertNotIn("service-worker-allowed", r.headers)                       # scope "/" comes from the path alone
         self.assertEqual("no-referrer", r.headers["referrer-policy"])
 
-    def test_connect_src_is_on_the_worker_response_alone(self):
+    def test_connect_src_is_on_the_worker_and_shell_pages_alone(self):
+        """The worker's response (D12) and, for the title sheet's one same-origin fetch, the shell pages (owner
+        decision 2026-10-27). Same origin only; nothing else may connect anywhere."""
         c = self.client()
-        for path in ("/", "/account", "/help", "/search", "/watch", "/nope", "/healthz", "/offline", "/signout",
+        for path in ("/", "/account", "/help", "/search", "/watch"):
+            self.assertIn("; connect-src 'self'", c.get(path, headers=A).headers["content-security-policy"], path)
+        for path in ("/nope", "/healthz", "/offline", "/signout",
                      "/manifest.webmanifest", pwa.script_path(), FONT, "/icons/avrana-192.png"):
             self.assertNotIn("connect-src", c.get(path, headers=A).headers["content-security-policy"], path)
         self.assertIn("connect-src 'self'", c.get("/sw.js", headers=A).headers["content-security-policy"])

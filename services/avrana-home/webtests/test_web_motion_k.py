@@ -181,7 +181,8 @@ class PageScript(unittest.TestCase):
         self.assertIn("document.addEventListener('pointerdown'", self.js)
         self.assertIn("skipTransition()", self.js)
         self.assertIn("passive: true", self.js)
-        self.assertNotIn("preventDefault", self.js)
+        part = self.js.split("function interrupt()", 1)[1].split("\n  }\n", 1)[0]
+        self.assertNotIn("preventDefault", part)                    # the sheet's are its own (test_web_pwa.py)
         self.assertNotIn("stopPropagation", self.js)
 
     def test_the_flight_class_is_never_in_the_templates(self):

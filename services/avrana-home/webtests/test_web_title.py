@@ -131,7 +131,7 @@ class TitlePage(Fixture):
         hrefs = re.findall(r'href="([^"]*)"', r.text)
         self.assertTrue(all(h.startswith(("https://watch.avrana.net/", "/", "#main")) for h in hrefs), hrefs)
         for src in re.findall(r'<img class="art"[^>]*src="([^"]*)"', r.text):
-            self.assertTrue(src.startswith("/art/jellyfin/primary/"), src)
+            self.assertTrue(src.startswith(("/art/jellyfin/primary/", "/art/jellyfin/backdrop/")), src)
         # the only other image is the glass Home button's Spire-A mark, a fixed same-origin brand file (AVR-584, D5)
         self.assertEqual(["/brand/spire-a-24.svg"], re.findall(r'<img class="(?!art")[^"]*"[^>]*src="([^"]*)"', r.text))
         w = c.get("/title/jellyfin/" + FILM_A3, headers=A)

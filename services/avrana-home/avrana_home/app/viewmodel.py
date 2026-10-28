@@ -472,11 +472,23 @@ def _bar(it: ItemVM) -> Optional[int]:
     return max(0, min(100, int(round(it.fraction * 20)) * 5))
 
 
-def _cards(items, line_of, progress: bool = False) -> Tuple[CardVM, ...]:
+def _details_href(it: ItemVM, title_services) -> Optional[str]:
+    """The item's title page, where its library offers the permission-checked item lookup and the id is valid."""
+    parts = split_item_id(it.item_id)
+    if parts is None or parts[0] != it.service or it.service not in title_services:
+        return None
+    return title_href(parts[0], parts[1])
+
+
+def _cards(items, line_of, progress: bool = False, title_services=frozenset()) -> Tuple[CardVM, ...]:
+    """Continue cards (`progress`) open the item where it plays. Any other card opens the item's title page when its
+    library has one (the page script shows it as a sheet over this page; owner decision 2026-10-27), else the item
+    in its own library as before."""
     out = []
     for it in items:
         verb, name = action_of(it, progress)
-        out.append(CardVM(it.title, it.href, SHAPE.get(it.kind, "poster"), line_of(it), it.image,
+        href = (None if progress else _details_href(it, title_services)) or it.href
+        out.append(CardVM(it.title, href, SHAPE.get(it.kind, "poster"), line_of(it), it.image,
                           it.progress if progress else None, kind_label=KIND_LABEL.get(it.kind),
                           action=verb, action_label=name, bar=_bar(it) if progress else None))
     return tuple(out)
@@ -498,9 +510,7 @@ def hero_of(it: ItemVM, state: str, title_services=frozenset()) -> Optional[Hero
     else:
         meta = kicker_of(kind or "", library)      # "Episode · Movies and TV", but "Movies and TV" for a movie
     verb = "Resume" if (state == "continue" and it.service == "jellyfin" and it.resumable) else HERO_VERB[it.service]
-    parts = split_item_id(it.item_id)
-    details = (title_href(parts[0], parts[1]) if parts is not None and parts[0] == it.service
-               and it.service in title_services else None)
+    details = _details_href(it, title_services)
     return HeroVM(state, it.title, SHAPE.get(it.kind, "poster"), it.image, meta or None,
                   f"{verb} in {HERO_APP[it.service]}", it.href, details, it.backdrop)
 
@@ -508,7 +518,8 @@ def hero_of(it: ItemVM, state: str, title_services=frozenset()) -> Optional[Hero
 def build_home(view: dict, tiles, *, new_tab: Optional[str] = None, limit: int = RAIL_MOST,
                member_name: str = "", title_services=frozenset()) -> HomeVM:
     """Home as display data. Retry links point at `/` (the new tab is kept), the same page again.
-    `title_services`: libraries with a title page (main.py's set), for the hero's Details link only."""
+    `title_services`: libraries with a title page (main.py's set), for the hero's Details link and the Recently added
+    cards (which open the title page; Continue cards open the item where it plays)."""
     limit = max(1, min(int(limit), RAIL_MOST))
     held = _sections_by_service(view)
     places = build_places(tiles, view)
@@ -568,11 +579,13 @@ def build_home(view: dict, tiles, *, new_tab: Optional[str] = None, limit: int =
     tabs = [(NEW_ALL, "All")] + libs if len(libs) != 1 else list(libs)
     tab = new_tab if isinstance(new_tab, str) and new_tab in {k for k, _ in tabs} else tabs[0][0]
     if tab == NEW_ALL:           # the newest of each library; the second line says which library
-        per = [_cards(items_of("recent", s), lambda it, s=s: SERVICE_LABEL[s]) for s in SERVICE_ORDER]
+        per = [_cards(items_of("recent", s), lambda it, s=s: SERVICE_LABEL[s], title_services=title_services)
+               for s in SERVICE_ORDER]
         new = tuple(_round_robin(per, limit))
         new_said = None if (new or notices) else NOTHING_NEW
     else:
-        new = _cards(items_of("recent", tab)[:limit], lambda it: it.detail or KIND_LABEL.get(it.kind))
+        new = _cards(items_of("recent", tab)[:limit], lambda it: it.detail or KIND_LABEL.get(it.kind),
+                     title_services=title_services)
         new_said = None if new else (NOTHING_NEW if len(libs) == 1 else f"Nothing recently added in {SERVICE_LABEL[tab]}.")
 
     # The hero (memo section 4, Actual states only): the member's own next thing. H1: the first Continue item that
@@ -653,7 +666,7 @@ def library_href(key: str) -> str:
 
 
 def build_library(view: dict, tiles, *, chip: Optional[str] = None, limit: int = RAIL_MOST,
-                  open_paths=None) -> LibraryVM:
+                  open_paths=None, title_services=frozenset()) -> LibraryVM:
     """The Library page as display data. `chip` is the bounded `?lib=` text (identity.library_chip_from_scope): it is
     matched against THIS member's own libraries only and is never echoed; anything else is All. `open_paths`:
     service -> the member's own place route (already group-filtered by the caller). A library is named only when
@@ -689,7 +702,8 @@ def build_library(view: dict, tiles, *, chip: Optional[str] = None, limit: int =
             unset = True
             shelves.append(ShelfVM(s, label, "not_linked", message=service_notice(s, "not_linked")))
             continue
-        cards = _cards(recent_of(s)[:limit], lambda it: it.detail or KIND_LABEL.get(it.kind))
+        cards = _cards(recent_of(s)[:limit], lambda it: it.detail or KIND_LABEL.get(it.kind),
+                       title_services=title_services)
         app = HERO_APP[s] if open_href else None
         if cards:
             shelves.append(ShelfVM(s, label, "ok", cards, open_href=open_href, open_app=app))
@@ -948,6 +962,7 @@ class TitleVM:
     detail: Optional[str] = None       # series · episode
     shape: str = "poster"
     image: Optional[str] = None
+    backdrop: Optional[str] = None     # the wide Jellyfin backdrop over the top of the page (owner review 2026-10-27)
     kicker: str = ""                   # "Episode · Movies and TV"; the medium only when the library name lacks it
     progress: Optional[str] = None     # in words, whenever the upstream gave this member progress (not finished)
     bar: Optional[int] = None          # the 3px Cream rule beside the progress words, in 5% steps (as on Continue)
@@ -1014,6 +1029,6 @@ def build_title(section: dict, service: str, upstream_id: str, raw_term: Optiona
     return TitleVM("ok", label, title=title, medium=medium, kicker=kicker_of(medium, label),
                    line=" · ".join(x for x in (creator, str(year) if year else None) if x) or None,
                    detail=_detail_of(it, creator, year), shape=SHAPE.get(kind, "poster"),
-                   image=_image(it.get("artwork")), progress=progress, bar=bar,
+                   image=_image(it.get("artwork")), backdrop=_image(it.get("backdrop")), progress=progress, bar=bar,
                    summary=_plain(it.get("summary") or "", MAX_SUMMARY + 1) or None, action=action, action_href=href,
                    action_label=f"{action} {title} in {label}", back_href=back)
