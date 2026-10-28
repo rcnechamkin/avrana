@@ -704,8 +704,16 @@ def build_home(view: dict, tiles, *, new_tab: Optional[str] = None, limit: int =
             s = services[0]
             cards = _cards(items_of("recent", s)[:limit], lambda it: it.detail or KIND_LABEL.get(it.kind),
                            title_services=title_services)
-            built.append(RowVM("new", "Recently added", cards, None if cards else NOTHING_NEW))
-            built += shelf_rows(items_of("shelves", s), limit, title_services)
+            shelved = items_of("shelves", s)
+            if cards or s != "audiobookshelf":
+                built.append(RowVM("new", "Recently added", cards, None if cards else NOTHING_NEW))
+                built += shelf_rows(shelved, limit, title_services)
+            else:
+                # Nothing added in the last two months (owner decision 2026-10-27): the row says Recently released and
+                # shows the newest releases instead of old additions; New releases is then that row.
+                released = shelf_rows(shelved, limit, title_services, (("new", "Recently released"),))
+                built += [RowVM("new", r.heading, r.items) for r in released]
+                built += shelf_rows(shelved, limit, title_services, SHELF_ROWS[1:])
         rows = tuple(built) if len(built) > 1 else ()
 
     # The hero (memo section 4, Actual states only): the member's own next thing. H1: the first Continue item that

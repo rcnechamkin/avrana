@@ -46,7 +46,8 @@ How it stays member-scoped with an ADMIN-capable token (Audiobookshelf has no im
   * One title (`item`, for the title page): the member's own record first, then the item through
     `_visible` exactly as a cover; a saved position only from that member's own progress entry.
   * Recently added and the shelves (owner decision 2026-10-27, Home's Listen filter and the Library): the
-    member's own record first, then each of the member's libraries (the same `_libraries` rule as search) is
+    member's own record first (Recently added keeps only what was added in the last RECENT_DAYS), then each of the
+    member's libraries (the same `_libraries` rule as search) is
     listed with `GET /api/libraries/{id}/items?sort=&desc=&limit=&minified=1[&filter=genres.<base64>]` and EVERY
     entry goes through `_visible`, exactly as search. A list body without `results`, or an entry from another
     library, fails closed. The shelves are New releases (published this year or last), Classics (the library's own
@@ -94,6 +95,9 @@ MAX_LIST_PAGE = 36              # entries asked for per library list (recent or 
 CLASSIC_GENRE = re.compile(r"\bclassics?\b", re.IGNORECASE)
 MAX_CLASSIC_GENRES = 3
 SHORT_MIN, SHORT_MAX, EPIC_MIN = 30 * 60, 5 * 3600, 20 * 3600     # seconds
+# Recently added means added in the last two months (owner decision 2026-10-27): older additions are not "recent",
+# however few there are; Home then shows Recently released instead.
+RECENT_DAYS = 60
 # (shelf, sort key, descending, how many to ask for per wanted item): the upstream sorts, `_shelf_keep` filters.
 SHELVES = (("new", "media.metadata.publishedYear", True, 2), ("classics", "addedAt", True, 1),
            ("short", "media.duration", False, 3), ("epic", "media.duration", True, 2))
@@ -101,6 +105,10 @@ SHELVES = (("new", "media.metadata.publishedYear", True, 2), ("classics", "added
 
 def _this_year() -> int:
     return time.gmtime().tm_year
+
+
+def _now_ms() -> int:
+    return int(time.time() * 1000)
 
 ALLOWED_ROUTES = (
     Route("users", r"/api/users", (), user_scoped=False, needs_user=False, not_found=RouteMissing),
@@ -412,7 +420,8 @@ class AudiobookshelfAdapter(GuardedAdapter):
             raise RouteMissing(404)                       # every library answered 404: the route itself drifted
         if not found and counts[1]:
             raise UpstreamMalformed()
-        found.sort(key=lambda t: t[0], reverse=True)
+        since = _now_ms() - RECENT_DAYS * 86_400_000      # an entry without an added time is never "recent"
+        found = sorted((t for t in found if t[0] >= since), key=lambda t: t[0], reverse=True)
         return SectionResult.of(Service.AUDIOBOOKSHELF, "recent", tuple(_unique(m for _a, _y, m in found)[:limit]))
 
     def _shelves_items(self, user: UpstreamUser, limit: int) -> SectionResult:

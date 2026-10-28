@@ -287,3 +287,14 @@ view types ... categories for Listen ... flip the switch for doing comics and eb
 | **Layouts reworked** | Shelves (rows that scroll sideways, the default; a page with one row shows it as a grid), Grid (large covers), Compact (a dense wall of small covers, one line of title) and List (a small cover beside its words). The text-only list was dropped: covers are how people find media. `large`, `small` and `details` still open the layouts that replaced them. Choosing one library now shows its own rows (Movies and TV shows; Audiobooks' Recently added and shelves). |
 | **Audiobooks lead with what the library holds** | Audiobooks now has Recently added (it had none, so the Library said "Nothing recently added"), from each of the member's own libraries, every item checked against the member's own permissions exactly as search. Listen (Home) and the Audiobooks chip add four shelves: New releases (published this year or last), Classics (the library's own genres named "classic"), Short listens (30 minutes to 5 hours) and Epic listens (20 hours or more). No "trending" shelf: the upstream has no listening signal that is not another member's own history. Read shows one row per library (Comics, Books). |
 | **Comics and ebooks on the live beta** | The live beta compose adds Komga (`http://komga:25600`) and Calibre-Web (`http://calibre-web-automated:8083`) as shared views with the owner preview's existing secret files, on the owner's no-restriction statement of 2026-10-15 (recorded here: no member is restricted in either). A member still needs `avrana-comics` or `avrana-books`. Runbook: `docs/runbooks/home-beta-live.md`. |
+
+## Owner decisions, 2026-10-27: Recently added window, Library top right, artwork corners
+
+Recorded from the owner's chat of 2026-10-27 ("don't add just any old recently added books ... 'Search' feels
+redundant ... too rounded of corners ... a balance that's based on genuinely intelligent design principles").
+
+| Decision | Consequence |
+|---|---|
+| **Recently added means the last two months** | Audiobooks' Recently added keeps only items added in the last 60 days (`RECENT_DAYS`), however few. When none were, Listen's first row is titled Recently released and shows the newest releases instead; the separate New releases row is then not repeated. |
+| **Library top right is one icon button** | The Search utility is gone from the Library (Search is already a tab) and the layout button shows only the current layout's icon; its name stays for screen readers. The Library is otherwise left as it is for now. |
+| **Artwork corners scale with the art** | Cover and poster corners are about 5% of the frame's width, clamped to 4–12px (a 180px cover gets 9px, a rail poster 6px, a list thumbnail 4px, wide backdrops 12px), replacing one 20px radius. Containers keep their larger radii, so an inner curve is always the tighter one. |
