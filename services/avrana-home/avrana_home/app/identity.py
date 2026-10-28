@@ -159,6 +159,16 @@ def library_chip_from_scope(scope) -> Optional[str]:
     return _choice_from_scope(scope, "lib")
 
 
+def if_none_match_from_scope(scope) -> Optional[str]:
+    """The request's If-None-Match value for `/art` revalidation, or None when absent, repeated or over 512 bytes.
+    Only ever compared with the validator of an image the member was just allowed to fetch (artwork.not_modified);
+    it confers no identity and no access."""
+    found = [v for k, v in scope.get("headers", ()) if bytes(k).lower() == b"if-none-match"]
+    if len(found) != 1 or len(found[0]) > 512:
+        return None
+    return bytes(found[0]).decode("latin-1")
+
+
 def home_filter_from_scope(scope) -> Optional[str]:
     """Home's filter (owner decision 2026-10-27): `?for=<place>` shows Home for one library place only (Watch,
     Listen, Read). Exactly as `?new=`: bounded text only, checked by the view-model against the member's own places,

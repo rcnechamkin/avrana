@@ -308,3 +308,14 @@ plan: "this works for now", may change later).
 |---|---|
 | **Comics Recently added is by date added, one per series, last two months** | Komga's Recently added reads `GET /api/v1/books?sort=created,desc` instead of `/api/v1/books/latest`: live, that route orders by last modification, so one new issue lifted its whole series, and 1,214 of 1,788 books share the 2025-07-26 bulk-scan second. Only books added in the last 60 days count, one book (the newest) per series. |
 | **Comics fall back to Recently released** | A New releases shelf (sorted by `metadata.releaseDate`, one per series; release dates more than 92 days ahead are ignored, since comics carry cover dates about two months ahead) follows Recently added on Comics. With nothing added in 60 days, Comics shows Recently released instead, and Read shows "Recently released comics" in the Comics row. The Library page is unchanged. |
+
+## Owner decision, 2026-10-27: artwork may be revalidated from the browser cache
+
+Recorded from the owner's chat of 2026-10-27 ("Do 3 and then 4", 4 being "artwork caching": artwork was
+`private, no-store`, so the phone fetched every cover again on every page).
+
+| Decision | Consequence |
+|---|---|
+| **`/art` is `private, no-cache` with an `ETag`** (amends D11 for `/art` only) | The browser may keep a cover but must ask before each use. The request runs the full check (group, then per-member visibility for Jellyfin and Audiobookshelf); only a member allowed to see it gets `304 Not Modified`, everyone else the same 404. No proxy may keep it (`private`). The ETag is a digest of the image bytes. Every other response stays `no-store` |
+| **No `max-age`** | A `max-age` would let the browser show a cover without asking, past a removed group or a hidden item. Revalidation saves the bytes over the tunnel, not the round trip |
+| Sign-out unchanged | `/signout`'s `Clear-Site-Data: "cache", "storage"` (D10) still clears the kept covers on that device |

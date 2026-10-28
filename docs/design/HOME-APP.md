@@ -280,7 +280,7 @@ never a line per library above it. Everything not set up (member-c, member-d) is
 the sentence and "What to do next" (`/help/trouble#not-set-up`). A mix keeps the per-library lines, Try again and
 the next step.
 
-`artwork.ref` is opaque. `GET /art/<ref>` (for example `/art/komga/book/<id>`) serves it, member-scoped: `app/artwork.py` is the one module that calls `fetch_artwork`, with the verified principal and a ref of the exact shape `service/word/id` (`[A-Za-z0-9_-]` only). Unknown service, bad ref, missing group, an item the member may not see, an upstream failure and a refused content type are all the same standard 404. Responses carry `Cache-Control: private, no-store`, `nosniff`, and only `image/jpeg|png|webp` of at most 5 MiB (never SVG or HTML). Section items render `<img src="/art/..." alt=<title> width="80" height="120" loading="lazy">` only when a valid ref exists.
+`artwork.ref` is opaque. `GET /art/<ref>` (for example `/art/komga/book/<id>`) serves it, member-scoped: `app/artwork.py` is the one module that calls `fetch_artwork`, with the verified principal and a ref of the exact shape `service/word/id` (`[A-Za-z0-9_-]` only). Unknown service, bad ref, missing group, an item the member may not see, an upstream failure and a refused content type are all the same standard 404. Responses carry `Cache-Control: private, no-cache` with an `ETag` (revalidated through the same checks; `304` only for an allowed member), `nosniff`, and only `image/jpeg|png|webp` of at most 5 MiB (never SVG or HTML). Section items render `<img src="/art/..." alt=<title> width="80" height="120" loading="lazy">` only when a valid ref exists.
 
 ### Search results and title pages (AVR-383/384)
 
@@ -429,7 +429,7 @@ Like the outpost link it replaces, it is a state-changing GET reachable by a cro
 the outpost. No exempt paths, no `skip_path_regex` (G1 review F5). While signed out, worker updates and the manifest
 fetch get the sign-in redirect and fail quietly; they retry on the next signed-in load.
 
-**Caching (D11).** No `Cache-Control` relaxation: every response stays `no-store` (`/art` `private, no-store`). The
+**Caching (D11, `/art` amended 2026-10-27).** Every response stays `no-store` except `/art`: `private, no-cache` plus an `ETag`, revalidated through the full permission check before every use (304 only for an allowed member). The
 script's hashed path, not a header, keeps a stale script from pairing with new HTML.
 
 **Kill switch and rollback limits.** `HOME_PWA_SW=off` (section 7) makes `/sw.js` a worker that deletes its caches

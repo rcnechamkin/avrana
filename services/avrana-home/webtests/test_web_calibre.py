@@ -109,7 +109,7 @@ class ArtworkTests(Fixture):
         r = self.client().get("/art/calibre-web/cover/101", headers=BOOKS)
         self.assertEqual(200, r.status_code)
         self.assertEqual("image/png", r.headers["content-type"])
-        self.assertEqual("private, no-store", r.headers["cache-control"])
+        self.assertEqual("private, no-cache", r.headers["cache-control"])
         self.assertEqual("nosniff", r.headers["x-content-type-options"])
 
     def test_the_same_404_rules_apply(self):

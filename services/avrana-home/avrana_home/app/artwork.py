@@ -12,10 +12,18 @@ magic number matches, at most MAX_IMAGE_BYTES. This module only
   * re-checks the answer (state OK, content type in an image allow-list that excludes SVG, size bound),
   * returns None for every other outcome so the caller serves the one standard 404.
 
-Standard library only, no request object: it takes the path text and the principal.
+Browser caching (owner decision 2026-10-27, replaces D11 for `/art` only): the browser may keep a cover but must
+ask again before every use (`private, no-cache`). The answer to that question goes through the same checks as a
+first fetch, and only a member allowed to see the image gets `304 Not Modified` for an `If-None-Match` that equals
+the image's validator; everyone else gets the same 404. So a revoked group or a hidden item stops the cover on the
+next display, as before; what changes is that an allowed member's phone no longer downloads the same bytes again.
+
+Standard library only, no request object: it takes the path text, the principal and the If-None-Match value
+(read by `identity.if_none_match_from_scope`, the one module that reads request input).
 """
 from __future__ import annotations
 
+import hashlib
 import re
 from typing import Optional, Sequence
 
@@ -27,8 +35,8 @@ from ..resilience import MAX_IMAGE_BYTES
 IMAGE_TYPES = frozenset({"image/jpeg", "image/png", "image/webp"})
 REF = re.compile(r"[a-z][a-z-]{1,23}/[A-Za-z0-9_-]{1,32}/[A-Za-z0-9_-]{1,64}")
 PREFIX = "/art/"
-# Private, and never reusable beyond the contract's artwork window (we choose none at all).
-CACHE_CONTROL = "private, no-store"
+# Private (never a shared or proxy cache), and revalidated before every use, so the permission check runs each time.
+CACHE_CONTROL = "private, no-cache"
 assert ARTWORK_TTL > 0
 
 
@@ -44,6 +52,21 @@ def src_for(ref: object) -> Optional[str]:
     """The same-origin URL for an artwork ref from the contract's JSON, or None when it is not of the
     exact shape (the template then renders no image)."""
     return PREFIX + ref if isinstance(ref, str) and REF.fullmatch(ref) else None
+
+
+def etag_for(data: bytes) -> str:
+    """A strong validator for vetted image bytes: a digest of the bytes only, so it says nothing the image does not.
+    Sent only with a 200 the member was allowed to receive."""
+    return '"' + hashlib.sha256(data).hexdigest()[:32] + '"'
+
+
+def not_modified(header: Optional[str], etag: str) -> bool:
+    """True when `header` names `etag` (RFC 9110 13.1.2: weak comparison, so a `W/` prefix still matches) or is `*`.
+    Call it only AFTER `fetch` returned a result for this member."""
+    if not header:
+        return False
+    tags = [t.strip() for t in header.split(",")]
+    return "*" in tags or etag in (t[2:] if t.startswith("W/") else t for t in tags)
 
 
 def fetch(principal: Optional[MemberPrincipal], adapters: Sequence, ref: str) -> Optional[ArtworkResult]:

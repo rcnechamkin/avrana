@@ -65,8 +65,9 @@ HEADERS_TOO_LARGE_BODY = (b"<!DOCTYPE HTML>\n<html lang=\"en\">\n<head>\n<meta c
                           b"<p>Error code: 431</p>\n<p>Message: Request header fields too large.</p>\n</body>\n</html>\n")
 
 
-# The artwork route sets "private, no-store" itself; that is the only value allowed to replace the default.
-_PRIVATE_NO_STORE = (b"cache-control", b"private, no-store")
+# The artwork route sets "private, no-cache" itself (revalidated on every use, see artwork.py); that is the only
+# value allowed to replace the default.
+_PRIVATE_NO_CACHE = (b"cache-control", b"private, no-cache")
 
 
 def csp_for(form_self: bool = False, manifest: bool = False, route: str = "") -> bytes:
@@ -77,8 +78,8 @@ def csp_for(form_self: bool = False, manifest: bool = False, route: str = "") ->
 def with_hygiene(headers, form_self: bool = False, manifest: bool = False, route: str = "") -> list:
     headers = list(headers)
     cache = HYGIENE[0]
-    if any((bytes(k).lower(), bytes(v).lower()) == _PRIVATE_NO_STORE for k, v in headers):
-        cache = _PRIVATE_NO_STORE
+    if any((bytes(k).lower(), bytes(v).lower()) == _PRIVATE_NO_CACHE for k, v in headers):
+        cache = _PRIVATE_NO_CACHE
     csp = csp_for(form_self, manifest, route)
     return ([(k, v) for k, v in headers if bytes(k).lower() not in _HYGIENE_NAMES]
             + [cache] + [(k, csp if k == b"content-security-policy" else v) for k, v in HYGIENE[1:]])
