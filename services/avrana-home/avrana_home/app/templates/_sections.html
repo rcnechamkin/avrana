@@ -68,13 +68,27 @@
 {% endif %}
   </section>
 {% endif %}
+{#- Watch (owner decision 2026-10-27): Up next (episode stills), then Movies and TV shows, in place of Recently added. #}
+{% for row in home.rows %}
+  <section class="shelf" aria-labelledby="h-{{ row.key }}">
+    <h2 id="h-{{ row.key }}">{{ row.heading }}</h2>
+{% if row.items %}
+    <ul class="rail{% if row.tall %} tall{% else %} stills{% endif %}">
+{% for c in row.items %}{{ card(c) }}
+{% endfor %}
+    </ul>
+{% elif row.said %}
+    <p class="said">{{ row.said }}</p>
+{% endif %}
+  </section>
+{% endfor %}
 {% if home.show_new %}
   <section class="shelf" aria-labelledby="h-new">
     <h2 id="h-new">Recently added</h2>
 {% if home.new_tabs|length > 1 %}
     <nav class="tabs" aria-label="Recently added, by library">
 {% for key, name, current in home.new_tabs %}
-      <a href="/{% if key != 'all' %}?new={{ key }}{% endif %}#h-new"{% if current %} aria-current="true"{% endif %}>{{ name }}{% if current %}<span class="ul" aria-hidden="true"></span>{% endif %}</a>
+      <a href="/{% if home.focus %}?for={{ home.focus }}{% if key != 'all' %}&amp;new={{ key }}{% endif %}{% elif key != 'all' %}?new={{ key }}{% endif %}#h-new"{% if current %} aria-current="true"{% endif %}>{{ name }}{% if current %}<span class="ul" aria-hidden="true"></span>{% endif %}</a>
 {% endfor %}
     </nav>
 {% endif %}
@@ -88,4 +102,7 @@
     </ul>
 {% endif %}
   </section>
+{% endif %}
+{% if home.focus_open %}
+  <p class="focus-open"><a class="shelf-open" href="{{ home.focus_open[1] }}">Open {{ home.focus_open[0]|trusted }}<svg class="out" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" focusable="false"><path d="M5.5 3.5h7v7M12.5 3.5l-9 9"/></svg><span class="sr">, opens its own site</span></a></p>
 {% endif %}

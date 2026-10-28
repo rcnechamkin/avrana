@@ -88,7 +88,8 @@ def derive_hard_cap(adapters: Sequence[MediaAdapter]) -> float:
     return longest + HARD_CAP_MARGIN
 
 
-_METHODS = {"continue": "continue_items", "recent": "recent_items"}
+_METHODS = {"continue": "continue_items", "recent": "recent_items", "next_up": "next_up_items"}
+_CORE = ("continue", "recent")      # every adapter answers these; any other is asked only of `extra_sections`
 
 
 @dataclass(frozen=True)
@@ -108,7 +109,8 @@ def gather(principal: MemberPrincipal, adapters: Sequence[MediaAdapter],
     if not is_minted_principal(principal):
         raise TypeError("gather takes a parser-minted MemberPrincipal")
     wanted = [s for s in sections if s in _METHODS]
-    jobs = [(a, s, getattr(a, _METHODS[s])) for a in adapters for s in wanted if s not in a.not_offered]
+    jobs = [(a, s, getattr(a, _METHODS[s])) for a in adapters for s in wanted
+            if s not in a.not_offered and (s in _CORE or s in a.extra_sections)]
     if not jobs:
         return HomeSections(())
     return HomeSections(_run(jobs, (principal, limit), adapters, hard_cap))

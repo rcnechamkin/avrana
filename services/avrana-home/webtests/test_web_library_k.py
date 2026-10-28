@@ -56,6 +56,19 @@ def av_view(**states):
 
 
 class ViewModel(unittest.TestCase):
+    def test_layouts_are_a_fixed_list_and_keep_the_chosen_library(self):
+        page = build_library(av_view(), TILES_AV, chip="jellyfin", view_mode="details")
+        self.assertEqual("details", page.view)
+        self.assertEqual([("large", "/library?lib=jellyfin", False), ("small", "/library?lib=jellyfin&view=small", False),
+                          ("details", "/library?lib=jellyfin&view=details", True),
+                          ("list", "/library?lib=jellyfin&view=list", False)],
+                         [(k, h, c) for k, _l, h, c in page.views])
+        self.assertEqual(["/library?view=details", "/library?lib=jellyfin&view=details",
+                          "/library?lib=audiobookshelf&view=details"], [c.href for c in page.chips])
+        for raw in (None, "", "huge", "<b>", "LIST"):
+            with self.subTest(raw=raw):
+                self.assertEqual("large", build_library(av_view(), TILES_AV, view_mode=raw).view)
+
     def test_chips_are_all_then_only_the_members_own_libraries_in_order(self):
         page = build_library(av_view(), TILES_AV)
         self.assertEqual([("all", "All", "/library", True), ("jellyfin", "Movies and TV", "/library?lib=jellyfin", False),
@@ -257,7 +270,7 @@ class LibraryPage(Fixture):
         self.assertEqual(["/library", "/library?lib=jellyfin", "/library?lib=audiobookshelf"], chips(a.text))
         self.assertEqual(["/library", "/library?lib=jellyfin", "/library?lib=komga"], chips(b.text))
         self.assertIn('<a class="chip" href="/library" aria-current="true">All<span class="ul" aria-hidden="true"></span></a>', a.text)
-        self.assertEqual(1, a.text.count('aria-current="true"'))          # the chosen chip, nothing else on this page
+        self.assertEqual(2, a.text.count('aria-current="true"'))          # the chosen chip and the chosen layout
         self.assertIn("<title>Library · Avrana</title>", a.text)
         self.assertIn('<a class="shelf-open" href="/watch">Open Jellyfin', a.text)
         self.assertIn('<a class="shelf-open" href="/comics">Open Komga', b.text)
@@ -474,18 +487,72 @@ class TitleSheetLinks(Fixture):
             self.assertEqual(404, c.get(h, headers=B).status_code, h)
 
 
-class LaunchTiles(Fixture):
-    """Owner decision 2026-10-27: the places are matte tiles; the ones that leave Avrana carry an arrow (decorative)
-    and say so to assistive technology; Request and Help stay inside and carry none."""
+class LibraryLayouts(Fixture):
+    """Owner decision 2026-10-27: large artwork (the default), small artwork, details and a plain list, chosen with plain
+    links; the same cards in each, so every layout reads the same to assistive technology."""
 
-    def test_leaving_places_are_marked_and_staying_ones_are_not(self):
-        home = self.client().get("/", headers=A).text
-        places = home.split('<nav class="places" aria-label="Avrana">', 1)[1].split("</nav>", 1)[0]
-        for link in re.findall(r'<a href="([^"]*)">(.*?)</a>', places, re.S):
-            href, inner = link
-            leaves = href in ("/watch", "/listen", "/read")
-            self.assertEqual(leaves, '<svg class="out"' in inner, href)
-            self.assertEqual(leaves, "opens its own site" in inner, href)
+    def test_each_layout_renders_the_same_cards_in_its_own_grid(self):
+        c = self.client()
+        large = main_of(c.get("/library", headers=A).text)
+        self.assertIn('<nav class="lib-views" aria-label="Layout">', large)
+        self.assertIn('<a class="lib-view" href="/library" aria-current="true">', large)
+        cards = re.findall(r'class="card" href="([^"]*)"', large)
+        for key in ("small", "details", "list"):
+            with self.subTest(key=key):
+                text = main_of(c.get("/library?view=" + key, headers=A).text)
+                self.assertIn(f'<ul class="lib-grid lib-v-{key}">', text)
+                self.assertIn(f'<a class="lib-view" href="/library?view={key}" aria-current="true">', text)
+                self.assertEqual(cards, re.findall(r'class="card" href="([^"]*)"', text))
+                self.assertIn(f'href="/library?lib=jellyfin&amp;view={key}"', text)     # the chips keep the layout
+
+
+class HomeFilters(Fixture):
+    """Owner decision 2026-10-27: for a member with two library places or more, the places' row holds Home's filters
+    (All, then each place), which narrow Home and never leave Avrana; the chosen place's own site is one link on the
+    filtered Home, marked as leaving."""
+
+    def row(self, text):
+        return text.split('<nav class="places filters" aria-label="Show on Home">', 1)[1].split("</nav>", 1)[0]
+
+    def test_the_row_is_all_then_each_own_place_and_none_leaves(self):
+        c = self.client()
+        home = c.get("/", headers=A).text
+        row = self.row(home)
+        self.assertEqual(["/", "/?for=watch", "/?for=listen"], re.findall(r'<a href="([^"]*)"', row))
+        self.assertNotIn('<svg class="out"', row)
+        self.assertIn('<a href="/" aria-current="true">All<span class="ul" aria-hidden="true"></span></a>', row)
+        self.assertNotIn('class="focus-open"', home)                 # All has no single place to open
+
+    def test_watch_shows_only_its_library_with_up_next_movies_and_shows(self):
+        c = self.client()
+        text = c.get("/?for=watch", headers=A).text
+        self.assertIn('<a href="/?for=watch" aria-current="true">', self.row(text))
+        main = main_of(text)
+        self.assertNotIn("li_book", main)                            # nothing from the other library
+        for heading in ('id="h-next">Up next', 'id="h-movies">Movies', 'id="h-shows">TV shows'):
+            self.assertIn(heading, main)
+        self.assertNotIn('id="h-new"', main)                         # the split rows replace Recently added
+        nxt = main.split('id="h-next"', 1)[1].split("</section>", 1)[0]
+        self.assertIn("Synthetic Second Step", nxt)
+        self.assertNotIn("Synthetic Pilot", nxt)                     # already in Continue
+        self.assertIn('<p class="focus-open"><a class="shelf-open" href="/watch">Open Watch', main)
+        self.assertIn("opens its own site", main.split('class="focus-open"', 1)[1])
+
+    def test_an_unknown_filter_is_all_and_never_echoed(self):
+        c = self.client()
+        for raw in ("nope", "%3Cb%3E", "request", "help"):
+            with self.subTest(raw=raw):
+                text = c.get("/?for=" + raw, headers=A).text
+                self.assertIn('<a href="/" aria-current="true">All', self.row(text))
+                self.assertNotIn("nope", text)
+                self.assertNotIn('id="h-next"', text)
+
+    def test_listen_has_no_up_next_and_asks_no_one_for_it(self):
+        text = self.client().get("/?for=listen", headers=A).text
+        main = main_of(text)
+        self.assertNotIn('id="h-next"', main)
+        self.assertIn('id="h-new"', main)
+        self.assertNotIn("Synthetic Film", main)
 
 
 if __name__ == "__main__":

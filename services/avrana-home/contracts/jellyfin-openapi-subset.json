@@ -68,6 +68,19 @@
      ],
      "response": "string"
     },
+    "/Shows/NextUp": {
+     "authenticated": true,
+     "deprecated": false,
+     "query": [
+      "enableImageTypes",
+      "enableTotalRecordCount",
+      "enableUserData",
+      "fields",
+      "limit",
+      "userId"
+     ],
+     "response": "BaseItemDtoQueryResult"
+    },
     "/UserItems/Resume": {
      "authenticated": true,
      "deprecated": false,
@@ -189,6 +202,19 @@
       "quality"
      ],
      "response": "string"
+    },
+    "/Shows/NextUp": {
+     "authenticated": true,
+     "deprecated": false,
+     "query": [
+      "enableImageTypes",
+      "enableTotalRecordCount",
+      "enableUserData",
+      "fields",
+      "limit",
+      "userId"
+     ],
+     "response": "BaseItemDtoQueryResult"
     },
     "/UserItems/Resume": {
      "authenticated": true,

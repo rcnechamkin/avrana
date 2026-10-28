@@ -112,7 +112,7 @@ class OneServiceFailing(Fixture):
         self.assertEqual(1, text.count("None of your libraries is answering right now."))
         self.assertNotIn("Movies and TV are unavailable right now.", text)
         self.assertNotIn("Audiobooks are unavailable right now.", text)
-        self.assertIn('href="/help/trouble#unavailable"', text)
+        self.assertIn('class="off"><s>Watch</s><span class="sr">, unavailable</span>', text)   # the struck filters
         self.assertIn('href="/help"', text)
 
 
