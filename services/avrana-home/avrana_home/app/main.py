@@ -40,8 +40,9 @@ from . import install as install_mod
 from . import notice as notice_mod
 from . import pwa as pwa_mod
 from . import security as security_mod
-from .identity import (IdentityResolver, Viewer, get_viewer, has_identity_headers, library_chip_from_scope,
-                       new_tab_from_scope, search_term_from_scope, security_state_from_scope)
+from .identity import (IdentityResolver, Viewer, get_viewer, has_identity_headers, home_filter_from_scope,
+                       library_chip_from_scope, library_view_from_scope, new_tab_from_scope, search_term_from_scope,
+                       security_state_from_scope)
 from .logsafe import app_log, log_event, silence_uvicorn_access
 from .middleware import HygieneMiddleware
 from . import recovery
@@ -50,7 +51,7 @@ from .routing import (ME_ROUTE, AccountFacts, Decision, chooser_intro, decide, l
 from .settings import Settings, is_sealed_preview
 from .viewmodel import (ACCOUNT_LIBRARY, CONTRIBUTE_PATH, INTERSTITIAL_SHELL, LIBRARY_PLACE, NO_LIBRARY, REQUEST_FOR,
                         SERVICE_LABEL, account_access, build_home, build_library, build_me, build_search, build_shell,
-                        build_title, has_library, place_link)
+                        build_title, has_library, place_link, wants_next_up)
 
 TEMPLATES = Path(__file__).resolve().parent / "templates"
 HTML = "text/html; charset=utf-8"
@@ -176,6 +177,7 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
                                                         settings.security_return_origin)
     return_states = security_mod.ReturnStates()
 
+
     @contextlib.asynccontextmanager
     async def lifespan(_app):
         try:
@@ -267,7 +269,8 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
             tiles = decide("/", viewer.groups, cat).context["tiles"]
             view = await _gather(viewer) if has_library(tiles) else {"sections": []}
             page = build_library(view, tiles, chip=library_chip_from_scope(scope), limit=settings.section_limit,
-                                 open_paths=place_paths(viewer), title_services=title_services)
+                                 open_paths=place_paths(viewer), title_services=title_services,
+                                 view_mode=library_view_from_scope(scope))
             decision = library_decision(page)
             scope["avrana_route"] = decision.label
             return respond(decision, scope, shell=shell_for(viewer, "library"))
@@ -372,11 +375,14 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
         scope["avrana_route"] = decision.label
         extra = {}
         if decision.label == "/" and settings.home_sections and p is not None and adapter_list:
-            home = build_home(await _gather(viewer), decision.context["tiles"],
+            focus = home_filter_from_scope(scope)
+            home = build_home(await _gather(viewer, next_up=wants_next_up(focus)), decision.context["tiles"],
                               new_tab=new_tab_from_scope(scope), limit=settings.section_limit,
-                              member_name=(facts.name or facts.username), title_services=title_services)
+                              member_name=(facts.name or facts.username), title_services=title_services,
+                              focus=focus)
             extra["home"] = home
-            extra["shell"] = shell_for(viewer, "home", places=home.places)
+            shell = shell_for(viewer, "home", places=home.places)
+            extra["shell"] = dataclasses.replace(shell, filters=home.filters) if shell is not None else None
         elif decision.status == 200 and decision.label in SHELL_PAGES:
             extra["shell"] = shell_for(viewer, SHELL_PAGES[decision.label])
             if decision.label == "/{chooser}" and extra["shell"] is not None:
@@ -438,15 +444,23 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
         seen = notice_mod.visible_notice(notices.current(), place_paths(viewer))
         return dataclasses.replace(shell, notice=seen) if seen is not None else shell
 
-    async def _gather(viewer: Viewer) -> dict:
+    async def _gather(viewer: Viewer, next_up: bool = False) -> dict:
         """The sections for the verified member, via the adapters' own principal checks and
-        bounded timeouts. One failing adapter costs its own section only."""
-        result = await run_in_threadpool(gather, viewer.principal, adapter_list,
-                                        ("continue", "recent"), settings.section_limit)
-        for s in result.sections:
+        bounded timeouts. One failing adapter costs its own section only. `next_up` (Home's Watch filter) also asks
+        the libraries that offer Up next, AFTER the others: a member holds at most two upstream calls per library at
+        once (contract.DEFAULT_MAX_IN_FLIGHT_PER_MEMBER), so a third alongside them would only be refused as busy."""
+        result = await run_in_threadpool(gather, viewer.principal, adapter_list, ("continue", "recent"),
+                                        settings.section_limit)
+        sections = list(result.sections)
+        view = result.member_view()
+        if next_up:
+            more = await run_in_threadpool(gather, viewer.principal, adapter_list, ("next_up",), settings.section_limit)
+            sections += more.sections
+            view["sections"] += more.member_view()["sections"]
+        for s in sections:
             log_event(app_log, logging.INFO, "section", service=s.service.value,
                       section=s.section, state=s.state.value, reason=s.reason or "")
-        return result.member_view()
+        return view
 
     @app.exception_handler(StarletteHTTPException)
     async def _http_error(request: Request, exc: StarletteHTTPException) -> Response:

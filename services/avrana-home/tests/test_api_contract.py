@@ -28,6 +28,7 @@ FIXTURE_ROUTES = {
     "resume_member_a.json": "resume", "resume_member_b.json": "resume",
     "hostile_resume_b_for_a.json": "resume",
     "latest_member_a.json": "latest", "latest_member_b.json": "latest",
+    "nextup_member_a.json": "next_up",
 }
 
 TYPES = {

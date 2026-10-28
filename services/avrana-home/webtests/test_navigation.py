@@ -58,7 +58,7 @@ class ReturnNavigationTests(Fixture):
                 self.assertRegex(r.text, r'<nav class="tabbar glass" aria-label="Sections"[^>]*>\s*<a class="tab" href="/"')
                 if path == "/":
                     self.assertRegex(r.text, lockup)                          # L3 on Home (D5)
-                    self.assertIn('<nav class="places" aria-label="Avrana">', r.text)   # kept on Home (D16)
+                    self.assertRegex(r.text, r'<nav class="places( filters)?" aria-label="(Avrana|Show on Home)">')
                 else:
                     self.assertNotRegex(r.text, r'<img class="lockup"')
                     # the tab bar's Home tab is the way back; no "Back to home" link (owner review 2026-10-27)

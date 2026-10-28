@@ -310,7 +310,7 @@ class MediaItem:
 class SectionResult:
     """One home-page section from one service. Stable data contract for the UI."""
     service: Service
-    section: str                  # "continue" | "recent" | "item" | "search"
+    section: str                  # "continue" | "recent" | "next_up" | "item" | "search"
     state: SectionState
     items: Tuple[MediaItem, ...] = ()
     reason: Optional[str] = None  # fixed diagnostic code for operators; NOT for display
@@ -436,6 +436,9 @@ class MediaAdapter:
     # request them at all, so the member view carries no empty noise; the methods still answer
     # (EMPTY, reason `not_offered`) for a direct caller.
     not_offered: frozenset = frozenset()
+    # Sections beyond Continue and Recently added that this adapter DOES offer ("next_up": Jellyfin only). `gather`
+    # asks only the adapters that list one, so no other adapter is ever called for it.
+    extra_sections: frozenset = frozenset()
     # True for a service whose upstream decides item visibility PER MEMBER (Jellyfin, Audiobookshelf): the
     # artwork hook then takes `cached=` and re-checks visibility before it may return cached bytes. False for
     # a shared view (Komga, Calibre-Web), where the group is the whole permission. See `fetch_artwork`.
@@ -490,6 +493,9 @@ class MediaAdapter:
     def _recent_items(self, user: UpstreamUser, limit: int) -> SectionResult:
         raise NotImplementedError
 
+    def _next_up_items(self, user: UpstreamUser, limit: int) -> SectionResult:
+        raise NotImplementedError
+
     def _item(self, user: UpstreamUser, item_id: str) -> SectionResult:
         raise NotImplementedError
 
@@ -521,6 +527,16 @@ class MediaAdapter:
         limit = _limit(limit)
         return self._section(principal, "recent", f"recent:{limit}",
                              lambda user: self._recent_items(user, limit))
+
+    def next_up_items(self, principal: MemberPrincipal, limit: int = DEFAULT_LIMIT) -> SectionResult:
+        limit = _limit(limit)
+        if "next_up" not in self.extra_sections:       # no upstream call, no cache access
+            self._require_principal(principal)
+            if not principal.has_group(self.required_group):
+                return self._not_permitted("next_up")
+            return SectionResult(self.service, "next_up", SectionState.EMPTY, reason="not_offered")
+        return self._section(principal, "next_up", f"next_up:{limit}",
+                             lambda user: self._next_up_items(user, limit))
 
     def item(self, principal: MemberPrincipal, item_id: str, fresh: bool = False) -> SectionResult:
         """One item for this member. `fresh=True` (the title page) skips the member cache entirely, no read and no
@@ -914,7 +930,7 @@ class MediaAdapter:
         return result
 
     def cache_ttl(self, section: str) -> float:
-        return {"continue": 30.0, "recent": 120.0, "item": 120.0}.get(section, 30.0)
+        return {"continue": 30.0, "recent": 120.0, "next_up": 30.0, "item": 120.0}.get(section, 30.0)
 
 
 def _limit(limit: Any) -> int:

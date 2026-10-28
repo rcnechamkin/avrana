@@ -1,0 +1,23 @@
+{
+  "_synthetic": "Hand-written SYNTHETIC fixture. Not recorded from any server. Invented titles and ids.",
+  "_schema": "Shaped like the public Jellyfin 10.11 OpenAPI response for GET /Shows/NextUp (BaseItemDtoQueryResult) for member-a: the next unwatched episode of each series in progress. Includes the in-progress episode again (Jellyfin may list it) and a wrong type. Unverified against a real server.",
+  "response": {
+    "Items": [
+      {"Id": "aaaa0000000000000000000000000020", "Name": "Synthetic Second Step", "Type": "Episode",
+       "SeriesName": "Synthetic Series Alpha", "ParentIndexNumber": 1, "IndexNumber": 4,
+       "RunTimeTicks": 27000000000, "UserData": {"PlaybackPositionTicks": 0, "Played": false},
+       "ImageTags": {"Primary": "synthtag20"}},
+      {"Id": "aaaa0000-0000-0000-0000-000000000002", "Name": "Synthetic Pilot", "Type": "Episode",
+       "SeriesName": "Synthetic Series Alpha", "ParentIndexNumber": 1, "IndexNumber": 3,
+       "RunTimeTicks": 27000000000,
+       "UserData": {"PlaybackPositionTicks": 6750000000, "PlayedPercentage": 25.0, "Played": false},
+       "ImageTags": {"Primary": "synthtag2"}},
+      {"Id": "aaaa0000000000000000000000000021", "Name": "Synthetic Opening Night", "Type": "Episode",
+       "SeriesName": "Synthetic Series Beta", "ParentIndexNumber": 2, "IndexNumber": 1,
+       "RunTimeTicks": 30000000000, "UserData": {"Played": false}, "ImageTags": {}},
+      {"Id": "aaaa0000000000000000000000000022", "Name": "Synthetic Season Folder", "Type": "Season"}
+    ],
+    "TotalRecordCount": 4,
+    "StartIndex": 0
+  }
+}
