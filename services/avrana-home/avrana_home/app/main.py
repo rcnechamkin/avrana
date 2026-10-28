@@ -34,6 +34,7 @@ from urllib.parse import urlencode
 
 from ..contract import REQUIRED_GROUP, MediaAdapter, Service, build_handoff_url
 from ..cache import MemberCache
+from ..member_keys import MemberKeyStore
 from ..provision import Provisioner, build_provisioner
 from ..quickconnect import OUTCOMES as QC_OUTCOMES, QuickConnect
 from ..resilience import SystemClock, UrllibTransport
@@ -140,13 +141,19 @@ def build_adapters(settings: Settings, cache: MemberCache) -> list:
         # a Komga restriction. Mock mode (synthetic data) states it itself; real mode takes the value
         # settings.py only accepts when KOMGA_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS=yes.
         komga_confirmed = (settings.upstream_mode == "mock") or settings.komga_owner_confirms
-        # Members' OWN keys (owner decision 2026-10-28), for their Continue reading row only; settings.py accepts
-        # them only in real mode with signed identity. Nobody's key: Continue is not offered, as before.
-        komga_members = {email: UrllibTransport(settings.komga_base_url, {"X-API-Key": key})
-                         for email, key in settings.komga_member_keys}
-        komga_adapter = KomgaAdapter(komga_transport, timeout=settings.timeout, cache=cache,
-                                     owner_confirms_no_member_restrictions=komga_confirmed,
-                                     member_transports=komga_members)
+        # Members' OWN keys (owner decisions 2026-10-28), for their Continue reading row only; settings.py accepts
+        # them only in real mode with signed identity. The store re-reads the file when it changes; Home writes it
+        # only when HOME_PROVISION_ACCOUNTS names komga (provision.py). No file: Continue is not offered.
+        keys = None
+        if settings.komga_member_keys_file:
+            keys = MemberKeyStore(settings.komga_member_keys_file, writable="komga" in settings.provision_accounts,
+                                  initial=settings.komga_member_keys,
+                                  log=lambda **f: log_event(app_log, logging.INFO, "komga_member_keys", **f))
+        komga_adapter = KomgaAdapter(
+            komga_transport, timeout=settings.timeout, cache=cache,
+            owner_confirms_no_member_restrictions=komga_confirmed, member_keys=keys,
+            member_transport=(lambda key: UrllibTransport(settings.komga_base_url, {"X-API-Key": key})) if keys else None,
+            provisioning="komga" in settings.provision_accounts)
         komga_adapter.cache = cache
         adapters.append(komga_adapter)
     if settings.calibre_web_base_url:             # off unless configured (settings.py validates)
@@ -231,8 +238,9 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
     notices = notice_mod.NoticeBoard(settings.notice_file)          # AVR-365: read-only; None = no notices
     # Account creation (ACCOUNT-PROVISIONING.md): None unless HOME_PROVISION_ACCOUNTS names a library.
     if provisioner is None and adapters is None:
+        komga_keys = next((a.member_keys for a in adapter_list if isinstance(a, KomgaAdapter)), None)
         provisioner = build_provisioner(
-            settings, log=lambda **f: log_event(app_log, logging.INFO, "provision", **f))
+            settings, log=lambda **f: log_event(app_log, logging.INFO, "provision", **f), komga_keys=komga_keys)
     broker = None
     if settings.home_sections and settings.book_requests:
         broker = book_requests if book_requests is not None else build_book_requests(settings)

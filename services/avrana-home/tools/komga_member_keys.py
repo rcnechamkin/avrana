@@ -5,6 +5,10 @@
     python3 tools/komga_member_keys.py --all                          # every Komga account, asked one by one
     python3 tools/komga_member_keys.py --remove alice@example.com     # revoke Home's key for one member
     python3 tools/komga_member_keys.py --list                         # who has a key (reads the file only)
+    python3 tools/komga_member_keys.py --missing                      # Komga accounts with no key (admin key)
+
+Since 2026-10-28 Home makes a member's key itself on their first visit when HOME_PROVISION_ACCOUNTS names komga
+(provision.py); this tool remains for a bulk first run, rotation, removal and checking coverage.
 
 WHY. Komga's On Deck and in-progress lists belong to whoever is signed in, and Komga makes API keys only for the
 account that is signed in (`/api/v2/users/me/api-keys`); no admin route makes one for somebody else. Members sign
@@ -217,6 +221,13 @@ def run(args, komga: Komga, admin_key: str, ask: Callable[[str], bool], out=prin
     skip = {norm(e) for e in args.skip}
     failed = changed = 0
 
+    if getattr(args, "missing", False):
+        have = set(keys)
+        gaps = sorted(e for e, a in by_email.items() if e not in have and not is_admin(a) and e not in skip)
+        for email in gaps:
+            out(f"{email}: no Home key")
+        out(f"{len(gaps)} non-admin Komga account(s) without a Home key")
+        return 1 if gaps else 0
     if args.remove:
         for email in map(norm, args.remove):
             account = by_email.get(email)
@@ -274,6 +285,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     what.add_argument("--all", action="store_true")
     what.add_argument("--remove", action="append", default=[], metavar="EMAIL")
     what.add_argument("--list", action="store_true")
+    what.add_argument("--missing", action="store_true", help="Komga accounts Home holds no key for")
     ap.add_argument("--skip", action="append", default=[], metavar="EMAIL",
                     help="never touch this account (Home's shared viewer account, for one)")
     ap.add_argument("--komga-url", default=DEFAULT_URL)

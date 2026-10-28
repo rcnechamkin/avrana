@@ -21,7 +21,6 @@ mode without the gates. Only in that mode may the per-service member usernames b
 from __future__ import annotations
 
 import ipaddress
-import json
 import os
 import re
 from dataclasses import dataclass, field
@@ -111,6 +110,10 @@ class Settings:
     # Members' OWN Komga API keys, ((member_key_id(email), key), ...), for their Continue reading row only
     # (docs/runbooks/komga-member-keys.md). () = nobody has one: Continue is not offered, as before.
     komga_member_keys: tuple = field(default=(), repr=False)
+    komga_member_keys_file: str = ""             # the file itself; Home re-reads it when it changes (member_keys.py)
+    # A Komga ADMIN account's API key, ONLY for Home making members' own keys (HOME_PROVISION_ACCOUNTS=...komga;
+    # owner decision 2026-10-28 "Home does it", replacing 2026-10-15's "no admin key"). Never used to read.
+    komga_admin_token: str = field(default="", repr=False)
     calibre_web_base_url: str = ""               # "" = the Calibre-Web adapter is not built
     calibre_web_credential: str = field(default="", repr=False)    # "user:password" of the viewer account
     calibre_web_owner_confirms: bool = False     # the owner's statement that no member is restricted
@@ -262,7 +265,8 @@ class Settings:
         komga_url = get("KOMGA_BASE_URL")
         komga_token = _read_key(env, problems, "KOMGA_TOKEN")
         komga_confirms = boolean("KOMGA_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS", False)
-        komga_members = _read_member_keys(env, problems)
+        komga_members_file, komga_members = _read_member_keys(env, problems)
+        komga_admin = _read_key(env, problems, "KOMGA_ADMIN_TOKEN")
         cw_url = get("CALIBRE_WEB_BASE_URL")
         cw_cred = _read_key(env, problems, "CALIBRE_WEB_CREDENTIAL")
         cw_confirms = boolean("CALIBRE_WEB_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS", False)
@@ -339,10 +343,10 @@ class Settings:
                 problems.append("KOMGA_BASE_URL must be a loopback address in mock mode")
             komga_token = MOCK_API_KEY if komga_url else ""
             komga_confirms = False               # a real-mode statement; mock mode passes its own constant
-            if komga_members:
-                problems.append("KOMGA_MEMBER_KEYS_FILE is set but HOME_UPSTREAM_MODE is mock "
+            if komga_members_file or komga_admin:
+                problems.append("KOMGA_MEMBER_KEYS_FILE or KOMGA_ADMIN_TOKEN is set but HOME_UPSTREAM_MODE is mock "
                                 "(mock mode never sends a real key; unset it or choose real)")
-                komga_members = ()
+                komga_members_file, komga_members, komga_admin = "", (), ""
             if cw_cred:
                 problems.append("a Calibre-Web credential is set but HOME_UPSTREAM_MODE is mock "
                                 "(mock mode never sends a real credential; unset it or choose real)")
@@ -381,7 +385,7 @@ class Settings:
                     problems.append("KOMGA_BASE_URL and KOMGA_TOKEN (or _FILE) must be set together")
             elif komga_confirms:
                 problems.append("KOMGA_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS is set but Komga is not configured")
-            if komga_members and not komga_url:
+            if komga_members_file and not komga_url:
                 problems.append("KOMGA_MEMBER_KEYS_FILE is set but Komga is not configured")
             if cw_url or cw_cred:
                 # ADAPTER-CONTRACT 13.2: a SHARED view; refused unless the owner states, deliberately, that
@@ -477,7 +481,7 @@ class Settings:
         if allowed and id_mode != "jwt_required":
             problems.append("HOME_ALLOWED_USERS needs HOME_IDENTITY_MODE=jwt_required")
         # A member's key is picked by their email, so the email must be the signed one.
-        if komga_members and id_mode != "jwt_required":
+        if komga_members_file and id_mode != "jwt_required":
             problems.append("KOMGA_MEMBER_KEYS_FILE needs HOME_IDENTITY_MODE=jwt_required")
 
         # Account creation (docs/design/ACCOUNT-PROVISIONING.md, owner decisions 2026-10-28): off unless named. It
@@ -494,6 +498,11 @@ class Settings:
                 problems.append("HOME_PROVISION_ACCOUNTS needs HOME_ALLOWED_USERS (beta members first)")
             if "audiobookshelf" in provision and not abs_url:
                 problems.append("HOME_PROVISION_ACCOUNTS names audiobookshelf but AUDIOBOOKSHELF_BASE_URL is not set")
+            if "komga" in provision and not (komga_url and komga_members_file and komga_admin):
+                problems.append("HOME_PROVISION_ACCOUNTS names komga but KOMGA_BASE_URL, KOMGA_MEMBER_KEYS_FILE and "
+                                "KOMGA_ADMIN_TOKEN (or _FILE) are not all set")
+        if komga_admin and "komga" not in provision:
+            problems.append("KOMGA_ADMIN_TOKEN is only for HOME_PROVISION_ACCOUNTS=...komga; unset it")
 
         if problems:
             raise SettingsError("invalid configuration: " + "; ".join(problems))
@@ -501,6 +510,7 @@ class Settings:
                    jellyfin_api_key=key, audiobookshelf_base_url=abs_url,
                    audiobookshelf_token=abs_token, komga_base_url=komga_url,
                    komga_token=komga_token, komga_owner_confirms=komga_confirms, komga_member_keys=komga_members,
+                   komga_member_keys_file=komga_members_file, komga_admin_token=komga_admin,
                    calibre_web_base_url=cw_url,
                    calibre_web_credential=cw_cred, calibre_web_owner_confirms=cw_confirms,
                    book_requests=book_requests, shelfarr_base_url=shelfarr_url, shelfarr_token=shelfarr_token,
@@ -543,8 +553,9 @@ def _provision_accounts(env: Mapping[str, str], problems: list) -> tuple:
     if raw == "off":
         return ()
     names = [n.strip() for n in raw.split(",")]
-    if not names or any(n not in ("jellyfin", "audiobookshelf") for n in names):
-        problems.append("HOME_PROVISION_ACCOUNTS must be off or a comma-separated list of jellyfin, audiobookshelf")
+    if not names or any(n not in ("jellyfin", "audiobookshelf", "komga") for n in names):
+        problems.append("HOME_PROVISION_ACCOUNTS must be off or a comma-separated list of jellyfin, audiobookshelf, "
+                        "komga")
         return ()
     return tuple(sorted(set(names)))
 
@@ -573,35 +584,24 @@ def _check_url(url: str, problems: list, name: str = "JELLYFIN_BASE_URL") -> Non
         problems.append(f"{name} must have no credentials, query, fragment or trailing slash")
 
 
-MAX_MEMBER_KEYS = 500
-_KOMGA_KEY = re.compile(r"[0-9a-f]{32}")            # Komga 1.25 ApiKeyGenerator: a UUID v4 without dashes
-
-
 def _read_member_keys(env: Mapping[str, str], problems: list) -> tuple:
-    """KOMGA_MEMBER_KEYS_FILE (a file only, never the value in the environment): a JSON object of
-    member_key_id(email) -> that member's own Komga API key, as tools/komga_member_keys.py writes it. Any problem
-    refuses the whole file; no entry is ever echoed."""
+    """(path, keys) from KOMGA_MEMBER_KEYS_FILE (a file only, never the value in the environment). An absent file
+    is no keys yet (Home or the owner's tool creates it); its folder must exist. Any problem refuses the whole
+    file; no entry is ever echoed (member_keys.py)."""
     if (env.get("KOMGA_MEMBER_KEYS") or "").strip():
         problems.append("KOMGA_MEMBER_KEYS is not read from the environment; use KOMGA_MEMBER_KEYS_FILE")
     path = (env.get("KOMGA_MEMBER_KEYS_FILE") or "").strip()
     if not path:
-        return ()
+        return "", ()
+    from ..member_keys import KeysFileError, read_keys
+    if not Path(path).parent.is_dir():
+        problems.append("KOMGA_MEMBER_KEYS_FILE is in a folder that does not exist")
+        return "", ()
     try:
-        data = json.loads(Path(path).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        problems.append("KOMGA_MEMBER_KEYS_FILE cannot be read as JSON")
-        return ()
-    if not isinstance(data, dict) or len(data) > MAX_MEMBER_KEYS:
-        problems.append("KOMGA_MEMBER_KEYS_FILE must be a JSON object of at most %d entries" % MAX_MEMBER_KEYS)
-        return ()
-    from ..adapters.komga import member_key_id
-    pairs = []
-    for email, key in data.items():
-        if member_key_id(email) != email or not isinstance(key, str) or _KOMGA_KEY.fullmatch(key) is None:
-            problems.append("KOMGA_MEMBER_KEYS_FILE has an entry that is not lower-case email -> Komga API key")
-            return ()
-        pairs.append((email, key))
-    return tuple(sorted(pairs))
+        return path, read_keys(path)
+    except KeysFileError as exc:
+        problems.append(f"KOMGA_MEMBER_KEYS_FILE is refused: {exc}")
+        return "", ()
 
 
 def _read_key(env: Mapping[str, str], problems: list, name: str = "JELLYFIN_API_KEY") -> str:
