@@ -317,7 +317,7 @@ class KomgaAdapter(GuardedAdapter):
             title = _title(clean_text(info.get("title")), clean_text(raw.get("name")), series, number)
             kind, subtitle = Kind.COMIC, (f"#{number}" if number else None)
         return MediaItem(creator=creator, year=year_from(info.get("releaseDate")),
-                         released=iso_day(info.get("releaseDate")),
+                         released=iso_day(info.get("releaseDate")), added=iso_day(raw.get("created")),
                          id=f"komga:{book_id}", service=Service.KOMGA, kind=kind, title=title,
                          handoff_url=build_handoff_url(Service.KOMGA, book_id),
                          subtitle=subtitle, series=series,

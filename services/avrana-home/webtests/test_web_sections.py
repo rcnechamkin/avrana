@@ -265,7 +265,7 @@ class JsonViewTests(Fixture):
             for it in s["items"]:
                 self.assertEqual({"id", "service", "kind", "title", "subtitle", "series", "progress",
                                   "artwork", "creator", "year", "summary", "handoff_url"},
-                                 set(it) - {"backdrop", "released", "active"})   # each only when the library gave it
+                                 set(it) - {"backdrop", "released", "active", "added"})   # each only when the library gave it
                 if "active" in it:                     # when this member last touched it, UTC (2026-10-28)
                     self.assertRegex(it["active"], r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
                 if "backdrop" in it:                   # only when the library gave one (Jellyfin's Backdrop)
