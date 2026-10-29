@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% from "_rows.html" import glyph %}
+{% block title %}Customize Home · Avrana{% endblock %}
+{% block body %}
+{# Customize (Media 2.0 HOME-01/02; customize.py, memberstore.py). One editor for the account's one Home, opened from
+   Customize beside the Home heading (?from=home: Save and Cancel go back to Home) and from Me. A plain form that works
+   with JavaScript off: Save posts the whole record; Cancel is a link. With JavaScript, Move up / Move down reorder the
+   sections (home.js part 15); without it the order stays as saved and the rest still works. Hiding a place is how
+   Home looks, never what the member may open. #}
+{% set back = "/" if cz.from_home else "/me" %}
+  <h2 class="topic">Customize Home</h2>
+{% set r = cz.result %}
+{% if r %}
+  <p class="{% if r == 'saved' %}said kok{% else %}note msg{% endif %}" role="status">{% if r == 'saved' %}{{ glyph("check") }}<span>{% endif %}
+{%- if r == "saved" %}Saved. Home now looks like this on every device.
+{%- elif r == "conflict" %}Home was changed on another device. Here's the latest; make your changes again.
+{%- elif r == "start_hidden" %}Home can't start on a place you've hidden. Show it, or start on another.
+{%- elif r == "none_shown" %}Keep at least one place on Home.
+{%- elif r == "unavailable" %}That couldn't be saved just now. Your Home hasn't changed. Try again in a moment.
+{%- elif r == "expired" %}This page was open too long. Try again.
+{%- else %}That couldn't be saved. Your Home hasn't changed.
+{%- endif %}{% if r == 'saved' %}</span>{% endif %}</p>
+{% endif %}
+  <p class="note">These settings apply to your account on every device.</p>
+{% if not cz.on %}
+  <p class="note msg">Customizing Home isn't switched on yet.</p>
+{% elif not cz.readable %}
+  <p class="note msg">Your Home settings couldn't be loaded just now. Home is showing its usual layout. Try again in a moment.</p>
+{% else %}
+{% set f = cz.form %}
+  <form class="cz-form" method="post" action="/me/home" data-once>
+    <input type="hidden" name="t" value="{{ cz.token }}"><input type="hidden" name="v" value="{{ f.version }}">
+{% if cz.from_home %}    <input type="hidden" name="from" value="home">
+{% endif %}
+{% if f.places %}
+    <fieldset class="kgroup cz-set">
+      <legend class="kgroup-h">Start Home on</legend>
+      <div class="krows kpanel">
+        <label class="cz-opt"><input type="radio" name="start" value="all"{% if f.start == "all" %} checked{% endif %}><span>All</span></label>
+{% for pl in f.places %}
+        <label class="cz-opt"><input type="radio" name="start" value="{{ pl.key }}"{% if f.start == pl.key %} checked{% endif %}><span>{{ pl.label|trusted }}</span></label>
+{% endfor %}
+      </div>
+    </fieldset>
+    <fieldset class="kgroup cz-set">
+      <legend class="kgroup-h">Show on Home</legend>
+      <div class="krows kpanel">
+{% for pl in f.places %}
+        <label class="cz-opt"><input type="checkbox" name="show_{{ pl.key }}" value="on"{% if pl.shown %} checked{% endif %}><span>{{ pl.label|trusted }}</span></label>
+{% endfor %}
+      </div>
+      <p class="note">A hidden place leaves Home's filters and All. You can still open it from Library and Search.</p>
+    </fieldset>
+{% endif %}
+    <fieldset class="kgroup cz-set">
+      <legend class="kgroup-h">Section order</legend>
+      <ol class="krows kpanel cz-order" data-order>
+{% for key, label in f.shelves %}
+        <li class="cz-shelf"><input type="hidden" name="o{{ loop.index }}" value="{{ key }}"><span class="cz-name">{{ label }}</span><span class="cz-moves" hidden><button class="kbtn kbtn-quiet" type="button" data-move="up">Move up<span class="sr"> {{ label }}</span></button><button class="kbtn kbtn-quiet" type="button" data-move="down">Move down<span class="sr"> {{ label }}</span></button></span></li>
+{% endfor %}
+      </ol>
+    </fieldset>
+    <div class="cz-acts">
+      <button class="kbtn kbtn-go" type="submit" data-busy="Saving&hellip;">Save</button>
+      <a class="kbtn kbtn-quiet" href="{{ back }}">Cancel</a>
+    </div>
+  </form>
+{% endif %}
+{% endblock %}
+{% block footer %}    {% if not shell %}<a class="link" href="/">Back to home</a>{% endif %}{% endblock %}

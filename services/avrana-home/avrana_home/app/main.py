@@ -39,8 +39,10 @@ from ..member_keys import MemberKeyStore
 from ..provision import Provisioner, build_provisioner
 from ..quickconnect import OUTCOMES as QC_OUTCOMES, QuickConnect
 from ..accountreader import END_OUTCOMES as SESSION_OUTCOMES, AccountReader, said_when
-from ..memberstore import CONFLICT as STORE_CONFLICT, INVALID as STORE_INVALID, SAVED as STORE_SAVED, MemberStore
+from ..memberstore import (CONFLICT as STORE_CONFLICT, HOME_PLACES, INVALID as STORE_INVALID, SAVED as STORE_SAVED,
+                           MemberStore)
 from . import avatar as avatar_mod
+from . import customize as customize_mod
 from ..resilience import SystemClock, UrllibTransport
 from . import catalogue as catalogue_mod
 from .catalogue import Trusted
@@ -60,7 +62,8 @@ from ..requests.shelfarr import FORMAT_GROUP, Provisioned as ShelfarrProvisioned
     member_username
 from . import forms as forms_mod
 from . import security as security_mod
-from .identity import (IdentityResolver, Viewer, get_viewer, has_identity_headers, home_filter_from_scope,
+from .identity import (IdentityResolver, Viewer, customize_from_scope, get_viewer, has_identity_headers,
+                       home_filter_from_scope,
                        if_none_match_from_scope, library_chip_from_scope, library_view_from_scope, more_from_scope,
                        new_tab_from_scope, release_chip_from_scope,
                        same_origin_form_post, same_origin_upload_post, search_term_from_scope, security_result_from_scope, show_from_scope,
@@ -75,8 +78,8 @@ from .settings import Settings, is_sealed_preview
 from .viewmodel import (ACCOUNT_LIBRARY, CONTINUE_PAGE_MOST, CONTINUE_PATH, CONTRIBUTE_PATH, HOME_FETCH,
                         INTERSTITIAL_SHELL, LIBRARY_PLACE, NO_LIBRARY, REQUEST_FOR, SERVICE_LABEL, account_access,
                         build_continue_page, build_home, build_library, build_me, build_search, build_shell,
-                        build_title, extra_sections_for, has_library, initial_of, library_extra_sections, place_link,
-                        title_href)
+                        build_places, build_title, extra_sections_for, has_library, home_start, initial_of,
+                        library_extra_sections, place_link, title_href)
 
 TEMPLATES = Path(__file__).resolve().parent / "templates"
 HTML = "text/html; charset=utf-8"
@@ -698,19 +701,44 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
             # The Me hub (Concept K, AVR-719) exists only with the shell; otherwise the path stays unknown (parity).
             decision = me_decision(build_me(tiles_for(viewer), p.username, pwa_mod.SIGNOUT_PATH))
             scope["avrana_route"] = decision.label
-            return respond(decision, scope, shell=shell_for(viewer, "me"), me_tv=qc is not None and tv_member(viewer))
+            # The device-setup suggestion (ME-02): shown until this member hides this version of it. Store off or
+            # unreadable: shown, and hiding it is offered only where it can be saved.
+            hidden_card = await run_in_threadpool(store.setup_hidden, p.username) if store is not None else None
+            result = security_result_from_scope(scope)
+            setup = {"card": hidden_card != customize_mod.SETUP_CARD, "can_hide": hidden_card is not None,
+                     "token": form_tokens.issue("setup", p.username) if hidden_card is not None else "",
+                     "result": result if result in customize_mod.SETUP_RESULTS else None}
+            return respond(decision, scope, shell=shell_for(viewer, "me"), me_tv=qc is not None and tv_member(viewer),
+                           setup=setup, customize=store is not None)
+        if route == customize_mod.ROUTE and settings.home_sections and p is not None and adapter_list:
+            # Customize (HOME-01/02): one editor for the account's one Home, from Home's heading and from Me.
+            mine = await run_in_threadpool(store.home, p.username) if store is not None else None
+            result = security_result_from_scope(scope)
+            scope["avrana_route"] = customize_mod.ROUTE
+            return respond(Decision(customize_mod.ROUTE, 200, "me_home.html", {"cz": {
+                "on": store is not None, "readable": mine is not None,
+                "form": customize_mod.editor(mine, my_places(viewer)) if mine is not None else None,
+                "from_home": customize_from_scope(scope) == "home",
+                "token": form_tokens.issue("home", p.username) if mine is not None else "",
+                "result": result if result in customize_mod.RESULTS else None}}),
+                scope, shell=shell_for(viewer, "me"))
         decision = decide(route, viewer.groups, cat, facts)
         scope["avrana_route"] = decision.label
         extra = {}
         if decision.label == "/" and settings.home_sections and p is not None and adapter_list:
             focus = home_filter_from_scope(scope)
-            home = build_home(await _gather(viewer, extras=extra_sections_for(focus)), decision.context["tiles"],
+            # The account's one Home (Customize): read on every Home entry, never a device copy. Unreadable: defaults.
+            prefs = await run_in_threadpool(store.home, p.username) if store is not None else None
+            asked = focus if focus is not None else home_start(prefs, decision.context["tiles"])
+            home = build_home(await _gather(viewer, extras=extra_sections_for(asked)), decision.context["tiles"],
                               new_tab=new_tab_from_scope(scope), limit=settings.section_limit,
                               member_name=(facts.name or facts.username), title_services=title_services,
-                              focus=focus, rel_tab=release_chip_from_scope(scope), more=more_from_scope(scope))
+                              focus=focus, rel_tab=release_chip_from_scope(scope), more=more_from_scope(scope),
+                              prefs=prefs, customize=store is not None)
             extra["home"] = home
             shell = shell_for(viewer, "home", places=home.places)
-            extra["shell"] = dataclasses.replace(shell, filters=home.filters) if shell is not None else None
+            extra["shell"] = (dataclasses.replace(shell, filters=home.filters, customize=home.customize)
+                              if shell is not None else None)
         elif decision.status == 200 and decision.label in SHELL_PAGES:
             extra["shell"] = shell_for(viewer, SHELL_PAGES[decision.label])
             if decision.label == "/{chooser}" and extra["shell"] is not None:
@@ -1131,6 +1159,11 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
         """The member's own catalogue tiles (group-filtered, static data; no upstream call)."""
         return decide("/", viewer.groups, cat).context["tiles"]
 
+    def my_places(viewer: Viewer):
+        """The member's own library places as (key, label), in catalogue order: what Customize may show or hide."""
+        return [(pl.href[1:], pl.label) for pl in build_places(tiles_for(viewer), {"sections": []})
+                if pl.href[1:] in HOME_PLACES]
+
     def shell_for(viewer: Viewer, current: str, places=None):
         """The shell data (places, tabs, the member's name) for a shell page, or None where the shell is
         not on (sections off: the pages stay byte-identical to the portal). No upstream call is made here."""
@@ -1274,6 +1307,68 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
                 return ok
             return {STORE_CONFLICT: "conflict", STORE_INVALID: "invalid_name"}.get(status, "unavailable")
 
+    if store is not None:
+        @app.post(customize_mod.ROUTE, include_in_schema=False, response_model=None)
+        async def save_home(request: Request, viewer: Viewer = Depends(get_viewer)) -> Response:
+            """Customize's one form: the whole record or nothing. Every lock in forms.py first, then the member's own
+            places, then the version the page was drawn from. A 303 to Home (saved from Home) or back to the editor."""
+            scope = request.scope
+            p = viewer.principal
+            if p is None or not (settings.home_sections and adapter_list):
+                scope["avrana_route"] = "method_not_supported"
+                return Response(NOT_IMPLEMENTED_BODY, status_code=501, media_type="text/html; charset=utf-8")
+            scope["avrana_route"] = customize_mod.ROUTE
+            if not same_origin_form_post(scope):
+                return render("error.html", 403)
+            form = await forms_mod.read_form(request, customize_mod.FIELDS)
+            if form is None:
+                return render("error.html", 400)
+            outcome = await run_in_threadpool(home_outcome, p.username, form, [k for k, _l in my_places(viewer)])
+            log_event(app_log, logging.INFO, "home_save", state=outcome)          # never the choices
+            return Response(b"", status_code=303, media_type=HTML,
+                            headers=customize_mod.result_headers(outcome, customize_mod.RESULTS,
+                                                                 form.get("from") == "home"))
+
+        def home_outcome(username: str, form, keys) -> str:
+            if not form_tokens.check(form.get("t"), "home", username):
+                return "expired"
+            try:
+                version = int(form.get("v", ""))
+            except ValueError:
+                return "expired"
+            problem, start, hidden, order = customize_mod.parse(form, keys)
+            if problem is not None:
+                return problem
+            status = store.save_home(username, start, hidden, order, version)
+            return {STORE_SAVED: "saved", STORE_CONFLICT: "conflict", STORE_INVALID: "invalid"}.get(status,
+                                                                                                 "unavailable")
+
+        @app.post(customize_mod.SETUP_ROUTE, include_in_schema=False, response_model=None)
+        async def setup_card(request: Request, viewer: Viewer = Depends(get_viewer)) -> Response:
+            """Hide or show the device-setup suggestion on Me (ME-02). Presentation only: nothing upstream, no device
+            record, no guide progress. A 303 back to Me with a fixed result id."""
+            scope = request.scope
+            p = viewer.principal
+            if p is None or not (settings.home_sections and adapter_list):
+                scope["avrana_route"] = "method_not_supported"
+                return Response(NOT_IMPLEMENTED_BODY, status_code=501, media_type="text/html; charset=utf-8")
+            scope["avrana_route"] = customize_mod.SETUP_ROUTE
+            if not same_origin_form_post(scope):
+                return render("error.html", 403)
+            form = await forms_mod.read_form(request, customize_mod.SETUP_FIELDS, exact=True)
+            if form is None or form.get("do") not in ("hide", "show"):
+                return render("error.html", 400)
+            if not form_tokens.check(form.get("t"), "setup", p.username):
+                outcome = "expired"
+            else:
+                hide = form["do"] == "hide"
+                ok = await run_in_threadpool(store.set_setup_hidden, p.username,
+                                             customize_mod.SETUP_CARD if hide else 0)
+                outcome = ("setup_hidden" if hide else "setup_shown") if ok else "setup_unsaved"
+            log_event(app_log, logging.INFO, "setup_card", state=outcome)
+            return Response(b"", status_code=303, media_type=HTML,
+                            headers=customize_mod.setup_result_headers(outcome, customize_mod.SETUP_RESULTS))
+
     if reader is not None:
         @app.post(security_mod.SESSIONS_ROUTE, include_in_schema=False, response_model=None)
         async def end_session(request: Request, viewer: Viewer = Depends(get_viewer)) -> Response:
@@ -1313,8 +1408,11 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
     app.add_middleware(HygieneMiddleware, render_error=lambda: env.get_template("error.html")
                        .render().encode("utf-8"),
                        upload_paths=frozenset({PROFILE_ROUTE}) if store is not None else frozenset(),
+                       form_pages=frozenset({ME_ROUTE}) if store is not None else frozenset(),
                        post_paths=frozenset(path for path, on in ((forms_mod.TV_ROUTE, qc is not None),
                                                                    (security_mod.SESSIONS_ROUTE, reader is not None),
+                                                                   (customize_mod.ROUTE, store is not None),
+                                                                   (customize_mod.SETUP_ROUTE, store is not None),
                                                                    (bookreq_mod.PATH, broker is not None),
                                                                    (watch_mod.PATH, seerr is not None),
                                                                    (comic_mod.PATH, omnibus is not None),
