@@ -91,7 +91,7 @@ class SeasonPicker(unittest.TestCase):
 
     def test_bad_show_id_shows_the_search(self):
         r = self.c.get("/request/watch", params={"show": "abc"}, headers=VIEWER)
-        self.assertNotIn("Choose seasons</h2>", r.text)
+        self.assertNotIn("Choose seasons</h3>", r.text)
 
 
 if __name__ == "__main__":

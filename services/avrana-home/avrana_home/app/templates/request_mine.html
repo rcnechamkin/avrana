@@ -1,52 +1,57 @@
 {% extends "base.html" %}
-{% from "_rows.html" import glyph %}
+{% import "_asks.html" as asks %}
+{% from "_rows.html" import glyph, row %}
 {% block title %}{% if page.outcome %}{{ page.outcome }} · {% endif %}My requests · Avrana{% endblock %}
 {% block body %}
-{# My requests (myrequests.py): the member's own requests from the book and film brokers, newest first, in two
-   groups. A request still waiting may be taken back with one small POST form carrying only fields Home rendered and
-   a signed token; no script needed. Arrived titles link to Home's own pages, never to the request services. #}
+{# My requests (myrequests.py): the member's own requests from the book, film and comic brokers, newest first, in two
+   groups, each one opaque panel of rows (frame 17:741): the title, a Stone line, and the status in words after a
+   dot (ready green when it arrived, amber when it was declined or could not be found, Stone while it waits). A request
+   still waiting may be taken back with one small POST form carrying only fields Home rendered and a signed token;
+   no script needed. Arrived titles link to Home's own pages, never to the request services. #}
 {% macro rows(list) %}
-    <ul class="rq">
+    <ul class="rq kpanel">
 {% for r in list %}
       <li class="rq-row{% if r.tone %} rq-{{ r.tone }}{% endif %}">
         <span class="rq-meta"><span class="t">{{ r.title }}{% if r.new %}<span class="rq-new">New</span>{% endif %}</span><span class="d">{{ r.line }}</span>
           <span class="rq-st">{{ r.status }}{% if r.note %}<span class="rq-note"> {{ r.note }}</span>{% endif %}</span></span>
 {% if r.open or r.cancel %}
         <span class="rq-act">
-{%- if r.open %}<a class="open" href="{{ r.open.href }}">Find it<span class="sr"> {{ r.title }} in {{ r.open.library }}</span></a>{% endif %}
-{%- if r.cancel %}<form method="post" action="/request/mine" class="ask-f">{% for k, v in r.cancel.fields %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}<input type="hidden" name="token" value="{{ r.cancel.token }}"><button type="submit" class="rq-cancel">{{ r.cancel.label }}<span class="sr"> for {{ r.title }}</span></button></form>{% endif %}
+{%- if r.open %}<a class="kbtn" href="{{ r.open.href }}">Find it<span class="sr"> {{ r.title }} in {{ r.open.library }}</span></a>{% endif %}
+{%- if r.cancel %}<form method="post" action="/request/mine" class="ask-f">{% for k, v in r.cancel.fields %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}<input type="hidden" name="token" value="{{ r.cancel.token }}"><button type="submit" class="kbtn kbtn-quiet">{{ r.cancel.label }}<span class="sr"> for {{ r.title }}</span></button></form>{% endif %}
         </span>
 {% endif %}
       </li>
 {% endfor %}
     </ul>
 {% endmacro %}
-  <section class="shelf" aria-labelledby="h-mine">
-    <h2 id="h-mine">My requests</h2>
-{% if page.notice %}
-    <p class="said{% if page.notice.warn %} kwarn{% endif %}" role="status">{% if page.notice.warn %}{{ glyph("warn", "kic kwarn-ic") }}<span class="kwarn-t">{% endif %}{{ page.notice.message }}{% if page.notice.warn %}</span>{% endif %}</p>
-{% endif %}
+{{ asks.head("h-mine", "My requests", "Everything you have asked for, and where each one stands. A request still waiting can be taken back.") }}
+{{ asks.notice(page.notice) }}
 {% for p in page.problems %}
     <p class="said kwarn">{{ glyph("warn", "kic kwarn-ic") }}<span class="kwarn-t">{{ p.message }}{% if p.place_href %} <a class="link" href="{{ p.place_href }}">Open the request website<span class="sr">, opens another website</span></a>{% endif %}</span></p>
 {% endfor %}
 {% if not page.coming and not page.done and not page.problems %}
-    <p class="said">You have not asked for anything yet.</p>
+    <p class="said kreq-empty">You have not asked for anything yet.</p>
 {% endif %}
-{% set asks = [(page.ask_books, "Ask for a book"), (page.ask_watch, "Ask for a film or show"), (page.ask_comics, "Ask for a comic")] | selectattr(0) | list %}
-{% if asks %}
-    <p class="rq-ask">{% for href, label in asks %}{% if not loop.first %} · {% endif %}<a class="link" href="{{ href }}">{{ label }}</a>{% endfor %}</p>
-{% endif %}
-  </section>
 {% if page.coming %}
-  <section class="shelf" aria-labelledby="h-coming">
-    <h2 id="h-coming">On the way</h2>
+  <section class="kgroup" aria-labelledby="h-coming">
+    <h3 class="kgroup-h" id="h-coming">On the way</h3>
 {{ rows(page.coming) }}
   </section>
 {% endif %}
 {% if page.done %}
-  <section class="shelf" aria-labelledby="h-done">
-    <h2 id="h-done">Done</h2>
+  <section class="kgroup" aria-labelledby="h-done">
+    <h3 class="kgroup-h" id="h-done">Done</h3>
 {{ rows(page.done) }}
+  </section>
+{% endif %}
+{% if page.ask_books or page.ask_watch or page.ask_comics %}
+  <section class="kgroup" aria-labelledby="g-ask">
+    <h3 class="kgroup-h" id="g-ask">Ask for something</h3>
+    <ul class="krows">
+{% if page.ask_watch %}      {{ row(page.ask_watch, "Ask for a film or show", None, "film") }}
+{% endif %}{% if page.ask_books %}      {{ row(page.ask_books, "Ask for a book", None, "book") }}
+{% endif %}{% if page.ask_comics %}      {{ row(page.ask_comics, "Ask for a comic", None, "comic") }}
+{% endif %}    </ul>
   </section>
 {% endif %}
 {% endblock %}

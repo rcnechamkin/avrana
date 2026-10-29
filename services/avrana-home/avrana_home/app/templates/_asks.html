@@ -1,0 +1,70 @@
+{#- The request pages' shared parts (Ask for a book, a film or show, a comic; My requests), Concept K: a place page
+   under Home (the glass Home button, the Home tab carries the lens), the page title in the page role with one Stone
+   line under it, the answer to the last ask as a panel, the search form Search uses, then the results as one opaque
+   panel of rows under an eyebrow (DESIGN.md "Grouped rows"). Nothing here needs script. -#}
+{% from "_rows.html" import glyph, row %}
+
+{% macro head(id, title, intro) -%}
+  <section class="block kreq-head" aria-labelledby="{{ id }}">
+    <h2 id="{{ id }}" class="kreq-title">{{ title }}</h2>
+{% if intro %}
+    <p class="note">{{ intro }}</p>
+{% endif %}
+  </section>
+{%- endmacro %}
+
+{#- What the last ask did: a warning in the amber-edged panel with the triangle, anything else (asked, cancelled) in
+   an opaque panel with the check in the console's ready green. Said in words either way; the colour only repeats it. -#}
+{% macro notice(n) -%}
+{% if n %}
+    <p class="said kreq-said{% if n.warn %} kwarn{% else %} kok{% endif %}" role="status">{{ glyph("warn" if n.warn else "check", "kic " ~ ("kwarn-ic" if n.warn else "kok-ic")) }}<span class="kwarn-t">{{ n.message }}{% if n.place_href %} <a class="link" href="{{ n.place_href }}">Open the request website<span class="sr">, opens another website</span></a>{% endif %}</span></p>
+{% endif %}
+{%- endmacro %}
+
+{% macro search(action, label, page, hint) -%}
+    <form class="srch kreq-srch" method="get" action="{{ action }}" role="search">
+      <label for="q">{{ label }}</label>
+      <div class="ask">
+        <span class="ask-field">{{ glyph("search", "kic ask-ic") }}<input id="q" name="q" type="search" value="{{ page.term }}" maxlength="100" autocomplete="off" spellcheck="false"
+          {%- if page.mode == "invalid" %} aria-invalid="true" aria-describedby="q-error q-hint"{% else %} aria-describedby="q-hint"{% endif %}></span>
+        <button type="submit">Search</button>
+      </div>
+{% if page.mode == "invalid" %}
+      <p class="err" id="q-error" role="alert">{{ page.message }}</p>
+{% endif %}
+      <p class="hint" id="q-hint">{{ hint }}</p>
+    </form>
+{%- endmacro %}
+
+{#- The results: the count as the eyebrow, then one panel of rows (the caller draws each row), or the one sentence for
+   nothing found, or the warning when the request service did not answer. -#}
+{% macro results(page) -%}
+{% if page.mode in ("results", "empty", "unavailable") %}
+  <section class="kgroup kreq-found" aria-labelledby="h-found">
+    <h3 class="kgroup-h" id="h-found">{{ page.outcome }}</h3>
+{% if page.mode == "unavailable" %}
+    <p class="said kwarn" role="status">{{ glyph("warn", "kic kwarn-ic") }}<span class="kwarn-t">{{ page.message }}</span></p>
+{% elif page.mode == "empty" %}
+    <p class="said kreq-empty" role="status">{{ page.message }}</p>
+{% else %}
+    <ul class="hits asks-list">
+{{ caller() }}
+    </ul>
+{% endif %}
+  </section>
+{% endif %}
+{%- endmacro %}
+
+{#- One ask button: the quiet secondary (raised, 1px edge), 44px tall, never wrapping word by word. -#}
+{% macro ask(action, a, term, sr) -%}
+<form method="post" action="{{ action }}" class="ask-f">{% for k, v in a.fields %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}<input type="hidden" name="q" value="{{ term }}"><input type="hidden" name="token" value="{{ a.token }}"><button type="submit" class="kbtn">{{ a.label }}<span class="sr">{{ sr }}</span></button></form>
+{%- endmacro %}
+
+{% macro mine_link() -%}
+  <section class="kgroup" aria-labelledby="g-mine">
+    <h3 class="kgroup-h" id="g-mine">What you have asked for</h3>
+    <ul class="krows">
+      {{ row("/request/mine", "My requests", "Where each one stands, and taking one back", "info") }}
+    </ul>
+  </section>
+{%- endmacro %}

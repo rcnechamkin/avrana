@@ -342,11 +342,6 @@
   .rq-note{color:var(--dim);}
   .rq-act{display:flex;flex-wrap:wrap;gap:0.5rem;align-items:center;}
   .rq-act form{margin:0;}
-  .rq-cancel{min-height:2.75rem;padding:0 1rem;font:inherit;color:var(--fg);background:transparent;
-    border:1px solid var(--rule-strong);cursor:pointer;}
-  .rq-cancel:hover,.rq-cancel:focus-visible{background:var(--fg);color:var(--bg);}
-  .rq-cancel:focus-visible{outline:2px solid transparent;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--focus);}
-  .rq-ask{margin:0;}
   @media (forced-colors:active){.rq-row{border-color:CanvasText;}.rq-st::before{forced-color-adjust:none;background:CanvasText;}}
   /* The season picker (watchrequests.build_show): one row per season, a real checkbox where it may be asked for. */
   .season-list{margin:0 0 1rem;padding:0;border:0;display:flex;flex-direction:column;gap:0.25rem;}
@@ -681,14 +676,70 @@
   ul.hits li:has(a.t:focus-visible){outline:2px solid var(--focus);outline-offset:-2px;}
   ul.hits .d{font-size:var(--text-secondary);color:var(--stone);}
   .hit-go{grid-area:go;}
-  /* Request rows (Ask for a book, film or show, comic) have no artwork: title and details, then the Ask buttons (a book
-     can have two), which never wrap word by word. The buttons follow the text while it keeps 14rem, and go under it
-     on a phone. Without this the rows kept the 40px artwork column and a button was squeezed into it, over the title
-     (2026-10-29). */
-  ul.asks-list li{display:flex;flex-wrap:wrap;align-items:center;gap:0.625rem 1rem;}
+  /* The request pages (_asks.html; frames 17:619 and 17:741): place pages under Home with the page title role and one
+     Stone line, the last ask's answer as a panel, Search's field, then the results as one opaque panel of rows. A
+     result row has no artwork (the request services' art comes from other sites, which this page never loads): the
+     title and its Stone lines, then its buttons, which never wrap word by word; they follow the text while it keeps
+     14rem and go under it on a phone. The rows are not links, so they do not light up on hover. (2026-10-29: the rows
+     had kept Search's 40px artwork column and the button was squeezed into it, over the title.) */
+  .kreq-head{display:flex;flex-direction:column;gap:0.5rem;}
+  section.block>h2.kreq-title{margin:0;font-size:var(--text-page);font-weight:400;line-height:1.2;letter-spacing:-0.01em;
+    text-transform:none;color:var(--cream);overflow-wrap:break-word;}
+  .kreq-head .note{margin:0;max-width:36rem;color:var(--stone);font-size:var(--text-body);line-height:1.55;}
+  .kreq-srch .hint{font-size:var(--text-secondary);}
+  .said.kreq-empty{color:var(--stone);}
+  ul.asks-list li{display:flex;flex-wrap:wrap;align-items:center;gap:0.75rem 1rem;padding:0.875rem;}
+  ul.asks-list li:hover{background:none;}
   ul.asks-list .meta{flex:1 1 14rem;}
-  ul.asks-list .ask-f{flex:none;margin:0;}
-  ul.asks-list .ask-f button{white-space:nowrap;}
+  ul.asks-list .t{font-size:1rem;font-weight:500;line-height:1.3;color:var(--cream);overflow-wrap:break-word;}
+  ul.asks-list .d{white-space:normal;overflow:visible;line-height:1.4;}
+  ul.asks-list .d.asked::before,.rq-ok .rq-st::before{background:var(--ready);}
+  ul.asks-list .d.asked{color:var(--cream);}
+  ul.asks-list .d.asked::before{content:"";display:inline-block;width:0.5rem;height:0.5rem;margin-right:0.5rem;
+    border-radius:50%;vertical-align:0.08em;}
+  .ask-acts{display:flex;flex-wrap:wrap;gap:0.5rem;}
+  .ask-acts .ask-f,.rq-act .ask-f{margin:0;}
+  /* One button for every ask, cancel and "Find it": the quiet secondary of the hero (raised, 1px Ash edge, Cream
+     words), 44px tall, the button radius; the season picker's one submit is the Cream primary. No system blue. */
+  .kbtn{display:inline-flex;align-items:center;justify-content:center;min-height:2.75rem;padding:0 1rem;
+    border:1px solid var(--line-strong);border-radius:var(--radius-button);background:var(--raised);color:var(--cream);
+    font:inherit;font-size:var(--text-secondary);font-weight:600;line-height:1.2;white-space:nowrap;text-decoration:none;
+    cursor:pointer;-webkit-appearance:none;appearance:none;transition:border-color var(--motion-1) var(--ease-standard),
+    transform var(--motion-1) var(--ease-responsive);}
+  .kbtn:hover{border-color:var(--control);}
+  .kbtn:active{transform:scale(0.97);}
+  .kbtn:focus-visible{outline:2px solid transparent;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--focus);}
+  .kbtn-quiet{background:transparent;}
+  .kbtn-go{min-height:3.25rem;width:100%;padding:0.625rem 1.25rem;border-color:var(--cream);background:var(--cream);
+    color:var(--ink);font-size:var(--text-button);}
+  .kbtn-go:hover{border-color:var(--cream);box-shadow:inset 0 0 0 2px var(--ink);}
+  @media (prefers-reduced-motion:reduce){.kbtn:active{transform:none;}}
+  /* The answer to the last ask: asked or cancelled in an opaque panel with the check in ready green; a refusal is the
+     amber-edged warning below. */
+  .said.kok{display:flex;align-items:flex-start;gap:0.75rem;max-width:none;padding:0.875rem 1rem;color:var(--cream);
+    background:var(--surface);border:1px solid var(--line-strong);border-radius:var(--radius-panel);}
+  .kok-ic{width:20px;height:20px;margin-top:0.125rem;color:var(--ready);}
+  /* The season picker: the show's title, then its seasons as 44px rows in one panel, then the Cream submit. */
+  .kreq-show-t{margin:0;display:flex;flex-direction:column;gap:0.125rem;}
+  .kreq-show-t .t{font-size:var(--text-shelf);font-weight:400;line-height:1.25;color:var(--cream);}
+  .kreq-show-t .d{color:var(--stone);font-size:var(--text-secondary);}
+  .kreq-show .season-list{margin:0 0 1rem;padding:0;gap:0;background:var(--surface);border:1px solid var(--line);
+    border-radius:var(--radius-panel);overflow:hidden;}
+  .kreq-show .season{min-height:3.25rem;padding:0.5rem 0.875rem;gap:0.25rem 0.75rem;}
+  .kreq-show .season+.season{border-top:1px solid var(--line);}
+  .kreq-show .season label{flex:1 1 auto;padding:0.5rem 0;color:var(--cream);}
+  .kreq-show .season .d{color:var(--stone);font-size:var(--text-secondary);}
+  /* My requests: each group one panel of rows (title, Stone line, the status in words after a dot: ready green when it
+     arrived, amber when declined or not found, Stone while it waits), the buttons after the words. */
+  ul.rq.kpanel{gap:0;}
+  ul.rq.kpanel .rq-row{border:0;border-radius:0;padding:0.875rem;gap:0.75rem 1rem;background:none;}
+  ul.rq.kpanel .rq-row+.rq-row{border-top:1px solid var(--line);}
+  .rq-row .t{font-size:1rem;font-weight:500;line-height:1.3;color:var(--cream);}
+  .rq-row .d{font-size:var(--text-secondary);line-height:1.4;color:var(--stone);}
+  .rq-st{margin-top:0.25rem;}
+  .rq-st::before{background:var(--stone);}
+  .rq-warn .rq-st::before{background:var(--warn);border:0;}
+  @media (forced-colors:active){.kbtn,.said.kok{border-color:ButtonText;}}
   /* A library that could not answer: words in a rectangle with the triangle glyph and a 1px amber edge. Never the
      yellow, never colour alone. */
   .said.kwarn{display:flex;align-items:flex-start;gap:0.75rem;max-width:none;padding:0.875rem 1rem;color:var(--cream);

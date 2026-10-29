@@ -107,8 +107,13 @@ CHOOSER_INTRO = {
 }
 
 
-def chooser_intro(path: str):
-    return CHOOSER_INTRO.get(path, ())
+# Request with Home's own ask pages on (a broker this member may use): asking happens here, not on another website.
+REQUEST_INTRO_HERE = ("Ask for something that is missing from a library. Search for it here, then ask.",
+                      "Asking does not add it straight away, and not every request can be filled.")
+
+
+def chooser_intro(path: str, asks_here: bool = False):
+    return REQUEST_INTRO_HERE if path == "request" and asks_here else CHOOSER_INTRO.get(path, ())
 
 
 ME_ROUTE = "/me"
