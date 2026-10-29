@@ -158,6 +158,7 @@ class ItemVM:
     active: Optional[str] = None   # when this member last touched it (contract MediaItem.active, UTC), for ordering only
     added: Optional[str] = None    # the day it reached the library (contract MediaItem.added), for New Releases only
     series: Optional[str] = None   # the series name (display text), for "from your series" counts only
+    mark: Optional[str] = None     # what tells this one from its neighbours in a series: "S3 E10", "#12" (glance)
 
     @property
     def shape(self) -> str:
@@ -228,11 +229,14 @@ def _item_vm(it: dict) -> Optional[ItemVM]:
     finished, resumable = continue_state(it.get("progress"))
     service = it.get("service") if it.get("service") in SERVICE_LABEL else ""
     item_id = it.get("id") if isinstance(it.get("id"), str) else None
+    mark = _plain(it.get("subtitle") or "") or None if it.get("kind") in ("episode", "comic") else None
+    if mark and title.endswith(mark):
+        mark = None                                  # "Saga #12" already says "#12"
     return ItemVM(title, href, str(it.get("kind", "")), detail,
                   progress_words(it.get("kind", ""), it.get("progress")), _image(it.get("artwork")),
                   service=service, resumable=resumable, finished=finished, item_id=item_id,
                   fraction=progress_fraction(it.get("progress")), backdrop=_image(it.get("backdrop")),
-                  logo=_image(it.get("logo")),
+                  logo=_image(it.get("logo")), mark=mark,
                   shelf=it.get("shelf") if it.get("shelf") in dict(SHELF_ROWS) else None,
                   year=it.get("year") if isinstance(it.get("year"), int) and not isinstance(it.get("year"), bool)
                   else None,
@@ -366,6 +370,9 @@ class CardVM:
     action_label: Optional[str] = None # accessible name for the action when the verb alone is ambiguous
     bar: Optional[int] = None          # Continue only: the progress rule's length in 5% steps (0 to 100), beside
                                        # the words, never instead of them; None draws no rule
+    glance: Optional[str] = None       # the one short line a card SHOWS (owner 2026-10-29, "trust our users"):
+                                       # the episode or issue mark and, in Continue, progress in short ("S1 E3 ·
+                                       # 20m left"). `line`, `progress` and the action stay whole for screen readers
 
 
 # The hero's one hand-off (memo sections 4 and 6). It names the app that opens, because that is where the member
@@ -807,8 +814,23 @@ def _cards(items, line_of, progress: bool = False, title_services=frozenset()) -
         words = (it.progress or (UP_NEXT if it.up_next else None)) if progress else None
         out.append(CardVM(it.title, href, it.shape, line_of(it), it.image,
                           words, kind_label=KIND_LABEL.get(it.kind),
-                          action=verb, action_label=name, bar=_bar(it) if progress else None))
+                          action=verb, action_label=name, bar=_bar(it) if progress else None,
+                          glance=glance_of(it.mark, short_words(words))))
     return tuple(out)
+
+
+def short_words(words: Optional[str]) -> Optional[str]:
+    """Progress words as a card shows them: "5 hours 50 minutes left" -> "5h 50m left", "25 percent read" -> "25%".
+    The whole words stay in the link's name."""
+    if not words:
+        return None
+    words = re.sub(r"\b(\d+) percent \w+", r"\1%", words)
+    words = re.sub(r"\b(\d+) hours?\b", r"\1h", words)
+    return re.sub(r"\b(\d+) minutes?\b", r"\1m", words)
+
+
+def glance_of(*parts: Optional[str]) -> Optional[str]:
+    return " · ".join(x for x in parts if x) or None
 
 
 def stack_of(week, mine_series, href: str, latest: bool = False) -> StackVM:
@@ -1023,7 +1045,9 @@ def build_home(view: dict, tiles, *, new_tab: Optional[str] = None, limit: int =
     today = today if isinstance(today, str) and _DAY.fullmatch(today) else _dt.date.today().isoformat()
     # New for You (owner request 2026-10-28): right under Continue, only when there is something.
     fresh = for_you_list(held)[:limit]
-    for_you = tuple(dataclasses.replace(c, progress=for_you_words(it, today)) for c, it in
+    for_you = tuple(dataclasses.replace(c, progress=for_you_words(it, today),
+                                        glance=glance_of(it.mark, for_you_words(it, today).partition(" · ")[2] or None))
+                    for c, it in
                     zip(_cards(fresh, lambda it: it.detail or KIND_LABEL.get(it.kind), title_services=title_services),
                         fresh))
     cont_degraded = any(x["state"] in ("unavailable", "not_linked") for s in cont_services

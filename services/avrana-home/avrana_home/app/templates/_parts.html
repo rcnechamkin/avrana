@@ -92,20 +92,24 @@
 <span class="frame"><span class="ph" aria-hidden="true">{{ (title[:1] or "A")|upper }}</span>{% if image and glow %}<span class="glow" aria-hidden="true"><img class="art" src="{{ image }}" alt="" width="160" height="240" loading="lazy"></span>{% endif %}{% if image %}<img class="art" src="{{ image }}" alt="" width="160" height="240" loading="lazy">{% endif %}{% if bar is not none %}<span class="bar" aria-hidden="true"><span class="fill pc{{ bar }}"></span></span>{% endif %}</span>
 {%- endmacro %}
 
-{# One card, one link, one action. Order: title (two lines at most), the creator, series or episode line
-   (dim, one line), progress in words, then the action verb (Continue cards only: `verb=True`). Clamping is
-   visual only: the full title and line stay in the link's text, so its accessible name carries them in full,
-   with a spoken comma between the parts. The link never takes an aria-label (it would hide line and progress).
-   When `action_label` is set it stands in for the verb for assistive technology.
+{# One card, one link, one action. Owner request 2026-10-29 ("trust our users"): the art says what a thing is and the
+   shelf says why it is here, so a card SHOWS its title (two lines at most) and, only where it is needed, one dim
+   line, `c.glance`: the episode or issue mark ("S1 E3", "#12") and, in Continue, how far along in short ("5h 50m
+   left"; the Cream rule on the art says it too). No year, creator, kind or library line, and no visible verb: the
+   whole card is the action. Screen readers still hear the whole story, since they cannot see the art: title, then
+   the creator, series or episode line, progress in words, then the action (`action_label`, "Resume in Movies and
+   TV", for Continue cards: `verb=True`), with a spoken comma between the parts. The glance repeats those words in
+   short, so it is hidden from assistive technology. The link never takes an aria-label (it would hide the rest).
    Without script the card stays a plain link to where the item opens; an in-place preview is MK-3's script
    territory (progressive enhancement over this link, never a replacement for it). #}
 {% macro card(c, verb=False, glow=False, more=False) -%}
 <li class="w-{{ c.shape }}"{% if more %} data-more hidden{% endif %}><a class="card" href="{{ c.href }}">
   {{ frame(c.image, c.title, c.bar, glow and c.shape == "still") }}
   <span class="t">{{ c.title }}</span>
-  {% if c.line or (not verb and c.kind_label) %}<span class="d"><span class="sr">, </span>{{ c.line or c.kind_label }}</span>{% endif +%}
-  {% if c.progress %}<span class="p"><span class="sr">, </span>{{ c.progress }}</span>{% endif +%}
-  {% if verb %}<span class="go"><span class="sr">, </span>{% if c.action_label %}<span aria-hidden="true">{{ c.action }}</span><span class="sr">{{ c.action_label }}</span>{% else %}{{ c.action }}{% endif %}</span>{% endif +%}
+  {% if c.glance %}<span class="d" aria-hidden="true">{{ c.glance }}</span>{% endif +%}
+  {% if c.line or (not verb and c.kind_label) %}<span class="sr">, {{ c.line or c.kind_label }}</span>{% endif +%}
+  {% if c.progress %}<span class="sr">, {{ c.progress }}</span>{% endif +%}
+  {% if verb %}<span class="sr">, {{ c.action_label or c.action }}</span>{% endif +%}
 </a></li>
 {%- endmacro %}
 
@@ -124,14 +128,14 @@
 {# "This week in comics" (owner request 2026-10-29): one card in New Releases for the week's comic issues. A pile of the
    three newest covers (decoration, hidden from assistive technology), the count on a Cream pill, then the words the
    link is named by: title, "34 new issues", and either "3 from your series" (the member's own state: the yellow dot)
-   or how many series. One plain link to the Comics chip, so it works without script. The fan on hover and focus is
+   or how many series. Only the title and "from your series" show (owner 2026-10-29: the pill already says how many). One plain link to the Comics chip, so it works without script. The fan on hover and focus is
    the stylesheet's, and only without reduced motion. #}
 {% macro stack_card(s) -%}
 <li class="w-comic w-stack"><a class="card stack" href="{{ s.href }}">
   <span class="frame pile"><span class="ph" aria-hidden="true">C</span>{% for img in s.images %}<span class="sheet s{{ loop.index }}" aria-hidden="true"><img class="art" src="{{ img }}" alt="" width="160" height="246" loading="lazy"></span>{% endfor %}<span class="count" aria-hidden="true">{{ s.count }}</span></span>
   <span class="t">{{ s.title }}</span>
-  <span class="d"><span class="sr">, </span>{{ s.line }}</span>
-  {% if s.mine %}<span class="p mine"><span class="sr">, </span>{{ s.mine }}</span>{% elif s.series %}<span class="p"><span class="sr">, </span>{{ s.series }}</span>{% endif +%}
+  <span class="sr">, {{ s.line }}</span>
+  {% if s.mine %}<span class="p mine"><span class="sr">, </span>{{ s.mine }}</span>{% elif s.series %}<span class="sr">, {{ s.series }}</span>{% endif +%}
 </a></li>
 {%- endmacro %}
 
