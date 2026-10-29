@@ -10,7 +10,8 @@ carry these headers; they contain no application data (documented in HOME-APP.md
     body is fixed text and does NOT echo the method. The ONE exception is POST to an exact path in
     `post_paths` (main.py lists a form route only while its form is on: "Sign in on a TV", the request brokers;
     with it off, that path is 501 like any other), and only with a `Content-Length` of at most MAX_FORM_BODY: a
-    missing length is 411, a larger one 413, both fixed text, before the application runs.
+    missing length is 411, a larger one 413, both fixed text, before the application runs. A path in `upload_paths`
+    (Me → My profile's photo, owner 2026-10-28) is the same, with MAX_UPLOAD_BODY as its limit.
   * A request whose header block exceeds identity.MAX_HEADER_BYTES gets 431 with fixed text before any routing or
     identity work (AVR-732). h11 enforces its own 16 KiB limit only while a request is still incomplete, so
     a request that arrives in one read (Linux asyncio reads up to 256 KiB at once) reached the application
@@ -67,6 +68,7 @@ NOT_IMPLEMENTED_BODY = (b"<!DOCTYPE HTML>\n<html lang=\"en\">\n<head>\n<meta cha
 LENGTH_REQUIRED_BODY = NOT_IMPLEMENTED_BODY.replace(b"501", b"411").replace(b"Unsupported method.", b"Length required.")
 TOO_LARGE_BODY = NOT_IMPLEMENTED_BODY.replace(b"501", b"413").replace(b"Unsupported method.", b"Request too large.")
 MAX_FORM_BODY = 4096          # the largest form, the broker's: a work id, a format, a title, an author and a token
+MAX_UPLOAD_BODY = 10 * 1024 * 1024 + 8192   # one photo (avatar.MAX_UPLOAD) plus the multipart framing and fields
 
 HEADERS_TOO_LARGE_BODY = (b"<!DOCTYPE HTML>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n"
                           b"<title>Error response</title>\n</head>\n<body>\n<h1>Error response</h1>\n"
@@ -94,10 +96,12 @@ def with_hygiene(headers, form_self: bool = False, manifest: bool = False, route
 
 
 class HygieneMiddleware:
-    def __init__(self, app, render_error: Callable[[], bytes], post_paths: frozenset = frozenset()):
+    def __init__(self, app, render_error: Callable[[], bytes], post_paths: frozenset = frozenset(),
+                 upload_paths: frozenset = frozenset()):
         self.app = app
         self._render_error = render_error
-        self._post_paths = frozenset(post_paths)
+        self._upload_paths = frozenset(upload_paths)
+        self._post_paths = frozenset(post_paths) | self._upload_paths
 
     async def __call__(self, scope, receive, send):
         kind = scope["type"]
@@ -135,7 +139,7 @@ class HygieneMiddleware:
                 if length is None:
                     scope["avrana_route"] = "length_required"
                     await self._plain(wrapped_send, 411, LENGTH_REQUIRED_BODY, head=False)
-                elif length > MAX_FORM_BODY:
+                elif length > (MAX_UPLOAD_BODY if self._exact_path(scope) in self._upload_paths else MAX_FORM_BODY):
                     scope["avrana_route"] = "too_large"
                     await self._plain(wrapped_send, 413, TOO_LARGE_BODY, head=False)
                 else:
@@ -159,12 +163,16 @@ class HygieneMiddleware:
                       status=state["status"],
                       duration_ms=round((time.perf_counter() - started) * 1000, 1))
 
+    @staticmethod
+    def _exact_path(scope) -> str:
+        raw = scope.get("raw_path") or scope.get("path", "").encode("latin-1", "replace")
+        return bytes(raw).decode("latin-1")
+
     def _is_post_path(self, scope) -> bool:
         if not self._post_paths:
             return False
         # The exact path only: no trailing slash, no doubled slash (those stay 501, like every other path).
-        raw = scope.get("raw_path") or scope.get("path", "").encode("latin-1", "replace")
-        return bytes(raw).decode("latin-1") in self._post_paths
+        return self._exact_path(scope) in self._post_paths
 
     @staticmethod
     async def _plain(send, status: int, body: bytes, head: bool) -> None:

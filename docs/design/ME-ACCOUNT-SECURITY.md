@@ -1,9 +1,16 @@
 # Me → Account & Security (Media 2.0)
 
-Status, 2026-10-27: **built behind the Home shell, not deployed, not verified against the running Authentik.**
-Source brief: *Avrana Media 2.0 — Account & Security and Me Completion Supplement* (owner, 2026-10-27), decisions
-AS-01..AS-11. Code: `services/avrana-home/avrana_home/app/security.py`, template `me_security.html`, tests
-`webtests/test_web_me_security.py`.
+Status, 2026-10-28: **reworked for the owner's "invisible identity" rule, behind the Home shell, not deployed, not
+verified against the running Authentik.** Source brief: *Avrana Media 2.0 — Account & Security and Me Completion
+Supplement* (owner, 2026-10-27), decisions AS-01..AS-11, amended by the owner on 2026-10-28:
+
+> Members should never be thinking about "Authentik". They should never be rerouted to an Authentik page. If we have to
+> send people to Authentik, they at least shouldn't even know that it's Authentik. Keep it visually consistent.
+
+That reverses AS-01/AS-07's "hand off to Authentik's user settings" fallback (and supplement §8.6). Code:
+`services/avrana-home/avrana_home/app/security.py`, `avrana_home/accountreader.py`, template `me_security.html`, tests
+`webtests/test_web_me_security.py`. The Authentik side (single-purpose flows, sign-out, recovery return, the reader's
+service account, the brand) is in `services/authentik/` (blueprint `avrana-account.yaml`, brand v2).
 
 Evidence rule used throughout: **repo** means read from this repository's blueprints and service docs (which can lag
 the host); **live** means observed on host `avrana`. Nothing below is live unless it says so. Per `AGENTS.md`, the
@@ -11,49 +18,65 @@ running system wins where they disagree.
 
 ## 1. What Home does
 
+Avrana owns every screen a member reads or manages. Authentik only runs the moments that must prove who the member is,
+each as one Avrana-styled step that returns by itself.
+
 | Route | What it is |
 | --- | --- |
-| `/me/security` | Account & Security hub: Sign-in & recovery (Password, Sign-in protection, Account recovery), Account access (Where you're signed in), Sign out of Avrana |
-| `/me/security/password`, `/protection`, `/protection/passkey`, `/protection/authenticator`, `/recovery`, `/sessions` | "What to expect" pages, each ending in **Continue securely** |
-| `/me/security/go/<action>` | 303 to a fixed Authentik address. `action` ∈ `password passkey totp recovery_codes sessions account`; anything else is the standard 404 |
-| `/me/security/back?s=<state>` | Return page. Only ever says "couldn't confirm" or "someone else is signed in now" |
-| `/me/security.json` | The capability map for the frontend (no slugs, hosts or member data) |
+| `/me/security` | Hub: Sign-in & recovery (Password, Sign-in protection, Account recovery), Account access (Where you're signed in), Sign out of Avrana |
+| `/me/security/protection` | Equal-weight chooser (Passkey, Authenticator app) and, with the reader, **On your account**: the member's own passkeys and authenticator apps with added / last-used dates |
+| `/me/security/password`, `/protection/passkey`, `/protection/authenticator`, `/recovery/codes` | "What to expect", then **Continue** when that flow is configured; otherwise "ask the person who invited you". Never a link to Authentik's user pages |
+| `/me/security/recovery` | Forgot-password route (sign-in page), the member's masked recovery address (`m•••@example.net`), backup codes, owner-assisted fallback |
+| `/me/security/sessions` | With the reader: the browsers signed in to the account (device, approximate place, last active) and **Sign out** for one of them (`POST`, every forms.py lock). Without it: who to ask |
+| `/me/security/go/<action>` | 303 to the configured flow `https://<auth host>/if/flow/<slug>/`. `action` ∈ `password passkey totp recovery_codes`; an unconfigured or unknown action is the standard 404 |
+| `/me/security/done/<action>` | Where each flow's closing redirect lands. Says **added / changed only on fresh evidence** from the reader (a method of that kind created in the last 15 minutes, or `password_change_date` in that window); otherwise "we couldn't see a change yet" |
+| `/me/security.json` | Capability map; enrollment is `verified_enrolled` / `verified_absent` with the reader, `unknown` without it. No slug, host or member identifier |
 
-All of it exists only with the Home shell on and a verified member; otherwise every path is the portal's 404. GET
-only: Home still writes nothing, holds no credential, and calls no Authentik API.
+All of it exists only with the Home shell on and a verified member; otherwise every path is the portal's 404. The
+`/account` page no longer links Authentik's user interface ("Manage account" is gone); it points at Account & Security.
 
-### Capability map (`SecurityConfig.capabilities`)
+### What is native and what is a flow
 
-| Capability | Default route | Why |
+| Concern | Rendered by | Credential Home holds |
 | --- | --- | --- |
-| `change_password` | Authentik settings page | Every account is local (no external sources configured: `docs/services/authentik.md`). The password-change flow slug is **not** in the repo |
-| `enroll_passkey` | Authentik settings page | Documented manual path: settings → MFA Devices → Add (`docs/services/authentik-sessions-passkeys.md`). `default-authenticator-webauthn-setup` is named as a `configure_flow` in the repo, but direct entry is not verified |
-| `enroll_totp` | Authentik settings page | `totp` is an accepted device class at login (repo); setup flow not in the repo |
-| `manage_recovery_codes` | Authentik settings page | `static` is an accepted device class at login (repo); setup flow not in the repo |
-| `recover_by_email` | Sign-in page only | `avrana-recovery` is `require_unauthenticated`, so a signed-in member can't run it; the brand's `flow_recovery` puts "Forgot password?" on the sign-in page (repo) |
-| `view_auth_sessions` | Authentik settings page | Authentik's own sessions list for the signed-in user. Home has no member-scoped read and must not use an admin token (AS-09, supplement §6) |
+| Sign-in methods on the account (names, dates) | Avrana | scoped reader (view) |
+| Where you're signed in; sign out one session | Avrana | scoped reader (view, delete sessions) |
+| Recovery address (masked) | Avrana | none (from the verified identity) |
+| Change password | flow `avrana-password` (confirm current password → new → write → back) | none |
+| Add passkey / authenticator app / backup codes | flows `avrana-passkey`, `avrana-authenticator`, `avrana-backup-codes` (confirm password → enrol → back) | none |
+| Remove a passkey or authenticator | owner (Admin → user → MFA devices) | none |
+| Forgot password | sign-in page "Forgot password?" → `avrana-recovery`, which now ends back on Avrana | none |
+| Sign out | `/signout` → outpost → `avrana-sign-out` invalidation flow: ends the Authentik session too, then back to Avrana's sign-in | none |
 
-Enrollment state is always `unknown`. The outpost hands Home an identity, not an API token, so Home has no safe way to
-read a member's devices. The UI never says "Passkey added".
+Why the credential steps stay on the sign-in host: every existing passkey is bound to the relying party
+`auth.avrana.net`, so a passkey ceremony can only run there; and the API permissions to set a password or edit a user
+would let a compromised Home take over any account, admins included. The reader is deliberately read-mostly: viewing
+devices and sessions, deleting a session. It cannot change passwords, users or devices (supplement §6 forbade doing
+this *silently*; this is the owner's explicit choice, 2026-10-28).
 
-### Turning on direct flows (owner, after checking on the host)
+### The scoped reader (`accountreader.py`)
 
-`HOME_SECURITY_FLOWS=password=<slug>,passkey=<slug>,totp=<slug>,recovery_codes=<slug>` makes that action open
-`https://<auth host>/if/flow/<slug>/` instead of the settings page. Unknown keys, repeated keys and anything that
-isn't a plain slug stop Home from starting. Set a slug only after, for that slug on the deployed instance:
+Off unless `HOME_ACCOUNT_READER_URL` and `HOME_ACCOUNT_READER_TOKEN` (or `_FILE`) are both set; real mode also needs
+`HOME_IDENTITY_MODE=jwt_required`. Its allow-list is exactly four requests:
 
-1. it exists and is a stage-configuration flow for that authenticator (Admin → Flows),
-2. a signed-in test member reaches it directly and completes it,
-3. a device enrolled through it is **accepted at the next sign-in** (the validation stage allows that device class).
+| Request | Use |
+| --- | --- |
+| `GET /api/v3/core/users/?username=<u>` | the member's account id, active flag, last password change. Exactly one exact, active match or nothing |
+| `GET /api/v3/authenticators/admin/all/?user=<id>` | names, kinds and dates of the member's methods. The per-kind admin endpoints are not allowed (the static one carries backup codes) |
+| `GET /api/v3/core/authenticated_sessions/?user__username=<u>` | the member's sessions |
+| `DELETE /api/v3/core/authenticated_sessions/<uuid>/` | one session, only after it is found in a fresh read of that member's list |
 
-`HOME_SECURITY_RETURN_ORIGIN=https://<media host>` adds `next=<media host>/me/security/back?s=<state>` to direct-flow
-hand-offs (never to the settings page, which is a `#` address). Set it only after checking that the deployed Authentik
-actually follows a cross-host `next` at the end of that flow. If it doesn't, leave it unset; the member comes back with
-the app switcher or the back button, and every page already says where to check the result.
+Reads are reused for 30 s per member; a sign-out and the done page read fresh. An unreadable answer is shown as
+"couldn't be loaded", never as "none". **Endpoint shapes are from the Authentik API as documented for recent
+versions, not checked against 2026.5.6**: `docs/runbooks/account-reader.md` has the owner's check before enabling.
 
-The state is `action.expiry.HMAC(action|expiry|username)` under a random per-process key: no storage, no username or
-secret in the address, 15-minute life. A different member reading it sees `session_changed`; a restart makes old
-states read as a plain "couldn't confirm".
+### Turning flows on (owner, after the Authentik blueprint is applied and checked)
+
+`HOME_SECURITY_FLOWS=password=avrana-password,passkey=avrana-passkey,totp=avrana-authenticator,recovery_codes=avrana-backup-codes`.
+Unknown keys, repeated keys and anything that isn't a plain slug stop Home from starting. Set a slug only after, on the
+deployed instance, a signed-in test member completes that flow, lands on `/me/security/done/<action>`, and (for
+methods) the new device is accepted at the next sign-in. `HOME_SECURITY_RETURN_ORIGIN` is retired: setting it is now a
+startup error, because every flow returns through its own redirect stage.
 
 ## 2. Authentik audit (repo, 2026-10-27)
 
@@ -82,22 +105,24 @@ Findings that change member copy:
 
 ## 3. Sign-out scope (AS-10)
 
-Today: **Sign out of Avrana** → `/signout` → `Clear-Site-Data: "cache", "storage"` on this device → the outpost's
-`/outpost.goauthentik.io/sign_out`, which (per upstream behaviour, not checked here) ends the outpost session and runs
-the provider's invalidation flow, `default-provider-invalidation-flow`.
+**Sign out of Avrana** → `/signout` → `Clear-Site-Data: "cache", "storage"` on this device → the outpost's
+`/outpost.goauthentik.io/sign_out` → the portal provider's invalidation flow. That used to be
+`default-provider-invalidation-flow`, whose closing page (Authentik's "You've logged out of …", with a button to the
+Authentik dashboard) broke the owner's rule, and which left the Authentik session alive, so reopening Avrana signed
+straight back in. The blueprint `avrana-account.yaml` gives the portal provider `avrana-sign-out` instead: end the
+Authentik session, then redirect to `https://avrana.net/`, which shows the Avrana-styled sign-in. The copy still
+promises only "Signs you out on this device"; TV and phone apps signed in directly stay signed in (correct). No "Sign
+out everywhere" exists.
 
-Not known: whether that flow also ends the **Authentik** session. If it doesn't, opening Avrana again signs the member
-straight back in without a prompt. The member copy only promises "Signs you out of Avrana Media on this device". No
-"Sign out everywhere" exists or should until revocation is proven end to end.
-
-Owner tests (from supplement §6): S-1 sign out, reopen Avrana (prompt or silent?); S-2 sign out, open
-`auth.avrana.net` (still signed in?); S-3 revoke the current session in Authentik settings, then use Avrana; S-4 revoke
-another browser's session; S-5 sign out while a TV stays signed in to Jellyfin (TV must keep working; that's correct);
+Owner tests once applied (supplement §6): S-1 sign out, reopen Avrana (expect the sign-in screen); S-2 sign out, open
+`auth.avrana.net` (expect the sign-in screen); S-3 sign out one session from "Where you're signed in", then use that
+browser; S-4 sign out the session you're using from that list; S-5 sign out while a TV stays signed in to Jellyfin;
 S-6 refresh mid-sign-out.
 
 ## 4. Recovery policy (AS-06, provisional)
 
-1. Forgot password, has email → "Forgot password?" on the sign-in page (works today, repo).
+1. Forgot password, has email → "Forgot password?" on the sign-in page (works today, repo). The blueprint now ends
+   `avrana-recovery` with a redirect to Avrana, so the member never lands on Authentik's dashboard afterwards.
 2. Lost one factor, has another or backup codes → sign in with the other one (validation stage accepts them, repo).
 3. Lost email and every factor → owner-assisted: `docs/runbooks/owner-assisted-recovery.md`.
 
@@ -109,25 +134,22 @@ Precondition still open: the verification-email click-through was "not yet verif
 | Item | State |
 | --- | --- |
 | Authentik version and flow names | Repo only (above). Live: Admin → System → version; Admin → Flows list |
-| Safe direct entry per action | None verified; all use the settings page until `HOME_SECURITY_FLOWS` is set |
-| Member-scoped status/session read | None available to Home; settings-page hand-off used instead |
-| Enrollment verification output | None; `unknown` state implemented |
+| Safe direct entry per action | Flows declared in `avrana-account.yaml` (not applied); Home offers none until `HOME_SECURITY_FLOWS` is set |
+| Member-scoped status/session read | Scoped reader service account (`docs/runbooks/account-reader.md`), off until configured |
+| Enrollment verification output | Fresh reader read on `/done/<action>`; `unknown` without the reader |
 | Password change and recovery mail | Needs a test account on the host |
 | Passkey accepted at sign-in | Repo/doc yes (five members, 2026-08-28); re-check after any flow change |
 | TOTP and static codes accepted | Device classes allowed (repo); enroll + sign in with a test account |
 | No lost-factor dead end | Expected dead end → owner runbook; confirm |
 | Real sign-out behaviour | §3 S-1..S-6 |
-| iOS / Android standalone PWA return | Not tested. Expect the hand-off to open outside the standalone app on iOS |
+| iOS / Android standalone PWA return | Not tested. Each flow's closing redirect returns to Avrana; on iOS the step may open in an in-app browser sheet |
+| Nobody lands on Authentik's dashboard | Owner step: the Cloudflare redirect rule in `services/authentik/README-member-surfaces.md` |
 
 Smoke-account matrix (supplement §8.8): local password only; + TOTP; + passkey; both; no recovery email; locked out.
 External-SSO accounts don't exist today.
 
-## 6. Not built here, and why
+## 6. Built elsewhere
 
-Proposed solutions for the first two, with the decisions they need: [ME-PREFERENCES-PROFILE-QUICKCONNECT.md](ME-PREFERENCES-PROFILE-QUICKCONNECT.md).
-
-- **Account-wide Home preferences (HOME-02)** and **profile edits** need durable per-member storage. Home has none by
-  design (`HOME-APP.md`: a file-backed store is an owner decision). Needs that decision first.
-- **Embedded Jellyfin Quick Connect (ME-05)**: the owner chose (2026-10-27) the admin key with `userId` behind guardrails,
-  the same key that already reads viewing history. Design and guardrails are in the proposals doc, §4.
-- **Device setup card, guides, Help changes**: frontend/content work with open product questions (ME-02..ME-04, ME-07).
+- **Profile (photo, display name)**, **account-wide Home preferences (HOME-02)**, the **device setup card**: their own
+  branches on top of this one, on the member store decided 2026-10-28 (S1).
+- **Embedded Jellyfin Quick Connect (ME-05)**: built (#127).

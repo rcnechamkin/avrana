@@ -730,8 +730,12 @@ client-supplied identity headers are never trusted, with or without a selection.
 
 **Recovery.** The app is stateless; the cache is SQLite on `:memory:` and disposable (a restart costs one slow
 page). It is constructed once per process, exposes **no file-path setting**, and is closed on shutdown. `purge_member` is the offboarding hook and is wired to nothing here (owner decision). Rebuild the
-image from Git, restore its environment/secret file from 1Password, start. There is no volume to
-back up; its env file joins the completeness gate when it exists.
+image from Git, restore its environment/secret file from 1Password, start. Its env file joins the completeness gate
+when it exists. The one exception is the **member store** (owner decision S1, 2026-10-28;
+`avrana_home/memberstore.py`): when `HOME_MEMBER_STORE` is set, each member's own photo and display name live in that
+SQLite file in the `./state` volume, which then joins the backup set. A lost store costs members their photo and name
+(Home falls back to the sign-in name and initial); nothing else depends on it. Offboarding purges a member's row
+(`python3 -m avrana_home.memberstore purge <username>`, docs/runbooks/offboarding.md Step 5).
 
 **Cut-over (per MEDIA-2.0 section 5).** The new app runs as its own container. Launch points the
 `avrana-portal` proxy provider's internal host at it; rollback points it back; the previous portal

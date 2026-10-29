@@ -103,7 +103,9 @@ class RouteLayerTests(unittest.TestCase):
         self.assertIn("if outcome not in allowed:", forms)
         sec = code(sources()["security.py"])
         self.assertIn("if action not in ACTIONS:", sec)
-        self.assertEqual(1, len(re.findall(r'"Location"', sec)))
+        # the hand-off (a configured flow) and the sessions page's own 303 (an outcome id on a fixed list)
+        self.assertEqual(2, len(re.findall(r'"Location"', sec)))
+        self.assertIn("if outcome not in allowed:", sec)
 
     def test_no_import_time_side_effects_in_the_package(self):
         for name, text in sources().items():

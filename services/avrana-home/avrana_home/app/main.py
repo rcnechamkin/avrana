@@ -38,6 +38,9 @@ from ..cache import MemberCache
 from ..member_keys import MemberKeyStore
 from ..provision import Provisioner, build_provisioner
 from ..quickconnect import OUTCOMES as QC_OUTCOMES, QuickConnect
+from ..accountreader import END_OUTCOMES as SESSION_OUTCOMES, AccountReader, said_when
+from ..memberstore import CONFLICT as STORE_CONFLICT, INVALID as STORE_INVALID, SAVED as STORE_SAVED, MemberStore
+from . import avatar as avatar_mod
 from ..resilience import SystemClock, UrllibTransport
 from . import catalogue as catalogue_mod
 from .catalogue import Trusted
@@ -60,10 +63,10 @@ from . import security as security_mod
 from .identity import (IdentityResolver, Viewer, get_viewer, has_identity_headers, home_filter_from_scope,
                        if_none_match_from_scope, library_chip_from_scope, library_view_from_scope, more_from_scope,
                        new_tab_from_scope, release_chip_from_scope,
-                       same_origin_form_post, search_term_from_scope, security_state_from_scope, show_from_scope,
+                       same_origin_form_post, same_origin_upload_post, search_term_from_scope, security_result_from_scope, show_from_scope,
                        tv_result_from_scope)
 from .logsafe import app_log, log_event, silence_uvicorn_access
-from .middleware import MAX_FORM_BODY, NOT_IMPLEMENTED_BODY, HygieneMiddleware
+from .middleware import MAX_FORM_BODY, MAX_UPLOAD_BODY, NOT_IMPLEMENTED_BODY, HygieneMiddleware
 from . import recovery
 from .routing import (ME_ROUTE, AccountFacts, Decision, chooser_intro, continue_decision, decide, library_decision,
                       me_decision, normalise_target, not_found, parse_title_route, search_decision, title_decision,
@@ -72,7 +75,8 @@ from .settings import Settings, is_sealed_preview
 from .viewmodel import (ACCOUNT_LIBRARY, CONTINUE_PAGE_MOST, CONTINUE_PATH, CONTRIBUTE_PATH, HOME_FETCH,
                         INTERSTITIAL_SHELL, LIBRARY_PLACE, NO_LIBRARY, REQUEST_FOR, SERVICE_LABEL, account_access,
                         build_continue_page, build_home, build_library, build_me, build_search, build_shell,
-                        build_title, extra_sections_for, has_library, library_extra_sections, place_link, title_href)
+                        build_title, extra_sections_for, has_library, initial_of, library_extra_sections, place_link,
+                        title_href)
 
 TEMPLATES = Path(__file__).resolve().parent / "templates"
 HTML = "text/html; charset=utf-8"
@@ -217,6 +221,30 @@ def build_quick_connect(settings: Settings) -> Optional[QuickConnect]:
                         member_username=_member_username(settings, settings.jellyfin_member_username))
 
 
+def build_account_reader(settings: Settings) -> Optional[AccountReader]:
+    """Account & Security's native reads (accountreader.py; owner decision 2026-10-28): only with the shell on and the
+    owner's scoped reader configured (docs/runbooks/account-reader.md). Tests inject one, or get none (the pages then say
+    what they can't show)."""
+    if not settings.home_sections or not settings.account_reader_url or not settings.account_reader_token:
+        return None
+    transport = UrllibTransport(settings.account_reader_url,
+                                {"Authorization": f"Bearer {settings.account_reader_token}",
+                                 "Accept": "application/json"})
+    return AccountReader(transport, timeout=settings.timeout)
+
+
+# Me -> My profile (memberstore.py, avatar.py): the routes, the posted fields and every result the page may show.
+PROFILE_ROUTE = "/me/profile"
+AVATAR_ROUTE = "/me/avatar"
+PROFILE_TEXT = ("do", "t", "v", "name")
+PROFILE_RESULTS = ("photo_saved", "photo_removed", "name_saved", "no_file", "conflict", "invalid_name", "unavailable",
+                   "expired", avatar_mod.TOO_BIG, avatar_mod.NOT_IMAGE, avatar_mod.TOO_MANY_PIXELS)
+
+
+# Account & Security "Sign out" of one session (accountreader.py): the posted fields.
+SESSION_FIELDS = frozenset({"session", "t"})
+
+
 # "Sign in on a TV" (forms.py, quickconnect.py): the posted fields, and every result the page may be sent back with.
 TV_FIELDS = frozenset({"code", "t"})
 TV_RESULTS = QC_OUTCOMES + ("expired",)
@@ -242,14 +270,17 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
                book_requests: Optional[ShelfarrRequests] = None,
                watch_requests: Optional[SeerrRequests] = None,
                comic_requests: Optional[OmnibusRequests] = None,
-               provisioner: Optional[Provisioner] = None) -> FastAPI:
-    """`adapters`, `quick_connect`, `book_requests`, `watch_requests`, `comic_requests` and `provisioner` let tests
-    inject fakes; otherwise they are built from `settings`. Each broker exists only when its switch is on (an injected
+               provisioner: Optional[Provisioner] = None,
+               account_reader: Optional[AccountReader] = None,
+               member_store: Optional[MemberStore] = None) -> FastAPI:
+    """`adapters`, `quick_connect`, `book_requests`, `watch_requests`, `comic_requests`, `provisioner` and
+    `account_reader` let tests inject fakes; otherwise they are built from `settings`. Each broker exists only when its switch is on (an injected
     client is ignored otherwise)."""
     silence_uvicorn_access()      # whoever serves this app, uvicorn must not log raw query strings
     cat = catalogue_mod.load(settings.catalogue_path)
     env = make_environment()
     env.globals["pwa_sw_off"] = not settings.pwa_sw          # kill switch: the script skips registration
+    env.globals["said_when"] = said_when                     # plain dates on the member's own pages (accountreader.py)
     if settings.motion_proposal:
         env.globals["home_stylesheet"] = env.globals["home_stylesheet"] + Markup(MOTION_PROPOSAL_CSS)
     # The offline page and the worker are built once: static bytes, the same for every viewer (pwa.py).
@@ -284,11 +315,18 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
     comic_cache = SearchCache(ttl=600.0)          # Omnibus search: metadata only, the same for every member
     broker_accounts = AttemptLimiter()            # account creation by the brokers: once per member per hour
     owned_index = OwnedIndex(settings.library_ids_file)             # read-only; None = no "Already in" claims
-    # Account & Security: the fixed hand-off table (from the catalogue's account address and the owner-verified flows)
-    # and the per-process key for the opaque return state. A bad catalogue address stops startup.
-    security_config = security_mod.SecurityConfig.build(cat.account_url, settings.security_flows,
-                                                        settings.security_return_origin)
-    return_states = security_mod.ReturnStates()
+    # Account & Security: the fixed hand-off table (from the catalogue's account address and the owner-applied flows),
+    # and the scoped reader for the member's own methods and sessions. A bad catalogue address stops startup.
+    reader = account_reader if account_reader is not None else (
+        build_account_reader(settings) if adapters is None else None)
+    if not settings.home_sections:
+        reader = None
+    security_config = security_mod.SecurityConfig.build(cat.account_url, settings.security_flows, reader is not None)
+    # Home's member store (owner decision S1, 2026-10-28): the member's own profile. Shell only; unset = no edits.
+    store = member_store if member_store is not None else (
+        MemberStore(settings.member_store) if settings.member_store is not None else None)
+    if not settings.home_sections:
+        store = None
     # "Sign in on a TV": only with the shell on. Injected adapters without an injected Quick Connect mean none.
     qc = quick_connect if quick_connect is not None else (build_quick_connect(settings) if adapters is None else None)
     if not (settings.home_sections and adapter_list):
@@ -306,6 +344,8 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
             yield
         finally:
             cache.close()
+            if store is not None:
+                store.close()
 
     app = FastAPI(title="Avrana home", docs_url=None, redoc_url=None, openapi_url=None,
                   lifespan=lifespan)
@@ -591,25 +631,36 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
             # prefix, or no member, is the standard 404 (parity). The hand-off is a 303 to a fixed Authentik address.
             if route == security_mod.JSON_ROUTE:
                 scope["avrana_route"] = route
-                return JSONResponse(security_config.summary())
+                view = await run_in_threadpool(reader.view, p) if reader is not None else None
+                return JSONResponse(security_config.summary(view))
             action = security_mod.action_from_route(route)
             if action is not None:
+                headers = security_mod.handoff_headers(security_config, action)
+                if headers is None:                  # not set up: the same 404 as an unknown action
+                    scope["avrana_route"] = "not_found"
+                    return respond(not_found())
                 scope["avrana_route"] = security_mod.GO_PREFIX + "{action}"
-                log_event(app_log, logging.INFO, "security_handoff", reason=action,
-                          state=security_config.via(action))
-                return Response(b"", status_code=303, media_type=HTML, headers=security_mod.handoff_headers(
-                    security_config, return_states, action, p.username))
-            result = (return_states.check(security_state_from_scope(scope), p.username)
-                      if route == security_mod.BACK_ROUTE else None)
-            page = security_mod.build_page(route, security_config, groups=viewer.groups, username=p.username,
-                                           signout_href=pwa_mod.SIGNOUT_PATH, result=result)
+                log_event(app_log, logging.INFO, "security_handoff", reason=action)
+                return Response(b"", status_code=303, media_type=HTML, headers=headers)
+            done = security_mod.action_from_route(route, security_mod.DONE_PREFIX)
+            page_id = security_mod.PAGES.get(route, (None,))[0]
+            view = None
+            if reader is not None and (done is not None or page_id in ("protection", "sessions")):
+                # Back from the sign-in screen reads fresh: it is the evidence for "added".
+                view = await run_in_threadpool(lambda: reader.view(p, fresh=done is not None))
+            result = security_result_from_scope(scope) if route == security_mod.SESSIONS_ROUTE else None
+            page = security_mod.build_page(
+                route, security_config, groups=viewer.groups, username=p.username,
+                signout_href=pwa_mod.SIGNOUT_PATH, view=view, email=security_mod.mask_email(p.email or ""),
+                now=dt.datetime.now(dt.timezone.utc),
+                token=form_tokens.issue("session", p.username) if page_id == "sessions" and view is not None else "",
+                result=result if result in SESSION_OUTCOMES + ("expired",) else None)
             if page is None:
                 scope["avrana_route"] = "not_found"
                 return respond(not_found())
-            if result is not None:
-                log_event(app_log, logging.INFO, "security_return", state=result.outcome,
-                          reason="expired" if result.expired else (result.action or "none"))
-            scope["avrana_route"] = route
+            if done is not None:
+                log_event(app_log, logging.INFO, "security_return", reason=done, state=page.outcome or "unknown")
+            scope["avrana_route"] = security_mod.DONE_PREFIX + "{action}" if done is not None else route
             return respond(Decision(route, 200, "me_security.html", {"sec": page}), scope,
                            shell=shell_for(viewer, "me"))
         if route == forms_mod.TV_ROUTE and qc is not None and p is not None and tv_member(viewer):
@@ -620,6 +671,28 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
             return respond(Decision(route, 200, "me_tv.html", {"tv": {
                 "status": status, "result": result if result in TV_RESULTS else None,
                 "token": form_tokens.issue("tv", p.username), "handoff": tv_handoff}}),
+                scope, shell=shell_for(viewer, "me"))
+        if route == AVATAR_ROUTE and store is not None and p is not None and adapter_list:
+            # The member's own photo, to the member only. Home's re-encoded WebP; revalidated by ETag.
+            found = await run_in_threadpool(store.avatar, p.username)
+            if found is None:
+                scope["avrana_route"] = "not_found"
+                return respond(not_found())
+            scope["avrana_route"] = AVATAR_ROUTE
+            headers = {"Cache-Control": artwork_mod.CACHE_CONTROL, "ETag": f'"{found[1]}"'}
+            if artwork_mod.not_modified(if_none_match_from_scope(scope), headers["ETag"]):
+                return Response(status_code=304, headers=headers)
+            return Response(found[0], media_type=avatar_mod.CONTENT_TYPE, headers=headers)
+        if route == PROFILE_ROUTE and settings.home_sections and p is not None and adapter_list:
+            # Me -> My profile. With the store off the page still shows who you are and says edits aren't on yet.
+            mine = await run_in_threadpool(store.profile, p.username) if store is not None else None
+            result = security_result_from_scope(scope)
+            scope["avrana_route"] = PROFILE_ROUTE
+            return respond(Decision(PROFILE_ROUTE, 200, "me_profile.html", {"prof": {
+                "on": store is not None, "readable": mine is not None, "profile": mine,
+                "sign_in_name": (p.name or "").strip() or p.username, "username": p.username,
+                "token": form_tokens.issue("profile", p.username) if mine is not None else "",
+                "result": result if result in PROFILE_RESULTS else None}}),
                 scope, shell=shell_for(viewer, "me"))
         if route == ME_ROUTE and settings.home_sections and p is not None and adapter_list:
             # The Me hub (Concept K, AVR-719) exists only with the shell; otherwise the path stays unknown (parity).
@@ -1065,6 +1138,12 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
         if not (settings.home_sections and p is not None and adapter_list):
             return None
         shell = build_shell(tiles_for(viewer), current, (p.name or "").strip() or p.username, places=places)
+        # My profile (memberstore.py): the name the member chose for Avrana and their photo, when the store has them.
+        # An unreadable store renders the sign-in name and the initial, as before.
+        mine = store.profile(p.username) if store is not None else None
+        if mine is not None and (mine.display_name or mine.avatar_etag):
+            name = mine.display_name or shell.member_name
+            shell = dataclasses.replace(shell, member_name=name, initial=initial_of(name), avatar=mine.avatar_etag)
         # The operator notice (AVR-365): fixed words from notice.py, a library notice only for members who open it.
         seen = notice_mod.visible_notice(notices.current(), place_paths(viewer))
         return dataclasses.replace(shell, notice=seen) if seen is not None else shell
@@ -1141,6 +1220,84 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
             return Response(b"", status_code=303, media_type=HTML,
                             headers=forms_mod.result_headers(outcome, TV_RESULTS))
 
+    if store is not None:
+        @app.post(PROFILE_ROUTE, include_in_schema=False, response_model=None)
+        async def save_profile(request: Request, viewer: Viewer = Depends(get_viewer)) -> Response:
+            """My profile's three forms (photo, remove photo, name), one multipart post path. Every lock first: same
+            origin, a bounded body, only the allow-listed fields, this member's form token, the record version the page
+            was drawn from. The answer is a 303 back to the page with a fixed result id."""
+            scope = request.scope
+            p = viewer.principal
+            if p is None or not (settings.home_sections and adapter_list):
+                scope["avrana_route"] = "method_not_supported"
+                return Response(NOT_IMPLEMENTED_BODY, status_code=501, media_type="text/html; charset=utf-8")
+            scope["avrana_route"] = PROFILE_ROUTE
+            ctype = same_origin_upload_post(scope)
+            if ctype is None:
+                return render("error.html", 403)
+            body = await forms_mod.read_body(request, MAX_UPLOAD_BODY)
+            parsed = avatar_mod.multipart_file(ctype, body, "photo", PROFILE_TEXT) if body is not None else None
+            if parsed is None:
+                return render("error.html", 400)
+            data, fields = parsed
+            outcome = await run_in_threadpool(profile_outcome, p.username, data, fields)
+            log_event(app_log, logging.INFO, "profile_save", state=outcome)       # never the name or the image
+            return Response(b"", status_code=303, media_type=HTML,
+                            headers=avatar_mod.profile_result_headers(outcome, PROFILE_RESULTS))
+
+        def profile_outcome(username: str, data, fields) -> str:
+            if not form_tokens.check(fields.get("t"), "profile", username):
+                return "expired"
+            try:
+                version = int(fields.get("v", ""))
+            except ValueError:
+                return "expired"
+            do = fields.get("do")
+            if do == "photo":
+                if not data:
+                    return "no_file"
+                try:
+                    webp = avatar_mod.process(data)
+                except avatar_mod.AvatarError as exc:
+                    return exc.reason
+                status, _ = store.save_avatar(username, webp, version)
+                ok = "photo_saved"
+            elif do == "remove":
+                status, _ = store.save_avatar(username, None, version)
+                ok = "photo_removed"
+            elif do == "name":
+                status, _ = store.save_name(username, fields.get("name", ""), version)
+                ok = "name_saved"
+            else:
+                return "expired"
+            if status == STORE_SAVED:
+                return ok
+            return {STORE_CONFLICT: "conflict", STORE_INVALID: "invalid_name"}.get(status, "unavailable")
+
+    if reader is not None:
+        @app.post(security_mod.SESSIONS_ROUTE, include_in_schema=False, response_model=None)
+        async def end_session(request: Request, viewer: Viewer = Depends(get_viewer)) -> Response:
+            """Sign out ONE of the member's own sign-in sessions (accountreader.py checks it is theirs, from a fresh
+            read). Every lock in forms.py first; the answer is a 303 back to the page with a fixed result id."""
+            scope = request.scope
+            p = viewer.principal
+            if p is None or not (settings.home_sections and adapter_list):
+                scope["avrana_route"] = "method_not_supported"
+                return Response(NOT_IMPLEMENTED_BODY, status_code=501, media_type="text/html; charset=utf-8")
+            scope["avrana_route"] = security_mod.SESSIONS_ROUTE
+            if not same_origin_form_post(scope):
+                return render("error.html", 403)
+            form = await forms_mod.read_form(request, SESSION_FIELDS, exact=True)
+            if form is None:
+                return render("error.html", 400)
+            if form_tokens.check(form.get("t"), "session", p.username):
+                outcome = await run_in_threadpool(reader.end_session, p, form.get("session", ""))
+            else:
+                outcome = "expired"
+            log_event(app_log, logging.INFO, "session_end", state=outcome)        # never the session or the member
+            return Response(b"", status_code=303, media_type=HTML,
+                            headers=security_mod.sessions_result_headers(outcome, SESSION_OUTCOMES + ("expired",)))
+
     @app.exception_handler(StarletteHTTPException)
     async def _http_error(request: Request, exc: StarletteHTTPException) -> Response:
         request.scope.setdefault("avrana_route", "error")
@@ -1155,7 +1312,9 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
 
     app.add_middleware(HygieneMiddleware, render_error=lambda: env.get_template("error.html")
                        .render().encode("utf-8"),
+                       upload_paths=frozenset({PROFILE_ROUTE}) if store is not None else frozenset(),
                        post_paths=frozenset(path for path, on in ((forms_mod.TV_ROUTE, qc is not None),
+                                                                   (security_mod.SESSIONS_ROUTE, reader is not None),
                                                                    (bookreq_mod.PATH, broker is not None),
                                                                    (watch_mod.PATH, seerr is not None),
                                                                    (comic_mod.PATH, omnibus is not None),

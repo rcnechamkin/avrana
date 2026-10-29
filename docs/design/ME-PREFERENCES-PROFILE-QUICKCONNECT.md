@@ -1,6 +1,11 @@
 # Me: account-wide Home preferences, profile and Quick Connect (proposals)
 
-Status, 2026-10-27: **proposals for owner decision. Nothing here is built.** Quick Connect direction chosen by the owner
+Status, 2026-10-28: **S1 and the profile (§3) are built** on `feat/me-invisible-identity` (owner: "Users should be
+able to edit their pictures" and "proceed with implementing all this"): Home's member store, Me → My profile with a
+photo (cropped in the browser, re-encoded by Home with Pillow, no metadata kept) and a Home-owned display name. B1 is
+reversed: the name shown in Avrana is Home's, because members must never be sent to an Authentik settings page
+(ME-ACCOUNT-SECURITY.md §1). Multipart is parsed with the standard library, so python-multipart is not added. The rest
+was, on 2026-10-27, **proposals for owner decision**. Quick Connect direction chosen by the owner
 the same day: the admin key with guardrails (§4). Companion to
 [ME-ACCOUNT-SECURITY.md](ME-ACCOUNT-SECURITY.md). Covers the three Media 2.0 Me items that need a decision before code:
 HOME-02 (account-wide Home preferences), ME-06 plus the supplement's profile (photo, display name, optional bio), and
@@ -224,13 +229,13 @@ What *is* different is the consequence, and the guardrails below exist for exact
 
 | ID | Decision | Recommendation |
 | --- | --- | --- |
-| S1 | Give Home a durable member store (SQLite in a named volume, backed up, purged on offboarding) | Yes |
+| S1 | Give Home a durable member store (SQLite in a named volume, backed up, purged on offboarding) | **Built** (2026-10-28) |
 | S2 | Allow Home's first POST routes with the CSRF design above | Yes |
 | A1 | Categories = Home's filters (All, Watch, Listen, Read); shelves = Continue, Up next, Recently added | Yes |
 | A2 | Explicit Save/Cancel rather than autosave | Save/Cancel |
-| B1 | Display name stays in Authentik, edited by hand-off | Yes |
+| B1 | Display name stays in Authentik, edited by hand-off | **Reversed** (2026-10-28): Home-owned name, no hand-off |
 | B2 | Keep the optional bio although only the member sees it | Your call; it's cheap either way |
-| B3 | Photo upload with Pillow + python-multipart, or initials with a colour choice | Initials + colour first; photo later |
+| B3 | Photo upload with Pillow + python-multipart, or initials with a colour choice | **Photo built** (owner, 2026-10-28; Pillow, stdlib multipart) |
 | C1 | Hand-off to Jellyfin's Quick Connect page now | Yes |
 | C2 | Admin key + `userId` with the §4 guardrails | **Decided: yes** (owner, 2026-10-27) |
 | C3 | Member-linked token | Later, only if wanted for hardening or browser playback (then also encrypt tokens at rest) |

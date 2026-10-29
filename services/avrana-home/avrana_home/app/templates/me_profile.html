@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% from "_rows.html" import glyph %}
+{% block title %}My profile · Avrana{% endblock %}
+{% block body %}
+{# Me -> My profile (Media 2.0 supplement §2/§10; owner 2026-10-28: "Users should be able to edit their pictures";
+   memberstore.py, avatar.py). Shell only, verified member only. The photo and the name shown in Avrana are Home's own
+   (one SQLite store, S1); username and email stay the sign-in service's and are shown, not edited. Plain forms that
+   work with JavaScript off (one multipart post to /me/profile, answered by a 303 back here with a fixed result id);
+   with JavaScript the photo form gets a square cropper (home.js part 14) that uploads a small, already-cropped image.
+   Only the member sees their profile (no social features in Media 2.0). #}
+  <h2 class="topic">My profile</h2>
+{% set r = prof.result %}
+{% if r %}
+  <p class="{% if r in ('photo_saved', 'photo_removed', 'name_saved') %}said kok{% else %}note msg{% endif %}" role="status">{% if r in ('photo_saved', 'photo_removed', 'name_saved') %}{{ glyph("check") }}<span>{% endif %}
+{%- if r == "photo_saved" %}Photo saved.
+{%- elif r == "photo_removed" %}Photo removed. Your initial shows instead.
+{%- elif r == "name_saved" %}Name saved.
+{%- elif r == "no_file" %}Choose a photo first.
+{%- elif r == "too_big" %}That photo is too large. Choose one under 10&nbsp;MB.
+{%- elif r == "not_image" %}That file isn't a photo Avrana can use. Choose a JPEG, PNG or WebP image.
+{%- elif r == "too_many_pixels" %}That image is too large to use. Choose a smaller one.
+{%- elif r == "invalid_name" %}Names can be up to 40 characters.
+{%- elif r == "conflict" %}Your profile was changed on another device. Here's the latest; try again.
+{%- elif r == "unavailable" %}That couldn't be saved just now. Try again in a moment.
+{%- elif r == "expired" %}This page was open too long. Try again.
+{%- endif %}{% if r in ('photo_saved', 'photo_removed', 'name_saved') %}</span>{% endif %}</p>
+{% endif %}
+  <section class="me-id" aria-label="Your profile">
+{% if shell.avatar %}    <img class="me-av me-av-img" src="/me/avatar?v={{ shell.avatar }}" alt="Your photo" width="80" height="80">
+{% else %}    <span class="me-av" aria-hidden="true">{{ shell.initial }}</span>
+{% endif %}    <div class="me-who">
+      <p class="me-name">{{ shell.member_name }}</p>
+      <p class="k-meta">Signed in as {{ prof.username }}</p>
+    </div>
+  </section>
+{% if not prof.on %}
+  <p class="note msg">Changing your photo and name isn't switched on yet.</p>
+{% elif not prof.readable %}
+  <p class="note msg">Your profile couldn't be loaded just now. Try again in a moment.</p>
+{% else %}
+{% set v = prof.profile.version %}
+  <section class="kgroup" aria-labelledby="pf-photo">
+    <h3 class="kgroup-h" id="pf-photo">Photo</h3>
+    <form class="kpanel pf-form" method="post" action="/me/profile" enctype="multipart/form-data" data-once data-crop>
+      <input type="hidden" name="t" value="{{ prof.token }}"><input type="hidden" name="v" value="{{ v }}"><input type="hidden" name="do" value="photo">
+      <label class="pf-label" for="pf-file">Choose a photo</label>
+      <input class="pf-file" id="pf-file" name="photo" type="file" accept="image/jpeg,image/png,image/webp" required>
+      <div class="pf-crop" hidden>
+        <div class="pf-stage" aria-hidden="true"><canvas width="256" height="256"></canvas></div>
+        <label class="pf-label" for="pf-zoom">Zoom</label>
+        <input class="pf-zoom" id="pf-zoom" type="range" min="1" max="4" step="0.01" value="1">
+        <p class="note">Drag the photo to move it.</p>
+      </div>
+      <p class="note">JPEG, PNG or WebP. Avrana keeps a small square copy and removes the photo's location and other details.</p>
+      <button class="kbtn kbtn-go" type="submit" data-busy="Saving&hellip;">Save photo</button>
+    </form>
+{% if shell.avatar %}
+    <form method="post" action="/me/profile" enctype="multipart/form-data" data-once>
+      <input type="hidden" name="t" value="{{ prof.token }}"><input type="hidden" name="v" value="{{ v }}"><input type="hidden" name="do" value="remove">
+      <button class="kbtn kbtn-quiet" type="submit" data-busy="Removing&hellip;">Remove photo</button>
+    </form>
+{% endif %}
+  </section>
+  <section class="kgroup" aria-labelledby="pf-name">
+    <h3 class="kgroup-h" id="pf-name">Name shown in Avrana</h3>
+    <form class="kpanel pf-form" method="post" action="/me/profile" enctype="multipart/form-data" data-once>
+      <input type="hidden" name="t" value="{{ prof.token }}"><input type="hidden" name="v" value="{{ v }}"><input type="hidden" name="do" value="name">
+      <label class="pf-label" for="pf-name-in">Name</label>
+      <input class="pf-text" id="pf-name-in" name="name" type="text" maxlength="40" autocomplete="nickname" value="{{ prof.profile.display_name }}" placeholder="{{ prof.sign_in_name }}">
+      <p class="note">Leave it empty to use {{ prof.sign_in_name }}. This changes the name on your Avrana pages only; your username stays {{ prof.username }}.</p>
+      <button class="kbtn kbtn-go" type="submit" data-busy="Saving&hellip;">Save name</button>
+    </form>
+  </section>
+{% endif %}
+  <p class="note">Only you see your profile.</p>
+{% endblock %}
+{% block footer %}    {% if not shell %}<a class="link" href="/">Back to home</a>{% endif %}{% endblock %}

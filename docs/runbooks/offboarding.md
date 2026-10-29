@@ -226,6 +226,14 @@ python3 /home/cody/avrana/scripts/offboard.py <username> --apply --purge
 | Audiobookshelf | The user | `scripts/offboard.py:170-172` |
 | Authentik | The user, through Django so that dependent rows go with it. A failure prints "FAILED ... check by hand" | `scripts/offboard.py:189-202` |
 
+Home keeps one thing per member when its member store is on (`HOME_MEMBER_STORE`): the photo and display name the
+member set on their profile page. `offboard.py` does not touch it; remove it with Home's own command, in the running Home
+container (it prints only the username and a verdict; exit 0 done or nothing there, 1 not written, 2 refused):
+
+```
+docker exec avrana-home-beta python3 -m avrana_home.memberstore purge <username>
+```
+
 **UNVERIFIED U-18**: whether deleting a Seerr user also deletes their request records, and whether
 Jellyfin's activity log keeps entries naming the deleted user.
 
