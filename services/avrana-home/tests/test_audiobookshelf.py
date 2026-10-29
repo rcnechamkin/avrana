@@ -5,6 +5,7 @@ import sys as _sys
 
 _sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
 from tests import _netguard  # noqa: E402,F401  (installs the network guard, also when run directly)
+import base64
 import json
 import logging
 import shutil
@@ -16,9 +17,10 @@ from avrana_home.adapters.audiobookshelf import ALLOWED_ROUTES, AudiobookshelfAd
 from avrana_home.adapters.jellyfin import JellyfinAdapter
 from avrana_home.aggregate import gather
 from avrana_home.cache import MemberCache
-from avrana_home.contract import ForbiddenRequest, Kind, SectionState, Service
+from avrana_home.adapters._base import iso_instant
+from avrana_home.contract import TRUNCATED, ForbiddenRequest, Kind, SectionState, Service
 from avrana_home.principal import principal_from_headers
-from avrana_home.resilience import FakeClock, UrllibTransport
+from avrana_home.resilience import REQUEST_BUDGET, FakeClock, UrllibTransport
 from avrana_home.app import artwork
 from avrana_home.resilience import MAX_IMAGE_BYTES
 from tests.fake_abs import JPEG, UA, UB, UC, UD, FakeAudiobookshelf
@@ -67,6 +69,15 @@ class States(Base):
                          ("audiobookshelf/cover/li_book000001", "Cover of Synthetic Audiobook One"))
         self.assertIsNone(r.items[1].artwork)                 # coverPath null: no cover offered
         self.assertEqual(r.to_dict()["items"][0]["progress"]["percent"], 42)
+
+    def test_continue_items_carry_when_this_member_last_touched_them(self):
+        """Home sorts Continue across libraries by `active`: this member's own `lastUpdate` (epoch ms), UTC."""
+        r = self.adapter.continue_items(self.a)
+        self.assertEqual([i.active for i in r.items], [iso_instant(1700000300000), iso_instant(1700000200000)])
+        self.assertEqual(r.items[0].active, "2023-11-14T22:18:20Z")
+        self.assertEqual(r.to_dict()["items"][0]["active"], "2023-11-14T22:18:20Z")
+        later = self.adapter.continue_items(self.b).items
+        self.assertTrue(later and all(i.active for i in later))
 
     def test_a_member_without_the_group_gets_nothing_and_nothing_is_asked_or_read(self):
         cache = MemberCache(self.clock)
@@ -1049,6 +1060,164 @@ class Shelves(Base):
         outsider = make_principal("member-a", ("avrana-users",))
         self.assertIs(self.adapter.shelves_items(outsider).state, SectionState.NOT_PERMITTED)
         self.assertEqual(self.fake.requests, [])
+
+
+class NewForYou(Base):
+    """Owner request 2026-10-28: the next book of a series the member is caught up on, added in the last 30 days."""
+
+    SAGA = "ser_wandering01"
+
+    def setUp(self):
+        super().setUp()
+        self.fake.add_series("lib_aaa", self.SAGA, "Wandering Tide",
+                             [("li_tide000001", 1, 200), ("li_tide000002", 2, 100), ("li_tide000003", 3, 2)])
+        self.fake.set_progress(UA, "li_tide000001", 1.0, finished=True)
+        self.fake.set_progress(UA, "li_tide000002", 1.0, finished=True)
+
+    def set_progress(self, uid, item_id, progress, finished=False):
+        self.fake.records[uid]["mediaProgress"] = [e for e in self.fake.records[uid]["mediaProgress"]
+                                                   if e["libraryItemId"] != item_id]
+        self.fake.set_progress(uid, item_id, progress, finished)
+
+    def drop_progress(self, uid, item_id):
+        self.fake.records[uid]["mediaProgress"] = [e for e in self.fake.records[uid]["mediaProgress"]
+                                                   if e["libraryItemId"] != item_id]
+
+    def test_the_next_book_of_a_series_the_member_finished_earlier_books_of_is_new_for_you(self):
+        r = self.adapter.for_you_items(self.a)
+        self.assertEqual((r.state, r.section, titles(r)), (SectionState.OK, "for_you", ["Wandering Tide Book 3"]))
+        item = r.items[0]
+        self.assertEqual(item.id, "audiobookshelf:li_tide000003")
+        self.assertEqual(item.series, "Wandering Tide #3")
+        self.assertEqual(item.active, iso_instant(self.fake.listed["li_tide000003"]["addedAt"]))   # when it arrived
+        self.assertIsNone(item.progress_fraction)
+        wanted = "series." + base64.b64encode(self.SAGA.encode()).decode()
+        filters = [q["filter"] for _m, p, q in self.fake.requests if p == "/api/libraries/lib_aaa/items" and "filter" in q]
+        self.assertEqual(filters, [wanted])
+
+    def test_the_series_listing_may_carry_only_the_series_name_text_instead_of_a_series_object(self):
+        self.fake.series_dict = False
+        self.assertEqual(titles(self.adapter.for_you_items(self.a)), ["Wandering Tide Book 3"])
+        self.fake.series_dict = False
+        self.adapter.cache.clear()
+        self.drop_progress(UA, "li_tide000002")
+        self.set_progress(UA, "li_tide000002", 0.5)                 # book 2 unfinished: the text sequence still blocks
+        self.assertEqual(self.adapter.for_you_items(self.a).state, SectionState.EMPTY)
+
+    def test_not_when_an_earlier_book_of_the_series_is_unfinished(self):
+        self.set_progress(UA, "li_tide000002", 0.5)
+        r = self.adapter.for_you_items(self.a)
+        self.assertEqual((r.state, r.items), (SectionState.EMPTY, ()))
+
+    def test_not_when_an_earlier_book_was_never_started(self):
+        self.drop_progress(UA, "li_tide000002")                    # 1 finished, 2 untouched, 3 is new
+        self.assertEqual(self.adapter.for_you_items(self.a).state, SectionState.EMPTY)
+
+    def test_not_when_the_member_has_already_started_or_finished_the_new_book(self):
+        self.set_progress(UA, "li_tide000003", 0.1)
+        self.assertEqual(self.adapter.for_you_items(self.a).state, SectionState.EMPTY)
+        self.adapter.cache.clear()
+        self.set_progress(UA, "li_tide000003", 1.0, finished=True)
+        self.assertEqual(self.adapter.for_you_items(self.a).state, SectionState.EMPTY)
+
+    def test_not_when_it_was_added_more_than_thirty_days_ago(self):
+        self.fake.listed["li_tide000003"]["addedAt"] -= 29 * 86_400_000     # 31 days old now
+        r = self.adapter.for_you_items(self.a)
+        self.assertEqual((r.state, r.items), (SectionState.EMPTY, ()))
+        self.fake.listed["li_tide000003"]["addedAt"] += 2 * 86_400_000      # 29 days old
+        self.adapter.cache.clear()
+        self.assertEqual(titles(self.adapter.for_you_items(self.a)), ["Wandering Tide Book 3"])
+
+    def test_not_when_the_member_never_read_the_series(self):
+        self.drop_progress(UA, "li_tide000001")
+        self.drop_progress(UA, "li_tide000002")
+        self.assertEqual(self.adapter.for_you_items(self.a).state, SectionState.EMPTY)
+
+    def test_a_later_unfinished_book_does_not_block_and_a_series_with_one_book_is_not_new_for_you(self):
+        self.fake.add_series("lib_aaa", self.SAGA, "Wandering Tide", [("li_tide000004", 4, 300)])
+        self.assertEqual(titles(self.adapter.for_you_items(self.a)), ["Wandering Tide Book 3"])
+        self.fake.add_series("lib_aaa", "ser_solo000001", "Lonely Tide", [("li_solo000001", 1, 1)])
+        self.adapter.cache.clear()
+        self.assertEqual(titles(self.adapter.for_you_items(self.a)), ["Wandering Tide Book 3"])
+
+    def test_books_without_a_sequence_need_a_finished_book_and_no_unfinished_started_one(self):
+        self.fake.add_series("lib_aaa", "ser_loose000001", "Loose Tide",
+                             [("li_loos000001", None, 90), ("li_loos000002", None, 80), ("li_loos000003", None, 1)])
+        self.fake.set_progress(UA, "li_loos000001", 1.0, finished=True)
+        got = titles(self.adapter.for_you_items(self.a))
+        self.assertEqual(got, ["Loose Tide Book None", "Wandering Tide Book 3"])     # newest arrival first
+        self.adapter.cache.clear()
+        self.set_progress(UA, "li_loos000002", 0.4)                                 # started, unfinished
+        self.assertEqual(titles(self.adapter.for_you_items(self.a)), ["Wandering Tide Book 3"])
+
+    def test_newest_arrival_first_and_at_most_limit(self):
+        self.fake.add_series("lib_aaa", "ser_second0001", "Second Tide",
+                             [("li_sec0000001", 1, 50), ("li_sec0000002", 2, 40), ("li_sec0000003", 3, 1)])
+        for n in (1, 2):
+            self.fake.set_progress(UA, f"li_sec000000{n}", 1.0, finished=True)
+        r = self.adapter.for_you_items(self.a)
+        self.assertEqual(titles(r), ["Second Tide Book 3", "Wandering Tide Book 3"])
+        self.assertEqual([i.active for i in r.items], sorted((i.active for i in r.items), reverse=True))
+        self.assertEqual(titles(self.adapter.for_you_items(self.a, limit=1)), ["Second Tide Book 3"])
+
+    def test_a_series_in_a_library_the_member_may_not_use_gives_nothing_and_is_never_listed(self):
+        self.fake.add_series("lib_bbb", "ser_other00001", "Other Tide",
+                             [("li_othr000001", 1, 100), ("li_othr000002", 2, 90), ("li_othr000003", 3, 1)])
+        for n in (1, 2):
+            self.fake.set_progress(UA, f"li_othr00000{n}", 1.0, finished=True)
+            self.fake.set_progress(UD, f"li_othr00000{n}", 1.0, finished=True)
+        self.assertEqual(titles(self.adapter.for_you_items(self.a)), ["Wandering Tide Book 3"])
+        self.assertFalse([p for p in self.fake.paths() if "lib_bbb" in p or "li_othr" in p])
+        self.assertIn("Other Tide Book 3", titles(self.adapter.for_you_items(self.d)))   # member-d may use every library
+
+    def test_a_book_the_member_may_not_see_is_not_for_them(self):
+        self.fake.listed["li_tide000003"]["media"]["metadata"]["explicit"] = True      # member-a: no explicit content
+        self.assertEqual(self.adapter.for_you_items(self.a).state, SectionState.EMPTY)
+
+    def test_a_budget_that_runs_short_shows_what_was_checked_and_says_so(self):
+        self.fake.add_series("lib_aaa", "ser_second0001", "Second Tide",
+                             [("li_sec0000001", 1, 50), ("li_sec0000002", 2, 40), ("li_sec0000003", 3, 3)])
+        for n in (1, 2):
+            self.fake.set_progress(UA, f"li_sec000000{n}", 1.0, finished=True)
+        self.fake.slow["/api/items/li_tide000003"] = REQUEST_BUDGET - 0.1          # newest candidate: left 0.1 s
+        r = self.adapter.for_you_items(self.a)
+        self.assertEqual((r.state, r.reason, titles(r)), (SectionState.OK, TRUNCATED, ["Wandering Tide Book 3"]))
+        self.assertNotIn("/api/items/li_sec0000003", self.fake.paths())
+
+    def test_candidates_examined_are_capped(self):
+        for n in range(8):
+            self.fake.add_series("lib_aaa", f"ser_many{n:07d}", f"Many {n}", [(f"li_many{n:07d}", 1, 1 + n / 10)])
+        self.adapter.for_you_items(self.a)
+        looked = [p for p in self.fake.paths() if p.startswith("/api/items/li_")]
+        self.assertEqual(len(looked), 6)
+
+    def test_unusable_series_data_fails_closed(self):
+        self.fake.series_of["li_tide000003"] = "not a list"
+        r = self.adapter.for_you_items(self.a)
+        self.assertEqual((r.state, r.reason), (SectionState.UNAVAILABLE, "UpstreamMalformed"))
+
+    def test_another_members_progress_entry_discards_the_section(self):
+        self.edit_record(UA, lambda rec: rec["mediaProgress"][0].update(userId=UB))
+        r = self.adapter.for_you_items(self.a)
+        self.assertEqual((r.state, r.reason), (SectionState.UNAVAILABLE, "UpstreamMisbehaved"))
+
+    def test_the_expanded_item_of_a_different_library_or_id_is_misbehaviour(self):
+        body = json.loads(self.fake.handle("GET", "/api/items/li_tide000003", {"expanded": "1"})[1])
+        body["libraryId"] = "lib_bbb"
+        self.fake.serve("/api/items/li_tide000003", body)
+        self.assertEqual(self.adapter.for_you_items(self.a).reason, "UpstreamMisbehaved")
+
+    def test_no_group_no_call(self):
+        outsider = make_principal("member-a", ("avrana-users",))
+        self.assertIs(self.adapter.for_you_items(outsider).state, SectionState.NOT_PERMITTED)
+        self.assertEqual(self.fake.requests, [])
+
+    def test_the_route_list_allows_the_series_filter_on_library_lists_only(self):
+        guard = GuardedTransport(FakeTransport(self.fake), UA)
+        filt = {"filter": "series." + base64.b64encode(b"ser_x").decode(), "limit": "5", "minified": "1"}
+        self.assertEqual(guard.request("GET", "/api/libraries/lib_aaa/items", filt, 1.0, 1000).status, 200)
+        with self.assertRaises(ForbiddenRequest):
+            guard.request("GET", "/api/libraries/lib_aaa/search", {"q": "x", "filter": "series.eA=="}, 1.0, 1000)
 
 
 if __name__ == "__main__":

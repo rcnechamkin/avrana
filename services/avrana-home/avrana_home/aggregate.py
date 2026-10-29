@@ -21,7 +21,8 @@ import threading
 from dataclasses import dataclass
 from typing import Iterable, Optional, Sequence, Tuple
 
-from .contract import DEFAULT_LIMIT, MediaAdapter, SectionResult, SectionState, clean_query, run_in_page
+from .contract import (DEFAULT_LIMIT, DEFAULT_MAX_IN_FLIGHT_PER_MEMBER, MediaAdapter, SectionResult, SectionState,
+                       clean_query, run_in_page)
 from .principal import MemberPrincipal, is_minted_principal
 from .resilience import REQUEST_BUDGET, log_failure
 
@@ -89,7 +90,7 @@ def derive_hard_cap(adapters: Sequence[MediaAdapter]) -> float:
 
 
 _METHODS = {"continue": "continue_items", "recent": "recent_items", "next_up": "next_up_items",
-            "shelves": "shelves_items", "released": "released_items"}
+            "shelves": "shelves_items", "released": "released_items", "for_you": "for_you_items"}
 _CORE = ("continue", "recent")      # every adapter answers these; any other is asked only of `extra_sections`
 
 
@@ -112,6 +113,35 @@ def gather(principal: MemberPrincipal, adapters: Sequence[MediaAdapter],
     wanted = [s for s in sections if s in _METHODS]
     jobs = [(a, s, getattr(a, _METHODS[s])) for a in adapters for s in wanted
             if s not in a.not_offered and (s in _CORE or s in a.extra_sections)]
+    if not jobs:
+        return HomeSections(())
+    return HomeSections(_run(jobs, (principal, limit), adapters, hard_cap))
+
+
+def waves(pairs: Sequence[Tuple[str, str]], per_member: int = DEFAULT_MAX_IN_FLIGHT_PER_MEMBER):
+    """(service, section) pairs split into waves, in order, so no service gets more than `per_member` sections in one
+    wave: a member may hold only that many calls per library at once, and the per-member cap never waits (contract
+    `_acquire_slot`), so a third section beside two others would only be refused as `member_busy`."""
+    out: list = []
+    seen: dict = {}
+    for service, section in dict.fromkeys(pairs):
+        n = seen.get(service, 0)
+        seen[service] = n + 1
+        while len(out) <= n // per_member:
+            out.append([])
+        out[n // per_member].append((service, section))
+    return [tuple(w) for w in out]
+
+
+def gather_pairs(principal: MemberPrincipal, adapters: Sequence[MediaAdapter], pairs: Iterable[Tuple[str, str]],
+                 limit: int = DEFAULT_LIMIT, hard_cap: Optional[float] = None) -> HomeSections:
+    """`gather` for exact (service value, section) pairs: each adapter is asked only the sections paired with it (and
+    only those it offers), all at once under one hard cap."""
+    if not is_minted_principal(principal):
+        raise TypeError("gather_pairs takes a parser-minted MemberPrincipal")
+    by_service = {a.service.value: a for a in adapters}
+    jobs = [(a, s, getattr(a, _METHODS[s])) for a, s in ((by_service.get(v), s) for v, s in dict.fromkeys(pairs))
+            if a is not None and s in _METHODS and s not in a.not_offered and (s in _CORE or s in a.extra_sections)]
     if not jobs:
         return HomeSections(())
     return HomeSections(_run(jobs, (principal, limit), adapters, hard_cap))

@@ -37,11 +37,15 @@ def member(name, email, groups=GROUPS):
     return principal_from_headers(headers)
 
 
-def book(n, series, page=None, pages=40, completed=False):
+def book(n, series, page=None, pages=40, completed=False, read=None, created=None):
     raw = {"id": f"READ{n:08d}", "seriesId": series, "seriesTitle": f"Series {series}", "name": f"Book {n}",
            "metadata": {"title": f"Book {n}", "number": str(n)}, "media": {"status": "READY", "pagesCount": pages}}
     if page is not None:
         raw["readProgress"] = {"page": page, "completed": completed}
+        if read is not None:
+            raw["readProgress"]["readDate"] = read
+    if created is not None:
+        raw["created"] = created
     return raw
 
 
@@ -51,6 +55,7 @@ class MemberKomga:
     def __init__(self):
         self.reading = [book(1, "S1", page=10), book(2, "S2", page=39), book(3, "S3", page=0)]
         self.ondeck = [book(4, "S4"), book(1, "S1")]
+        self.read = []                     # finished books, newest read first (Continue's order, New for You)
         self.requests = []
         self.status = None
 
@@ -61,6 +66,8 @@ class MemberKomga:
         size = int(query.get("size", "20"))
         if path == "/api/v1/books" and query.get("read_status") == "IN_PROGRESS":
             content = self.reading[:size]
+        elif path == "/api/v1/books" and query.get("read_status") == "READ":
+            content = self.read[:size]
         elif path == "/api/v1/books/ondeck":
             content = self.ondeck[:size]
         else:
@@ -97,7 +104,8 @@ class Reading(unittest.TestCase):
         self.assertEqual([i.title for i in got.items], ["Book 1", "Book 2", "Book 3", "Book 4"])
         self.assertEqual([i.progress_fraction for i in got.items], [0.25, 39 / 40, None, None])
         self.assertEqual(self.shared.requests, [])                    # the shared account is never asked
-        self.assertEqual([r[1] for r in self.mine.requests], ["/api/v1/books", "/api/v1/books/ondeck"])
+        self.assertEqual([r[1] for r in self.mine.requests], ["/api/v1/books", "/api/v1/books/ondeck", "/api/v1/books"])
+        self.assertEqual(self.mine.requests[2][2]["read_status"], "READ")   # when each On Deck series was last read
         self.assertEqual(self.mine.requests[0][2]["sort"], "readProgress.readDate,desc")
 
     def test_only_on_deck_books_are_marked_up_next(self):
@@ -166,7 +174,7 @@ class Reading(unittest.TestCase):
     def test_the_row_is_cached_per_member(self):
         self.adapter.continue_items(self.alice)
         self.adapter.continue_items(self.alice)
-        self.assertEqual(len(self.mine.requests), 2)                  # one fetch (two calls), then the cache
+        self.assertEqual(len(self.mine.requests), 3)                  # one fetch (three calls), then the cache
 
     def test_the_member_allow_list_has_only_the_two_reading_routes(self):
         self.assertEqual([r.name for r in MEMBER_ROUTES], ["reading", "ondeck"])

@@ -1101,7 +1101,10 @@
     ::view-transition-old(k-dock){opacity:0;}
     .title-page .frame,.frame.k-flight{view-transition-name:k-art;}
     .tabbar .lens{view-transition-name:k-lens;}
-    .tabs .ul,.chips .ul{view-transition-name:k-filter;}
+    /* Home's two shelf submenus are the same control; each rule is named apart so no name is carried by two elements on
+       one page (a second holder drops the whole transition). */
+    .shelf-new .tabs .ul,.chips .ul{view-transition-name:k-filter;}
+    .shelf-released .tabs .ul{view-transition-name:k-filter-rel;}
     @keyframes k-leave{to{opacity:0;}}
     @keyframes k-arrive{0%,45%{opacity:0;transform:translateY(6px);}}
   }

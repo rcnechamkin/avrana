@@ -211,7 +211,7 @@ class ContinueAndRecentTests(Base):
         self.assertTrue(all(q.get("userId") for q in sent))
 
     def test_next_up_is_offered_by_this_library_only(self):
-        self.assertEqual(JellyfinAdapter.extra_sections, frozenset({"next_up", "released"}))
+        self.assertEqual(JellyfinAdapter.extra_sections, frozenset({"next_up", "released", "for_you"}))
 
     def test_empty_when_nothing_in_progress(self):
         self.fake.users.append({"Id": "99999999-9999-4999-8999-999999999999", "Name": "member-z",
@@ -552,6 +552,18 @@ class Released(Base):
         self.assertEqual([i.title for i in r.items], ["Synthetic New Episode", "Synthetic New Film"])
         self.assertEqual(r.items[1].released, (self.today - timedelta(days=3)).isoformat())
         self.assertEqual(r.items[1].to_dict()["released"], r.items[1].released)
+
+    def test_episodes_show_their_series_poster_and_a_show_without_one_keeps_the_still(self):
+        series = "bbbb0000000000000000000000000978"
+        self.served[1].update(SeriesId=series, SeriesPrimaryImageTag="stag")          # New Episode: its show has a poster
+        self.served[3]["Type"] = "Episode"                                             # a second show, no poster
+        self.served[3].update(SeriesName="Synthetic Other Show", SeriesId="bbbb0000000000000000000000000979",
+                              ParentIndexNumber=1, IndexNumber=1)
+        episode, other = self.adapter.released_items(self.a).items
+        self.assertEqual((episode.artwork.ref, episode.artwork.shape, episode.artwork.alt),
+                         (f"jellyfin/primary/{series}", "poster", "Poster for Synthetic Show"))
+        self.assertEqual((other.artwork.ref, other.artwork.shape),
+                         (f"jellyfin/primary/{self.served[3]['Id']}", None))   # no shape: the kind's own
 
     def test_the_query_is_the_members_own_sorted_bounded_listing(self):
         self.adapter.released_items(self.a, limit=5)

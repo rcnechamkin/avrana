@@ -97,7 +97,8 @@ class SectionRenderingTests(Fixture):
         self.assertEqual(1, len(re.findall(r"<main(?:\s[^>]*)?>", text)))
         self.assertEqual(1, text.count("<h1>"))
         self.assertNotRegex(above, r"style=|<svg|<picture|<script|<canvas|on\w+=")
-        self.assertEqual(4, above.count("<h2"))           # the hero (AVR-718), Continue, New Releases, New to Avrana
+        self.assertEqual(5, above.count("<h2"))           # the hero (AVR-718), Continue, New for You, New Releases,
+                                                          # New to Avrana
         # Continue is bounded (the section limit, 12: owner request 2026-10-28); artwork is decoration (alt="") from the
         # artwork route only
         self.assertLessEqual(len(re.findall(r'class="card"', above.split('id="h-released"')[0])), 12)
@@ -256,14 +257,17 @@ class JsonViewTests(Fixture):
         doc = r.json()
         self.assertEqual({"sections"}, set(doc))
         self.assertEqual([("jellyfin", "continue", "ok"), ("jellyfin", "recent", "ok"), ("jellyfin", "released", "ok"),
-                          ("jellyfin", "next_up", "ok")],                 # Up next: All's Continue (2026-10-28)
+                          ("jellyfin", "next_up", "ok"),                  # Up next: All's Continue (2026-10-28)
+                          ("jellyfin", "for_you", "ok")],                 # New for You, a wave of its own (2026-10-28)
                          [(s["service"], s["section"], s["state"]) for s in doc["sections"]])
         for s in doc["sections"]:
             self.assertEqual({"service", "section", "state", "items"}, set(s))
             for it in s["items"]:
                 self.assertEqual({"id", "service", "kind", "title", "subtitle", "series", "progress",
                                   "artwork", "creator", "year", "summary", "handoff_url"},
-                                 set(it) - {"backdrop", "released"})         # each only when the library gave it
+                                 set(it) - {"backdrop", "released", "active"})   # each only when the library gave it
+                if "active" in it:                     # when this member last touched it, UTC (2026-10-28)
+                    self.assertRegex(it["active"], r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
                 if "backdrop" in it:                   # only when the library gave one (Jellyfin's Backdrop)
                     self.assertRegex(it["backdrop"]["ref"], r"^jellyfin/backdrop/[0-9a-f]{32}$")
                 self.assertIsNone(it["summary"])       # a synopsis only on the title page (R2-C)

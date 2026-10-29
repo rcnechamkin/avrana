@@ -9,6 +9,7 @@ from tests import _netguard  # noqa: E402,F401  (installs the network guard, als
 import json
 import logging
 import unittest
+from datetime import datetime, timedelta, timezone
 
 from avrana_home.adapters.komga import ALLOWED_ROUTES, SHARED_VIEWER, GuardedTransport, KomgaAdapter
 from avrana_home.contract import ForbiddenRequest, Kind, SectionState
@@ -308,6 +309,53 @@ class RecentAndReleased(Base):
         self.assertEqual(titles(r), titles(self.adapter.shelves_items(self.a)))
         self.assertEqual({i.shelf for i in r.items}, {None})
         self.assertTrue(all(i.released and len(i.released) == 10 for i in r.items))
+
+    def novel(self, n, title, release, created_days_ago, series=None):
+        return {"id": f"BOOKNOVEL{n:03d}", "seriesId": series or f"SERIESNOV{n:03d}", "seriesTitle": title,
+                "libraryId": "LIBBOOKS01", "name": title, "deleted": False,
+                "media": {"status": "READY", "mediaProfile": "EPUB"},
+                "metadata": {"title": title, "number": "1", "releaseDate": release, "authors": []},
+                "created": (datetime.now(timezone.utc) - timedelta(days=created_days_ago)).isoformat()}
+
+    def test_novels_and_issues_are_counted_apart_so_a_run_of_issues_cannot_crowd_novels_out(self):
+        # Five issues newer than the novel: with a limit of 3 a single list would hold three issues and no novel.
+        self.fake.latest["content"].append(self.novel(1, "Synthetic Old Novel", "2001-05-01", 3))
+        r = self.adapter.released_items(self.a, limit=3)
+        self.assertEqual([i.kind for i in r.items], [Kind.COMIC] * 3 + [Kind.EBOOK])
+        self.assertEqual((r.items[-1].title, r.items[-1].released), ("Synthetic Old Novel", "2001-05-01"))
+
+    def test_enough_novels_on_the_newest_page_cost_no_second_request(self):
+        self.fake.latest["content"].append(self.novel(1, "Synthetic Old Novel", "2001-05-01", 3))
+        self.adapter.released_items(self.a, limit=1)
+        self.assertEqual([q["sort"] for _m, _p, q in self.fake.requests], ["metadata.releaseDate,desc"])
+
+    def test_when_the_newest_page_holds_too_few_novels_the_newest_additions_fill_the_rest(self):
+        self.fake.latest["content"] += [self.novel(2, "Synthetic Added Novel", "1999-01-02", 0),
+                                        self.novel(3, "Synthetic Undated Novel", None, 0)]
+        handle = self.fake.handle
+
+        def newest_page_of_issues_only(method, path, query):     # more issues than a page, all newer than any novel
+            status, body, ctype = handle(method, path, query)
+            if (query or {}).get("sort") == "metadata.releaseDate,desc":
+                page = json.loads(body)
+                page["content"] = [b for b in page["content"] if not b["id"].startswith("BOOKNOVEL")]
+                body = json.dumps(page).encode("utf-8")
+            return status, body, ctype
+        self.fake.handle = newest_page_of_issues_only
+        r = self.adapter.released_items(self.a)
+        self.assertEqual([q["sort"] for _m, _p, q in self.fake.requests],
+                         ["metadata.releaseDate,desc", "created,desc"])
+        self.assertEqual([i.title for i in r.items if i.kind is Kind.EBOOK], ["Synthetic Added Novel"])
+        self.assertEqual(r.items[-1].released, "1999-01-02")     # no release day (the undated novel): nothing to sort on
+        self.assertEqual(len(r.items), 6)
+
+    def test_novels_are_never_listed_twice_and_issues_are_unchanged(self):
+        self.fake.latest["content"].append(self.novel(4, "Synthetic Dated Novel", "2020-02-02", 5))
+        r = self.adapter.released_items(self.a)
+        ids = [i.id for i in r.items]
+        self.assertEqual(len(ids), len(set(ids)))
+        issues = [i.title for i in r.items if i.kind is Kind.COMIC]
+        self.assertEqual(issues, [i.title for i in self.adapter.shelves_items(self.a).items if i.kind is Kind.COMIC])
 
     def test_the_shelf_needs_the_group_too(self):
         outsider = make_principal("member-a", ("avrana-users",))

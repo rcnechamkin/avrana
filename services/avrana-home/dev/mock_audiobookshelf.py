@@ -61,6 +61,8 @@ class MockAudiobookshelf:
         self.slow_seconds = slow_seconds
         self.api_key = api_key
         self.fake = self.FAKE()
+        if self.NAME == "audiobookshelf":
+            self._seed_new_for_you()
         # Answer the fake's stock cover with a real, decodable synthetic PNG in this service's natural shape. A
         # test that sets `fake.image` to something else gets exactly that; False serves the fake's own bytes.
         self.synthetic_covers = True
@@ -93,6 +95,15 @@ class MockAudiobookshelf:
         self.httpd = Server((host, port), Handler)
         self.host, self.port = host, self.httpd.server_address[1]
         self._thread = None
+
+    def _seed_new_for_you(self) -> None:
+        """A demo series for member-a (lib_aaa): books 1 and 2 finished, book 3 added two days ago, so New for You
+        shows "Synthetic Chronicle Book 3" locally (series filter and expanded series: fake_abs, UNVERIFIED shapes)."""
+        fake = self.fake
+        fake.add_series("lib_aaa", "ser_chronicle01", "Synthetic Chronicle",
+                        [("li_chron000001", 1, 120), ("li_chron000002", 2, 60), ("li_chron000003", 3, 2)])
+        for n in (1, 2):
+            fake.set_progress("aaaaaaaa-1111-4aaa-8aaa-aaaaaaaaaaaa", f"li_chron00000{n}", 1.0, finished=True)
 
     @property
     def url(self) -> str:

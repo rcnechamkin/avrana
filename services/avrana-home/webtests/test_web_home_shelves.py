@@ -23,6 +23,7 @@ HANDOFF = {"jellyfin": "https://watch.avrana.net/web/#/details?id=", "audiobooks
            "komga": "https://read.avrana.net/book/", "calibre-web": "https://books.avrana.net/book/"}
 TILES = [("watch", Trusted("Watch"), Trusted("")), ("listen", Trusted("Listen"), Trusted("")),
          ("read", Trusted("Read"), Trusted("")), ("help", Trusted("Help"), Trusted(""))]
+NO_BOOKS_TILES = [t for t in TILES if t[0] != "read"]      # a member with no books library
 TITLES = frozenset({"jellyfin", "audiobookshelf", "komga"})
 PROGRESS = {"fraction": 0.5, "percent": 50, "position_seconds": 600, "duration_seconds": 1200}
 
@@ -175,7 +176,55 @@ class NewRails(unittest.TestCase):
     def test_one_kind_alone_has_no_chips(self):
         v = view(sec("jellyfin", "continue", "empty"),
                  sec("jellyfin", "released", "ok", films(3, released="2026-10-01")))
-        self.assertEqual((), build_home(v, TILES, today=TODAY).released_tabs)
+        self.assertEqual((), build_home(v, NO_BOOKS_TILES, today=TODAY).released_tabs)
+
+    # Owner request 2026-10-28: a Books chip, for a member who has a books library.
+    def kinds_view(self):
+        return view(sec("jellyfin", "continue", "empty"),
+                    sec("jellyfin", "released", "ok", films(2, released="2026-10-01")),
+                    sec("audiobookshelf", "released", "ok", [item("audiobookshelf", "li_book000001", "Synthetic Book",
+                                                                 "audiobook", released="2026-10-02")]))
+
+    def test_the_books_chip_is_offered_to_a_member_with_a_books_library_before_any_book_is_dated(self):
+        home = build_home(self.kinds_view(), TILES, today=TODAY)         # TILES has Read (Komga and Calibre-Web)
+        self.assertEqual(["All", "Movies and TV", "Audiobooks", "Books"], [t[1] for t in home.released_tabs])
+        only_books_place = [t for t in TILES if t[0] != "watch"]
+        self.assertIn("Books", [t[1] for t in build_home(self.kinds_view(), only_books_place, today=TODAY).released_tabs])
+        home = build_home(self.kinds_view(), NO_BOOKS_TILES, today=TODAY)        # no books library: no Books chip
+        self.assertEqual(["All", "Movies and TV", "Audiobooks"], [t[1] for t in home.released_tabs])
+        asked = build_home(self.kinds_view(), NO_BOOKS_TILES, today=TODAY, rel_tab="books")    # and `?rel=books` is ignored
+        self.assertEqual((3, None), (len(asked.released_items), asked.released_said))
+
+    def test_choosing_books_with_none_dated_keeps_the_chips_and_says_so_calmly(self):
+        home = build_home(self.kinds_view(), TILES, today=TODAY, rel_tab="books")
+        self.assertEqual(((), "No new releases in Books right now."), (home.released_items, home.released_said))
+        self.assertEqual([False, False, False, True], [t[2] for t in home.released_tabs])
+        self.assertIsNone(build_home(self.kinds_view(), TILES, today=TODAY).released_said)      # All says nothing
+
+    def test_calibre_web_books_with_a_publication_date_fill_the_books_chip(self):
+        v = self.kinds_view()
+        v["sections"].append(sec("calibre-web", "released", "ok", [
+            item("calibre-web", "101", "Synthetic Calibre Novel", "ebook", released="2026-09-15"),
+            item("calibre-web", "102", "Synthetic Older Calibre Novel", "ebook", released="2008-03-01")]))
+        books_only = build_home(v, TILES, today=TODAY, rel_tab="books")
+        self.assertEqual(["Synthetic Calibre Novel", "Synthetic Older Calibre Novel"],
+                         [c.title for c in books_only.released_items])
+        self.assertIsNone(books_only.released_said)
+        everything = build_home(v, TILES, today=TODAY)
+        self.assertEqual(5, len(everything.released_items))                # All loses nothing
+        self.assertEqual("Synthetic Older Calibre Novel", everything.released_items[-1].title)   # oldest last
+
+    def test_episodes_with_a_series_poster_make_a_tall_rail_and_a_lone_still_is_lifted_to_it(self):
+        poster = {"ref": "jellyfin/primary/" + "b" * 32, "alt": "Poster", "shape": "poster"}
+        still = {"ref": "jellyfin/primary/" + "c" * 32, "alt": "Still"}
+        v = view(sec("jellyfin", "released", "ok", [
+            item("jellyfin", jf(1), "Synthetic Episode", "episode", released="2026-10-05", artwork=poster),
+            item("jellyfin", jf(2), "Synthetic Film", "movie", released="2026-10-04")]))
+        home = build_home(v, NO_BOOKS_TILES, today=TODAY)
+        self.assertEqual((["poster", "poster"], ""), ([c.shape for c in home.released_items], home.released_rail))
+        v["sections"][0]["items"][0]["artwork"] = still                  # a show with no poster keeps its still
+        home = build_home(v, NO_BOOKS_TILES, today=TODAY)
+        self.assertEqual((["still", "poster"], "mixed"), ([c.shape for c in home.released_items], home.released_rail))
 
     def test_watch_new_releases_row_shows_more_too(self):
         v = self.released_view()
@@ -214,8 +263,49 @@ class Markup(unittest.TestCase):
         self.assertIn('<h2 id="h-released">New Releases</h2>', html)
         self.assertIn('<nav class="tabs" aria-label="New Releases, by kind">', html)
         self.assertIn('<a href="/?rel=comics#h-released">Comics</a>', html)
-        self.assertIn('<a href="/#h-released" aria-current="true">All</a>', html)
+        self.assertIn('<a href="/#h-released" aria-current="true">All<span class="ul" aria-hidden="true"></span></a>', html)
         self.assertNotIn("New releases", html)
+
+    def test_new_releases_chips_are_the_same_submenu_as_new_to_avrana_with_the_yellow_rule_under_the_chosen_one(self):
+        v = NewRails().released_view()
+        v["sections"] += [sec("jellyfin", "recent", "ok", films(2, start=40)),
+                          sec("audiobookshelf", "recent", "ok", books(2, start=40))]
+        html = self.render(build_home(v, TILES, limit=12, today=TODAY, rel_tab="comics"))
+        navs = re.findall(r'<nav class="tabs" aria-label="([^"]+)">(.*?)</nav>', html, re.S)
+        self.assertEqual(["New Releases, by kind", "New to Avrana, by library"], [label for label, _body in navs])
+        for _label, body in navs:
+            anchors = re.findall(r"<a [^>]*>.*?</a>", body, re.S)
+            self.assertGreater(len(anchors), 2)
+            current = [a for a in anchors if "aria-current" in a]
+            self.assertEqual(1, len(current), body)
+            self.assertRegex(current[0], r'^<a href="[^"]+" aria-current="true">[^<]+<span class="ul" aria-hidden="true"></span></a>$')
+            self.assertEqual(len(anchors) - 1, len([a for a in anchors if re.fullmatch(r'<a href="[^"]+">[^<]+</a>', a)]))
+        self.assertEqual("Comics", re.search(r'>([^<]+)<span class="ul"', navs[0][1]).group(1))
+        self.assertNotRegex(html, r"style=|<svg|<script|on\w+=")
+
+    def test_a_chosen_chip_with_nothing_still_shows_the_chips_and_one_calm_line(self):
+        v = NewRails().kinds_view()
+        html = self.render(build_home(v, TILES, limit=12, today=TODAY, rel_tab="books"))
+        released = html.split('id="h-released"', 1)[1].split("</section>", 1)[0]
+        self.assertIn('<a href="/?rel=books#h-released" aria-current="true">Books<span class="ul"', released)
+        self.assertIn('<p class="said">No new releases in Books right now.</p>', released)
+        self.assertNotIn("<ul", released)
+
+    def test_the_released_rail_is_tall_and_mixed_when_a_still_stands_among_posters(self):
+        poster = {"ref": "jellyfin/primary/" + "b" * 32, "alt": "Poster", "shape": "poster"}
+        still = {"ref": "jellyfin/primary/" + "c" * 32, "alt": "Still"}
+
+        def rail(artwork):
+            v = view(sec("jellyfin", "released", "ok", [
+                item("jellyfin", jf(1), "Synthetic Episode", "episode", released="2026-10-05", artwork=artwork),
+                item("jellyfin", jf(2), "Synthetic Film", "movie", released="2026-10-04", artwork=poster)]))
+            return self.render(build_home(v, NO_BOOKS_TILES, limit=12, today=TODAY))
+        tall = rail(poster)
+        self.assertIn('<ul class="rail tall" id="rail-released">', tall)
+        self.assertEqual(0, tall.count('class="w-still"'))
+        mixed = rail(still)
+        self.assertIn('<ul class="rail tall mixed" id="rail-released">', mixed)
+        self.assertIn('<li class="w-still">', mixed)
 
 
 class TitleFacts(unittest.TestCase):

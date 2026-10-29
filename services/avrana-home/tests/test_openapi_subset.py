@@ -183,6 +183,7 @@ class SentValueTests(unittest.TestCase):
         adapter.continue_items(member)
         adapter.recent_items(member)
         adapter.next_up_items(member)
+        adapter.for_you_items(member)
         adapter.search(member, "synthetic")
         resume = load("resume_member_a.json")["Items"]
         first = next(i["Id"] for i in resume if not i["Id"].startswith("../")).replace("-", "").lower()

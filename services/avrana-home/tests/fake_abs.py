@@ -49,6 +49,11 @@ class FakeAudiobookshelf:
         self.overrides = {}        # path -> ("status", int) | ("body", bytes) | ("raise", exc)
         self.slow = {}
         self.image = (200, JPEG, "image/jpeg")   # what the cover route answers for an item with a cover
+        # Series (add_series): item id -> [{id, name, sequence}], served as `media.metadata.series` of the EXPANDED item
+        # and used by `filter=series.<base64 id>`. `series_dict`: a series-filtered minified entry carries the single
+        # {id, name, sequence} object under `media.metadata.series` (as recalled from the server); False: only `seriesName`.
+        self.series_of = {}
+        self.series_dict = True
 
     def record(self, uid):
         """A private copy of a fixture user record, to be edited and served through `overrides`."""
@@ -94,7 +99,11 @@ class FakeAudiobookshelf:
                 return 404, b"{}", "application/json"      # unknown item, or no cover
             return self.image
         if path.startswith("/api/items/"):
-            it = self.items.get(path[len("/api/items/"):]) or self.listed.get(path[len("/api/items/"):])
+            iid = path[len("/api/items/"):]
+            it = self.items.get(iid) or self.listed.get(iid)
+            if it is not None and iid in self.series_of:
+                it = copy.deepcopy(it)
+                it["media"]["metadata"]["series"] = copy.deepcopy(self.series_of[iid])
             return self._json(it) if it is not None else (404, b"{}", "application/json")
         return 404, b"{}", "application/json"
 
@@ -125,6 +134,10 @@ class FakeAudiobookshelf:
         if flt.startswith("genres."):
             genre = base64.b64decode(flt[len("genres."):]).decode("utf-8")
             entries = [it for it in entries if genre in it["media"]["metadata"].get("genres", ())]
+        elif flt.startswith("series."):
+            sid = base64.b64decode(flt[len("series."):]).decode("utf-8")
+            entries = [self._in_series(it, sid) for it in entries
+                       if any(s["id"] == sid for s in self.series_of.get(it["id"], ()))]
         key = {"addedAt": lambda it: it.get("addedAt") or 0,
                "media.metadata.publishedYear": lambda it: int(it["media"]["metadata"].get("publishedYear") or 0),
                "media.duration": lambda it: it["media"].get("duration") or 0}.get(query.get("sort"))
@@ -135,6 +148,39 @@ class FakeAudiobookshelf:
         return self._json({"results": results, "total": len(entries), "limit": limit, "page": 0,
                            "sortBy": query.get("sort"), "sortDesc": query.get("desc") == "1",
                            "filterBy": flt or None, "mediaType": lib["mediaType"], "minified": True})
+
+    def _in_series(self, item, series_id):
+        """A minified entry as a series-filtered list serves it (UNVERIFIED shape, see `series_dict`)."""
+        item = copy.deepcopy(item)
+        if self.series_dict:
+            item["media"]["metadata"]["series"] = next(s for s in self.series_of[item["id"]] if s["id"] == series_id)
+        return item
+
+    def add_series(self, library_id, series_id, name, books):
+        """Add a series to a library. `books`: (item id, sequence or None, days ago it was added). Each is listed
+        (minified, `seriesName` "<name> #<sequence>"), found by id, and filterable by the series."""
+        now = int(time.time() * 1000)
+        for item_id, sequence, days_ago in books:
+            label = name if sequence is None else f"{name} #{sequence}"
+            entry = {"id": item_id, "libraryId": library_id, "mediaType": "book", "isMissing": False,
+                     "isInvalid": False, "addedAt": now - int(days_ago * 86_400_000),
+                     "media": {"metadata": {"title": f"{name} Book {sequence}", "authorName": "Synthetic Author",
+                                            "seriesName": label, "publishedYear": "2020", "explicit": False,
+                                            "genres": ["Fantasy"]},
+                               "tags": [], "duration": 36000.0,
+                               "coverPath": f"/metadata/items/{item_id}/cover.jpg"}}
+            self.lists.setdefault(library_id, []).append(entry)
+            self.listed[item_id] = entry
+            self.series_of[item_id] = [{"id": series_id, "name": name,
+                                        "sequence": None if sequence is None else str(sequence)}]
+
+    def set_progress(self, uid, item_id, progress, finished=False):
+        """Give a member a progress entry for a book (their own record; `finished` also sets isFinished)."""
+        self.records[uid]["mediaProgress"].append({
+            "id": "mp_" + item_id, "userId": uid, "libraryItemId": item_id, "episodeId": None, "mediaItemType": "book",
+            "duration": 36000.0, "progress": float(progress), "currentTime": 36000.0 * progress,
+            "isFinished": bool(finished), "hideFromContinueListening": False, "lastUpdate": 1700000000000,
+            "startedAt": 1700000000000, "finishedAt": None})
 
     @staticmethod
     def _json(obj):

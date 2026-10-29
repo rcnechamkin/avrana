@@ -79,6 +79,49 @@ class States(Base):
         self.assertEqual(self.adapter.search(self.a, "Synthetic").state, SectionState.OK)   # offered since AVR-383
 
 
+class Released(Base):
+    """New releases (owner request 2026-10-28, the Books chip): OPDS gives a book's publication date as `<published>`;
+    the newest-added page is put in that order, and a book with no real date is left out."""
+
+    def dated(self, **days):
+        feed = self.fake.feed
+        for author, published in days.items():
+            feed = feed.replace(f"<author><name>Synthetic Author {author.upper()}</name></author>",
+                                f"<author><name>Synthetic Author {author.upper()}</name></author>"
+                                f"<published>{published}</published>")
+        return feed
+
+    def test_books_by_publication_date_newest_first(self):
+        self.serve(self.dated(c="2015-06-01T00:00:00+00:00"))
+        r = self.adapter.released_items(self.a)
+        self.assertEqual((r.section, r.state, titles(r)), ("released", SectionState.OK, [THREE, ONE]))
+        self.assertEqual([i.released for i in r.items], ["2015-06-01", "2008-03-01"])
+        self.assertEqual(r.items[0].to_dict()["released"], "2015-06-01")
+        self.assertEqual(self.fake.paths(), ["/opds/new"])
+
+    def test_no_date_calibres_unknown_date_and_a_future_date_are_not_releases(self):
+        self.serve(self.dated(c="0101-01-01T00:00:00+00:00", b="2999-01-01T00:00:00+00:00"))
+        r = self.adapter.released_items(self.a)
+        self.assertEqual(titles(r), [ONE])                         # Two: ahead of today; Three: Calibre's "unknown"
+
+    def test_nothing_dated_is_an_empty_section_not_drift(self):
+        self.serve(self.fake.feed.replace("<published>2008-03-01T00:00:00+00:00</published>", ""))
+        r = self.adapter.released_items(self.a)
+        self.assertEqual((r.state, r.items), (SectionState.EMPTY, ()))
+
+    def test_recently_added_keeps_its_order_and_now_carries_the_day(self):
+        r = self.adapter.recent_items(self.a)
+        self.assertEqual((titles(r), r.items[-1].released), ([THREE, TWO, ONE], "2008-03-01"))
+
+    def test_it_is_offered_only_with_the_group_and_the_limit_applies(self):
+        outsider = make_principal("member-a", ("avrana-users",))
+        self.assertIs(self.adapter.released_items(outsider).state, SectionState.NOT_PERMITTED)
+        self.assertEqual(self.fake.requests, [])
+        self.serve(self.dated(a="2001-01-01T00:00:00+00:00", b="2002-01-01T00:00:00+00:00",
+                              c="2003-01-01T00:00:00+00:00").replace("<published>2008-03-01T00:00:00+00:00</published>", ""))
+        self.assertEqual(titles(self.adapter.released_items(self.a, limit=2)), [THREE, TWO])
+
+
 class SharedViewAndIsolation(Base):
     """The honest statement of what 'two members' means here: one viewer account, one catalogue."""
 
