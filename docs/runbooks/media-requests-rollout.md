@@ -1,8 +1,8 @@
 # Switch on member requests in Avrana Media (books, films and TV, comics)
 
-Status: prepared 2026-10-28. **Steps 1 and 2 applied 2026-10-29 for Shelfarr and Seerr** (backups in
-`/home/cody/backups/requests-rollout-20261029T001304Z`); **Omnibus is back on upstream** after its fork image failed
-(see step 2). Steps 3 to 7 not started. Every step changes host `avrana` and needs the owner's yes at
+Status: prepared 2026-10-28. **Steps 1 and 2 applied 2026-10-29**: Shelfarr, Seerr and Omnibus run their fork
+images (backups in `/home/cody/backups/requests-rollout-20261029T001304Z`; Omnibus's first fork image failed and
+was replaced, see step 2). Steps 3 to 7 not started. Every step changes host `avrana` and needs the owner's yes at
 the time (`AGENTS.md`); a yes for one step does not cover the next. Secrets are typed at a hidden prompt, never
 pasted into chat, a ticket, Git or a command line.
 
@@ -18,8 +18,8 @@ pasted into chat, a ticket, Git or a command line.
   |---|---|---|---|
   | Shelfarr | `pedro-revez-silva/shelfarr:2026.10.19.1` | `ghcr.io/rcnechamkin/shelfarr:avrana-2026.10.19.1-a8cc710@sha256:c0e1e78db13e38d9395815953c6cc7a7397b9d5a3053e8e3b211af9a8f5bc342` | none |
   | Seerr | `seerr-team/seerr` v3.4.1 (`f4768de5…`) | `ghcr.io/rcnechamkin/seerr:avrana-v3.4.1-028543b@sha256:b4ef806ff8de8900109baa12cb36add85c5536283fed10a1b201050b67f2bc32` | none |
-  | Omnibus | `hankscafe/omnibus:v1.4.4` | `ghcr.io/rcnechamkin/omnibus:avrana-v1.4.4-6c3ca88@sha256:1e8c0be0b05b94c26f6ae178594b500359654aad8f16fb7a6a4f197b97535631` | one column (`ApiKey.allowOnBehalf`), added by the image's own `prisma db push` at start |
-  | Omnibus engine | `hankscafe/omnibus-engine:v1.4.4` | `ghcr.io/rcnechamkin/omnibus-engine:avrana-v1.4.4-6c3ca88@sha256:39da4ecb49e73f3b8392226858492ceebdce1b8531a50fec2d792b9285e65875` | (same database) |
+  | Omnibus | `hankscafe/omnibus:v1.4.4` | `ghcr.io/rcnechamkin/omnibus:avrana-v1.4.4-64329fc@sha256:90709b2affe8d83765c96dedc569b985e731531dea2b7f76873cff8261563fb0` | one column (`ApiKey.allowOnBehalf`), added by the image's own `prisma db push` at start |
+  | Omnibus engine | `hankscafe/omnibus-engine:v1.4.4` | `ghcr.io/rcnechamkin/omnibus-engine:avrana-v1.4.4-64329fc@sha256:6365804622c8c526d84960652b9e668db444663017673c52ca75233256092101` | (same database) |
 
   Each fork is its upstream version plus a scoped "on behalf" key and nothing else; with no such key set up it
   behaves exactly like upstream. That is why step 2 changes nothing a member sees.
@@ -88,8 +88,9 @@ starts a second copy under a new project name. Open each app's own page once and
 `6c3ca88` started but every page was a 500 (`PrismaClient is not configured to run in Edge Runtime`): the fork's
 middleware imported its on-behalf module, which loads the database client, and Next.js runs middleware where
 Prisma cannot load. Unit tests mock the database, so CI passed. Rolled back to upstream within about five minutes
-(healthy); the fork is fixed by an import-free gate module plus a test that walks the middleware's imports, and is
-retried only after the built app has served pages locally.
+(healthy). Fixed in fork `64329fc` (an import-free gate module, a test that walks the middleware's imports, and an
+image build that smoke-runs the web image before pushing); applied the same night: healthy, home 307, `/login`
+200, an unknown on-behalf key 401, no Edge-runtime errors, engine clean.
 
 **Undo:** put the upstream `image:` line back and `up -d` that service. Omnibus's upstream `db push` drops the one
 added column again (it only holds the on-behalf flag). If the data itself looks wrong: stop the app, restore its

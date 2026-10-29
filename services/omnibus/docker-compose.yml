@@ -43,7 +43,10 @@
 services:
 
   omnibus:
-    image: ghcr.io/hankscafe/omnibus:v1.4.4@sha256:a8bc2a8c7f334d871c1cc2a7f191e1e4836e89b688cca702c6c319128cbb69e7
+    # Avrana fork (on-behalf keys, JobLog redaction, SSO usernames, Edge-safe middleware), applied 2026-10-29,
+    # docs/runbooks/media-requests-rollout.md step 2. Upstream it replaces:
+    # image: ghcr.io/hankscafe/omnibus:v1.4.4@sha256:a8bc2a8c7f334d871c1cc2a7f191e1e4836e89b688cca702c6c319128cbb69e7
+    image: ghcr.io/rcnechamkin/omnibus:avrana-v1.4.4-64329fc@sha256:90709b2affe8d83765c96dedc569b985e731531dea2b7f76873cff8261563fb0
     container_name: omnibus
     restart: unless-stopped
     depends_on:
@@ -115,7 +118,9 @@ services:
       options: {max-size: "50m", max-file: "5"}
 
   omnibus-engine:
-    image: ghcr.io/hankscafe/omnibus-engine:v1.4.4@sha256:3551d1f04edf4de978350269da4f8201753432deabd28e4c1c2f476c6cda2660
+    # Avrana fork, same commit as the web image (2026-10-29). Upstream it replaces:
+    # image: ghcr.io/hankscafe/omnibus-engine:v1.4.4@sha256:3551d1f04edf4de978350269da4f8201753432deabd28e4c1c2f476c6cda2660
+    image: ghcr.io/rcnechamkin/omnibus-engine:avrana-v1.4.4-64329fc@sha256:6365804622c8c526d84960652b9e668db444663017673c52ca75233256092101
     container_name: omnibus-engine
     restart: unless-stopped
     depends_on:
