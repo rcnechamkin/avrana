@@ -114,7 +114,8 @@ class Stylesheet(unittest.TestCase):
         left, the one frame the script marks while it is captured), the tab bar's one lens, and the tab bar itself
         (k-dock, held still while the pages change; owner review 2026-10-27)."""
         self.assertEqual({".title-page .frame": "k-art", ".frame.k-flight": "k-art", ".tabbar .lens": "k-lens",
-                          ".tabbar": "k-dock", ".tabs .ul": "k-filter", ".chips .ul": "k-filter"},
+                          ".tabbar": "k-dock", ".shelf-new .tabs .ul": "k-filter", ".chips .ul": "k-filter",
+                          ".shelf-released .tabs .ul": "k-filter-rel"},
                          named_selectors(self.css))
         for sel in named_selectors(self.css):
             self.assertRegex(sel, r"^(\.[\w-]+)+( (\.[\w-]+)+)*$", sel)
