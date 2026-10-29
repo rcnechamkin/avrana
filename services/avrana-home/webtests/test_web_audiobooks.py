@@ -183,8 +183,11 @@ class ContinueListeningTests(Fixture):
         b = c.get("/", headers=BOTH_B).text
         self.assertIn(A_ONLY_BOOK, a)
         self.assertNotIn(B_ONLY_BOOK, a)
-        self.assertIn(B_ONLY_BOOK, c.get("/home.json", headers=BOTH_B).text)   # the page rail is bounded to four
-        self.assertNotIn(A_ONLY_BOOK, b)
+        self.assertIn(B_ONLY_BOOK, c.get("/home.json", headers=BOTH_B).text)
+        # Member-b may use every audiobook library, so A's book can be in b's New to Avrana (no date window since
+        # 2026-10-28); what must never cross is a-only progress: it is not in b's Continue.
+        b_continue = b.split('id="h-continue"', 1)[1].split("</section>", 1)[0]
+        self.assertNotIn(A_ONLY_BOOK, b_continue)
         # the same book carries each member's OWN progress (a: 0.42 of 10h, b: 0.07)
         ja = c.get("/home.json", headers=BOTH_A).json()
         jb = c.get("/home.json", headers=BOTH_B).json()

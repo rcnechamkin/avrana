@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% from "_parts.html" import card %}
+{% block title %}Continue{% if page.focus_label %} · {{ page.focus_label|trusted }}{% endif %} · Avrana{% endblock %}
+{% block body %}
+{# The Continue page (owner request 2026-10-28): everything this member can continue, from Home's "See all". The same
+   cards as Home's Continue rail (one link each, progress in words, Resume only for a saved position), laid out as the
+   Library's grid under the Library's page heading. Server-rendered from the view-model (`page`); a library that did not
+   answer is said in Home's own words, never as an error. #}
+  <div class="lib-head">
+    <h2 class="topic" id="h-continue">Continue{% if page.focus_label %}<span class="sr">: </span><span class="topic-sub">{{ page.focus_label|trusted }}</span>{% endif %}</h2>
+  </div>
+  <section class="shelf" aria-labelledby="h-continue">
+{% for line in page.notices %}
+    <p class="banner" role="status">{{ line }}</p>
+{% endfor %}
+{% if page.retry_href %}
+    <p class="retry"><a class="link" href="{{ page.retry_href }}">Try again<span class="sr"> to load what you can continue</span></a></p>
+{% endif %}
+{% if page.items %}
+    <ul class="lib-grid cont{% if page.rail %} {{ page.rail }}{% endif %}">
+{% for c in page.items %}{{ card(c, verb=True) }}
+{% endfor %}
+    </ul>
+{% elif page.said %}
+    <p class="said">{{ page.said }}</p>
+{% endif %}
+  </section>
+{% endblock %}
+{% block footer %}    <a class="link" href="{{ page.back_href }}">Back to Home</a>{% endblock %}

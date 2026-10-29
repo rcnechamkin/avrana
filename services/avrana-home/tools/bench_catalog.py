@@ -201,6 +201,10 @@ class JellyfinSim:
             if uid not in self.libs:
                 return 404, {}
             return 200, {"Items": self.resume[uid][:int(q.get("limit", "12"))], "TotalRecordCount": 0}
+        if path == "/Shows/NextUp":           # Up next, on All's Continue since 2026-10-28: nothing in this world
+            if uid not in self.libs:
+                return 404, {}
+            return 200, {"Items": [], "TotalRecordCount": 0}
         if path == "/Items/Latest":
             if uid not in self.libs:
                 return 404, {}

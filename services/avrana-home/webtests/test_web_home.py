@@ -73,11 +73,15 @@ class HomeViewModelTests(unittest.TestCase):
             sec("jellyfin", "continue", "ok", [item(i, f"Film {i}", progress=prog) for i in range(1, 6)]),
             sec("audiobookshelf", "continue", "ok", [item(10, "Book", "audiobook", url="https://listen.avrana.net/item/10")]))
         home = build_home(v, TILES, limit=12)
-        self.assertEqual(RAIL_MOST, len(home.continue_items))
-        self.assertEqual(["Film 1", "Book", "Film 2", "Film 3"], [c.title for c in home.continue_items])
+        # Owner request 2026-10-28: up to the section limit (12) across libraries, "See all" only when there is more
+        self.assertEqual(["Film 1", "Book", "Film 2", "Film 3", "Film 4", "Film 5"], [c.title for c in home.continue_items])
+        self.assertIsNone(home.continue_more_href)
         self.assertEqual("60 minutes left", home.continue_items[0].progress)
         self.assertEqual("square", home.continue_items[1].shape)
-        self.assertEqual(2, len(build_home(v, TILES, limit=2).continue_items))
+        two = build_home(v, TILES, limit=2)
+        self.assertEqual((2, "/continue"), (len(two.continue_items), two.continue_more_href))
+        self.assertEqual("/continue?for=watch", build_home(v, TILES, limit=2, focus="watch").continue_more_href)
+        self.assertGreater(12, RAIL_MOST)                  # the Library keeps its own four
 
     def test_hrefs_are_https_only_and_unsafe_items_are_dropped(self):
         bad = ["http://x.example/a", "javascript:alert(1)", "//evil.example", "/relative", "", 5]

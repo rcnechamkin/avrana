@@ -13,7 +13,7 @@ the fixed allow-lists below, which mirror `avrana_home/adapters/jellyfin.py` exa
     declares a security requirement, whether it is deprecated, and its response envelope (array of X, or X);
   * of the schemas it parses, only the NAMES and JSON types of the properties it reads (plus `UserItemDataDto.
     UserId`, kept so the test can prove it is still absent upstream: the KNOWN_ABSENT tripwire);
-  * of four enums, only the members it sends or matches on.
+  * of five enums, only the members it sends or matches on.
 No descriptions, examples or other upstream text are copied and the full spec is never vendored. Whether even this
 extraction is free of the server's GPL-2.0 licence is UNRESOLVED (see LICENCE below). Standard library only.
 """
@@ -44,7 +44,9 @@ SCHEMAS = {
     "BaseItemDto": ("Id", "Name", "Type", "SeriesName", "ParentIndexNumber", "IndexNumber", "ProductionYear",
                     "RunTimeTicks", "UserData", "ImageTags", "Overview", "ProviderIds",
                     "BackdropImageTags", "ParentBackdropItemId", "ParentBackdropImageTags", "PremiereDate",
-                    "SeriesId", "SeriesPrimaryImageTag"),
+                    "SeriesId", "SeriesPrimaryImageTag", "People", "Genres", "Tags"),
+    # one entry of BaseItemDto.People (title page only: richer Details, 2026-10-28)
+    "BaseItemPerson": ("Name", "Type"),
     "BaseItemDtoQueryResult": ("Items",),
     # UserId is read only if present and is absent upstream; kept here so its absence is checked, not assumed
     "UserItemDataDto": ("PlaybackPositionTicks", "PlayedPercentage", "Played", "ItemId", "UserId"),
@@ -53,10 +55,11 @@ SCHEMAS = {
 }
 # enum -> the members the adapter sends (fields, enableImageTypes, includeItemTypes, mediaTypes) or matches on
 ENUMS = {
-    "ItemFields": ("Overview", "PrimaryImageAspectRatio", "ProviderIds"),
+    "ItemFields": ("Genres", "Overview", "People", "PrimaryImageAspectRatio", "ProviderIds", "Tags"),
     "ImageType": ("Backdrop", "Primary"),
     "BaseItemKind": ("Episode", "Movie", "Series"),
     "MediaType": ("Video",),
+    "PersonKind": ("Actor", "Director", "Writer"),     # matched on only (BaseItemPerson.Type), never sent
 }
 
 STATUS = ("Minimal interface facts (names and types only) extracted from Jellyfin's published OpenAPI files by "

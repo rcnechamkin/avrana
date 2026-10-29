@@ -16,7 +16,12 @@
      9. chrome that follows the scroll: two marks on <html> the stylesheet reads (part 9), and
      10. the Library's layout menu: choosing a layout rearranges the cards in place, each gliding from where it was
         to where it now is, and puts the choice in the address (owner decision 2026-10-27), and
-     11. forms that change something (form[data-once], "Sign in on a TV") send once: a second press does nothing.
+     11. forms that change something (form[data-once], "Sign in on a TV") send once: a second press does nothing,
+     12. Home's "Show more" (owner request 2026-10-28) reveals the rail's hidden cards in place instead of reloading,
+        and moves focus to the first of them, and
+     13. on a wide screen with a mouse, a pair of arrow buttons on each rail that overflows, because the stylesheet
+        hides every scroll bar (owner request 2026-10-28). Keyboard and touch already scroll the rails, so the
+        buttons are left out of the tab order and out of the accessibility tree.
    It uses no browser storage, writes no HTML from text and does nothing when its elements are absent; only the
    title sheet (8) reads member data, and only the title page the member asked for. Inline preview behaviour (MK-4) is not here yet. */
 (function () {
@@ -702,6 +707,80 @@
     });
   }
 
+  /* 12. Show more. Contract: a.more[data-reveal="<rail id>"] in the last <li> of that <ul>, and the cards it reveals
+     marked <li data-more hidden>. A plain click unhides them, removes the tile and focuses the first revealed card;
+     without this, the link reloads Home with every card shown (?more=). */
+  function more() {
+    document.addEventListener('click', function (event) {
+      if (event.defaultPrevented || event.button !== 0 ||
+          event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      var link = event.target && event.target.closest ? event.target.closest('a.more[data-reveal]') : null;
+      var rail = link ? document.getElementById(link.getAttribute('data-reveal')) : null;
+      if (!rail || !rail.contains(link)) return;
+      var hidden = rail.querySelectorAll('li[data-more][hidden]');
+      if (!hidden.length) return;
+      event.preventDefault();
+      for (var i = 0; i < hidden.length; i += 1) hidden[i].removeAttribute('hidden');
+      var tile = link.closest('li');
+      if (tile && tile.parentNode) tile.parentNode.removeChild(tile);
+      var first = hidden[0].querySelector('a');
+      if (first) first.focus();
+      rail.dispatchEvent(new Event('scroll'));
+    });
+  }
+
+  /* 13. Rail buttons. Only where a mouse is the main pointer and the column is wide (the touch and keyboard ways to
+     scroll a rail need no help). Each rail that overflows gets a back and a forward button at the top right of its
+     shelf; a press scrolls by most of the rail's width (smoothly unless motion is reduced) and a button that has
+     nowhere to go is disabled. They are decoration for the pointer: tabindex -1 and aria-hidden, because every card
+     is a link that Tab already brings into view. */
+  function railButtons() {
+    if (!window.matchMedia || !window.matchMedia('(hover: hover) and (pointer: fine) and (min-width: 45rem)').matches) return;
+    var rails = document.querySelectorAll('.shelf > ul.rail');
+    var smooth = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    function arrow(cls) {
+      var button = document.createElement('button');
+      button.type = 'button';
+      button.className = cls;
+      button.tabIndex = -1;
+      button.setAttribute('aria-hidden', 'true');
+      var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.setAttribute('class', 'kic');
+      svg.setAttribute('viewBox', '0 0 24 24');
+      svg.setAttribute('aria-hidden', 'true');
+      svg.setAttribute('focusable', 'false');
+      var path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      path.setAttribute('d', 'm9.5 6 6 6-6 6');
+      svg.appendChild(path);
+      button.appendChild(svg);
+      return button;
+    }
+    for (var i = 0; i < rails.length; i += 1) {
+      (function (rail) {
+        var box = document.createElement('div');
+        box.className = 'rail-btns';
+        var back = arrow('back'), forth = arrow('forth');
+        box.appendChild(back);
+        box.appendChild(forth);
+        function update() {
+          var room = rail.scrollWidth - rail.clientWidth;
+          box.hidden = room <= 1;
+          back.disabled = rail.scrollLeft <= 1;
+          forth.disabled = rail.scrollLeft >= room - 1;
+        }
+        function step(sign) {
+          rail.scrollBy({ left: sign * Math.max(rail.clientWidth * 0.8, 160), behavior: smooth ? 'smooth' : 'auto' });
+        }
+        back.addEventListener('click', function () { step(-1); });
+        forth.addEventListener('click', function () { step(1); });
+        rail.addEventListener('scroll', update, { passive: true });
+        window.addEventListener('resize', update);
+        rail.parentNode.insertBefore(box, rail);
+        update();
+      })(rails[i]);
+    }
+  }
+
   lens();
   bfcache();
   worker();
@@ -713,4 +792,6 @@
   chrome();
   layout();
   once();
+  more();
+  railButtons();
 })();

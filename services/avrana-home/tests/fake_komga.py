@@ -32,6 +32,7 @@ class FakeKomga:
         text = re.sub(r'"@date_ago:(-?\d+)"', lambda m: json.dumps(
             (now - timedelta(days=int(m.group(1)))).date().isoformat()), text)
         self.latest = json.loads(text)        # newest `created` first, as GET /api/v1/books?sort=created,desc
+        self.series = {}                      # series id -> SeriesDto (title pages only); empty: every series is a 404
         self.requests = []
         self.overrides = {}        # path -> ("status", int) | ("body", bytes) | ("raise", exc)
         self.slow = {}
@@ -73,6 +74,8 @@ class FakeKomga:
         parts = path.strip("/").split("/")
         if parts[:3] == ["api", "v1", "books"] and len(parts) == 4:
             return self._lookup(self.books, parts[3])
+        if parts[:3] == ["api", "v1", "series"] and len(parts) == 4:
+            return self._lookup(self.series, parts[3])
         if parts[:3] == ["api", "v1", "books"] and len(parts) == 5 and parts[4] == "thumbnail":
             return self.image if parts[3] in self.books else (404, b"{}", "application/json")
         return 404, b"{}", "application/json"

@@ -73,6 +73,13 @@ def library_decision(page) -> Decision:
     return Decision("/library", 200, "library.html", {"page": page})
 
 
+def continue_decision(page) -> Decision:
+    """The decision for GET /continue (owner request 2026-10-28: Home's "See all") once the route layer has a verified
+    member with a library and the shell is on (main.py); otherwise the path is unknown and `decide` answers 404. Always
+    200, as on Home: a library that is down is said on the page."""
+    return Decision("/continue", 200, "continue.html", {"page": page})
+
+
 TITLE_LABEL = "/title/{service}/{id}"
 _TITLE = re.compile(r"/title/([a-z][a-z-]{1,23})/([A-Za-z0-9_-]{1,64})")
 

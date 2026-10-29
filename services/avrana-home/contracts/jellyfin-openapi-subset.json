@@ -20,12 +20,20 @@
      "Primary"
     ],
     "ItemFields": [
+     "Genres",
      "Overview",
+     "People",
      "PrimaryImageAspectRatio",
-     "ProviderIds"
+     "ProviderIds",
+     "Tags"
     ],
     "MediaType": [
      "Video"
+    ],
+    "PersonKind": [
+     "Actor",
+     "Director",
+     "Writer"
     ]
    },
    "paths": {
@@ -110,6 +118,7 @@
    "schemas": {
     "BaseItemDto": {
      "BackdropImageTags": "array",
+     "Genres": "array",
      "Id": "string",
      "ImageTags": "object",
      "IndexNumber": "integer",
@@ -118,6 +127,7 @@
      "ParentBackdropImageTags": "array",
      "ParentBackdropItemId": "string",
      "ParentIndexNumber": "integer",
+     "People": "array",
      "PremiereDate": "string",
      "ProductionYear": "integer",
      "ProviderIds": "object",
@@ -125,11 +135,16 @@
      "SeriesId": "string",
      "SeriesName": "string",
      "SeriesPrimaryImageTag": "string",
+     "Tags": "array",
      "Type": "ref:BaseItemKind",
      "UserData": "ref:UserItemDataDto"
     },
     "BaseItemDtoQueryResult": {
      "Items": "array"
+    },
+    "BaseItemPerson": {
+     "Name": "string",
+     "Type": "ref:PersonKind"
     },
     "UserDto": {
      "Id": "string",
@@ -162,12 +177,20 @@
      "Primary"
     ],
     "ItemFields": [
+     "Genres",
      "Overview",
+     "People",
      "PrimaryImageAspectRatio",
-     "ProviderIds"
+     "ProviderIds",
+     "Tags"
     ],
     "MediaType": [
      "Video"
+    ],
+    "PersonKind": [
+     "Actor",
+     "Director",
+     "Writer"
     ]
    },
    "paths": {
@@ -252,6 +275,7 @@
    "schemas": {
     "BaseItemDto": {
      "BackdropImageTags": "array",
+     "Genres": "array",
      "Id": "string",
      "ImageTags": "object",
      "IndexNumber": "integer",
@@ -260,6 +284,7 @@
      "ParentBackdropImageTags": "array",
      "ParentBackdropItemId": "string",
      "ParentIndexNumber": "integer",
+     "People": "array",
      "PremiereDate": "string",
      "ProductionYear": "integer",
      "ProviderIds": "object",
@@ -267,11 +292,16 @@
      "SeriesId": "string",
      "SeriesName": "string",
      "SeriesPrimaryImageTag": "string",
+     "Tags": "array",
      "Type": "ref:BaseItemKind",
      "UserData": "ref:UserItemDataDto"
     },
     "BaseItemDtoQueryResult": {
      "Items": "array"
+    },
+    "BaseItemPerson": {
+     "Name": "string",
+     "Type": "ref:PersonKind"
     },
     "UserDto": {
      "Id": "string",

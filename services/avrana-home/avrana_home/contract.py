@@ -193,6 +193,34 @@ def clean_text(value: Any, limit: int = MAX_TITLE_LEN) -> Optional[str]:
     return text[:limit] or None
 
 
+MAX_NAMES = 12              # names kept per credit role, genres or tags on a title page
+MAX_NAME_LEN = 80
+# The credit roles a title page may show, in this order (MediaItem.credits). Fixed keys: never upstream text.
+CREDIT_ROLES = ("cast", "directors", "writers", "authors", "narrators", "artists")
+
+
+def clean_names(values: Any, limit: int = MAX_NAMES) -> Tuple[str, ...]:
+    """Display names from an upstream list (people, genres, tags): text only, each `clean_text`ed and bounded, the
+    first occurrence of each kept (ignoring case), at most `limit`. Anything that is not a list gives ()."""
+    if not isinstance(values, (list, tuple)):
+        return ()
+    out, seen = [], set()
+    for value in values[:200]:
+        text = clean_text(value, MAX_NAME_LEN)
+        if text and text.casefold() not in seen:
+            seen.add(text.casefold())
+            out.append(text)
+            if len(out) >= limit:
+                break
+    return tuple(out)
+
+
+def credits_of(pairs) -> Tuple[Tuple[str, Tuple[str, ...]], ...]:
+    """MediaItem.credits from (role, raw names) pairs: known roles only, in CREDIT_ROLES order, empty roles left out."""
+    got = {role: clean_names(names) for role, names in pairs if role in CREDIT_ROLES}
+    return tuple((role, got[role]) for role in CREDIT_ROLES if got.get(role))
+
+
 MAX_SUMMARY = 1200          # characters of synopsis shown; longer text is cut at a word with an ellipsis
 MAX_SUMMARY_RAW = 20000     # longer upstream input is cut before it is parsed at all
 
@@ -299,6 +327,12 @@ class MediaItem:
     # releaseDate, Audiobookshelf publishedDate). Home's New releases sorts on it across libraries (owner decision
     # 2026-10-28). In to_dict() only when present.
     released: Optional[str] = None
+    # Who made it, on title-page lookups only (owner request 2026-10-28, richer Details): (role, names) pairs, each role
+    # a fixed key from CREDIT_ROLES in that order, the names as the upstream gave them (clean_names). Genres and tags
+    # likewise, only where the library has them. In to_dict() only when present.
+    credits: Tuple[Tuple[str, Tuple[str, ...]], ...] = ()
+    genres: Tuple[str, ...] = ()
+    tags: Tuple[str, ...] = ()
 
     def to_dict(self) -> dict:
         progress = None
@@ -320,6 +354,12 @@ class MediaItem:
             out["shelf"] = self.shelf
         if self.released:
             out["released"] = self.released
+        if self.credits:
+            out["credits"] = {role: list(names) for role, names in self.credits}
+        if self.genres:
+            out["genres"] = list(self.genres)
+        if self.tags:
+            out["tags"] = list(self.tags)
         return out
 
 

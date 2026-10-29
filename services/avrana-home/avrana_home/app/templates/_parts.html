@@ -97,14 +97,23 @@
    When `action_label` is set it stands in for the verb for assistive technology.
    Without script the card stays a plain link to where the item opens; an in-place preview is MK-3's script
    territory (progressive enhancement over this link, never a replacement for it). #}
-{% macro card(c, verb=False, glow=False) -%}
-<li class="w-{{ c.shape }}"><a class="card" href="{{ c.href }}">
+{% macro card(c, verb=False, glow=False, more=False) -%}
+<li class="w-{{ c.shape }}"{% if more %} data-more hidden{% endif %}><a class="card" href="{{ c.href }}">
   {{ frame(c.image, c.title, c.bar, glow and c.shape == "still") }}
   <span class="t">{{ c.title }}</span>
   {% if c.line or (not verb and c.kind_label) %}<span class="d"><span class="sr">, </span>{{ c.line or c.kind_label }}</span>{% endif +%}
   {% if c.progress %}<span class="p"><span class="sr">, </span>{{ c.progress }}</span>{% endif +%}
   {% if verb %}<span class="go"><span class="sr">, </span>{% if c.action_label %}<span aria-hidden="true">{{ c.action }}</span><span class="sr">{{ c.action_label }}</span>{% else %}{{ c.action }}{% endif %}</span>{% endif +%}
 </a></li>
+{%- endmacro %}
+
+{# The tile that ends a rail (owner request 2026-10-28): Continue's "See all" (a link to the Continue page) or "Show
+   more" on New to Avrana and New Releases. Show more is a plain link that reloads Home with `?more=<rail>` and every
+   card shown; with the page script it reveals the hidden cards (`card(..., more=True)`) in place instead and moves
+   focus to the first of them. `said` completes the link's name for assistive technology. The chevron is drawn by
+   the stylesheet (Home's sections carry no inline SVG). #}
+{% macro more_tile(href, label, said, reveal=None) -%}
+<li class="w-more"><a class="card more" href="{{ href }}"{% if reveal %} data-reveal="{{ reveal }}"{% endif %}><span class="frame more-frame"><span class="more-ic" aria-hidden="true"></span></span><span class="t">{{ label }}<span class="sr">{{ said }}</span></span></a></li>
 {%- endmacro %}
 
 {# ---- The operator notice (AVR-365, notice.py). Words come only from notice.NOTICES. A <details> so a member can fold

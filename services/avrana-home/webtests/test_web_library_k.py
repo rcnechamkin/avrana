@@ -68,7 +68,7 @@ class ViewModel(unittest.TestCase):
         self.assertEqual(["Synthetic Fresh Release"], [c.title for c in home.rows[0].items])
         v["sections"][2] = sec("audiobookshelf", "recent", "ok", [item("audiobookshelf", "li_book000020", "Synthetic New")])
         heads = [r.heading for r in build_home(v, TILES_AV, focus="listen").rows]
-        self.assertEqual(["New to Avrana", "New releases", "Epic listens"], heads)
+        self.assertEqual(["New to Avrana", "New Releases", "Epic listens"], heads)
 
     def test_comics_without_anything_added_in_two_months_says_recently_released(self):
         """Owner decision 2026-10-28: Komga follows Audiobooks; one row alone still keeps the Recently released name."""
@@ -79,7 +79,7 @@ class ViewModel(unittest.TestCase):
         self.assertFalse(home.show_new)
         v["sections"][0] = sec("komga", "recent", "ok", [item("komga", "BOOKNEW000001", "Synthetic New Issue", "comic")])
         home = build_home(v, TILES_AV[:2] + [("comics", Trusted("Comics"), Trusted(""))], focus="comics")
-        self.assertEqual(["New to Avrana", "New releases"], [r.heading for r in home.rows])
+        self.assertEqual(["New to Avrana", "New Releases"], [r.heading for r in home.rows])
         self.assertEqual(["Synthetic New Issue"], [c.title for c in home.rows[0].items])
 
     def test_read_falls_back_to_recently_released_comics_beside_books(self):
@@ -97,8 +97,9 @@ class ViewModel(unittest.TestCase):
         self.assertEqual(extra_sections_for("comics"), (("komga", "shelves"),))
         self.assertEqual(extra_sections_for("read"), (("komga", "shelves"),))
         self.assertEqual(extra_sections_for("watch"), (("jellyfin", "next_up"), ("jellyfin", "released")))
-        released = (("jellyfin", "released"), ("audiobookshelf", "released"), ("komga", "released"))
-        self.assertEqual(extra_sections_for(None), released)          # All: every library's New releases
+        released = (("jellyfin", "released"), ("audiobookshelf", "released"), ("komga", "released"),
+                    ("jellyfin", "next_up"))
+        self.assertEqual(extra_sections_for(None), released)          # All: every library's New Releases, and Up next
         self.assertEqual(extra_sections_for("nope"), released)        # an unknown filter is All
         self.assertEqual(library_extra_sections("komga"), ())
 
@@ -573,7 +574,7 @@ class LibraryLayouts(Fixture):
     def test_the_audiobooks_chip_shows_recently_added_then_the_shelves(self):
         text = main_of(self.client().get("/library?lib=audiobookshelf", headers=A).text)
         heads = re.findall(r'<h3 class="lib-row-h" id="[^"]*">([^<]*)</h3>', text)
-        self.assertEqual(["New to Avrana", "New releases", "Classics", "Short listens", "Epic listens"], heads)
+        self.assertEqual(["New to Avrana", "New Releases", "Classics", "Short listens", "Epic listens"], heads)
         self.assertNotIn("Nothing recently added", text)
 
 
@@ -626,7 +627,7 @@ class HomeFilters(Fixture):
         self.assertNotIn("Synthetic Film", main)
         # owner decision 2026-10-27: Listen leads with what the library holds, then its shelves
         heads = re.findall(r'<h2 id="h-[a-z]+">([^<]*)</h2>', main)
-        self.assertEqual(heads[-5:], ["New to Avrana", "New releases", "Classics", "Short listens", "Epic listens"])
+        self.assertEqual(heads[-5:], ["New to Avrana", "New Releases", "Classics", "Short listens", "Epic listens"])
         self.assertIn("Synthetic Grand Epic", main.split('id="h-epic"', 1)[1])
 
 

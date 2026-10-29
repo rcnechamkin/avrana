@@ -97,9 +97,10 @@ class SectionRenderingTests(Fixture):
         self.assertEqual(1, len(re.findall(r"<main(?:\s[^>]*)?>", text)))
         self.assertEqual(1, text.count("<h1>"))
         self.assertNotRegex(above, r"style=|<svg|<picture|<script|<canvas|on\w+=")
-        self.assertEqual(4, above.count("<h2"))           # the hero (AVR-718), Continue, New releases, New to Avrana
-        # Continue is bounded (at most four); artwork is decoration (alt="") from the artwork route only
-        self.assertLessEqual(len(re.findall(r'class="card"', above.split('id="h-released"')[0])), 4)
+        self.assertEqual(4, above.count("<h2"))           # the hero (AVR-718), Continue, New Releases, New to Avrana
+        # Continue is bounded (the section limit, 12: owner request 2026-10-28); artwork is decoration (alt="") from the
+        # artwork route only
+        self.assertLessEqual(len(re.findall(r'class="card"', above.split('id="h-released"')[0])), 12)
         for tag in re.findall(r"<img[^>]*>", above):
             self.assertRegex(tag, r'^<img class="art" src="/art/[A-Za-z0-9_/-]+" alt="" (width="160" height="240" loading="lazy"'
                                   r'|width="1280" height="720")>$')   # the second: the hero's wide backdrop
@@ -254,7 +255,8 @@ class JsonViewTests(Fixture):
         self.assertEqual("nosniff", r.headers["x-content-type-options"])
         doc = r.json()
         self.assertEqual({"sections"}, set(doc))
-        self.assertEqual([("jellyfin", "continue", "ok"), ("jellyfin", "recent", "ok"), ("jellyfin", "released", "ok")],
+        self.assertEqual([("jellyfin", "continue", "ok"), ("jellyfin", "recent", "ok"), ("jellyfin", "released", "ok"),
+                          ("jellyfin", "next_up", "ok")],                 # Up next: All's Continue (2026-10-28)
                          [(s["service"], s["section"], s["state"]) for s in doc["sections"]])
         for s in doc["sections"]:
             self.assertEqual({"service", "section", "state", "items"}, set(s))

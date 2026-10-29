@@ -152,6 +152,19 @@ def new_tab_from_scope(scope) -> Optional[str]:
     return _choice_from_scope(scope, "new")
 
 
+def release_chip_from_scope(scope) -> Optional[str]:
+    """Home's New Releases chip (owner request 2026-10-28): `?rel=<kind>`. Exactly as `?new=`: bounded text only,
+    checked by the view-model against the chips it offers this member, never echoed. It confers no identity and no
+    access."""
+    return _choice_from_scope(scope, "rel")
+
+
+def more_from_scope(scope) -> Optional[str]:
+    """Which Home rail shows its extra cards without script (owner request 2026-10-28): `?more=<rail>`. Bounded text
+    only, checked by the view-model against its fixed list, never echoed. It confers no identity and no access."""
+    return _choice_from_scope(scope, "more")
+
+
 def library_chip_from_scope(scope) -> Optional[str]:
     """The one display preference a member may ask for in the address of /library: `?lib=<library>` (which filter
     chip is chosen; MK-5a, AVR-719). Exactly as `?new=` on Home: bounded text only, checked by the view-model

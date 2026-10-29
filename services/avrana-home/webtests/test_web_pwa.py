@@ -96,9 +96,10 @@ class PageScript(Base):
         source = pwa.script_bytes().decode("utf-8")
         for needle in ("nav.tabbar", "a.tab", "data-at", "aria-current", "prefers-reduced-motion"):
             self.assertIn(needle, source)
-        # the browser always navigates, except a title link the sheet takes (and the sheet's own Escape and pull), and
-        # a layout the Library's menu rearranges in place (owner decision 2026-10-27)
-        self.assertEqual(4, source.count("preventDefault"))
+        # the browser always navigates, except a title link the sheet takes (and the sheet's own Escape and pull), a
+        # layout the Library's menu rearranges in place (owner decision 2026-10-27), and Home's "Show more", which
+        # reveals the rail's own hidden cards (owner request 2026-10-28)
+        self.assertEqual(5, source.count("preventDefault"))
         self.assertNotIn("preventDefault", source.split("function sheet()", 1)[0])
         # a tab whose URL differs from this page's only by the hash is a same-document jump: the lens is left alone
         self.assertIn("tab.origin + tab.pathname + tab.search === window.location.origin + window.location.pathname"
