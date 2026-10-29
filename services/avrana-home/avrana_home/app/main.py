@@ -169,7 +169,8 @@ def build_adapters(settings: Settings, cache: MemberCache) -> list:
             komga_transport, timeout=settings.timeout, cache=cache,
             owner_confirms_no_member_restrictions=komga_confirmed, member_keys=keys,
             member_transport=(lambda key: UrllibTransport(settings.komga_base_url, {"X-API-Key": key})) if keys else None,
-            provisioning="komga" in settings.provision_accounts)
+            provisioning="komga" in settings.provision_accounts,
+            refuse_admin_key=settings.upstream_mode == "real")             # AVR-782: never run on admin rights
         komga_adapter.cache = cache
         adapters.append(komga_adapter)
     if settings.calibre_web_base_url:             # off unless configured (settings.py validates)
