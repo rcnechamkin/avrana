@@ -58,9 +58,10 @@ class Shelf(unittest.TestCase):
         v = {"sections": [{"service": "komga", "section": "released", "state": "ok", "items": comics},
                           {"service": "audiobookshelf", "section": "released", "state": "ok", "items": [listen]},
                           {"service": "calibre-web", "section": "released", "state": "ok", "items": [old]}]}
-        titles = [c.title for c in build_home(v, TILES, today=TODAY).released_items]
-        self.assertEqual(["Issue 7", "Issue 6", "New Listen", "Issue 5", "Issue 4", "Issue 3", "Issue 2", "Issue 1",
-                          "Old Novel"], titles)
+        home = build_home(v, TILES, today=TODAY)
+        # The comics fold into one card on All (owner 2026-10-29), standing where the newest issue (the 27th) would.
+        self.assertEqual(["New Listen", "Old Novel"], [c.title for c in home.released_items])
+        self.assertEqual((0, "7"), (home.released_stack_at, home.released_stack.count))
 
 
 if __name__ == "__main__":

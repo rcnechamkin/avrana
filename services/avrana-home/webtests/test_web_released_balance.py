@@ -24,29 +24,30 @@ def item(service, uid, kind, day):
             "handoff_url": HANDOFF[service] + uid, "released": day}
 
 
-def page(comics=12, films=10, books=10):
+def page(films=12, listens=10, books=10):
+    # Comics fold into one card on All (test_web_comics_week), so here films are the kind that would crowd the rail.
     sec = lambda s, items: {"service": s, "section": "released", "state": "ok", "items": items}  # noqa: E731
     return {"sections": [
-        sec("komga", [item("komga", f"C{n:07d}", "comic", f"2026-10-{28 - n:02d}") for n in range(comics)]),
-        sec("jellyfin", [item("jellyfin", f"{n:032x}", "movie", f"2026-09-{28 - n:02d}") for n in range(films)]),
-        sec("audiobookshelf", [item("audiobookshelf", f"ABS{n:05d}", "audiobook", f"2026-08-{28 - n:02d}")
-                               for n in range(books)])]}
+        sec("jellyfin", [item("jellyfin", f"{n:032x}", "movie", f"2026-10-{28 - n:02d}") for n in range(films)]),
+        sec("audiobookshelf", [item("audiobookshelf", f"ABS{n:05d}", "audiobook", f"2026-09-{28 - n:02d}")
+                               for n in range(listens)]),
+        sec("komga", [item("komga", f"E{n:07d}", "ebook", f"2026-08-{28 - n:02d}") for n in range(books)])]}
 
 
 class Share(unittest.TestCase):
     def test_on_all_no_kind_takes_more_than_a_third(self):
         home = build_home(page(), TILES, today=TODAY, limit=12)
         kinds = [c.title.split()[0] for c in home.released_items]
-        self.assertEqual((4, 4, 4), (kinds.count("comic"), kinds.count("movie"), kinds.count("audiobook")))
-        self.assertEqual(["comic"] * 4, kinds[:4])                  # still newest first
+        self.assertEqual((4, 4, 4), (kinds.count("movie"), kinds.count("audiobook"), kinds.count("ebook")))
+        self.assertEqual(["movie"] * 4, kinds[:4])                  # still newest first
 
     def test_a_kind_that_runs_out_leaves_its_room(self):
-        home = build_home(page(films=2, books=1), TILES, today=TODAY, limit=12)
+        home = build_home(page(listens=2, books=1), TILES, today=TODAY, limit=12)
         kinds = [c.title.split()[0] for c in home.released_items]
-        self.assertEqual((9, 2, 1), (kinds.count("comic"), kinds.count("movie"), kinds.count("audiobook")))
+        self.assertEqual((9, 2, 1), (kinds.count("movie"), kinds.count("audiobook"), kinds.count("ebook")))
 
-    def test_the_comics_chip_still_lists_comics_in_full(self):
-        home = build_home(page(), TILES, today=TODAY, limit=12, rel_tab="comics")
+    def test_a_chip_still_lists_its_kind_in_full(self):
+        home = build_home(page(), TILES, today=TODAY, limit=12, rel_tab="watch")
         self.assertEqual(12, len(home.released_items))
 
     def test_order_is_kept_and_nothing_is_lost(self):

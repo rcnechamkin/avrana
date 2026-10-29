@@ -69,9 +69,26 @@ class Card(unittest.TestCase):
         s = build_home(page(mine=mine), TILES, today=TODAY).released_stack
         self.assertEqual(("2 from your series", None), (s.mine, s.series))
 
-    def test_nothing_folds_on_a_chip_with_one_issue_or_in_a_filter(self):
+    def test_a_quiet_week_still_folds_the_comics_as_new_in_comics(self):
+        # Owner 2026-10-29: comics never take the rail on All; with fewer than two issues this week, the card holds
+        # New Releases' own comics (one issue per series).
+        home = build_home(page(week=1), TILES, today=TODAY)
+        s = home.released_stack
+        self.assertEqual(("New in comics", "3", "New issues in 3 series", None), (s.title, s.count, s.line, s.series))
+        self.assertEqual(["Film 1", "Film 2"], [c.title for c in home.released_items])
+        html = Rendered.env.get_template("_sections.html").render(home=home) if hasattr(Rendered, "env") else ""
+        if html:
+            self.assertIn('<span class="t">New in comics</span>', html)
+
+    def test_one_comic_in_all_stays_a_card(self):
+        one = page(week=1)
+        one["sections"][1]["items"] = one["sections"][1]["items"][:1]
+        home = build_home(one, TILES, today=TODAY)
+        self.assertIsNone(home.released_stack)
+        self.assertIn("Issue 1", [c.title for c in home.released_items])
+
+    def test_nothing_folds_on_a_chip_or_in_a_filter(self):
         self.assertIsNone(build_home(page(), TILES, today=TODAY, rel_tab="comics").released_stack)
-        self.assertIsNone(build_home(page(week=1), TILES, today=TODAY).released_stack)
         self.assertIsNone(build_home(page(), TILES, today=TODAY, focus="comics").released_stack)
         comics_only = {"sections": [s for s in page()["sections"] if s["service"] == "komga"]}
         self.assertIsNone(build_home(comics_only, TILES, today=TODAY).released_stack)
