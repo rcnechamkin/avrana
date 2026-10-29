@@ -169,6 +169,35 @@ class FileNameTitles(unittest.TestCase):
         self.assertEqual(self.title(None, None, series=None)[0], "Untitled")
 
 
+class EbooksInKomga(unittest.TestCase):
+    """Owner review 2026-10-29: EPUB novels in a Komga library showed as comics with "#1" under them. A reflowable
+    EPUB is a book: its own title, the author underneath, and no Calibre "Title (id)" folder posing as a series."""
+
+    @staticmethod
+    def book(series, media=None, number="1", title="Synthetic Novel"):
+        raw = {"id": "BOOKEPUB0001", "name": "synthetic-novel", "seriesTitle": series,
+               "media": media if media is not None else {"status": "READY", "mediaProfile": "EPUB"},
+               "metadata": {"title": title, "number": number, "authors": [{"name": "Synthetic Author", "role": "writer"}]}}
+        item, status = KomgaAdapter._book(raw)
+        assert status == "ok"
+        return item
+
+    def test_a_reflowable_epub_is_a_book_with_its_author_under_it(self):
+        item = self.book("Synthetic Novel (51)")
+        self.assertEqual((item.kind, item.title, item.subtitle, item.series),
+                         (Kind.EBOOK, "Synthetic Novel", "Synthetic Author", None))
+
+    def test_a_real_series_is_kept_and_a_one_shot_series_is_dropped(self):
+        self.assertEqual(self.book("Synthetic Cycle").series, "Synthetic Cycle")
+        self.assertIsNone(self.book("Synthetic Novel").series)
+
+    def test_a_fixed_layout_epub_and_an_archive_stay_comics(self):
+        divina = self.book("Synthetic Saga", {"status": "READY", "mediaProfile": "EPUB", "epubDivinaCompatible": True})
+        cbz = self.book("Synthetic Saga", {"status": "READY", "mediaProfile": "DIVINA"})
+        for item in (divina, cbz):
+            self.assertEqual((item.kind, item.subtitle), (Kind.COMIC, "#1"))
+
+
 class RecentAndReleased(Base):
     """Owner decision 2026-10-28: Recently added is sorted by `created`, keeps the last RECENT_DAYS only and shows one
     book per series; New releases is sorted by release date, one book per series."""
