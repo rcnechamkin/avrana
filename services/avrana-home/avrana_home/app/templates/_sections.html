@@ -28,33 +28,46 @@
   <p class="retry">{% if home.retry_href %}<a class="link" href="{{ home.retry_href }}">Try again<span class="sr"> to load your libraries</span></a>{% endif %}{% if home.retry_href and home.setup_href %} {% endif %}{% if home.setup_href %}<a class="link" href="{{ home.setup_href }}">What to do next<span class="sr"> about a library that is not set up</span></a>{% endif %}</p>
 {% endif %}
 {% endif %}
-{#- The hero (Concept K, AVR-718; H3 refined, owner decision 2026-10-29): the member's own next thing as one picture,
-   edge to edge under the places, with only its title and a progress line on it. The picture is a library's wide
-   backdrop (Jellyfin's Backdrop, an episode's from its series), else the item's own /art image. A cover that prints
-   its own title (a book, an audiobook) is blurred behind instead, and set small beside the title, so the title is
-   never written twice. The title is the library's logo image where it has one (its alt is the title), else the title
-   set in type on a soft shadow. No art: the title alone on the raised surface. The whole card is one link: to the
-   title page (the Details sheet, where Resume lives) where its library has one, else to the item in its own app. The
-   heading inside it starts with the state ("Continue: <title>") for heading navigation; how far along and where the
-   link goes follow for screen readers only. No aria-label (it would hide them). #}
+{#- The hero (Round 10, owner decision 2026-10-29): the member's own next thing as a framed living window. At rest the
+   picture (a library's wide backdrop, else the item's own /art image) fades into a band of the page colour, and one
+   centred stack sits low on it: the title (the library's logo image, its alt the title, else the title set in type),
+   a facts line, then the progress line with the time left and one button. A cover that prints its own title (a book,
+   an audiobook) is blurred behind and shown whole above the title instead. Two links: the picture opens the title page
+   (the Details sheet) where its library has one, else the item in its own app; the button ("Resume", "Listen", "Read",
+   "Open", then "in <app>" for screen readers) opens the app. Scrolled, the window shrinks to a strip with the title and
+   progress at its bottom-left and a round button at its right (CSS only; that button repeats the first one, so it is
+   hidden from screen readers and the keyboard). The heading starts with the state ("Continue: <title>"). #}
 {% if home.hero %}
 {% set h = home.hero %}
   <section class="hero w-{{ h.shape }}{% if h.backdrop %} has-backdrop{% elif h.cover_mark %} has-cover{% elif not h.image %} no-art{% endif %}" aria-labelledby="h-hero">
-    <a class="hero-card" href="{{ h.href }}">
+    <div class="hero-stick">
 {% if h.art %}
-      <span class="hero-art{% if h.cover_mark %} blurred{% endif %}" aria-hidden="true"><img class="art" src="{{ h.art }}" alt="" {% if h.backdrop %}width="1280" height="720"{% else %}width="160" height="240"{% endif %}></span>
+      <span class="hero-light" aria-hidden="true"><img class="art" src="{{ h.art }}" alt="" {% if h.backdrop %}width="1280" height="720"{% else %}width="160" height="240"{% endif %}></span>
 {% endif %}
-      <span class="hero-foot">
+      <a class="hero-card" href="{{ h.href }}">
+{% if h.art %}
+        <span class="hero-art{% if h.cover_mark %} blurred{% endif %}" aria-hidden="true"><img class="art" src="{{ h.art }}" alt="" {% if h.backdrop %}width="1280" height="720"{% else %}width="160" height="240"{% endif %}></span>
+{% endif %}
 {% if h.cover_mark %}
-        <span class="hero-mark" aria-hidden="true"><img class="art" src="{{ h.image }}" alt="" width="160" height="240"></span>
+        <span class="hero-cover" aria-hidden="true"><img class="art" src="{{ h.image }}" alt="" width="160" height="240"></span>
 {% endif %}
-        <h2 id="h-hero" class="hero-title"><span class="sr">{% if h.state == "continue" %}Continue{% elif h.state == "for_you" %}New for You{% else %}New to Avrana{% endif %}: </span>{% if h.logo %}<img class="hero-logo" src="{{ h.logo }}" alt="{{ h.title }}" width="320" height="120">{% else %}<span class="hero-plate">{{ h.title }}</span>{% endif %}</h2>
-        <span class="sr">{% if h.meta %}, {{ h.meta }}{% endif %}, {% if h.details_href %}Details{% else %}{{ h.action }}{% endif %}</span>
-      </span>
+        <span class="hero-foot">
+          <h2 id="h-hero" class="hero-title"><span class="sr">{% if h.state == "continue" %}Continue{% elif h.state == "for_you" %}New for You{% else %}New to Avrana{% endif %}: </span>{% if h.logo %}<img class="hero-logo" src="{{ h.logo }}" alt="{{ h.title }}" width="320" height="120">{% else %}<span class="hero-plate">{{ h.title }}</span>{% endif %}</h2>
+{% if h.facts %}
+          <span class="hero-facts"><span class="sr">, </span>{{ h.facts }}</span>
+{% endif %}
+          <span class="sr">, {% if h.details_href %}Details{% else %}{{ h.action }}{% endif %}</span>
+        </span>
+        <span class="hero-mini" aria-hidden="true">{% if h.logo %}<img class="hero-mini-logo" src="{{ h.logo }}" alt="" width="320" height="120">{% else %}<span class="hero-plate">{{ h.title }}</span>{% endif %}{% if h.bar is not none %}<span class="hero-time"><span class="bar hero-bar"><span class="fill pc{{ h.bar }}"></span></span>{% if h.left %}<span class="hero-left">{{ h.left }}</span>{% endif %}</span>{% endif %}</span>
+      </a>
+      <span class="hero-ctl">
 {% if h.bar is not none %}
-      <span class="bar hero-bar" aria-hidden="true"><span class="fill pc{{ h.bar }}"></span></span>
+        <span class="hero-time"><span class="bar hero-bar" aria-hidden="true"><span class="fill pc{{ h.bar }}"></span></span>{% if h.left %}<span class="hero-left">{{ h.left }}</span>{% endif %}</span>
 {% endif %}
-    </a>
+        <a class="hero-go" href="{{ h.action_href }}"><span class="hero-tri" aria-hidden="true"></span>{{ h.verb }}<span class="sr"> in {{ h.app }}</span></a>
+      </span>
+      <a class="hero-play" href="{{ h.action_href }}" tabindex="-1" aria-hidden="true"><span class="hero-tri"></span></a>
+    </div>
   </section>
 {% endif %}
 {#- The three sections in the member's own order (Customize, HOME-01/02: one account-wide record, memberstore.py);

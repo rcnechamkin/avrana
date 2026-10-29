@@ -102,11 +102,16 @@ class SectionRenderingTests(Fixture):
         # Continue is bounded (the section limit, 12: owner request 2026-10-28); artwork is decoration (alt="") from the
         # artwork route only
         self.assertLessEqual(len(re.findall(r'class="card"', above.split('id="h-released"')[0])), 12)
-        # the hero's title logo is the one image with words: its alt is the title (H3 refined, 2026-10-29)
+        # the hero's title logo is the one image with words: its alt is the title; the scrolled strip repeats it as
+        # decoration, alt="" inside an aria-hidden span (Round 10, 2026-10-29)
         logos = re.findall(r'<img class="hero-logo"[^>]*>', above)
         for tag in logos:
             self.assertRegex(tag, r'^<img class="hero-logo" src="/art/jellyfin/logo/[0-9a-f]{32}" alt="[^"]+" width="320" height="120">$')
-        for tag in set(re.findall(r"<img[^>]*>", above)) - set(logos):
+        copies = re.findall(r'<img class="hero-mini-logo"[^>]*>', above)
+        self.assertEqual(len(logos), len(copies))
+        for tag in copies:
+            self.assertRegex(tag, r'^<img class="hero-mini-logo" src="/art/jellyfin/logo/[0-9a-f]{32}" alt="" width="320" height="120">$')
+        for tag in set(re.findall(r"<img[^>]*>", above)) - set(logos) - set(copies):
             self.assertRegex(tag, r'^<img class="art" src="/art/[A-Za-z0-9_/-]+" alt="" (width="160" height="240"( loading="lazy")?'
                                   r'|width="1280" height="720")>$')   # the hero's picture loads at once
         # Search and Me are tabs (D1): each once, in the tab bar after the footer, never a sixth place

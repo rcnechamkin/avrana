@@ -205,7 +205,8 @@ class Exporter:
             self.art[name] = placeholder(src, shape, html.unescape(title.group(1)) if title else "A")
             return f"{pre}../../art/{name}{post}"
         text = SRC_ART.sub(art, text)
-        text = re.sub(r'(<img class="art" src=")/art/[^"]*(")', r"\1../../art/missing.svg\2", text)
+        # anything else from the artwork route, the hero's title logo and its scrolled-strip copy included
+        text = re.sub(r'(<img class="(?:art|hero-logo|hero-mini-logo)" src=")/art/[^"]*(")', r"\1../../art/missing.svg\2", text)
 
         def link(m):
             pre, href, post = m.groups()
