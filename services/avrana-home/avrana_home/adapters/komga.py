@@ -28,6 +28,8 @@ ever have Komga restrictions, so there is nothing per member to enforce. What th
     An On Deck book carries `shelf="next"` (UP_NEXT) and no progress, so Home can say "Up next" instead of
     passing it off as started.
   * A book with no metadata has its file name as `metadata.title`; `_title` shows "<series> #<number>" instead.
+  * A reflowable EPUB (`media.mediaProfile` EPUB, not DiViNa-compatible) is an EBOOK: its own title, the author as
+    subtitle, no "#<number>", and no series when the series is only its Calibre "Title (id)" folder.
   * The credential lives only inside the transport (a header, never a URL). Every request goes through
     `GuardedTransport`: GET only, an explicit three-route list (books, book, thumbnail), no query keys
     beyond the list.
@@ -155,6 +157,16 @@ def _title(title: Optional[str], name: Optional[str], series: Optional[str], num
     return title
 
 
+# Calibre names each book's folder "<title> (<calibre id>)"; Komga turns that folder into a one-book series.
+_CALIBRE_FOLDER = re.compile(r".+ \(\d+\)")
+
+
+def _is_ebook(media: Any) -> bool:
+    """A reflowable EPUB (a novel). A fixed-layout EPUB that Komga can page like images is a comic."""
+    return (isinstance(media, dict) and media.get("mediaProfile") == "EPUB"
+            and media.get("epubDivinaCompatible") is not True)
+
+
 def _today() -> date:
     return datetime.now(timezone.utc).date()
 
@@ -249,12 +261,22 @@ class KomgaAdapter(GuardedAdapter):
             return None, "filtered"
         info = raw.get("metadata") if isinstance(raw.get("metadata"), dict) else {}
         number, series = clean_text(info.get("number"), 20), clean_text(raw.get("seriesTitle"))
-        title = _title(clean_text(info.get("title")), clean_text(raw.get("name")), series, number)
-        return MediaItem(creator=_creator(info.get("authors")), year=year_from(info.get("releaseDate")),
+        creator = _creator(info.get("authors"))
+        if _is_ebook(media):
+            # A reflowable EPUB is a book, not an issue: its own title, the author under it, and a series only
+            # when it names a real one (a Calibre folder gives each book a "Title (id)" series of its own).
+            title = clean_text(info.get("title")) or clean_text(raw.get("name")) or "Untitled"
+            kind, subtitle = Kind.EBOOK, creator
+            if series and (series == title or _CALIBRE_FOLDER.fullmatch(series)):
+                series = None
+        else:
+            title = _title(clean_text(info.get("title")), clean_text(raw.get("name")), series, number)
+            kind, subtitle = Kind.COMIC, (f"#{number}" if number else None)
+        return MediaItem(creator=creator, year=year_from(info.get("releaseDate")),
                          released=iso_day(info.get("releaseDate")),
-                         id=f"komga:{book_id}", service=Service.KOMGA, kind=Kind.COMIC, title=title,
+                         id=f"komga:{book_id}", service=Service.KOMGA, kind=kind, title=title,
                          handoff_url=build_handoff_url(Service.KOMGA, book_id),
-                         subtitle=f"#{number}" if number else None, series=series,
+                         subtitle=subtitle, series=series,
                          artwork=ArtworkRef(f"komga/book/{book_id}", f"Cover of {title}"),
                          external_ids=media_ids.from_book_metadata(info)), "ok"
 
