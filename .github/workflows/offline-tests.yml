@@ -36,7 +36,7 @@ jobs:
   offline-tests:
     name: python tests/run_offline.py
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20                 # two full passes (normal, then no network); about 8.5 min each since Oct 29
     steps:
       # actions/checkout v4.2.2
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
