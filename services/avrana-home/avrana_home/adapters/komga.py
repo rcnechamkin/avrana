@@ -429,15 +429,29 @@ class KomgaAdapter(GuardedAdapter):
                              per_series=True, size=MAX_PAGE, shelf="new")
 
     def _released_items(self, user: UpstreamUser, limit: int) -> SectionResult:
-        """Home's New releases (owner decision 2026-10-28): the same listing as the New releases shelf, as its own
-        section. Cover dates run ahead of sale, so Home sorts a future date as today."""
+        """Home's New releases (owner decision 2026-10-28): the newest release dates, one book per series, as its own
+        section. Cover dates run ahead of sale, so Home sorts a future date as today.
+
+        Up to `limit` of EACH kind (owner request 2026-10-28, the Books chip): the newest releases are nearly all
+        issues, so one `limit`-long list would never hold a novel. A novel's release date is usually years old, so
+        the newest page still may hold fewer than `limit` of them; then the library's newest ADDITIONS (the Recently
+        added order) are read once more for novels that have a release day, and fill the rest. Komga's book list has
+        no filter by kind (GET, and no `media_profile` key in the allow-list), so this is a second page, not a query."""
         latest = _today() + timedelta(days=RELEASE_AHEAD_DAYS)
 
         def keep(raw):
             day = _released(raw)
             return day is not None and day <= latest
-        return self._listing(user, limit, "/api/v1/books", {"sort": RELEASED_SORT}, "released", keep=keep,
-                             per_series=True, size=MAX_PAGE)
+        out = self._listing(user, limit, "/api/v1/books", {"sort": RELEASED_SORT}, "released", keep=keep,
+                            per_series=True, size=MAX_PAGE, per_kind=True)
+        novels = [it for it in out.items if it.kind is Kind.EBOOK]
+        if len(novels) >= limit:
+            return out
+        added = self._listing(user, limit - len(novels), "/api/v1/books", {"sort": ADDED_SORT}, "released",
+                              keep=keep, per_series=True, size=MAX_PAGE, kinds=(Kind.EBOOK,))
+        have = {it.id for it in out.items}
+        return SectionResult.of(Service.KOMGA, "released",
+                                out.items + tuple(it for it in added.items if it.id not in have))
 
     def _search(self, user: UpstreamUser, query: str, limit: int) -> SectionResult:
         """Search is the SAME shared-account listing as recent (contract 12.2): Komga applies the one regular
@@ -446,9 +460,11 @@ class KomgaAdapter(GuardedAdapter):
 
     def _listing(self, user: UpstreamUser, limit: int, path: str, params: Dict[str, str], section: str, *,
                  keep=None, per_series: bool = False, size: Optional[int] = None,
-                 shelf: Optional[str] = None) -> SectionResult:
+                 shelf: Optional[str] = None, per_kind: bool = False,
+                 kinds: Optional[Tuple[Kind, ...]] = None) -> SectionResult:
         """One page of books, in the upstream's order. `keep` drops a book legitimately (not drift); `per_series`
-        keeps only the first (newest) book of each series."""
+        keeps only the first (newest) book of each series; `per_kind` counts `limit` for each kind apart (issues and
+        novels), so a long run of one cannot crowd the other out of the page; `kinds` keeps only those kinds."""
         guard, budget = self._guard.bind(user.upstream_id), self._budget()
         size = min(MAX_PAGE, size or limit * 3)
         body = self._get_json(guard, budget, path, dict(params, page="0", size=str(size)))
@@ -460,11 +476,15 @@ class KomgaAdapter(GuardedAdapter):
         shown, series = [], set()
         bad = 0
         for raw in raws:
-            if len(shown) >= limit:
+            if len(shown) >= limit and not per_kind:
                 break
             item, status = self._book(raw)
             bad += status == "bad"
             if item is None or (keep is not None and not keep(raw)) or any(item.id == s.id for s in shown):
+                continue
+            if kinds is not None and item.kind not in kinds:
+                continue
+            if per_kind and sum(1 for s in shown if s.kind is item.kind) >= limit:
                 continue
             if per_series:
                 key = raw.get("seriesId") if isinstance(raw.get("seriesId"), str) else item.id

@@ -282,9 +282,12 @@ NEW_TO_AVRANA = "New to Avrana"
 NOTHING_NEW = "Nothing added to Avrana recently."
 NEW_RELEASES = "New Releases"     # owner request 2026-10-28: capitalised
 # New Releases' chips (owner request 2026-10-28), by what a thing is, so an EPUB novel in Komga is a Book: (key,
-# label, kinds). A chip is offered only when the list holds something of its kind; `?rel=` picks one (never echoed).
+# label, kinds). A chip is offered when the list holds something of its kind, and Books also for a member who has a
+# books library (BOOK_PLACES) even if no book has a release date yet; `?rel=` picks one (never echoed).
 RELEASE_CHIPS = (("watch", "Movies and TV", ("movie", "episode", "series")), ("listen", "Audiobooks", ("audiobook",)),
                  ("comics", "Comics", ("comic",)), ("books", "Books", ("ebook",)))
+BOOK_PLACES = ("/books", "/read")      # the places that hold books: Calibre-Web alone, or Komga with it
+NO_RELEASES_IN = "No new releases in {} right now."
 NO_LIBRARY = "No library is shared with this account yet. Ask the person who invited you, or read Help."
 
 
@@ -314,6 +317,7 @@ class RowVM:
     items: Tuple["CardVM", ...]
     said: Optional[str] = None
     tall: bool = True      # posters (a tall rail), or False for episode stills
+    mixed: bool = False    # stills among posters: a still then stands as tall as the rail (rail_shape "mixed")
     more: Tuple["CardVM", ...] = ()   # the cards "Show more" reveals (hidden until then), up to SHELF_MOST in all
     more_href: Optional[str] = None   # "Show more" without script: this page with `?more=<key>`
 
@@ -389,6 +393,8 @@ class HomeVM:
     released_tabs: Tuple[Tuple[str, str, bool, str], ...] = ()   # New Releases' chips: (key, label, current, href)
     released_more: Tuple[CardVM, ...] = ()
     released_more_href: Optional[str] = None
+    released_said: Optional[str] = None   # a chosen chip that holds nothing (Books before any book has a release date)
+    released_rail: str = ""               # rail_shape of the New Releases cards: "mixed" lets stills stand as tall
 
 
 def rail_shape(cards) -> str:
@@ -568,9 +574,9 @@ NOTHING_UP_NEXT = "Nothing up next. The next episode of a show you are watching 
 SHELF_ROWS = (("new", NEW_RELEASES), ("classics", "Classics"), ("short", "Short listens"),
               ("epic", "Epic listens"))
 _EXTRA_FOR = {"jellyfin": ("next_up", "released"), "audiobookshelf": ("shelves",), "komga": ("shelves",)}
-# All: New releases from every library that has release dates (Calibre-Web's catalogue gives none Home can sort), and
-# Up next for Continue (owner request 2026-10-28).
-RELEASED_FROM = ("jellyfin", "audiobookshelf", "komga")
+# All: New releases from every library that has release dates (Calibre-Web's OPDS gives a publication date, so its
+# newest additions count: owner request 2026-10-28, Books), and Up next for Continue (owner request 2026-10-28).
+RELEASED_FROM = ("jellyfin", "audiobookshelf", "komga", "calibre-web")
 ALL_EXTRAS = tuple((s, "released") for s in RELEASED_FROM) + (("jellyfin", "next_up"),)
 # Libraries whose Recently added gives way to Recently released when nothing was added in the last two months
 # (owner decisions 2026-10-27 Audiobookshelf, 2026-10-28 Komga).
@@ -820,11 +826,16 @@ def build_home(view: dict, tiles, *, new_tab: Optional[str] = None, limit: int =
         if it.item_id not in seen:
             seen.add(it.item_id)
             picked.append(it)
-    chips = [(k, label, kinds) for k, label, kinds in RELEASE_CHIPS if any(it.kind in kinds for it in picked)]
+    has_books = any(p.href in BOOK_PLACES for p in places)
+    chips = [(k, label, kinds) for k, label, kinds in RELEASE_CHIPS
+             if any(it.kind in kinds for it in picked) or (k == "books" and has_books)]
     rel = rel_tab if focus is None and len(chips) > 1 and rel_tab in {k for k, _l, _k in chips} else None
+    released_said = None
     if rel is not None:
         kinds = next(k for key, _l, k in chips if key == rel)
         picked = [it for it in picked if it.kind in kinds]
+        if not picked:     # a chip the member has a library for but nothing is dated yet: the chips stay, with a line
+            released_said = NO_RELEASES_IN.format(next(label for key, label, _k in chips if key == rel))
 
     # Recently added: a tab for each library that answers; anything else falls back to All. A member with
     # exactly one library has no use for "All" (it is the same list), so that tab is not offered.
@@ -847,10 +858,11 @@ def build_home(view: dict, tiles, *, new_tab: Optional[str] = None, limit: int =
     new_hrefs = tuple(home_href(focus, None if k == NEW_ALL or len(tabs) == 1 else k, rel, anchor="h-new")
                       for k, _n in tabs)
 
-    released, released_more, released_tabs, released_more_href = (), (), (), None
+    released, released_more, released_tabs, released_more_href, released_rail = (), (), (), None, ""
     if focus is None:
         released, released_more = _split(_cards(picked, lambda it: it.detail or SERVICE_LABEL.get(it.library),
                                                 title_services=title_services), limit, more == "released")
+        released_rail = rail_shape(released + released_more)
         if len(chips) > 1:
             released_tabs = tuple((k, label, k == (rel or NEW_ALL),
                                    home_href(None, new_key, None if k == NEW_ALL else k, anchor="h-released"))
@@ -860,7 +872,7 @@ def build_home(view: dict, tiles, *, new_tab: Optional[str] = None, limit: int =
     def more_row(key: str, heading: str, cards, said=None) -> RowVM:
         """A row that shows `limit` cards, then "Show more" up to SHELF_MOST (New to Avrana and New Releases)."""
         shown, extra = _split(cards, limit, more == key)
-        return RowVM(key, heading, shown, said, more=extra,
+        return RowVM(key, heading, shown, said, more=extra, mixed=rail_shape(shown + extra) == "mixed",
                      more_href=home_href(focus, new_key, None, key, "h-" + key) if extra else None)
 
     # Watch (owner decision 2026-10-27): Up next, then Recently added split into Movies and TV shows, in place of the
@@ -943,7 +955,8 @@ def build_home(view: dict, tiles, *, new_tab: Optional[str] = None, limit: int =
                   new_hrefs=new_hrefs, new_more=new_more,
                   new_more_href=home_href(focus, new_key, rel, "new", "h-new") if new_more else None,
                   retry_href=retry_href, setup_href=setup_href, hero=hero, released_items=released,
-                  released_tabs=released_tabs, released_more=released_more, released_more_href=released_more_href)
+                  released_tabs=released_tabs, released_more=released_more, released_more_href=released_more_href,
+                  released_said=released_said, released_rail=released_rail)
 
 
 # ---- The Continue page (owner request 2026-10-28): everything the member can continue, from Home's "See all" ------

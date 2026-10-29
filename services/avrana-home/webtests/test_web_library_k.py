@@ -98,7 +98,7 @@ class ViewModel(unittest.TestCase):
         self.assertEqual(extra_sections_for("read"), (("komga", "shelves"),))
         self.assertEqual(extra_sections_for("watch"), (("jellyfin", "next_up"), ("jellyfin", "released")))
         released = (("jellyfin", "released"), ("audiobookshelf", "released"), ("komga", "released"),
-                    ("jellyfin", "next_up"))
+                    ("calibre-web", "released"), ("jellyfin", "next_up"))
         self.assertEqual(extra_sections_for(None), released)          # All: every library's New Releases, and Up next
         self.assertEqual(extra_sections_for("nope"), released)        # an unknown filter is All
         self.assertEqual(library_extra_sections("komga"), ())

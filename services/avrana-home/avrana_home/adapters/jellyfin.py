@@ -157,8 +157,8 @@ class JellyfinAdapter(GuardedAdapter):
                     series_poster: bool = False) -> Tuple[Optional[MediaItem], str]:
         """Returns (item, status). status: "ok", "filtered" (a legitimate drop: another type, not
         in progress) or "bad" (unparsable: wrong shape or invalid id). Only "bad" counts as drift.
-        `series_poster` (Continue only): an episode shows its series' poster instead of its own still, so it stands as
-        tall as the films and covers beside it; without one it keeps its still."""
+        `series_poster` (Continue, Up next and New releases): an episode shows its series' poster instead of its own
+        still, so it stands as tall as the films and covers beside it; without one it keeps its still."""
         if not isinstance(raw, dict):
             return None, "bad"
         item_id = normalise_guid(raw.get("Id"))
@@ -288,7 +288,9 @@ class JellyfinAdapter(GuardedAdapter):
 
     def _released_items(self, user: UpstreamUser, limit: int) -> SectionResult:
         """Films and episodes by premiere date, newest first, none later than today; one episode per series (its
-        newest), so a show that drops a season is one card."""
+        newest), so a show that drops a season is one card. An episode shows its series' poster, as Continue and Up
+        next do (owner request 2026-10-28), so the rail stands as tall as the films beside it; a show without a poster
+        keeps the episode's still."""
         guard = self._guard.bind(user.upstream_id)
         today = datetime.now(timezone.utc).date().isoformat()
         body = self._get_json(guard, self._budget(), "/Items", {
@@ -300,7 +302,8 @@ class JellyfinAdapter(GuardedAdapter):
             raise UpstreamMalformed()
         # user data is requested only so the scope tripwire can run; it is never exposed here
         found = self._parse_list(body.get("Items"), user.upstream_id, min(50, limit * self.RELEASED_ASK),
-                                 ("Movie", "Episode"), want_progress=False, require_progress=False)
+                                 ("Movie", "Episode"), want_progress=False, require_progress=False,
+                                 series_poster=True)
         shown, series = [], set()
         for item in found:
             if item.released is None or item.released > today:
