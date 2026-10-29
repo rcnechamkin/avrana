@@ -375,30 +375,37 @@ HERO_APP = {"jellyfin": "Jellyfin", "audiobookshelf": "Audiobookshelf", "komga":
 HERO_VERB = {"jellyfin": "Open", "audiobookshelf": "Listen", "komga": "Read", "calibre-web": "Open"}
 
 
-# Covers that print their own title (a book, an audiobook's square): the hero blurs them behind and sets the cover
-# small beside the title, so the title is never written twice (owner decision 2026-10-29, H3 refined).
+# Covers that print their own title (a book, an audiobook's square): the hero blurs them behind and shows the cover
+# whole above the title (Round 10, owner decision 2026-10-29).
 TITLED_COVERS = frozenset({"book", "square"})
 
 
 @dataclass(frozen=True)
 class HeroVM:
-    """Home's hero (Concept K, AVR-718; H3 refined, owner decision 2026-10-29): the member's own next thing as one
-    edge-to-edge picture with only its title (a logo image, else the title set in type) and a progress line on it.
-    The whole card is one link: to the title page (the Details sheet, where Resume lives) where its library has one,
-    else to the item in its own app. `state` is "continue" (the first Continue item), "for_you" or "recent" (nothing in
-    progress). Built only from this member's sections. `meta` and `action` are not shown: they are the screen-reader
-    words after the title, so the link still says how far along it is and where it goes."""
+    """Home's hero (Round 10, owner decision 2026-10-29): the member's own next thing as a framed living window. At rest
+    the picture fades into a band of the page colour and one centred stack sits low on it: the title (a logo image,
+    else the title set in type), a facts line, then the progress line with the time left and one Resume button. The
+    picture is one link, to the title page (the Details sheet) where its library has one, else to the item in its own
+    app; the button is its own link straight to the app. Scrolled, the window shrinks to a strip (CSS only).
+    `state` is "continue" (the first Continue item), "for_you" or "recent" (nothing in progress). Built only from this
+    member's sections."""
     state: str
     title: str
     shape: str
     image: Optional[str]               # same-origin /art/... only (the gateway re-checks it per member)
-    meta: Optional[str]                # "1 hour 10 minutes left · Movies and TV"
-    action: str                        # "Resume in Jellyfin": what the app hand-off does
+    facts: Optional[str]               # "2024 · Movies and TV": the visible line under the title
+    verb: str                          # "Resume", "Open", "Listen", "Read": the button's word, never a playback claim
+    app: str                           # "Jellyfin": where the button lands (screen readers hear "Resume in Jellyfin")
     action_href: str                   # the item's https hand-off on its library's fixed host
     details_href: Optional[str] = None  # the title page, only for a library that has one (permission-checked)
     backdrop: Optional[str] = None     # a wide 16:9 /art/... backdrop; when present the hero leads with it
     logo: Optional[str] = None         # the title-treatment /art/... image, shown in place of the typed title
     bar: Optional[int] = None          # the progress line in 5% steps (`_bar`), Continue only
+    left: Optional[str] = None         # "70 minutes left": the words beside the progress line, Continue only
+
+    @property
+    def action(self) -> str:
+        return f"{self.verb} in {self.app}"
 
     @property
     def href(self) -> str:
@@ -411,7 +418,7 @@ class HeroVM:
 
     @property
     def cover_mark(self) -> bool:
-        """A cover that prints its own title: blurred behind, and set small beside the typed title."""
+        """A cover that prints its own title: blurred behind, and shown whole in the window above the title."""
         return not self.backdrop and bool(self.image) and self.shape in TITLED_COVERS
 
 
@@ -841,27 +848,22 @@ def for_you_words(it: ItemVM, today: str) -> str:
 
 def hero_of(it: ItemVM, state: str, title_services=frozenset(), words: Optional[str] = None) -> Optional[HeroVM]:
     """The hero for one of THIS member's items (already filtered by `_item_vm`: https hand-off on a fixed host).
-    Continue: progress in words, then the library. New for You: its words (`for_you_words`), then the library.
-    Recently added: the series or episode line (or what it is), then the library. The card opens the title page only
-    where that library offers the permission-checked item lookup and the id is valid; otherwise it opens the item in its
-    own app, never a dead link."""
+    Facts: the year, then the series or episode line (or the author, or "Up next"), then New for You's words, then the
+    library; a lone medium says what it is ("Comics", never "Comic · Comics"). Continue adds the time left beside its
+    progress line. The picture opens the title page only where that library offers the permission-checked item lookup
+    and the id is valid; otherwise it opens the item in its own app, never a dead link."""
     if it.service not in HERO_APP or not handoff_ok(it.href, it.service):
         return None
     library = SERVICE_LABEL[it.library]
-    kind = KIND_LABEL.get(it.kind)
-    if state == "continue":
-        meta = " · ".join(x for x in (it.progress or (UP_NEXT if it.up_next else it.detail), library) if x)
-    elif state == "for_you":
-        meta = " · ".join(x for x in (it.detail, words, library) if x)
-    elif it.detail:
-        meta = f"{it.detail} · {library}"
-    else:
-        meta = kicker_of(kind or "", library)      # "Episode · Movies and TV", but "Movies and TV" for a movie
-    verb = "Resume" if (state == "continue" and it.service == "jellyfin" and it.resumable) else HERO_VERB[it.service]
-    details = _details_href(it, title_services)
-    return HeroVM(state, it.title, it.shape, it.image, meta or None,
-                  f"{verb} in {HERO_APP[it.service]}", it.href, details, it.backdrop, it.logo,
-                  _bar(it) if state == "continue" else None)
+    cont = state == "continue"
+    line = (UP_NEXT if (cont and it.up_next) else None) or it.detail or it.creator
+    parts = [str(it.year) if it.year else None, line, words if state == "for_you" else None]
+    facts = " · ".join(dict.fromkeys(x for x in parts if x))     # a subtitle that is only the year says it once
+    facts = f"{facts} · {library}" if facts else kicker_of(KIND_LABEL.get(it.kind) or "", library)
+    verb = "Resume" if (cont and it.service == "jellyfin" and it.resumable) else HERO_VERB[it.service]
+    return HeroVM(state, it.title, it.shape, it.image, facts or None, verb, HERO_APP[it.service], it.href,
+                  _details_href(it, title_services), it.backdrop, it.logo,
+                  _bar(it) if cont else None, it.progress if cont else None)
 
 
 def home_href(focus: Optional[str] = None, new: Optional[str] = None, rel: Optional[str] = None,
