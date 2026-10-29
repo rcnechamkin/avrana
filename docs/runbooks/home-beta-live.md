@@ -54,6 +54,14 @@ read -rs -p "Audiobookshelf token: " s && printf '%s' "$s" > secrets/audiobooksh
 None of these go in `beta-live.env`, Git, a ticket or a chat. **Undo:** `rm beta-live.env secrets/*`, and revoke
 the Jellyfin key and the Audiobookshelf token in their admin pages.
 
+## Routine deploys (since 2026-10-28)
+
+Once set up, deploy a merged change with `scripts/deploy-home-beta.sh` from a checkout of this repository (dry run;
+add `--apply` after the owner's yes). It exports the commit to `~/avrana-deploy/home-<sha>` on avrana, links
+`beta-live.env`, `secrets/` and `state/`, copies `~/avrana`'s compose file (the record of what is switched on),
+builds, dry-runs, keeps the running image as `avrana-home-live:pre-<sha>`, recreates and checks health. It stops if
+the repo's compose file switches on something `~/avrana`'s does not: adopt that there first.
+
 ## 3. Build and start
 
 ```sh
