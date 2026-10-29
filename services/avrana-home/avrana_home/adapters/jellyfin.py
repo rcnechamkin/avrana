@@ -32,7 +32,10 @@ _HEX32 = r"[0-9a-f]{32}"
 _BOUND_ID = re.compile(_HEX32)
 MAX_INT = _base.MAX_INT
 _ARTWORK_REF = re.compile(r"jellyfin/(primary|backdrop)/(" + _HEX32 + r")")
-_IMAGE_TYPES = "Primary,Backdrop"   # Backdrop: the wide image for Home's hero (an episode uses its series')
+# Backdrop: the wide image for Home's hero (an episode uses its series'). Logo is asked for only because Jellyfin
+# (DtoService.AddInheritedImages, 10.11) sends ParentBackdrop* for an episode only when Logo or Thumb is asked too;
+# episodes never have a logo of their own, so the series' backdrop always comes. Logo tags are never read.
+_IMAGE_TYPES = "Primary,Backdrop,Logo"
 _ITEM_FIELDS = "PrimaryImageAspectRatio,ProviderIds"   # ProviderIds: media_ids.from_jellyfin
 _TITLE_FIELDS = _ITEM_FIELDS + ",Overview"    # the title page alone asks for the synopsis (R2-C)
 _int = bounded_int                    # names kept for the tests and for older importers

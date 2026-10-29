@@ -54,7 +54,7 @@ SCHEMAS = {
 # enum -> the members the adapter sends (fields, enableImageTypes, includeItemTypes, mediaTypes) or matches on
 ENUMS = {
     "ItemFields": ("Overview", "PrimaryImageAspectRatio", "ProviderIds"),
-    "ImageType": ("Backdrop", "Primary"),
+    "ImageType": ("Backdrop", "Logo", "Primary"),
     "BaseItemKind": ("Episode", "Movie", "Series"),
     "MediaType": ("Video",),
 }
