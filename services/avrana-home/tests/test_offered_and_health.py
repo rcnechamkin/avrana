@@ -69,7 +69,7 @@ class NotOffered(Setup):
         self.assertEqual(self.abs.not_offered, frozenset())
         self.assertEqual(self.abs.extra_sections, frozenset({"shelves", "released", "for_you"}))   # New for You, 2026-10-28
         self.assertEqual(self.komga.not_offered, frozenset({"continue"}))
-        self.assertEqual(self.komga.extra_sections, frozenset({"shelves", "released"}))   # New releases, 2026-10-28
+        self.assertEqual(self.komga.extra_sections, frozenset({"shelves", "released", "week"}))   # New releases, 2026-10-28
         cwa = CalibreWebAdapter(FakeTransport(FakeKomga(self.clock)), clock=self.clock,
                                 owner_confirms_no_member_restrictions=True)
         self.assertEqual(cwa.not_offered, frozenset({"continue", "item"}))

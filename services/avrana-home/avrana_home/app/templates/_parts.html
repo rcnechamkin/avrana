@@ -119,6 +119,20 @@
     </nav>
 {%- endmacro %}
 
+{# "This week in comics" (owner request 2026-10-29): one card in New Releases for the week's comic issues. A pile of the
+   three newest covers (decoration, hidden from assistive technology), the count on a Cream pill, then the words the
+   link is named by: title, "34 new issues", and either "3 from your series" (the member's own state: the yellow dot)
+   or how many series. One plain link to the Comics chip, so it works without script. The fan on hover and focus is
+   the stylesheet's, and only without reduced motion. #}
+{% macro stack_card(s) -%}
+<li class="w-comic w-stack"><a class="card stack" href="{{ s.href }}">
+  <span class="frame pile"><span class="ph" aria-hidden="true">C</span>{% for img in s.images %}<span class="sheet s{{ loop.index }}" aria-hidden="true"><img class="art" src="{{ img }}" alt="" width="160" height="246" loading="lazy"></span>{% endfor %}<span class="count" aria-hidden="true">{{ s.count }}</span></span>
+  <span class="t">This week in comics</span>
+  <span class="d"><span class="sr">, </span>{{ s.line }}</span>
+  {% if s.mine %}<span class="p mine"><span class="sr">, </span>{{ s.mine }}</span>{% elif s.series %}<span class="p"><span class="sr">, </span>{{ s.series }}</span>{% endif +%}
+</a></li>
+{%- endmacro %}
+
 {# The tile that ends a rail (owner request 2026-10-28): Continue's "See all" (a link to the Continue page) or "Show
    more" on New to Avrana and New Releases. Show more is a plain link that reloads Home with `?more=<rail>` and every
    card shown; with the page script it reveals the hidden cards (`card(..., more=True)`) in place instead and moves

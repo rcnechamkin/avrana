@@ -144,7 +144,7 @@ class NewForYou(unittest.TestCase):
     def test_every_view_asks_for_it_last(self):
         self.assertEqual([("jellyfin", "for_you"), ("audiobookshelf", "for_you"), ("komga", "for_you")],
                          [x for x in ALL_EXTRAS if x[1] == "for_you"])
-        self.assertEqual("for_you", ALL_EXTRAS[-1][1])
+        self.assertEqual(("komga", "week"), ALL_EXTRAS[-1])          # then This week in comics (2026-10-29)
         self.assertEqual(("jellyfin", "for_you"), extra_sections_for("watch")[-1])
 
     def test_words(self):

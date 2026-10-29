@@ -90,7 +90,8 @@ def derive_hard_cap(adapters: Sequence[MediaAdapter]) -> float:
 
 
 _METHODS = {"continue": "continue_items", "recent": "recent_items", "next_up": "next_up_items",
-            "shelves": "shelves_items", "released": "released_items", "for_you": "for_you_items"}
+            "shelves": "shelves_items", "released": "released_items", "for_you": "for_you_items",
+            "week": "week_items"}
 _CORE = ("continue", "recent")      # every adapter answers these; any other is asked only of `extra_sections`
 
 

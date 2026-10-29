@@ -1,7 +1,7 @@
 {# The Home sections, from the approved design: the hero, Continue, then New releases and New to Avrana (owner
    decision 2026-10-28; the same rail as Recently added before it, renamed). Everything comes from the
    view-model (`home`); titles are escaped by autoescape; hrefs are https hand-off URLs only. #}
-{% from "_parts.html" import card, frame, more_tile, tab_nav %}
+{% from "_parts.html" import card, frame, more_tile, stack_card, tab_nav %}
 {% if home.all_unset %}
   <section class="shelf" aria-labelledby="h-setup">
     <h2 id="h-setup">Not set up yet</h2>
@@ -105,7 +105,7 @@
 {#- New Releases (All): by the release date itself, across libraries; only when there is something. Chips by kind (owner
    request 2026-10-28), the same submenu as New to Avrana's (tab_nav): the kinds the list holds, and Books for a member
    with a books library; a chosen chip with nothing in it keeps the chips and says so in one calm line. #}
-{% if home.released_items or home.released_said %}
+{% if home.released_items or home.released_said or home.released_stack %}
   <section class="shelf shelf-released" aria-labelledby="h-released">
     <h2 id="h-released">New Releases</h2>
 {% if home.released_tabs %}
@@ -115,8 +115,11 @@
     <p class="said">{{ home.released_said }}</p>
 {% else %}
     <ul class="rail{% if home.released_rail == "stills" %} stills{% else %} tall{% if home.released_rail == "mixed" %} mixed{% endif %}{% endif %}" id="rail-released">
-{% for c in home.released_items %}{{ card(c, glow=home.released_rail == "mixed") }}
+{% for c in home.released_items %}{% if home.released_stack and loop.index0 == home.released_stack_at %}{{ stack_card(home.released_stack) }}
+{% endif %}{{ card(c, glow=home.released_rail == "mixed") }}
 {% endfor %}
+{% if home.released_stack and home.released_stack_at == home.released_items|length %}{{ stack_card(home.released_stack) }}
+{% endif %}
 {% for c in home.released_more %}{{ card(c, more=True, glow=home.released_rail == "mixed") }}
 {% endfor %}
 {% if home.released_more_href %}{{ more_tile(home.released_more_href, "Show more", " in New Releases", "rail-released") }}

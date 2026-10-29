@@ -1066,6 +1066,28 @@
     .hero:not(.has-backdrop,.w-still) .hero-acts{grid-column:2;grid-row:4;max-width:30rem;}
     .hero:not(.has-backdrop,.w-still) .hero-glow{width:calc(var(--hero-h) * var(--r) * 1.9);}
   }
+  /* ---- MK-12 "This week in comics" (owner request 2026-10-29) ----
+     One card for the week's issues: three covers piled inside the card's own frame (nothing spills into the next
+     card or past the rail's clip), front cover lowest-left, the count on a Cream pill (never the yellow, which is the
+     member's own state: the dot beside "from your series"). The fan on hover and focus is decoration only. */
+  .pile:has(img.art) .ph{visibility:hidden;}
+  .pile .sheet{position:absolute;width:72%;height:72%;overflow:hidden;border:1px solid var(--line);border-radius:4px;
+    background:var(--raised);box-shadow:0 0.25rem 0.75rem rgb(0 0 0 / 45%);}
+  .pile .sheet .art{display:block;width:100%;height:100%;object-fit:cover;}
+  .pile .s1{left:7%;bottom:6%;z-index:3;}
+  .pile .s2{left:14%;bottom:14%;z-index:2;}
+  .pile .s3{left:21%;bottom:22%;z-index:1;}
+  .pile .count{position:absolute;z-index:4;top:0.5rem;right:0.5rem;min-width:1.75rem;padding:0.125rem 0.5rem;
+    border-radius:999px;background:var(--cream);color:var(--ink);font-size:0.8125rem;font-weight:600;line-height:1.4;
+    text-align:center;font-variant-numeric:tabular-nums;}
+  .card .p.mine::before{content:"";display:inline-block;width:0.4375rem;height:0.4375rem;margin-right:0.375rem;
+    border-radius:50%;background:var(--accent);vertical-align:0.0625rem;}
+  @media (prefers-reduced-motion:no-preference){
+    .pile .sheet{transition:transform 180ms ease-out;}
+    .card.stack:is(:hover,:focus-visible) .s2{transform:translate(-4%,2%) rotate(-3deg);}
+    .card.stack:is(:hover,:focus-visible) .s3{transform:translate(4%,-3%) rotate(4deg);}
+  }
+  @media (forced-colors:active){.pile .count{border:1px solid CanvasText;}.card .p.mine::before{background:CanvasText;}}
   /* ---- MK-6 Motion (AVR-720) ---- */
   /* Page-to-page motion (memo section 10; the motion tiers above). One block, appended last. Everything that moves is
      inside the no-preference query: with Reduce Motion there is no transition at all, not even a fade, and the
