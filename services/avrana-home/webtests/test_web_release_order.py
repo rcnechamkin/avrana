@@ -29,7 +29,12 @@ class Key(unittest.TestCase):
 
     def test_calibres_1_january_is_a_missing_day_for_books_only(self):
         self.assertEqual("2026-09-14", release_key(vm("ebook", 2026, "2026-01-01", "2026-09-14"), TODAY))
-        self.assertEqual("2026-01-01", release_key(vm("comic", 2026, "2026-01-01", "2026-09-14"), TODAY))
+        self.assertEqual("2026-03-02", release_key(vm("audiobook", 2026, "2026-03-02", "2026-09-14"), TODAY))
+
+    def test_a_comic_is_dated_by_the_day_it_arrived_for_now(self):
+        # Owner request 2026-10-29: the day it reached Komga, not the cover date; its cover date only without one.
+        self.assertEqual("2026-09-14", release_key(vm("comic", 2026, "2026-01-01", "2026-09-14"), TODAY))
+        self.assertEqual("2026-01-01", release_key(vm("comic", 2026, "2026-01-01"), TODAY))
         self.assertEqual("2026-03-02", release_key(vm("ebook", 2026, "2026-03-02", "2026-09-14"), TODAY))
 
     def test_never_later_than_today(self):

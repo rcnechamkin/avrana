@@ -303,12 +303,19 @@ class RecentAndReleased(Base):
         self.assertEqual(titles(self.adapter.shelves_items(self.a)),
                          ["Synthetic Comic One", "Synthetic Teen One", "Synthetic Kids One", "Synthetic Manga One"])
 
-    def test_home_new_releases_is_the_same_listing_as_its_own_section_with_the_day(self):
+    def comics_added(self):
+        """The issues of Recently added (newest additions, one per series), in order."""
+        return [i.title for i in self.adapter.recent_items(self.a).items if i.kind is Kind.COMIC]
+
+    def test_home_new_releases_dates_comics_by_the_day_they_arrived(self):
+        # Owner request 2026-10-29: comics by the day they reached Komga, for now, not their cover date.
         r = self.adapter.released_items(self.a)
         self.assertEqual(r.section, "released")
-        self.assertEqual(titles(r), titles(self.adapter.shelves_items(self.a)))
+        self.assertEqual([i.title for i in r.items if i.kind is Kind.COMIC], self.comics_added())
         self.assertEqual({i.shelf for i in r.items}, {None})
-        self.assertTrue(all(i.released and len(i.released) == 10 for i in r.items))
+        self.assertTrue(all(i.added and len(i.added) == 10 for i in r.items))
+        self.assertEqual([q["sort"] for _m, _p, q in self.fake.requests][:2],
+                         ["created,desc", "metadata.releaseDate,desc"])
 
     def novel(self, n, title, release, created_days_ago, series=None):
         return {"id": f"BOOKNOVEL{n:03d}", "seriesId": series or f"SERIESNOV{n:03d}", "seriesTitle": title,
@@ -327,7 +334,7 @@ class RecentAndReleased(Base):
     def test_enough_novels_on_the_newest_page_cost_no_second_request(self):
         self.fake.latest["content"].append(self.novel(1, "Synthetic Old Novel", "2001-05-01", 3))
         self.adapter.released_items(self.a, limit=1)
-        self.assertEqual([q["sort"] for _m, _p, q in self.fake.requests], ["metadata.releaseDate,desc"])
+        self.assertEqual([q["sort"] for _m, _p, q in self.fake.requests], ["created,desc", "metadata.releaseDate,desc"])
 
     def test_when_the_newest_page_holds_too_few_novels_the_newest_additions_fill_the_rest(self):
         self.fake.latest["content"] += [self.novel(2, "Synthetic Added Novel", "1999-01-02", 0),
@@ -344,10 +351,10 @@ class RecentAndReleased(Base):
         self.fake.handle = newest_page_of_issues_only
         r = self.adapter.released_items(self.a)
         self.assertEqual([q["sort"] for _m, _p, q in self.fake.requests],
-                         ["metadata.releaseDate,desc", "created,desc"])
+                         ["created,desc", "metadata.releaseDate,desc", "created,desc"])
         self.assertEqual([i.title for i in r.items if i.kind is Kind.EBOOK], ["Synthetic Added Novel"])
         self.assertEqual(r.items[-1].released, "1999-01-02")     # no release day (the undated novel): nothing to sort on
-        self.assertEqual(len(r.items), 6)
+        self.assertEqual([i.title for i in r.items if i.kind is Kind.COMIC], self.comics_added())
 
     def test_novels_are_never_listed_twice_and_issues_are_unchanged(self):
         self.fake.latest["content"].append(self.novel(4, "Synthetic Dated Novel", "2020-02-02", 5))
@@ -355,7 +362,7 @@ class RecentAndReleased(Base):
         ids = [i.id for i in r.items]
         self.assertEqual(len(ids), len(set(ids)))
         issues = [i.title for i in r.items if i.kind is Kind.COMIC]
-        self.assertEqual(issues, [i.title for i in self.adapter.shelves_items(self.a).items if i.kind is Kind.COMIC])
+        self.assertEqual(issues, self.comics_added())
 
     def test_the_shelf_needs_the_group_too(self):
         outsider = make_principal("member-a", ("avrana-users",))

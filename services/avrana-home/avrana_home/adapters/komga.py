@@ -508,22 +508,26 @@ class KomgaAdapter(GuardedAdapter):
         issues, so one `limit`-long list would never hold a novel. A novel's release date is usually years old, so
         the newest page still may hold fewer than `limit` of them; then the library's newest ADDITIONS (the Recently
         added order) are read once more for novels that have a release day, and fill the rest. Komga's book list has
-        no filter by kind (GET, and no `media_profile` key in the allow-list), so this is a second page, not a query."""
+        no filter by kind (GET, and no `media_profile` key in the allow-list), so this is a second page, not a query.
+
+        Comics, for now (owner request 2026-10-29), are dated by the day they reached Komga, not their cover date: the
+        newest ADDITIONS, one issue per series (Home sorts them by `added`)."""
         latest = _today() + timedelta(days=RELEASE_AHEAD_DAYS)
 
         def keep(raw):
             day = _released(raw)
             return day is not None and day <= latest
+        comics = self._listing(user, limit, "/api/v1/books", {"sort": ADDED_SORT}, "released",
+                               keep=lambda raw: _created(raw) is not None, per_series=True, size=MAX_PAGE,
+                               kinds=(Kind.COMIC,))
         out = self._listing(user, limit, "/api/v1/books", {"sort": RELEASED_SORT}, "released", keep=keep,
-                            per_series=True, size=MAX_PAGE, per_kind=True)
-        novels = [it for it in out.items if it.kind is Kind.EBOOK]
-        if len(novels) >= limit:
-            return out
-        added = self._listing(user, limit - len(novels), "/api/v1/books", {"sort": ADDED_SORT}, "released",
-                              keep=keep, per_series=True, size=MAX_PAGE, kinds=(Kind.EBOOK,))
-        have = {it.id for it in out.items}
-        return SectionResult.of(Service.KOMGA, "released",
-                                out.items + tuple(it for it in added.items if it.id not in have))
+                            per_series=True, size=MAX_PAGE, kinds=(Kind.EBOOK,))
+        novels = list(out.items)
+        if len(novels) < limit:
+            added = self._listing(user, limit - len(novels), "/api/v1/books", {"sort": ADDED_SORT}, "released",
+                                  keep=keep, per_series=True, size=MAX_PAGE, kinds=(Kind.EBOOK,))
+            novels += [it for it in added.items if all(it.id != n.id for n in novels)]
+        return SectionResult.of(Service.KOMGA, "released", comics.items + tuple(novels))
 
     def _week_items(self, user: UpstreamUser, limit: int) -> SectionResult:
         """This week (owner request 2026-10-29): every comic issue Komga first scanned (`created`) in the last WEEK_DAYS,
