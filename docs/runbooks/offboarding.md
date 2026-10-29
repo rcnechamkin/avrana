@@ -227,7 +227,7 @@ python3 /home/cody/avrana/scripts/offboard.py <username> --apply --purge
 | Authentik | The user, through Django so that dependent rows go with it. A failure prints "FAILED ... check by hand" | `scripts/offboard.py:189-202` |
 
 Home keeps one thing per member when its member store is on (`HOME_MEMBER_STORE`): the photo and display name the
-member set in Me → My profile. `offboard.py` does not touch it; remove it with Home's own command, in the running Home
+member set on their profile page. `offboard.py` does not touch it; remove it with Home's own command, in the running Home
 container (it prints only the username and a verdict; exit 0 done or nothing there, 1 not written, 2 refused):
 
 ```
