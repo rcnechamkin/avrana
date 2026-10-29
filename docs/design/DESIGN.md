@@ -566,8 +566,30 @@ says "Not searched" and never "No results" or a request offer.
 
 Request (`/request`) and Read (`/read`) are place pages with the Home button; the chooser's title takes the page
 role. "Ask for something" lists the member's own request places as grouped rows, each in the catalogue's wording
-for that member, with "Opens the request website" and the external-link glyph; "Add to the library" follows only
-with Contribute. Nothing is submitted from Home, and no request status is shown (follow-up F-5).
+for that member; "Add to the library" follows only with Contribute. A request service whose broker is on (and that
+the member may use) opens Home's own ask page ("Search and ask here", a chevron), with "What you have asked for"
+(My requests) after the group; any other opens its website ("Opens the request website", the external-link glyph).
+
+**The ask pages** (`/request/books`, `/request/watch`, `/request/comics`; `_asks.html`, 2026-10-29) and **My requests**
+(`/request/mine`) are place pages under Home too: the Home button, the Home tab carries the lens (never Search),
+the page title in the page role with one Stone line, then:
+
+- the answer to the last ask, as a panel: asked or cancelled with the check in ready green on the opaque panel; a
+  refusal is the warning (amber edge, triangle). Always said in words;
+- Search's field, label and button, with the hint "At least 2 characters.";
+- the results under the count as an eyebrow, one opaque panel of rows. A row is not a link: the title (Medium), its
+  Stone lines (what it is, "Already in …" with Open, "Already asked for", "Asked for … just now" after a ready-green
+  dot), then its buttons. A row has no artwork, because the request services' art comes from other sites, which
+  these pages never load. Buttons follow the text while it keeps 14rem and go under it on a phone, never wrapping
+  word by word;
+- every ask, "Choose seasons", "Find it" and "Cancel request" is the quiet secondary button (`.kbtn`: raised, 1px
+  Ash edge, Cream words, 44px, the button radius; transparent for the quieter "Choose seasons" and "Cancel
+  request"). The season picker's one submit is the Cream primary across the column. No system-blue buttons;
+- "What you have asked for" as a grouped row at the end.
+
+My requests shows "On the way" and "Done" as groups of rows in one panel each: the title, a Stone line, and the
+status in words after a dot (ready green when it arrived, amber when declined or not found, Stone while it waits),
+then "Find it" or "Cancel request". "Ask for something" rows (the three ask pages, with their glyphs) end the page.
 
 ### Grouped rows
 

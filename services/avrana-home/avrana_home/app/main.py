@@ -401,7 +401,7 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
             if said is not None:
                 page = dataclasses.replace(page, notice=said)
             scope["avrana_route"] = bookreq_mod.PATH
-            shell = shell_for(viewer, "search")
+            shell = shell_for(viewer, "place")
             mark_shell(scope, shell)
             return render("request_books.html", page=page, shell=shell)
 
@@ -412,7 +412,7 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
                 scope["avrana_route"] = "not_found"
                 return respond(not_found())
             scope["avrana_route"] = watch_mod.PATH
-            shell = shell_for(viewer, "search")
+            shell = shell_for(viewer, "place")
             mark_shell(scope, shell)
             username = broker_user(viewer)
             said, asked, back = flash.take(username, watch_mod.PATH) or (None, frozenset(), None)
@@ -453,7 +453,7 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
                 scope["avrana_route"] = "not_found"
                 return respond(not_found())
             scope["avrana_route"] = comic_mod.PATH
-            shell = shell_for(viewer, "search")
+            shell = shell_for(viewer, "place")
             mark_shell(scope, shell)
             username = broker_user(viewer)
             said, asked, back = flash.take(username, comic_mod.PATH) or (None, frozenset(), None)
@@ -475,7 +475,7 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
                 scope["avrana_route"] = "not_found"
                 return respond(not_found())
             scope["avrana_route"] = mine_mod.PATH
-            shell = shell_for(viewer, "search")
+            shell = shell_for(viewer, "place")
             mark_shell(scope, shell)
             username = broker_user(viewer)
             said, _asked, _term = flash.take(username, mine_mod.PATH) or (None, frozenset(), None)
@@ -630,6 +630,7 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
                     extra["contribute"] = place_link(tiles_for(viewer), CONTRIBUTE_PATH)
                     # A request service whose broker is on (and that this member may use) opens Home's own ask page.
                     extra["own_pages"] = own_pages(viewer)
+                    extra["intro"] = chooser_intro("request", asks_here=bool(extra["own_pages"]))
             if decision.label == "/account" and extra["shell"] is not None:
                 # Shell only: libraries and requests in Home's language. Sections off keeps the portal's list.
                 extra["shell_access"] = account_access(
@@ -653,7 +654,7 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
             scope["avrana_route"] = "not_found"
             return respond(not_found())
         scope["avrana_route"] = bookreq_mod.PATH
-        shell = shell_for(viewer, "search")
+        shell = shell_for(viewer, "place")
         mark_shell(scope, shell)
         username = broker_user(viewer)
         fields = (await forms_mod.read_form(request, BOOK_FIELDS, MAX_FORM_BODY, exact=True)
@@ -702,7 +703,7 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
             scope["avrana_route"] = "not_found"
             return respond(not_found())
         scope["avrana_route"] = watch_mod.PATH
-        shell = shell_for(viewer, "search")
+        shell = shell_for(viewer, "place")
         mark_shell(scope, shell)
         username = broker_user(viewer)
         fields = (await forms_mod.read_form(request, WATCH_PICK_FIELDS, MAX_FORM_BODY)
@@ -756,7 +757,7 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
             scope["avrana_route"] = "not_found"
             return respond(not_found())
         scope["avrana_route"] = mine_mod.PATH
-        shell = shell_for(viewer, "search")
+        shell = shell_for(viewer, "place")
         mark_shell(scope, shell)
         username = broker_user(viewer)
         fields = (await forms_mod.read_form(request, MINE_FIELDS, MAX_FORM_BODY, exact=True)
@@ -799,7 +800,7 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
             scope["avrana_route"] = "not_found"
             return respond(not_found())
         scope["avrana_route"] = comic_mod.PATH
-        shell = shell_for(viewer, "search")
+        shell = shell_for(viewer, "place")
         mark_shell(scope, shell)
         username = broker_user(viewer)
         fields = (await forms_mod.read_form(request, COMIC_FIELDS, MAX_FORM_BODY, exact=True)

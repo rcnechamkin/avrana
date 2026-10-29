@@ -42,6 +42,9 @@ SERVICE = "shelfarr"
 FORMAT_GROUP = {"ebook": "avrana-books", "audiobook": "avrana-audiobooks"}
 FORMAT_ORDER = ("ebook", "audiobook")
 SEARCH_LIMIT = 10
+# Shelfarr's search asks its metadata providers in-line (Open Library and the like): a title it has not cached took
+# 4.5 s on avrana (2026-10-29), so search alone waits longer than the requests, listings and cancels.
+SEARCH_TIMEOUT = 8.0
 MIN_TERM, MAX_TERM = 2, 100
 MAX_TITLE, MAX_AUTHOR, MAX_SERIES = 300, 200, 200
 MAX_KEYS = 20                      # sources and editions read per result
@@ -233,7 +236,8 @@ class ShelfarrRequests:
         text = clean_term(term)
         if text is None:
             return "invalid", ()
-        body = self._call("GET", "/api/v1/search", {"q": text, "limit": str(SEARCH_LIMIT), "content_kind": "book"})
+        body = self._call("GET", "/api/v1/search", {"q": text, "limit": str(SEARCH_LIMIT), "content_kind": "book"},
+                          timeout=max(self._timeout, SEARCH_TIMEOUT))
         if body is None:
             return "unavailable", ()
         results = body.get("results") if isinstance(body, dict) else None
@@ -334,14 +338,15 @@ class ShelfarrRequests:
         return CancelOutcome.UNAVAILABLE
 
     # ---- internals -------------------------------------------------------------------------
-    def _call(self, method: str, path: str, query) -> Optional[Any]:
+    def _call(self, method: str, path: str, query, timeout: Optional[float] = None) -> Optional[Any]:
         try:
-            self._send(method, path, query, None)
+            self._send(method, path, query, None, timeout)
         except _Answered as answer:
             return answer.body if answer.outcome is Outcome.CREATED else None
         return None
 
-    def _send(self, method: str, path: str, query, json_body: Optional[bytes]) -> None:
+    def _send(self, method: str, path: str, query, json_body: Optional[bytes],
+              timeout: Optional[float] = None) -> None:
         """Raises _Answered with the outcome (and, for a 2xx, the parsed body). Returns only when the breaker is
         open."""
         template = "/api/v1/requests/<id>" if REQUEST_PATH.fullmatch(path) else path
@@ -357,7 +362,7 @@ class ShelfarrRequests:
             return
         try:
             kw = {"json_body": json_body} if json_body is not None else {}
-            resp = self._transport.request(method, path, query, self._timeout, MAX_JSON_BYTES, **kw)
+            resp = self._transport.request(method, path, query, timeout or self._timeout, MAX_JSON_BYTES, **kw)
         except UpstreamNotFound:
             self.breaker.neutral(token)
             raise _Answered(Outcome.NOT_LINKED) from None

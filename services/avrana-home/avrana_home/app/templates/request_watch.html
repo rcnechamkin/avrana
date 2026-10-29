@@ -1,33 +1,17 @@
 {% extends "base.html" %}
-{% from "_rows.html" import glyph %}
+{% import "_asks.html" as asks %}
 {% block title %}{% if page.outcome %}{{ page.outcome }} · {% endif %}Ask for a film or show · Avrana{% endblock %}
 {% block body %}
 {# Ask for a film or a show (request broker, Seerr, docs/design/UNIVERSAL-SEARCH-AND-REQUESTS.md). A plain GET
    search form, then at most one small POST form per title, carrying only the fields Home rendered from Seerr's own
-   search and a signed token; no script needed. Styling reuses Search's classes; the UX pass owns the look. #}
-  <section class="shelf" aria-labelledby="h-ask">
-    <h2 id="h-ask">Ask for a film or show</h2>
-{% set n = page.notice or (page if page.mode == "said" else none) %}
-{% if n %}
-    <p class="said{% if n.warn %} kwarn{% endif %}" role="status">{% if n.warn %}{{ glyph("warn", "kic kwarn-ic") }}<span class="kwarn-t">{% endif %}{{ n.message }}{% if n.place_href %} <a class="link" href="{{ n.place_href }}">Open the request website<span class="sr">, opens another website</span></a>{% endif %}{% if n.warn %}</span>{% endif %}</p>
-{% endif %}
-    <form class="srch" method="get" action="/request/watch" role="search">
-      <label for="q">Title</label>
-      <div class="ask">
-        <span class="ask-field">{{ glyph("search", "kic ask-ic") }}<input id="q" name="q" type="search" value="{{ page.term }}" maxlength="100" autocomplete="off" spellcheck="false"
-          {%- if page.mode == "invalid" %} aria-invalid="true" aria-describedby="q-error q-hint"{% else %} aria-describedby="q-hint"{% endif %}></span>
-        <button type="submit">Search</button>
-      </div>
-{% if page.mode == "invalid" %}
-      <p class="err" id="q-error" role="alert">{{ page.message }}</p>
-{% endif %}
-      <p class="hint" id="q-hint">Films and shows not in Movies and TV yet. Asking sends a request; it does not add it straight away. <a class="link" href="/request/mine">See what you have asked for</a></p>
-    </form>
-  </section>
+   search and a signed token; no script needed. The look is Concept K's (_asks.html); the season picker is one panel
+   of 44px rows and one Cream action. #}
+{{ asks.head("h-ask", "Ask for a film or show", "Films and shows not in Movies and TV yet. Asking sends a request; it does not add it straight away.") }}
+{{ asks.notice(page.notice or (page if page.mode == "said" else none)) }}
 {% if page.mode == "show" and page.show %}
-  <section class="shelf" aria-labelledby="h-show">
-    <h2 id="h-show">Choose seasons</h2>
-    <p class="said"><span class="t">{{ page.show.title }}</span>{% if page.show.line %} · {{ page.show.line }}{% endif %}</p>
+  <section class="kgroup kreq-show" aria-labelledby="h-show">
+    <h3 class="kgroup-h" id="h-show">Choose seasons</h3>
+    <p class="kreq-show-t"><span class="t">{{ page.show.title }}</span>{% if page.show.line %}<span class="d">{{ page.show.line }}</span>{% endif %}</p>
 {% if page.show.ask %}
     <form method="post" action="/request/watch" class="seasons">{% for k, v in page.show.ask.fields %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}<input type="hidden" name="q" value="{{ page.term }}"><input type="hidden" name="pick" value="1"><input type="hidden" name="token" value="{{ page.show.ask.token }}">
       <fieldset class="season-list">
@@ -36,36 +20,27 @@
         <div class="season">{% if s.field %}<input type="checkbox" id="{{ s.field }}" name="{{ s.field }}" value="1"><label for="{{ s.field }}">{{ s.label }}</label>{% else %}<span class="season-off">{{ s.label }}</span>{% endif %}{% if s.note %}<span class="d"> {{ s.note }}</span>{% endif %}</div>
 {% endfor %}
       </fieldset>
-      <button type="submit">{{ page.show.ask.label }}<span class="sr">: {{ page.show.title }}</span></button>
+      <button type="submit" class="kbtn kbtn-go">{{ page.show.ask.label }}<span class="sr">: {{ page.show.title }}</span></button>
     </form>
 {% else %}
     <p class="said">Every season is already in Movies and TV or has been asked for.</p>
 {% endif %}
     <p><a class="link" href="{{ page.show.back_href }}">Back to the search</a></p>
   </section>
-{% endif %}
-{% if page.mode in ("results", "empty", "unavailable") %}
-  <section class="shelf" aria-labelledby="h-found">
-    <h2 id="h-found">{{ page.outcome }}</h2>
-{% if page.mode == "unavailable" %}
-    <p class="said kwarn" role="status">{{ glyph("warn", "kic kwarn-ic") }}<span class="kwarn-t">{{ page.message }}</span></p>
-{% elif page.mode == "empty" %}
-    <p class="said" role="status">{{ page.message }}</p>
 {% else %}
-    <ul class="hits asks-list">
+{{ asks.search("/request/watch", "Title", page, "At least 2 characters.") }}
+{% endif %}
+{% call asks.results(page) %}
 {% for o in page.offers %}
       <li><span class="meta"><span class="t">{{ o.title }}</span>{% if o.line %}<span class="d">{{ o.line }}</span>{% endif %}
 {%- if o.owned %}<span class="d owned">Already in {{ o.owned.library }}. <a class="link" href="{{ o.owned.href }}">Open<span class="sr"> {{ o.title }} in {{ o.owned.library }}</span></a></span>{% endif %}
-{%- if o.note %}<span class="d">{{ o.note }}</span>{% endif %}
-{%- if o.choose_href %}<span class="d"><a class="link" href="{{ o.choose_href }}">Choose seasons<span class="sr"> of {{ o.title }}</span></a></span>{% endif %}</span>
-{% if o.ask %}
-        <form method="post" action="/request/watch" class="ask-f">{% for k, v in o.ask.fields %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}<input type="hidden" name="q" value="{{ page.term }}"><input type="hidden" name="token" value="{{ o.ask.token }}"><button type="submit">{{ o.ask.label }}<span class="sr">: {{ o.title }}</span></button></form>
+{%- if o.note %}<span class="d">{{ o.note }}</span>{% endif %}</span>
+{% if o.ask or o.choose_href %}
+        <span class="ask-acts">{% if o.ask %}{{ asks.ask("/request/watch", o.ask, page.term, ": " ~ o.title) }}{% endif %}{% if o.choose_href %}<a class="kbtn kbtn-quiet" href="{{ o.choose_href }}">Choose seasons<span class="sr"> of {{ o.title }}</span></a>{% endif %}</span>
 {% endif %}
       </li>
 {% endfor %}
-    </ul>
-{% endif %}
-  </section>
-{% endif %}
+{% endcall %}
+{{ asks.mine_link() }}
 {% endblock %}
 {% block footer %}    {% if not shell %}<a class="link" href="/">Back to home</a>{% endif %}{% endblock %}
