@@ -204,6 +204,14 @@ On the iPhone or a browser signed in as the tester:
 `docker logs avrana-home-beta 2>&1 | grep -cE 'book_request|watch_request|comic_request|request_cancel'` counts the
 asks and cancels; those lines carry a fixed outcome only, never a title or a name. Record the result (pass or fail, times, no titles) in `docs/findings/`.
 
+**First live check 2026-10-29** (owner, iPhone, a non-admin tester): asking for a show worked end to end (Seerr
+notified, shown under My requests). Found and fixed in #144 (merged `1f29d78`, deployed 2026-10-29 with
+`deploy-home-beta.sh`, rollback `avrana-home-live:pre-1f29d78`): Ask buttons drawn over titles, book search timing out
+(Shelfarr took 4.5 s against a 2 s timeout; search now waits up to 8 s), and the Concept K design pass on the four
+request pages. **Comics need one setting per member:** upstream Omnibus creates every SSO non-admin with Request
+permission off (`canRequest: false`), so an admin turns on Request for each member in Omnibus (Admin, Users) until
+the fork changes that default.
+
 ## 6. Account creation on first ask (optional)
 
 Only for members who have never opened Shelfarr or Seerr. The tester already has both, so this needs a second,
