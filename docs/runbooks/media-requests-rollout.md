@@ -3,7 +3,7 @@
 Status: prepared 2026-10-28. **Steps 1 and 2 applied 2026-10-29**: Shelfarr, Seerr and Omnibus run their fork
 images (backups in `/home/cody/backups/requests-rollout-20261029T001304Z`; Omnibus's first fork image failed and
 was replaced, see step 2). **Step 3 applied 2026-10-29**: the three keys are in Home's secret files and tested.
-Steps 4 to 7 not started. Every step changes host `avrana` and needs the owner's yes at
+**Step 4 applied 2026-10-29 02:14Z**: live Home has all three request switches on. Steps 5 to 7 not started. Every step changes host `avrana` and needs the owner's yes at
 the time (`AGENTS.md`); a yes for one step does not cover the next. Secrets are typed at a hidden prompt, never
 pasted into chat, a ticket, Git or a command line.
 
@@ -11,8 +11,8 @@ pasted into chat, a ticket, Git or a command line.
 
 - **Live beta** (`media-beta.avrana.net`, one tester in `HOME_ALLOWED_USERS`): main `8f41e3b` (as of
   2026-10-29) from `~/avrana-deploy/home-8f41e3b`, deployed with `scripts/deploy-home-beta.sh`. It already has My
-  requests, the comics page, the season picker and the New releases / New to Avrana rows; every request switch is
-  **off**, so the request pages answer with the standard 404.
+  requests, the comics page, the season picker and the New releases / New to Avrana rows; since step 4 every
+  request switch is **on** (rollback image `avrana-home-live:pre-8f41e3b`).
 - **Forks**, built by their own CI, public on GHCR (no registry login needed on the host):
 
   | Service | Now on avrana | Fork image (pin by digest) | Schema change |
@@ -177,6 +177,16 @@ start is a refusal in the log naming its setting; turn that one switch off in `~
 
 **Undo:** put back `docker-compose.beta-live.yml.pre-requests` and run the script again with `--apply`, or use the
 rollback the script prints (the `pre-<sha>` image).
+
+**Applied 2026-10-29** (owner yes): `~/avrana`'s compose backed up as `docker-compose.beta-live.yml.pre-requests`
+(copy in the step 1 backup folder) and given the block. Dry run of `deploy-home-beta.sh 8f41e3b` (the commit
+already live, so only the switches changed): recreate `avrana-home-beta` only, no network or volume. A throwaway
+`compose run` of the same image first: settings accepted, three keys loaded, Shelfarr search 200 and Seerr 200 from
+inside Home's networks, Omnibus 401 without a member (reachable); nothing left behind, 33 networks before and after.
+`--apply`: healthy, 0 restarts, no errors in the log, joined `shelfarr_default`, `omnibus` and
+`docker_request-backend`; the four request routes pass the POST gate (an unknown path gets 501) and answer an
+anonymous caller 404. Because the export folder is shared with the previous deploy, the undo is: put
+`.pre-requests` back over `~/avrana`'s file and run the script with `--apply 8f41e3b` again.
 
 ## 5. Live check (as the tester)
 
