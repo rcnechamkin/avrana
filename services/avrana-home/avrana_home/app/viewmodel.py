@@ -154,6 +154,7 @@ class ItemVM:
     up_next: bool = False          # the next unread book (contract shelf "next"), nothing read yet: "Up next"
     art_shape: Optional[str] = None  # the art's shape when it is not the kind's own (an episode's series poster)
     active: Optional[str] = None   # when this member last touched it (contract MediaItem.active, UTC), for ordering only
+    added: Optional[str] = None    # the day it reached the library (contract MediaItem.added), for New Releases only
 
     @property
     def shape(self) -> str:
@@ -236,7 +237,8 @@ def _item_vm(it: dict) -> Optional[ItemVM]:
                   up_next=it.get("shelf") == UP_NEXT_SHELF and it.get("progress") is None,
                   art_shape=_art_shape(it.get("artwork")),
                   active=it.get("active") if isinstance(it.get("active"), str)
-                  and _INSTANT.fullmatch(it["active"]) else None)
+                  and _INSTANT.fullmatch(it["active"]) else None,
+                  added=it.get("added") if isinstance(it.get("added"), str) and _DAY.fullmatch(it["added"]) else None)
 
 
 def build_sections(view: dict) -> Tuple[SectionVM, ...]:
@@ -640,10 +642,26 @@ def build_filters(places, focus: Optional[str]):
     return tuple(out), chosen
 
 
+# Kinds whose 1 January is a missing day, not a release day: Calibre (and an EPUB's dc:date) store a year-only date as
+# 1 January (live 2026-10-29: 33 of Calibre-Web's 60 newest books). Comics and films keep their exact dates.
+YEAR_ONLY_JAN_1 = ("audiobook", "ebook")
+
+
 def release_key(it: ItemVM, today: str) -> Optional[str]:
-    """What New releases sorts on: the release day, or 1 January of a bare release year (never claiming a book is
-    newer than it may be), and a future date (a comic's cover date runs ahead of sale) as today. None: unsortable."""
-    day = it.released or (f"{it.year:04d}-01-01" if it.year else None)
+    """What New releases sorts on: the release day, and a future date (a comic's cover date runs ahead of sale) as today.
+    None: unsortable.
+
+    A book with only a release YEAR (owner request 2026-10-29; Audiobookshelf keeps only the year of what it matches,
+    Calibre writes a year as 1 January) is placed by when it reached Avrana, kept inside that year: the release cannot
+    be later than the day it arrived, nor outside its year. A 2026 audiobook added on 25 October sorts as 25 October;
+    a 1999 novel added last week as 31 December 1999. Without an added day, 1 January (never claiming it is newer)."""
+    year_only = it.year is not None and (it.released is None or (it.kind in YEAR_ONLY_JAN_1
+                                                                 and it.released == f"{it.year:04d}-01-01"))
+    if year_only:
+        first, last = f"{it.year:04d}-01-01", f"{it.year:04d}-12-31"
+        day = max(first, min(it.added, last)) if it.added else first
+    else:
+        day = it.released
     return min(day, today) if day else None
 
 

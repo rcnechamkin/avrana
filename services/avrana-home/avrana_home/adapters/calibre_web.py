@@ -153,6 +153,9 @@ class CalibreWebAdapter(GuardedAdapter):
                          subtitle=author, creator=author,
                          year=year_from(entry.findtext(_ATOM + "published")),
                          released=iso_day(entry.findtext(_ATOM + "published")),
+                         # Calibre-Web writes Calibre's date added as <updated> (live 2026-10-29: never rises down the
+                         # newest-added feed); New Releases places a year-only book with it.
+                         added=iso_day(entry.findtext(_ATOM + "updated")),
                          artwork=ArtworkRef(f"calibre-web/cover/{book_id}",
                                                              f"Cover of {title}")), "ok"
 

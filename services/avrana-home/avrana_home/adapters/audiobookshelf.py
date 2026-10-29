@@ -432,7 +432,9 @@ class AudiobookshelfAdapter(GuardedAdapter):
             if media is not None:
                 if keep is not None:
                     keep[item_id] = raw
-                out.append((bounded_int(raw.get("addedAt")) or 0, media.year or 0, media))
+                added = bounded_int(raw.get("addedAt")) or 0
+                day = iso_instant(added)
+                out.append((added, media.year or 0, dataclasses.replace(media, added=day[:10]) if day else media))
         return out
 
     def _recent_items(self, user: UpstreamUser, limit: int) -> SectionResult:

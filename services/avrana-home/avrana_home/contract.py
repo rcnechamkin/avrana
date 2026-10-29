@@ -337,6 +337,10 @@ class MediaItem:
     # listen; an Up next or On Deck item carries its series' last one. Home orders Continue by it across libraries
     # (owner request 2026-10-28). In to_dict() only when present.
     active: Optional[str] = None
+    # The day it reached the library, ISO "YYYY-MM-DD" (Audiobookshelf addedAt, Komga created, Calibre-Web's OPDS
+    # <updated>, which Calibre fills with its date added). New Releases uses it to place a book whose release date is only
+    # a year (owner request 2026-10-29). In to_dict() only when present.
+    added: Optional[str] = None
 
     def to_dict(self) -> dict:
         progress = None
@@ -366,6 +370,8 @@ class MediaItem:
             out["tags"] = list(self.tags)
         if self.active:
             out["active"] = self.active
+        if self.added:
+            out["added"] = self.added
         return out
 
 
