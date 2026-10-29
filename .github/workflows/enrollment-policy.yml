@@ -1,0 +1,32 @@
+# RC1 finding S1: the enrollment username policy inside a REAL, throwaway Authentik (production's image digests from
+# services/authentik/docker-compose.yml). Runs only when the policy or this check changes. No secrets: every
+# credential is generated per run, and every container sits on an --internal Docker network (no internet, no LAN).
+# Never touches production. The checks: tests/authentik_enrollment_live.sh and tests/authentik_enrollment_live.py.
+name: enrollment-policy
+
+on:
+  pull_request:
+    paths:
+      - services/authentik/blueprints/avrana-enrollment.yaml
+      - services/authentik/docker-compose.yml
+      - tests/authentik_enrollment_live.sh
+      - tests/authentik_enrollment_live.py
+      - .github/workflows/enrollment-policy.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: enrollment-policy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  real-authentik:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Enrollment policy against a throwaway Authentik
+        run: bash tests/authentik_enrollment_live.sh
