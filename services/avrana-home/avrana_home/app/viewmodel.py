@@ -308,6 +308,9 @@ BOOK_PLACES = ("/books", "/read")      # the places that hold books: Calibre-Web
 # that reached Komga in the last seven days (Komga's `week` section), when there are at least WEEK_MIN; the Comics chip
 # still lists them one by one. WEEK_PAGE is Komga's page size: a full page is "100+".
 WEEK_HEADING = "This week in comics"
+# New Releases' All (owner 2026-10-29, "still way too comic book heavy"): no chip's kinds take more than a third of the
+# rail while the other kinds still have cards; what does not fit stays under its chip, in order.
+ALL_SHARE = 3
 WEEK_MIN = 2
 WEEK_PAGE = 100
 NO_RELEASES_IN = "No new releases in {} right now."
@@ -916,6 +919,22 @@ def continue_list(held: dict, focus: Optional[str]):
     return services, by_activity(lists)
 
 
+def balanced(items, size: int) -> list:
+    """`items` (newest first) with no chip's kinds over a third of the first `size` (ALL_SHARE) while other kinds have
+    cards left; a kind that runs out leaves its room to the rest. The first `size` keep their order, then the others."""
+    cap = max(1, -(-size // ALL_SHARE))
+    group = {kind: key for key, _l, kinds in RELEASE_CHIPS for kind in kinds}
+    head, count = [], {}
+    for i, it in enumerate(items):
+        g = group.get(it.kind, it.kind)
+        if count.get(g, 0) < cap and len(head) < size:
+            head.append(i)
+            count[g] = count.get(g, 0) + 1
+    rest = [i for i in range(len(items)) if i not in set(head)]
+    head = sorted(head + rest[:size - len(head)])
+    return [items[i] for i in head] + [items[i] for i in range(len(items)) if i not in set(head)]
+
+
 def _split(cards, limit: int, expanded: bool):
     """(shown, more) for a rail with "Show more": `limit` cards, then the rest up to SHELF_MOST. Without script the more
     link reloads with `expanded`, and every card is shown at once."""
@@ -1056,6 +1075,8 @@ def build_home(view: dict, tiles, *, new_tab: Optional[str] = None, limit: int =
             stack = stack_of(week, {it.series for sec in ("continue", "for_you") for it in items_of(sec, "komga")
                                     if it.series},
                              home_href(link_focus, new_key, "comics", anchor="h-released"))
+        if rel is None and len(chips) > 1:
+            rail_picked = balanced(rail_picked, limit - (stack is not None))
         released, released_more = _split(_cards(rail_picked, lambda it: it.detail or SERVICE_LABEL.get(it.library),
                                                 title_services=title_services),
                                          limit - (stack is not None), more == "released")
