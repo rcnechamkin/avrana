@@ -80,19 +80,29 @@ done
 cp "$LIVE/$COMPOSE" "$COMPOSE"
 dc() { docker compose -p "$PROJECT" -f "$COMPOSE" "$@"; }
 dc config -q && echo "config ok"
+# The running image, read BEFORE the build: `build` moves the avrana-home-live:local tag to the new image.
+prev_image=$(docker inspect -f '{{.Image}}' avrana-home-beta)
+prev_dir=$(docker inspect -f '{{index .Config.Labels "com.docker.compose.project.working_dir"}}' avrana-home-beta)
+echo "running now: ${prev_dir%/services/avrana-home} (image ${prev_image:7:12})"
+# Put :local back on the running image whenever this script stops without recreating Home (dry run, a refused
+# plan, an error), so a later `up -d` anywhere cannot start a build nobody approved.
+restore_tag() { docker tag "$prev_image" avrana-home-live:local; echo "avrana-home-live:local restored to the running image"; }
+trap restore_tag EXIT
 dc build -q
 plan=$(dc up -d --dry-run 2>&1)
 echo "$plan" | tail -4
 if echo "$plan" | grep -E "Network|Volume" | grep -qiE "creat|remov"; then
   echo "!! the dry run would create or remove a network or volume: stopping" >&2; exit 5
 fi
+if echo "$plan" | grep -iE "creat|recreat|remov|start" | grep -v "avrana-home-beta" | grep -q .; then
+  echo "!! the dry run would touch something besides avrana-home-beta: stopping" >&2; exit 5
+fi
 echo "older exports (not deleted):"; ls -1d "$ROOT"/home-* 2>/dev/null | grep -v "home-$SHA$" | tail -5 || true
 [ "$APPLY" = yes ] || { echo "== dry run only. Re-run with --apply to recreate Home."; exit 0; }
 
-prev_image=$(docker inspect -f '{{.Image}}' avrana-home-beta)
-prev_dir=$(docker inspect -f '{{index .Config.Labels "com.docker.compose.project.working_dir"}}' avrana-home-beta)
 docker tag "$prev_image" "avrana-home-live:pre-$SHA"
 dc up -d
+trap - EXIT                                  # Home now runs the approved new image, which keeps :local
 state=starting
 for _ in $(seq 1 24); do
   state=$(docker inspect -f '{{.State.Health.Status}}' avrana-home-beta)
@@ -108,6 +118,8 @@ s = Settings.from_env(os.environ)
 print("provisioning:", ",".join(s.provision_accounts) or "off",
       "| Komga member keys:", len(s.komga_member_keys), "| Komga admin key:", "yes" if s.komga_admin_token else "no")
 PY
+now_dir=$(docker inspect -f '{{index .Config.Labels "com.docker.compose.project.working_dir"}}' avrana-home-beta)
+echo "running revision: ${now_dir%/services/avrana-home} (was ${prev_dir%/services/avrana-home})"
 echo "rollback: docker tag avrana-home-live:pre-$SHA avrana-home-live:local &&"
 echo "          cd $prev_dir && docker compose -p $PROJECT -f $COMPOSE up -d --no-build"
 [ "$state" = healthy ] || { echo "!! not healthy: consider the rollback above" >&2; exit 6; }
