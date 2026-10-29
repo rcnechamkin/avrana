@@ -6,6 +6,16 @@
 > covers only Authentik's flow pages and user library, through Authentik's supported hook
 > (`Brand.branding_custom_css`), per DESIGN.md's "configurable tier".
 
+> **Revision 2026-10-28 — Media Home's Concept K dress.** Owner: "If we have to send people to Authentik, they at
+> least shouldn't even know that it's Authentik. Keep it visually consistent." The sign-in screens now take Home's
+> Concept K tokens (home.css): Surface panels with 1rem corners and a hairline edge, 0.75rem fields on a Spire Ink well,
+> 0.875rem buttons (the primary is Home's Continue: Cream, 52px, an inset ring on hover, a small press), the Media yellow
+> `#EADA6E` for focus rings and the chosen checkbox, and **Plus Jakarta Sans embedded** (Home's own Latin file, 27,348
+> bytes, pinned in `SOURCES.json`) instead of Geist-or-system. The footer, language picker and flow-inspector button are
+> hidden so nothing names the service. Size: 54,904 bytes of CSS (sha256 `9b10e8b1…`). Where members meet these
+> screens, and the owner steps: `../README-member-surfaces.md`. The sections below describe v1 and still hold for
+> the wordmark, the escaping rules and the apply/rollback tool; the type and corner notes are superseded.
+
 | File | What it is |
 |---|---|
 | `avrana-brand-v1.src.css` | The hand-written CSS. Edit this one |
