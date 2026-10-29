@@ -20,7 +20,10 @@
       "RunTimeTicks": "integer", "UserData": "object", "ImageTags": "object", "ProviderIds": "object",
       "Overview": "string", "BackdropImageTags": "array", "ParentBackdropItemId": "string",
       "ParentBackdropImageTags": "array", "PremiereDate": "string", "SeriesId": "string",
-      "SeriesPrimaryImageTag": "string"
+      "SeriesPrimaryImageTag": "string", "People": "array", "Genres": "array", "Tags": "array"
+    },
+    "item.People": {
+      "Name": "string", "Type": "string"
     },
     "item.UserData": {
       "PlaybackPositionTicks": "integer", "PlayedPercentage": "number", "Played": "boolean",

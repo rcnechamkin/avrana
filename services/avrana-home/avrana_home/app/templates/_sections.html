@@ -1,7 +1,7 @@
 {# The Home sections, from the approved design: the hero, Continue, then New releases and New to Avrana (owner
    decision 2026-10-28; the same rail as Recently added before it, renamed). Everything comes from the
    view-model (`home`); titles are escaped by autoescape; hrefs are https hand-off URLs only. #}
-{% from "_parts.html" import card, frame %}
+{% from "_parts.html" import card, frame, more_tile %}
 {% if home.all_unset %}
   <section class="shelf" aria-labelledby="h-setup">
     <h2 id="h-setup">Not set up yet</h2>
@@ -63,6 +63,8 @@
     <ul class="rail cont{% if home.continue_rail %} {{ home.continue_rail }}{% endif %}">
 {% for c in home.continue_items %}{{ card(c, verb=True, glow=home.continue_rail == "mixed") }}
 {% endfor %}
+{% if home.continue_more_href %}{{ more_tile(home.continue_more_href, "See all", ": everything you can continue") }}
+{% endif %}
     </ul>
 {% elif home.continue_said %}
     <p class="said">{{ home.continue_said }}</p>
@@ -75,22 +77,38 @@
   <section class="shelf" aria-labelledby="h-{{ row.key }}">
     <h2 id="h-{{ row.key }}">{{ row.heading }}</h2>
 {% if row.items %}
-    <ul class="rail{% if row.tall %} tall{% else %} stills{% endif %}">
+    <ul class="rail{% if row.tall %} tall{% else %} stills{% endif %}" id="rail-{{ row.key }}">
 {% for c in row.items %}{{ card(c) }}
 {% endfor %}
+{% for c in row.more %}{{ card(c, more=True) }}
+{% endfor %}
+{% if row.more_href %}{{ more_tile(row.more_href, "Show more", " in " ~ row.heading, "rail-" ~ row.key) }}
+{% endif %}
     </ul>
 {% elif row.said %}
     <p class="said">{{ row.said }}</p>
 {% endif %}
   </section>
 {% endfor %}
-{#- New releases (All): by the release date itself, across libraries; only when there is something. #}
+{#- New Releases (All): by the release date itself, across libraries; only when there is something. Chips by kind (owner
+   request 2026-10-28), as New to Avrana's, only for the kinds the list holds. #}
 {% if home.released_items %}
   <section class="shelf" aria-labelledby="h-released">
-    <h2 id="h-released">New releases</h2>
-    <ul class="rail tall">
+    <h2 id="h-released">New Releases</h2>
+{% if home.released_tabs %}
+    <nav class="tabs" aria-label="New Releases, by kind">
+{% for key, name, current, href in home.released_tabs %}
+      <a href="{{ href }}"{% if current %} aria-current="true"{% endif %}>{{ name }}</a>
+{% endfor %}
+    </nav>
+{% endif %}
+    <ul class="rail tall" id="rail-released">
 {% for c in home.released_items %}{{ card(c) }}
 {% endfor %}
+{% for c in home.released_more %}{{ card(c, more=True) }}
+{% endfor %}
+{% if home.released_more_href %}{{ more_tile(home.released_more_href, "Show more", " in New Releases", "rail-released") }}
+{% endif %}
     </ul>
   </section>
 {% endif %}
@@ -100,7 +118,7 @@
 {% if home.new_tabs|length > 1 %}
     <nav class="tabs" aria-label="New to Avrana, by library">
 {% for key, name, current in home.new_tabs %}
-      <a href="/{% if home.focus %}?for={{ home.focus }}{% if key != 'all' %}&amp;new={{ key }}{% endif %}{% elif key != 'all' %}?new={{ key }}{% endif %}#h-new"{% if current %} aria-current="true"{% endif %}>{{ name }}{% if current %}<span class="ul" aria-hidden="true"></span>{% endif %}</a>
+      <a href="{{ home.new_hrefs[loop.index0] }}"{% if current %} aria-current="true"{% endif %}>{{ name }}{% if current %}<span class="ul" aria-hidden="true"></span>{% endif %}</a>
 {% endfor %}
     </nav>
 {% endif %}
@@ -108,9 +126,13 @@
     <p class="said">{{ home.new_said }}</p>
 {% endif %}
 {% if home.new_items %}
-    <ul class="rail tall">
+    <ul class="rail tall" id="rail-new">
 {% for c in home.new_items %}{{ card(c) }}
 {% endfor %}
+{% for c in home.new_more %}{{ card(c, more=True) }}
+{% endfor %}
+{% if home.new_more_href %}{{ more_tile(home.new_more_href, "Show more", " in New to Avrana", "rail-new") }}
+{% endif %}
     </ul>
 {% endif %}
   </section>

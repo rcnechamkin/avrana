@@ -52,10 +52,21 @@ class Constructor(Base):
             KomgaAdapter(self.transport)                               # the default is refusal
 
     def test_there_is_no_user_route_and_no_member_mapping(self):
-        self.assertEqual([r.name for r in ALLOWED_ROUTES], ["books", "book", "thumbnail"])
+        self.assertEqual([r.name for r in ALLOWED_ROUTES], ["books", "book", "thumbnail", "series"])
         self.assertEqual(self.adapter.resolve_user(self.a).upstream_id, SHARED_VIEWER)
         self.assertEqual(self.adapter.resolve_user(self.b).upstream_id, SHARED_VIEWER)
         self.assertEqual(self.fake.requests, [])
+
+    def test_the_series_route_is_one_series_by_id_and_nothing_under_it(self):
+        g = GuardedTransport(self.transport).bind(SHARED_VIEWER)
+        self.fake.series["SERIESAAA001"] = {"id": "SERIESAAA001", "metadata": {}}
+        g.request("GET", "/api/v1/series/SERIESAAA001", None, 1.0, 1000)        # allowed: it reaches the upstream
+        for path, query in (("/api/v1/series", None), ("/api/v1/series/latest", None), ("/api/v1/series/updated", None),
+                            ("/api/v1/series/SERIESAAA001/books", None), ("/api/v1/series/SERIESAAA001/thumbnail", None),
+                            ("/api/v1/series/SERIESAAA001", {"anything": "1"}), ("/api/v1/series/%2e%2e", None)):
+            with self.assertRaises(ForbiddenRequest, msg=path):
+                g.request("GET", path, query, 1.0, 1000)
+        self.assertEqual(self.fake.paths(), ["/api/v1/series/SERIESAAA001"])
 
 
 class SharedView(Base):
@@ -70,8 +81,9 @@ class SharedView(Base):
         self.adapter.item(self.b, "BOOKAAAA0001")
         self.adapter.fetch_artwork(self.a, "komga/book/BOOKAAAA0001")
         self.assertEqual([p for p in self.fake.paths() if "/users" in p or "/api/v2" in p], [])
-        self.assertTrue(self.fake.paths())                              # calls did happen, all v1 book routes
-        self.assertTrue(all(p.startswith("/api/v1/books") for p in self.fake.paths()))
+        self.assertTrue(self.fake.paths())                    # calls did happen: v1 book routes, and the title's series
+        self.assertTrue(all(p.startswith("/api/v1/books") or p == "/api/v1/series/SERIESAAA001"
+                            for p in self.fake.paths()), self.fake.paths())
 
     def test_a_regular_key_works_when_the_user_list_is_forbidden(self):
         self.fake.overrides["/api/v2/users"] = ("status", 403)          # what a regular key gets, if it were asked
@@ -98,6 +110,40 @@ class SharedView(Base):
                 self.assertNotIn(token, blob, token)
         r = self.adapter.continue_items(self.a)
         self.assertEqual((r.state, r.reason, r.items), (SectionState.EMPTY, "not_offered", ()))
+
+    def test_the_title_page_lists_writers_artists_genres_and_tags(self):
+        """Richer Details (owner request 2026-10-28): writers and artists from the book's authors by role, genres from
+        its series, tags from the book and the series. Letterers and editors are left out."""
+        book = self.fake.books["BOOKAAAA0001"]
+        book["metadata"] = dict(book["metadata"], tags=["Synthetic Tag"], authors=[
+            {"name": "Synthetic Inker", "role": "inker"}, {"name": "Synthetic Writer", "role": "writer"},
+            {"name": "Synthetic Penciller", "role": "penciller"}, {"name": "Synthetic Letterer", "role": "letterer"},
+            {"name": "Synthetic Editor", "role": "editor"}, {"name": "Synthetic Writer", "role": "writer"}])
+        self.fake.series["SERIESAAA001"] = {"id": "SERIESAAA001", "metadata": {
+            "genres": ["Synthetic Genre", "", 7], "tags": ["Synthetic Tag", "Synthetic Series Tag"]}}
+        item = self.adapter.item(self.a, "BOOKAAAA0001", fresh=True).items[0]
+        self.assertEqual(item.credits, (("writers", ("Synthetic Writer",)),
+                                        ("artists", ("Synthetic Inker", "Synthetic Penciller"))))
+        self.assertEqual((item.genres, item.tags), (("Synthetic Genre",), ("Synthetic Tag", "Synthetic Series Tag")))
+        self.assertEqual(item.to_dict()["credits"], {"writers": ["Synthetic Writer"],
+                                                     "artists": ["Synthetic Inker", "Synthetic Penciller"]})
+
+    def test_a_series_that_cannot_be_read_never_fails_the_title_page(self):
+        for answer in (("status", 404), ("status", 403), ("body", b'{"id": "SERIESOTHER1", "metadata": {}}'),
+                       ("body", b'["not", "a", "series"]')):
+            with self.subTest(answer=answer):
+                self.reset()
+                self.fake.overrides["/api/v1/series/SERIESAAA001"] = answer
+                r = self.adapter.item(self.a, "BOOKAAAA0001", fresh=True)
+                self.assertEqual(titles(r), ["Synthetic Comic One"])
+                self.assertEqual((r.items[0].genres, r.items[0].credits[0][0]), ((), "writers"))
+
+    def test_only_a_title_page_reads_the_series(self):
+        self.adapter.recent_items(self.a)
+        self.adapter.released_items(self.a)
+        self.adapter.search(self.a, "synthetic")
+        self.adapter.fetch_artwork(self.a, "komga/book/BOOKAAAA0001")
+        self.assertEqual([p for p in self.fake.paths() if "/series" in p], [])
 
     def test_item_lookup_is_the_shared_accounts_view(self):
         self.assertEqual(titles(self.adapter.item(self.a, "BOOKAAAA0001")), ["Synthetic Comic One"])
@@ -203,30 +249,30 @@ class EbooksInKomga(unittest.TestCase):
 
 
 class RecentAndReleased(Base):
-    """Owner decision 2026-10-28: Recently added is sorted by `created`, keeps the last RECENT_DAYS only and shows one
-    book per series; New releases is sorted by release date, one book per series."""
+    """Owner decision 2026-10-28: Recently added is sorted by `created` and shows one book per series, with no date
+    window (owner request later that day); New releases is sorted by release date, one book per series."""
 
     def test_recent_asks_for_the_created_order_never_the_latest_route(self):
         self.adapter.recent_items(self.a)
         self.assertEqual(self.fake.requests, [("GET", "/api/v1/books",
                                                {"sort": "created,desc", "page": "0", "size": "100"})])
 
-    def test_books_added_more_than_two_months_ago_are_not_recent(self):
+    def test_books_added_long_ago_are_still_recent_when_they_are_the_newest(self):
         for b in self.fake.latest["content"]:
             if b["id"] in ("BOOKEEEE0006", "BOOKDDDD0005"):
                 b["created"] = "2020-01-01T00:00:00Z"
-        self.assertEqual(titles(self.adapter.recent_items(self.a)), RECENT_TITLES[2:])
+        self.assertEqual(titles(self.adapter.recent_items(self.a)), RECENT_TITLES)
 
     def test_a_missing_or_unreadable_added_time_is_never_recent(self):
         for b, value in zip(self.fake.latest["content"], (None, "yesterday", 17, "2026-13-45T00:00:00Z")):
             b["created"] = value
         self.assertEqual(titles(self.adapter.recent_items(self.a)), ["Synthetic Comic Two"])
 
-    def test_nothing_added_in_two_months_is_an_empty_recently_added(self):
+    def test_nothing_added_in_two_months_still_shows_the_newest_additions(self):
         for b in self.fake.latest["content"]:
             b["created"] = "2020-01-01T00:00:00Z"
         r = self.adapter.recent_items(self.a)
-        self.assertEqual((r.state, r.items), (SectionState.EMPTY, ()))
+        self.assertEqual((r.state, titles(r)), (SectionState.OK, RECENT_TITLES))
 
     def test_one_series_never_fills_the_row(self):
         content = self.fake.latest["content"]
@@ -381,7 +427,8 @@ class GuardAndSecrets(Base):
                                     ("GET", "/api/v2/users/me", None), ("GET", "/api/v1/users/me", None),
                                     ("DELETE", "/api/v1/books/BOOKAAAA0001", None),
                                     ("GET", "/api/v1/books/ondeck", None),
-                                    ("GET", "/api/v1/series/SERIESAAA001", None),
+                                    ("POST", "/api/v1/series/SERIESAAA001", None),
+                                    ("GET", "/api/v1/series/SERIESAAA001/books", None),
                                     ("GET", "/api/v1/readlists", None), ("GET", "/api/v1/collections", None),
                                     ("GET", "/api/v1/books/BOOKAAAA0001/read-progress", None),
                                     ("GET", "/api/v1/books/BOOKAAAA0001/pages/1", None),
@@ -400,7 +447,7 @@ class GuardAndSecrets(Base):
             GuardedTransport(self.transport).bind("../x")
         with self.assertRaises(ForbiddenRequest):
             GuardedTransport(self.transport).bind("USERAAAAAAAA1")      # a real-looking Komga user id is refused
-        self.assertEqual([r.name for r in ALLOWED_ROUTES], ["books", "book", "thumbnail"])
+        self.assertEqual([r.name for r in ALLOWED_ROUTES], ["books", "book", "thumbnail", "series"])
         for word in ("latest", "updated"):
             self.assertEqual(self.adapter.item(self.a, word).items, ())
             self.assertEqual(self.adapter.fetch_artwork(self.a, f"komga/book/{word}").state, SectionState.EMPTY)

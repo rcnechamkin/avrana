@@ -31,10 +31,11 @@ ever have Komga restrictions, so there is nothing per member to enforce. What th
   * A reflowable EPUB (`media.mediaProfile` EPUB, not DiViNa-compatible) is an EBOOK: its own title, the author as
     subtitle, no "#<number>", and no series when the series is only its Calibre "Title (id)" folder.
   * The credential lives only inside the transport (a header, never a URL). Every request goes through
-    `GuardedTransport`: GET only, an explicit three-route list (books, book, thumbnail), no query keys
-    beyond the list.
+    `GuardedTransport`: GET only, an explicit four-route list (books, book, series, thumbnail), no query keys
+    beyond the list. The series route is read only for a title page, and only for the series of a book the shared
+    account was just allowed to read (its genres and tags live on the series).
   * Recently added (owner decision 2026-10-28) is the book list sorted by `created` (when Komga first
-    scanned the file), only books added in the last RECENT_DAYS, one book per series (its newest). It is NOT
+    scanned the file), one book per series (its newest), with no date window (owner request 2026-10-28). It is NOT
     `/api/v1/books/latest`: live, that route orders by last modification, so one new issue lifted its whole
     series, and a 2025 bulk scan shares one `created` second. The New releases shelf is the same list sorted
     by `metadata.releaseDate`, one book per series; Home shows it as Recently released when nothing is new.
@@ -55,8 +56,8 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any, Callable, Dict, Optional, Tuple
 
 from ..contract import (ArtworkRef, ArtworkResult, DEFAULT_LIMIT, Kind, MediaItem, SectionResult,
-                        SectionState, Service, UpstreamUser, _limit, build_handoff_url, clean_summary, clean_text,
-                        valid_upstream_id)
+                        SectionState, Service, UpstreamUser, _limit, build_handoff_url, clean_names, clean_summary,
+                        clean_text, credits_of, valid_upstream_id)
 from .. import media_ids
 from ..principal import MemberPrincipal
 from ..resilience import (DEFAULT_TIMEOUT, ItemGone, RouteMissing, Transport, UpstreamAuthError,
@@ -70,8 +71,6 @@ _BOUND_ID = re.compile(SHARED_VIEWER)
 _ID = r"[A-Za-z0-9]{6,32}"
 _ARTWORK_REF = re.compile(r"komga/book/(" + _ID + r")")
 MAX_PAGE = 100                   # books asked for in one page, whatever the limit
-# Recently added means added in the last two months (owner decision 2026-10-28, as Audiobookshelf's of 2026-10-27).
-RECENT_DAYS = 60
 # Comics carry cover dates about two months ahead of sale; a release date further out than this is not "new".
 RELEASE_AHEAD_DAYS = 92
 ADDED_SORT, RELEASED_SORT = "created,desc", "metadata.releaseDate,desc"     # fixed values, never member input
@@ -87,6 +86,9 @@ ALLOWED_ROUTES = (
     Route("book", r"/api/v1/books/(?!(?:latest|updated|ondeck)$)" + _ID, (), user_scoped=False, not_found=ItemGone),
     Route("thumbnail", r"/api/v1/books/(?!(?:latest|updated|ondeck)/)" + _ID + r"/thumbnail", (), user_scoped=False,
           not_found=ItemGone),
+    # One series, for a title page's genres and tags (richer Details, 2026-10-28): only the series of a book the shared
+    # account could read a moment before. "latest" and "updated" are Komga list routes that look like ids.
+    Route("series", r"/api/v1/series/(?!(?:latest|updated)$)" + _ID, (), user_scoped=False, not_found=ItemGone),
 )
 
 
@@ -124,6 +126,26 @@ _RESERVED = frozenset({"latest", "updated", "ondeck"})     # Komga sub-routes th
 
 def _item_id(value: Any) -> bool:
     return valid_upstream_id(Service.KOMGA, value) and value not in _RESERVED
+
+
+# Komga author roles -> MediaItem.credits. Comics: writers and artists (pencils, inks, colours, covers); an EPUB novel:
+# its writers. Letterers, editors and translators are left out.
+_ARTIST_ROLES = frozenset({"penciller", "inker", "colorist", "cover", "artist"})
+
+
+def _credits(authors: Any, ebook: bool):
+    """MediaItem.credits from `metadata.authors` ({name, role}), in the book's own order."""
+    named = [a for a in authors[:200] if isinstance(a, dict)] if isinstance(authors, list) else []
+    writers = [a.get("name") for a in named if a.get("role") == "writer"]
+    if ebook:
+        return credits_of((("writers", writers or [a.get("name") for a in named]),))
+    return credits_of((("writers", writers),
+                       ("artists", [a.get("name") for a in named if a.get("role") in _ARTIST_ROLES])))
+
+
+def _words(value: Any) -> list:
+    """The strings of an upstream list of genres or tags (clean_names bounds and cleans them); else []."""
+    return [x for x in value[:200] if isinstance(x, str)] if isinstance(value, list) else []
 
 
 def _creator(authors: Any) -> Optional[str]:
@@ -305,8 +327,28 @@ class KomgaAdapter(GuardedAdapter):
             raise UpstreamMalformed()
         if item is not None and summary:                   # title page only (R2-C); `metadata` is a dict or absent
             info = raw.get("metadata") if isinstance(raw.get("metadata"), dict) else {}
-            item = dataclasses.replace(item, summary=clean_summary(info.get("summary")))
+            genres, tags = self._series_words(guard, budget, raw.get("seriesId"))
+            item = dataclasses.replace(item, summary=clean_summary(info.get("summary")),
+                                       credits=_credits(info.get("authors"), item.kind is Kind.EBOOK),
+                                       genres=clean_names(genres), tags=clean_names(_words(info.get("tags")) + tags))
         return item
+
+    def _series_words(self, guard, budget, series_id: Any) -> Tuple[list, list]:
+        """(genres, tags) of a visible book's series (SeriesDto.metadata), or two empty lists when the series cannot be
+        read or says nothing usable. It never fails the title page: the book itself was already allowed."""
+        if not _item_id(series_id):
+            return [], []
+        try:
+            raw = self._get_json(guard, budget, f"/api/v1/series/{series_id}", None)
+        except ItemGone:
+            return [], []
+        except UpstreamAuthError as exc:
+            if exc.status == 403:
+                return [], []
+            raise
+        if not isinstance(raw, dict) or raw.get("id") != series_id or not isinstance(raw.get("metadata"), dict):
+            return [], []
+        return _words(raw["metadata"].get("genres")), _words(raw["metadata"].get("tags"))
 
     def _member_guard(self, email: Any) -> Optional[MemberGuardedTransport]:
         """The allow-listed transport for this member's CURRENT key (the store follows the file), or None."""
@@ -370,17 +412,14 @@ class KomgaAdapter(GuardedAdapter):
 
     # -- hooks -----------------------------------------------------------------------------
     def _recent_items(self, user: UpstreamUser, limit: int) -> SectionResult:
-        since = datetime.now(timezone.utc) - timedelta(days=RECENT_DAYS)
-
-        def keep(raw):
-            when = _created(raw)
-            return when is not None and when >= since
+        def keep(raw):                                         # no date window (owner request 2026-10-28)
+            return _created(raw) is not None
         return self._listing(user, limit, "/api/v1/books", {"sort": ADDED_SORT}, "recent", keep=keep,
                              per_series=True, size=MAX_PAGE)
 
     def _shelves_items(self, user: UpstreamUser, limit: int) -> SectionResult:
         """One shelf, New releases: the newest release dates, one book per series. Shown as Recently released when
-        nothing was added in the last RECENT_DAYS."""
+        Recently added is empty."""
         latest = _today() + timedelta(days=RELEASE_AHEAD_DAYS)
 
         def keep(raw):

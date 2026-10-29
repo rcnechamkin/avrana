@@ -18,7 +18,8 @@ from datetime import datetime, timezone
 from typing import Any, Mapping, Optional, Tuple
 
 from ..contract import (ArtworkRef, ArtworkResult, Kind, MappingFailed, MediaItem, SectionResult,
-                        SectionState, Service, UpstreamUser, build_handoff_url, clean_summary, clean_text)
+                        SectionState, Service, UpstreamUser, build_handoff_url, clean_names, clean_summary, clean_text,
+                        credits_of)
 from ..resilience import (DEFAULT_TIMEOUT, ItemGone, RouteMissing, Transport, UpstreamMalformed,
                           UpstreamMisbehaved, UserGone)
 from .. import media_ids
@@ -37,7 +38,10 @@ _ARTWORK_REF = re.compile(r"jellyfin/(primary|backdrop)/(" + _HEX32 + r")")
 # episodes never have a logo of their own, so the series' backdrop always comes. Logo tags are never read.
 _IMAGE_TYPES = "Primary,Backdrop,Logo"
 _ITEM_FIELDS = "PrimaryImageAspectRatio,ProviderIds"   # ProviderIds: media_ids.from_jellyfin
-_TITLE_FIELDS = _ITEM_FIELDS + ",Overview"    # the title page alone asks for the synopsis (R2-C)
+_TITLE_FIELDS = _ITEM_FIELDS + ",Overview,People,Genres,Tags"   # the title page alone asks for the synopsis (R2-C)
+                                                              # and who made it (richer Details, 2026-10-28)
+# BaseItemPerson.Type (PersonKind) -> MediaItem.credits role. Every other kind (producer, composer, guest star) is left out.
+_PERSON_ROLE = {"Actor": "cast", "Director": "directors", "Writer": "writers"}
 _int = bounded_int                    # names kept for the tests and for older importers
 _image_magic_ok = image_magic_ok
 
@@ -97,6 +101,18 @@ class GuardedTransport(_base.GuardedTransport):
 
     def _clone(self, user_id):
         return GuardedTransport(self._inner, user_id)
+
+
+def _details(raw: dict) -> dict:
+    """The title page's credits, genres and tags (MediaItem fields), only what the item itself lists. `People` is a list
+    of {Name, Type, Role}; only actors, directors and writers are kept, in Jellyfin's own order (billing order)."""
+    people = raw.get("People") if isinstance(raw.get("People"), list) else []
+    by_role: dict = {}
+    for person in people[:200]:
+        if isinstance(person, dict) and person.get("Type") in _PERSON_ROLE:
+            by_role.setdefault(_PERSON_ROLE[person["Type"]], []).append(person.get("Name"))
+    return {"credits": credits_of(by_role.items()), "genres": clean_names(raw.get("Genres")),
+            "tags": clean_names(raw.get("Tags"))}
 
 
 # ---- adapter ------------------------------------------------------------------------------
@@ -223,7 +239,8 @@ class JellyfinAdapter(GuardedAdapter):
                          artwork=artwork, year=year,
                          external_ids=media_ids.from_jellyfin(raw.get("ProviderIds")),
                          summary=clean_summary(raw.get("Overview")) if want_summary else None,
-                         backdrop=backdrop, released=_base.iso_day(raw.get("PremiereDate"))), "ok"
+                         backdrop=backdrop, released=_base.iso_day(raw.get("PremiereDate")),
+                         **(_details(raw) if want_summary else {})), "ok"
 
     def _parse_list(self, raws: Any, user_id: str, limit: int, kinds, want_progress,
                     require_progress, want_summary: bool = False,
@@ -263,9 +280,10 @@ class JellyfinAdapter(GuardedAdapter):
             "enableImageTypes": _IMAGE_TYPES, "enableTotalRecordCount": "false"})
         if not isinstance(body, dict):
             raise UpstreamMalformed()
-        # user data is requested only so the scope tripwire can run; an episode's own progress belongs to Continue
+        # user data is requested only so the scope tripwire can run; an episode's own progress belongs to Continue.
+        # The series poster, as in Continue (#138): All's Continue shows Up next among films and covers (2026-10-28).
         items = self._parse_list(body.get("Items"), user.upstream_id, limit, ("Episode",),
-                                 want_progress=False, require_progress=False)
+                                 want_progress=False, require_progress=False, series_poster=True)
         return SectionResult.of(Service.JELLYFIN, "next_up", items)
 
     def _released_items(self, user: UpstreamUser, limit: int) -> SectionResult:

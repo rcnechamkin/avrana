@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 
 from avrana_home.adapters.jellyfin import (ALLOWED_ROUTES, GuardedTransport, JellyfinAdapter,
                                            check_request, normalise_guid)
-from avrana_home.contract import ForbiddenRequest, SectionState, Service
+from avrana_home.contract import ForbiddenRequest, Kind, SectionState, Service
 from avrana_home.principal import PrincipalError, principal_from_headers
 from avrana_home.resilience import (CircuitBreaker, FakeClock, UpstreamTimeout, UpstreamUnreachable,
                                     UrllibTransport)
@@ -565,6 +565,57 @@ class Released(Base):
         outsider = make_principal("member-a", ("avrana-users",))
         self.assertIs(self.adapter.released_items(outsider).state, SectionState.NOT_PERMITTED)
         self.assertEqual(self.fake.requests, [])
+
+
+class Details(Base):
+    """Richer Details (owner request 2026-10-28): the title lookup alone asks for People, Genres and Tags, and keeps
+    actors, directors and writers in Jellyfin's own order."""
+
+    FILM = "aaaa0000000000000000000000000977"
+
+    def setUp(self):
+        super().setUp()
+        film = {"Id": self.FILM, "Name": "Synthetic Detailed Film", "Type": "Movie", "UserData": {"Played": False},
+                "Genres": ["Synthetic Drama", "synthetic drama", 3, ""], "Tags": ["Synthetic Tag"],
+                "People": [{"Name": "Synthetic Lead", "Type": "Actor", "Role": "Hero"},
+                           {"Name": "Synthetic Director", "Type": "Director"},
+                           {"Name": "Synthetic Producer", "Type": "Producer"},
+                           {"Name": "Synthetic Second", "Type": "Actor"},
+                           {"Name": "Synthetic Writer", "Type": "Writer"},
+                           {"Type": "Actor"}, "not a person", {"Name": "Synthetic Odd", "Type": 7}]}
+        handle = self.fake.handle
+
+        def lookup(method, path, query):
+            if path == "/Items" and query and query.get("ids") == self.FILM:
+                self.fake.requests.append((method, path, dict(query)))
+                return self.fake._json({"Items": [film], "TotalRecordCount": 1})
+            return handle(method, path, query)
+        self.fake.handle = lookup
+
+    def test_the_title_page_lists_cast_directors_writers_genres_and_tags(self):
+        item = self.adapter.item(self.a, self.FILM, fresh=True).items[0]
+        self.assertEqual(item.credits, (("cast", ("Synthetic Lead", "Synthetic Second")),
+                                        ("directors", ("Synthetic Director",)), ("writers", ("Synthetic Writer",))))
+        self.assertEqual((item.genres, item.tags), (("Synthetic Drama",), ("Synthetic Tag",)))
+        (q,) = [q for _m, p, q in self.fake.requests if p == "/Items" and q.get("ids") == self.FILM]
+        self.assertEqual(set(q["fields"].split(",")) & {"People", "Genres", "Tags", "Overview"},
+                         {"People", "Genres", "Tags", "Overview"})
+
+    def test_the_artwork_check_asks_for_none_of_it(self):
+        self.adapter.fetch_artwork(self.a, f"jellyfin/primary/{self.FILM}")
+        asked = [q["fields"] for _m, p, q in self.fake.requests if p == "/Items" and q.get("ids") == self.FILM]
+        self.assertTrue(asked)
+        self.assertTrue(all("People" not in f and "Overview" not in f for f in asked))
+
+    def test_up_next_episodes_show_their_series_poster(self):
+        series = "bbbb0000000000000000000000000978"
+        episode = {"Id": "aaaa0000000000000000000000000979", "Name": "Synthetic Next", "Type": "Episode",
+                   "SeriesName": "Synthetic Show", "SeriesId": series, "SeriesPrimaryImageTag": "stag",
+                   "ImageTags": {"Primary": "etag"}, "UserData": {"Played": False}}
+        self.fake.overrides["/Shows/NextUp"] = ("body", json.dumps({"Items": [episode]}).encode())
+        (item,) = self.adapter.next_up_items(self.a).items
+        self.assertIs(item.kind, Kind.EPISODE)
+        self.assertEqual((item.artwork.ref, item.artwork.shape), (f"jellyfin/primary/{series}", "poster"))
 
 
 if __name__ == "__main__":

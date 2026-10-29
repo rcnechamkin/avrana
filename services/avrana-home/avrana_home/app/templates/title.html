@@ -12,7 +12,10 @@
    has one, sits last under "About" as plain, autoescaped text at a reading measure. The action is a child of the
    section itself (owner decision 2026-10-27), so it stays pinned at the bottom of the screen while the page scrolls.
    With a Jellyfin backdrop (owner review 2026-10-27) the wide picture leads the page instead, full width, as the
-   details view of a streaming app does; the same page is what the title sheet shows over Home. #}
+   details view of a streaming app does; the same page is what the title sheet shows over Home.
+   Richer Details (owner request 2026-10-28): who made it (cast, directors, writers; authors and narrators; writers and
+   artists), then genres and tags, as a list of facts after About, each only when the library returned it. The labels
+   are fixed words from the view-model; the names are autoescaped upstream text. #}
 {% if page.state == "ok" %}
   <section class="shelf title-page w-{% if page.backdrop %}still has-backdrop{% else %}{{ page.shape }}{% endif %}{% if not page.image and not page.backdrop %} no-art{% endif %}" aria-labelledby="h-title">
 {% if page.backdrop %}
@@ -44,6 +47,13 @@
       <h3 class="kicker" id="h-about">About</h3>
       <p class="summary" dir="auto">{{ page.summary }}</p>
     </div>
+{% endif %}
+{% if page.facts %}
+    <dl class="title-facts">
+{% for label, names in page.facts %}
+      <div class="title-fact"><dt class="kicker">{{ label }}</dt><dd dir="auto">{{ names|join(", ") }}</dd></div>
+{% endfor %}
+    </dl>
 {% endif %}
   </section>
 {% else %}

@@ -616,7 +616,8 @@ class AcceptanceScenarios(Base):
         self.assertIs(r.state, SectionState.OK)
         titles = [i.title for i in r.items]
         self.assertEqual(titles[:3], ["Synthetic Fresh Release", "Synthetic Classic Novel", "Synthetic Quick Story"])
-        self.assertNotIn("Synthetic Audiobook One", titles)              # added years ago: not "recent"
+        self.assertIn("Synthetic Audiobook One", titles)                 # added years ago: no date window (2026-10-28)
+        self.assertLess(titles.index("Synthetic Fresh Release"), titles.index("Synthetic Audiobook One"))
         self.assertNotIn("Synthetic Audiobook Three", titles)            # lib_bbb: not member-a's library
         self.assertNotIn("Synthetic Explicit Short", titles)             # explicit: member-a may not
         self.assertTrue(all(i.progress_fraction is None for i in r.items))
@@ -993,9 +994,12 @@ class Shelves(Base):
         self.assertEqual({"new", "classics", "short", "epic"}, {i.shelf for i in r.items})
         self.assertTrue(all(i.to_dict()["shelf"] == i.shelf for i in r.items))
 
-    def test_home_new_releases_is_the_new_releases_shelf_alone(self):
+    def test_home_new_releases_is_the_newest_publications_with_no_date_window(self):
         r = self.adapter.released_items(self.a)
-        self.assertEqual((r.section, [i.title for i in r.items]), ("released", ["Synthetic Fresh Release"]))
+        self.assertEqual((r.section, [i.title for i in r.items]), ("released", [
+            "Synthetic Fresh Release", "Synthetic Tagged Short", "Synthetic Quick Story", "Synthetic Audiobook One",
+            "Synthetic Grand Epic", "Synthetic Classic Adventure", "Synthetic Classic Novel"]))
+        self.assertEqual([i.year for i in r.items], sorted((i.year for i in r.items), reverse=True))
         self.assertIsNone(r.items[0].shelf)
         self.assertFalse(any("filter" in q for _m, p, q in self.fake.requests if p.endswith("/items")))
 
@@ -1014,12 +1018,32 @@ class Shelves(Base):
         self.fake.serve("/api/libraries/lib_aaa/items", {"items": []})
         self.assertEqual(self.adapter.recent_items(self.b).reason, "UpstreamMalformed")
 
-    def test_nothing_added_in_two_months_is_an_empty_recently_added(self):
+    def test_nothing_added_in_two_months_still_shows_the_newest_additions(self):
         for entries in self.fake.lists.values():
             for it in entries:
                 it["addedAt"] = 1_600_000_000_000                            # 2020
         r = self.adapter.recent_items(self.a)
-        self.assertIs(r.state, SectionState.EMPTY)
+        self.assertIs(r.state, SectionState.OK)
+        self.assertIn("Synthetic Fresh Release", [i.title for i in r.items])
+
+    def test_the_title_page_lists_authors_narrators_genres_and_tags(self):
+        """Richer Details (owner request 2026-10-28): from the expanded item, after every permission check."""
+        meta = self.fake.items["li_book000001"]["media"]["metadata"]
+        meta.update(authors=[{"id": "au_1", "name": "Synthetic Author"}, {"id": "au_2", "name": "Synthetic Co-Author"},
+                             "not an author", {"id": "au_3"}],
+                    narrators=["Synthetic Narrator", "synthetic narrator", 7], genres=["Science Fiction", ""])
+        self.fake.items["li_book000001"]["media"]["tags"] = ["Synthetic Tag"]
+        item = self.adapter.item(self.a, "li_book000001", fresh=True).items[0]
+        self.assertEqual(item.credits, (("authors", ("Synthetic Author", "Synthetic Co-Author")),
+                                        ("narrators", ("Synthetic Narrator",))))
+        self.assertEqual((item.genres, item.tags), (("Science Fiction",), ("Synthetic Tag",)))
+        listed = self.adapter.recent_items(self.a).items
+        self.assertTrue(all(not (i.credits or i.genres or i.tags) for i in listed))   # a title page only
+
+    def test_a_hidden_item_shows_no_details_at_all(self):
+        self.fake.items["li_book000003"]["media"]["metadata"]["narrators"] = ["Synthetic Narrator"]
+        r = self.adapter.item(self.a, "li_book000003", fresh=True)              # lib_bbb: not member-a's library
+        self.assertEqual((r.state, r.items), (SectionState.EMPTY, ()))
 
     def test_no_group_no_call(self):
         outsider = make_principal("member-a", ("avrana-users",))

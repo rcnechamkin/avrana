@@ -13,6 +13,7 @@ State rules (docs/design/HOME-APP.md):
 """
 from __future__ import annotations
 
+import dataclasses
 import datetime as _dt
 import math
 import re
@@ -20,8 +21,8 @@ from dataclasses import dataclass
 from typing import Optional, Tuple
 from urllib.parse import quote
 
-from ..contract import (HANDOFF_BASE, MAX_SUMMARY, MIN_QUERY, REQUIRED_GROUP, Service, clean_query,
-                        valid_upstream_id)
+from ..contract import (CREDIT_ROLES, HANDOFF_BASE, MAX_LIMIT, MAX_NAMES, MAX_SUMMARY, MIN_QUERY, REQUIRED_GROUP,
+                        Service, clean_query, valid_upstream_id)
 from .artwork import src_for
 
 SERVICE_LABEL = {"jellyfin": "Movies and TV", "audiobookshelf": "Audiobooks",
@@ -259,7 +260,14 @@ def build_sections(view: dict) -> Tuple[SectionVM, ...]:
 # ---- The Home page (AVR-374/452/478; Concept K AVR-718): places, the hero, Continue, New releases, New to
 # Avrana (owner decision 2026-10-28: New releases by the release date itself, New to Avrana by when it was added) ---
 # Pure functions over `member_view()` plus the catalogue's tile list. Nothing here calls an adapter.
-RAIL_MOST = 4                       # a rail is one bounded row, never more than four things
+RAIL_MOST = 4                       # a Library rail is one bounded row, never more than four things
+# Home's rails (owner request 2026-10-28): each shows up to `settings.section_limit` (12). New to Avrana and New Releases
+# then offer "Show more" up to SHELF_MOST in all; Continue offers its own page of everything in progress instead.
+SHELF_MOST = 20
+HOME_FETCH = SHELF_MOST             # what Home asks each library for, per section: enough to know there is more
+CONTINUE_PAGE_MOST = MAX_LIMIT      # the Continue page: everything in progress, up to the contract's cap per library
+CONTINUE_PATH = "/continue"
+MORE_KEYS = ("new", "released")     # `?more=`: which rail shows its extra cards without script (never echoed)
 NEW_ALL = "all"
 SERVICE_ORDER = ("jellyfin", "audiobookshelf", "komga", "calibre-web")
 # Which tile (route path) is backed by which service(s); a tile not listed is not a library.
@@ -272,7 +280,11 @@ NOTHING_IN_PROGRESS = ("Nothing in progress. Whatever you start in a library app
 # "Recently", never "this week": the upstream lists are not date-bounded (memo section 4, wording fix).
 NEW_TO_AVRANA = "New to Avrana"
 NOTHING_NEW = "Nothing added to Avrana recently."
-NEW_RELEASES = "New releases"
+NEW_RELEASES = "New Releases"     # owner request 2026-10-28: capitalised
+# New Releases' chips (owner request 2026-10-28), by what a thing is, so an EPUB novel in Komga is a Book: (key,
+# label, kinds). A chip is offered only when the list holds something of its kind; `?rel=` picks one (never echoed).
+RELEASE_CHIPS = (("watch", "Movies and TV", ("movie", "episode", "series")), ("listen", "Audiobooks", ("audiobook",)),
+                 ("comics", "Comics", ("comic",)), ("books", "Books", ("ebook",)))
 NO_LIBRARY = "No library is shared with this account yet. Ask the person who invited you, or read Help."
 
 
@@ -302,6 +314,8 @@ class RowVM:
     items: Tuple["CardVM", ...]
     said: Optional[str] = None
     tall: bool = True      # posters (a tall rail), or False for episode stills
+    more: Tuple["CardVM", ...] = ()   # the cards "Show more" reveals (hidden until then), up to SHELF_MOST in all
+    more_href: Optional[str] = None   # "Show more" without script: this page with `?more=<key>`
 
 
 @dataclass(frozen=True)
@@ -368,6 +382,13 @@ class HomeVM:
     released_items: Tuple[CardVM, ...] = ()   # All: New releases across libraries, newest release day first
     focus_open: Optional[Tuple[object, str]] = None   # (place label, "/watch"): the chosen place's own site
     continue_rail: str = ""              # the Continue rail's shape class: "stills" (all stills), "mixed", or ""
+    continue_more_href: Optional[str] = None   # "See all": the Continue page, only when there is more than the rail shows
+    new_hrefs: Tuple[str, ...] = ()      # each New to Avrana tab's address, in new_tabs order
+    new_more: Tuple[CardVM, ...] = ()    # New to Avrana's extra cards, revealed by "Show more"
+    new_more_href: Optional[str] = None
+    released_tabs: Tuple[Tuple[str, str, bool, str], ...] = ()   # New Releases' chips: (key, label, current, href)
+    released_more: Tuple[CardVM, ...] = ()
+    released_more_href: Optional[str] = None
 
 
 def rail_shape(cards) -> str:
@@ -544,11 +565,13 @@ NOTHING_UP_NEXT = "Nothing up next. The next episode of a show you are watching 
 
 
 # The Audiobooks shelves (owner decision 2026-10-27), in this order after Recently added. Keys are the adapter's.
-SHELF_ROWS = (("new", "New releases"), ("classics", "Classics"), ("short", "Short listens"),
+SHELF_ROWS = (("new", NEW_RELEASES), ("classics", "Classics"), ("short", "Short listens"),
               ("epic", "Epic listens"))
 _EXTRA_FOR = {"jellyfin": ("next_up", "released"), "audiobookshelf": ("shelves",), "komga": ("shelves",)}
-# All: New releases from every library that has release dates (Calibre-Web's catalogue gives none Home can sort).
+# All: New releases from every library that has release dates (Calibre-Web's catalogue gives none Home can sort), and
+# Up next for Continue (owner request 2026-10-28).
 RELEASED_FROM = ("jellyfin", "audiobookshelf", "komga")
+ALL_EXTRAS = tuple((s, "released") for s in RELEASED_FROM) + (("jellyfin", "next_up"),)
 # Libraries whose Recently added gives way to Recently released when nothing was added in the last two months
 # (owner decisions 2026-10-27 Audiobookshelf, 2026-10-28 Komga).
 RELEASED_FALLBACK = ("audiobookshelf", "komga")
@@ -556,11 +579,11 @@ RELEASED_FALLBACK = ("audiobookshelf", "komga")
 
 def extra_sections_for(raw_focus) -> Tuple[Tuple[str, str], ...]:
     """The (library, section) pairs Home needs beyond Continue and New to Avrana (All: every library's New
-    releases; Watch: Up next and New releases; Listen: the shelves; Comics and Read: Komga's New releases), so the
-    caller gathers them too, from those libraries only. It only decides what to ask for; `build_home` still checks
-    the member's own places."""
+    releases and Up next; Watch: Up next and New releases; Listen: the shelves; Comics and Read: Komga's New releases),
+    so the caller gathers them too, from those libraries only. It only decides what to ask for; `build_home` still
+    checks the member's own places."""
     if not (isinstance(raw_focus, str) and raw_focus in _PLACE_SERVICES):
-        return tuple((s, "released") for s in RELEASED_FROM)
+        return ALL_EXTRAS
     return tuple((s, x) for s in _PLACE_SERVICES[raw_focus] for x in _EXTRA_FOR.get(s, ()))
 
 
@@ -674,13 +697,65 @@ def hero_of(it: ItemVM, state: str, title_services=frozenset()) -> Optional[Hero
                   f"{verb} in {HERO_APP[it.service]}", it.href, details, it.backdrop)
 
 
-def build_home(view: dict, tiles, *, new_tab: Optional[str] = None, limit: int = RAIL_MOST,
+def home_href(focus: Optional[str] = None, new: Optional[str] = None, rel: Optional[str] = None,
+              more: Optional[str] = None, anchor: Optional[str] = None) -> str:
+    """Home's address with its display choices. Callers pass only values already checked against the member's own
+    places, tabs and chips (or the fixed MORE_KEYS), never text from the address."""
+    keep = [f"{k}={v}" for k, v in (("for", focus), ("new", new), ("rel", rel), ("more", more)) if v]
+    return "/" + ("?" + "&".join(keep) if keep else "") + (f"#{anchor}" if anchor else "")
+
+
+def continue_href(focus: Optional[str] = None) -> str:
+    return CONTINUE_PATH + (f"?for={focus}" if focus else "")
+
+
+def _items_of(held: dict, section: str, service: str):
+    out = []
+    for sec in held.get(service, ()):
+        if sec["section"] == section and sec["state"] == "ok":
+            out.extend(vm for vm in (_item_vm(it) for it in sec.get("items", ()))
+                       if vm is not None and not (section == "continue" and vm.finished))
+    return out
+
+
+def _with_up_next(resume, upcoming):
+    """Movies and TV's Continue on All (owner request 2026-10-28): what the member is watching, interleaved with Up next
+    (the next episode of each show they are watching), so the next episode is never pushed off the rail by a long list.
+    An Up next episode Continue already holds is left out, and one with nothing watched yet says "Up next"."""
+    shown = {it.item_id for it in resume}
+    nxt = [dataclasses.replace(it, up_next=it.progress is None) for it in upcoming if it.item_id not in shown]
+    return _round_robin([resume, nxt], len(resume) + len(nxt))
+
+
+def continue_list(held: dict, focus: Optional[str]):
+    """(services, items): everything this member can continue, merged across libraries, the most recent of each first.
+    On All, Movies and TV's list includes Up next; a filtered Watch keeps Up next as its own row instead."""
+    services = [s for s in SERVICE_ORDER if any(x["section"] == "continue" for x in held.get(s, ()))]
+    lists = []
+    for s in services:
+        items = _items_of(held, "continue", s)
+        if s == "jellyfin" and focus is None:
+            items = _with_up_next(items, _items_of(held, "next_up", s))
+        lists.append(items)
+    return services, _round_robin(lists, sum(len(x) for x in lists))
+
+
+def _split(cards, limit: int, expanded: bool):
+    """(shown, more) for a rail with "Show more": `limit` cards, then the rest up to SHELF_MOST. Without script the more
+    link reloads with `expanded`, and every card is shown at once."""
+    cards = tuple(cards[:SHELF_MOST])
+    return (cards, ()) if expanded else (cards[:limit], cards[limit:])
+
+
+def build_home(view: dict, tiles, *, new_tab: Optional[str] = None, limit: int = 12,
                member_name: str = "", title_services=frozenset(), focus: Optional[str] = None,
-               today: Optional[str] = None) -> HomeVM:
+               today: Optional[str] = None, rel_tab: Optional[str] = None, more: Optional[str] = None) -> HomeVM:
     """Home as display data. Retry links point at `/` (the new tab is kept), the same page again.
     `title_services`: libraries with a title page (main.py's set), for the hero's Details link and the Recently added
-    cards (which open the title page; Continue cards open the item where it plays)."""
-    limit = max(1, min(int(limit), RAIL_MOST))
+    cards (which open the title page; Continue cards open the item where it plays). `limit` is how many cards a rail
+    shows (settings.section_limit); `rel_tab` and `more` are the bounded `?rel=` and `?more=` texts, checked here."""
+    limit = max(1, min(int(limit), SHELF_MOST))
+    more = more if isinstance(more, str) and more in MORE_KEYS else None
     held = _sections_by_service(view)
     places = build_places(tiles, view)
     filters, focus = build_filters(places, focus)
@@ -725,40 +800,18 @@ def build_home(view: dict, tiles, *, new_tab: Optional[str] = None, limit: int =
                       all_down=all_down, all_unset=all_unset, setup_href=setup_href)
 
     def items_of(section: str, service: str):
-        out = []
-        for sec in held.get(service, ()):
-            if sec["section"] == section and sec["state"] == "ok":
-                out.extend(vm for vm in (_item_vm(it) for it in sec.get("items", ()))
-                           if vm is not None and not (section == "continue" and vm.finished))
-        return out
+        return _items_of(held, section, service)
 
-    # Continue: one rail merged across services, the most recent of each first.
-    cont_services = [s for s in SERVICE_ORDER if any(x["section"] == "continue" for x in held.get(s, ()))]
-    cont = _round_robin([items_of("continue", s) for s in cont_services], limit)
+    # Continue (owner request 2026-10-28): up to `limit` across every library the member has (on All, with Up next),
+    # then "See all" only when there is more: the Continue page lists everything.
+    cont_services, cont_all = continue_list(held, focus)
+    cont = cont_all[:limit]
     cont_degraded = any(x["state"] in ("unavailable", "not_linked") for s in cont_services
                         for x in held[s] if x["section"] == "continue")
     continue_said = None if (cont or cont_degraded) else NOTHING_IN_PROGRESS
 
-    # Recently added: a tab for each library that answers; anything else falls back to All. A member with
-    # exactly one library has no use for "All" (it is the same list), so that tab is not offered.
-    libs = [(s, SERVICE_LABEL[s]) for s in SERVICE_ORDER
-            if any(x["section"] == "recent" and x["state"] in ("ok", "empty") for x in held.get(s, ()))]
-    tabs = [(NEW_ALL, "All")] + libs if len(libs) != 1 else list(libs)
-    tab = new_tab if isinstance(new_tab, str) and new_tab in {k for k, _ in tabs} else tabs[0][0]
-    if tab == NEW_ALL:           # the newest of each library; the second line says which library
-        per = [_cards(items_of("recent", s), lambda it, s=s: SERVICE_LABEL[s], title_services=title_services)
-               for s in SERVICE_ORDER]
-        new = tuple(_round_robin(per, limit))
-        new_said = None if (new or notices) else NOTHING_NEW
-    else:
-        new = _cards(items_of("recent", tab)[:limit], lambda it: it.detail or KIND_LABEL.get(it.kind),
-                     title_services=title_services)
-        new_said = None if new else (NOTHING_NEW if len(libs) == 1
-                                     else f"Nothing added to {SERVICE_LABEL[tab]} recently.")
-
-    # New releases (owner decision 2026-10-28): by the release date itself, across libraries, newest first; a title
-    # once, and never one Continue already shows (as Up next). Shown only when there is something (an empty row would
-    # only repeat New to Avrana's empty line).
+    # New Releases (owner decision 2026-10-28): by the release date itself, across libraries, newest first; a title
+    # once, and never one Continue already shows. Chips by kind (owner request 2026-10-28), only for kinds it holds.
     today = today if isinstance(today, str) and _DAY.fullmatch(today) else _dt.date.today().isoformat()
     dated = [(release_key(it, today), i, it) for i, it in
              enumerate(it for s in SERVICE_ORDER for it in items_of("released", s))]
@@ -767,23 +820,65 @@ def build_home(view: dict, tiles, *, new_tab: Optional[str] = None, limit: int =
         if it.item_id not in seen:
             seen.add(it.item_id)
             picked.append(it)
-    released = _cards(picked[:limit], lambda it: it.detail or SERVICE_LABEL.get(it.library),
-                      title_services=title_services) if focus is None else ()
+    chips = [(k, label, kinds) for k, label, kinds in RELEASE_CHIPS if any(it.kind in kinds for it in picked)]
+    rel = rel_tab if focus is None and len(chips) > 1 and rel_tab in {k for k, _l, _k in chips} else None
+    if rel is not None:
+        kinds = next(k for key, _l, k in chips if key == rel)
+        picked = [it for it in picked if it.kind in kinds]
+
+    # Recently added: a tab for each library that answers; anything else falls back to All. A member with
+    # exactly one library has no use for "All" (it is the same list), so that tab is not offered.
+    libs = [(s, SERVICE_LABEL[s]) for s in SERVICE_ORDER
+            if any(x["section"] == "recent" and x["state"] in ("ok", "empty") for x in held.get(s, ()))]
+    tabs = [(NEW_ALL, "All")] + libs if len(libs) != 1 else list(libs)
+    tab = new_tab if isinstance(new_tab, str) and new_tab in {k for k, _ in tabs} else tabs[0][0]
+    new_key = None if tab == NEW_ALL or len(tabs) == 1 else tab     # what the page's own links keep
+    if tab == NEW_ALL:           # the newest of each library; the second line says which library
+        per = [_cards(items_of("recent", s), lambda it, s=s: SERVICE_LABEL[s], title_services=title_services)
+               for s in SERVICE_ORDER]
+        new_all = tuple(_round_robin(per, SHELF_MOST))
+        new_said = None if (new_all or notices) else NOTHING_NEW
+    else:
+        new_all = _cards(items_of("recent", tab)[:SHELF_MOST], lambda it: it.detail or KIND_LABEL.get(it.kind),
+                         title_services=title_services)
+        new_said = None if new_all else (NOTHING_NEW if len(libs) == 1
+                                         else f"Nothing added to {SERVICE_LABEL[tab]} recently.")
+    new, new_more = _split(new_all, limit, more == "new")
+    new_hrefs = tuple(home_href(focus, None if k == NEW_ALL or len(tabs) == 1 else k, rel, anchor="h-new")
+                      for k, _n in tabs)
+
+    released, released_more, released_tabs, released_more_href = (), (), (), None
+    if focus is None:
+        released, released_more = _split(_cards(picked, lambda it: it.detail or SERVICE_LABEL.get(it.library),
+                                                title_services=title_services), limit, more == "released")
+        if len(chips) > 1:
+            released_tabs = tuple((k, label, k == (rel or NEW_ALL),
+                                   home_href(None, new_key, None if k == NEW_ALL else k, anchor="h-released"))
+                                  for k, label in [(NEW_ALL, "All")] + [(k, label) for k, label, _ in chips])
+        released_more_href = home_href(None, new_key, rel, "released", "h-released") if released_more else None
+
+    def more_row(key: str, heading: str, cards, said=None) -> RowVM:
+        """A row that shows `limit` cards, then "Show more" up to SHELF_MOST (New to Avrana and New Releases)."""
+        shown, extra = _split(cards, limit, more == key)
+        return RowVM(key, heading, shown, said, more=extra,
+                     more_href=home_href(focus, new_key, None, key, "h-" + key) if extra else None)
 
     # Watch (owner decision 2026-10-27): Up next, then Recently added split into Movies and TV shows, in place of the
-    # one Recently added rail. Up next leaves out what Continue already shows.
+    # one Recently added rail. Up next leaves out what Continue already shows; it shows each show's poster, as
+    # Continue does (#138), and stays a rail of stills only for episodes whose show has none.
     rows = ()
     if focus is not None and _PLACE_SERVICES[focus] == ("jellyfin",) and "jellyfin" in held:
         shown = {it.item_id for it in cont}
         built = []
         if any(x["section"] == "next_up" and x["state"] in ("ok", "empty") for x in held["jellyfin"]):
             nxt = [it for it in items_of("next_up", "jellyfin") if it.item_id not in shown][:limit]
-            built.append(RowVM("next", "Up next", _cards(nxt, lambda it: it.detail, title_services=title_services),
-                               None if nxt else NOTHING_UP_NEXT, tall=False))
+            cards = _cards(nxt, lambda it: it.detail, title_services=title_services)
+            built.append(RowVM("next", "Up next", cards, None if nxt else NOTHING_UP_NEXT,
+                               tall=rail_shape(cards) != "stills"))
         if picked:
-            built.append(RowVM("released", NEW_RELEASES,
-                               _cards(picked[:limit], lambda it: it.detail or KIND_LABEL.get(it.kind),
-                                      title_services=title_services)))
+            built.append(more_row("released", NEW_RELEASES,
+                                  _cards(picked, lambda it: it.detail or KIND_LABEL.get(it.kind),
+                                         title_services=title_services)))
         recent = items_of("recent", "jellyfin")
         for key, heading, kinds in WATCH_ROWS:
             cards = _cards([it for it in recent if it.kind in kinds][:limit],
@@ -800,28 +895,28 @@ def build_home(view: dict, tiles, *, new_tab: Optional[str] = None, limit: int =
             for s in services:
                 cards = _cards(items_of("recent", s)[:limit], lambda it: it.detail or KIND_LABEL.get(it.kind),
                                title_services=title_services)
-                if not cards and s in RELEASED_FALLBACK:      # nothing new in two months: the newest releases
-                    released = shelf_rows(items_of("shelves", s), limit, title_services,
+                if not cards and s in RELEASED_FALLBACK:      # nothing added at all: the newest releases
+                    fallback = shelf_rows(items_of("shelves", s), limit, title_services,
                                           (("new", f"Recently released {SERVICE_LABEL[s].lower()}"),))
-                    built += [RowVM(s.replace("-", ""), r.heading, r.items) for r in released]
-                    released_only = released_only or bool(released)
+                    built += [RowVM(s.replace("-", ""), r.heading, r.items) for r in fallback]
+                    released_only = released_only or bool(fallback)
                 elif cards:
                     built.append(RowVM(s.replace("-", ""), SERVICE_LABEL[s], cards))
         elif services:
             s = services[0]
-            cards = _cards(items_of("recent", s)[:limit], lambda it: it.detail or KIND_LABEL.get(it.kind),
+            cards = _cards(items_of("recent", s), lambda it: it.detail or KIND_LABEL.get(it.kind),
                            title_services=title_services)
             shelved = items_of("shelves", s)
             if cards or s not in RELEASED_FALLBACK:
-                built.append(RowVM("new", NEW_TO_AVRANA, cards, None if cards else NOTHING_NEW))
+                built.append(more_row("new", NEW_TO_AVRANA, cards, None if cards else NOTHING_NEW))
                 built += shelf_rows(shelved, limit, title_services)
             else:
-                # Nothing added in the last two months (owner decision 2026-10-27): the row says Recently released and
-                # shows the newest releases instead of old additions; New releases is then that row.
-                released = shelf_rows(shelved, limit, title_services, (("new", "Recently released"),))
-                built += [RowVM("new", r.heading, r.items) for r in released]
+                # Nothing added at all (owner decision 2026-10-27): the row says Recently released and shows the newest
+                # releases instead; New Releases is then that row.
+                fallback = shelf_rows(shelved, limit, title_services, (("new", "Recently released"),))
+                built += [RowVM("new", r.heading, r.items) for r in fallback]
                 built += shelf_rows(shelved, limit, title_services, SHELF_ROWS[1:])
-                released_only = bool(released)
+                released_only = bool(fallback)
         # One row alone is the plain New to Avrana section, unless it is Recently released (it must keep its name).
         rows = tuple(built) if len(built) > 1 or released_only else ()
 
@@ -842,9 +937,47 @@ def build_home(view: dict, tiles, *, new_tab: Optional[str] = None, limit: int =
     cont_cards = _cards(cont, lambda it: it.detail or KIND_LABEL.get(it.kind), progress=True)
     return HomeVM(**base, no_library=False, notices=tuple(notices), show_continue=bool(cont_services),
                   continue_items=cont_cards, continue_rail=rail_shape(cont_cards),
+                  continue_more_href=continue_href(focus) if len(cont_all) > limit else None,
                   continue_said=continue_said, show_new=not rows, rows=rows,
                   new_tabs=tuple((k, n, k == tab) for k, n in tabs), new_items=new, new_said=new_said,
-                  retry_href=retry_href, setup_href=setup_href, hero=hero, released_items=released)
+                  new_hrefs=new_hrefs, new_more=new_more,
+                  new_more_href=home_href(focus, new_key, rel, "new", "h-new") if new_more else None,
+                  retry_href=retry_href, setup_href=setup_href, hero=hero, released_items=released,
+                  released_tabs=released_tabs, released_more=released_more, released_more_href=released_more_href)
+
+
+# ---- The Continue page (owner request 2026-10-28): everything the member can continue, from Home's "See all" ------
+CONTINUE_PAGE_EMPTY = "Nothing in progress right now."
+
+
+@dataclass(frozen=True)
+class ContinuePageVM:
+    items: Tuple[CardVM, ...] = ()
+    said: Optional[str] = None
+    notices: Tuple[str, ...] = ()        # Home's own sentence for a library whose Continue did not answer
+    focus_label: Optional[object] = None  # the chosen place's catalogue label (Trusted), or None for All
+    back_href: str = "/"                 # Home, with the same filter
+    retry_href: Optional[str] = None
+    rail: str = ""                       # the cards' shape class, as Home's Continue rail (rail_shape)
+
+
+def build_continue_page(view: dict, tiles, *, focus: Optional[str] = None) -> ContinuePageVM:
+    """The Continue page as display data: Home's Continue, uncut. `focus` is the bounded `?for=` text: matched against
+    the member's own places (build_filters) and never echoed; anything else is All."""
+    places = build_places(tiles, view)
+    _filters, focus = build_filters(places, focus)
+    held = _sections_by_service(view)
+    label = None
+    if focus is not None:
+        held = {s: v for s, v in held.items() if s in _PLACE_SERVICES[focus]}
+        label = next((p.label for p in places if p.href == "/" + focus), None)
+    _services, items = continue_list(held, focus)
+    notices = [service_notice(s, sec["state"]) for s in SERVICE_ORDER for sec in held.get(s, ())
+               if sec["section"] == "continue" and sec["state"] in ("unavailable", "not_linked")]
+    down = any(sec["section"] == "continue" and sec["state"] == "unavailable" for secs in held.values() for sec in secs)
+    cards = _cards(items, lambda it: it.detail or KIND_LABEL.get(it.kind), progress=True)
+    return ContinuePageVM(cards, None if cards or notices else CONTINUE_PAGE_EMPTY, tuple(dict.fromkeys(notices)),
+                          label, home_href(focus), continue_href(focus) if down else None, rail_shape(cards))
 
 
 # ---- The Library page (Concept K MK-5a, AVR-719): chips, one shelf per library, the Request group ------------
@@ -1264,6 +1397,36 @@ class TitleVM:
     back_href: Optional[str] = None    # Back to search: only from a valid search term
     retry_href: Optional[str] = None
     message: Optional[str] = None
+    facts: Tuple[Tuple[str, Tuple[str, ...]], ...] = ()   # (label, names): credits, then genres and tags (richer Details)
+
+
+# Richer Details (owner request 2026-10-28): the label each credit role takes, singular and plural, in CREDIT_ROLES order.
+CREDIT_LABEL = {"cast": ("Cast", "Cast"), "directors": ("Director", "Directors"), "writers": ("Writer", "Writers"),
+                "authors": ("Author", "Authors"), "narrators": ("Narrator", "Narrators"),
+                "artists": ("Artist", "Artists")}
+
+
+def _names_of(value) -> Tuple[str, ...]:
+    """Display names from a contract list (credits, genres, tags): strings only, `_plain`, bounded, each once."""
+    if not isinstance(value, list):
+        return ()
+    return tuple(dict.fromkeys(n for n in (_plain(x, 80) for x in value[:MAX_NAMES] if isinstance(x, str)) if n))
+
+
+def title_facts(it: dict) -> Tuple[Tuple[str, Tuple[str, ...]], ...]:
+    """The title page's facts, only those the library returned: each credit role (fixed labels, never upstream
+    text), then Genres and Tags."""
+    credits = it.get("credits") if isinstance(it.get("credits"), dict) else {}
+    out = []
+    for role in CREDIT_ROLES:
+        names = _names_of(credits.get(role))
+        if names:
+            out.append((CREDIT_LABEL[role][len(names) > 1], names))
+    for key, label in (("genres", ("Genre", "Genres")), ("tags", ("Tag", "Tags"))):
+        names = _names_of(it.get(key))
+        if names:
+            out.append((label[len(names) > 1], names))
+    return tuple(out)
 
 
 def kicker_of(medium: str, library: str) -> str:
@@ -1322,4 +1485,4 @@ def build_title(section: dict, service: str, upstream_id: str, raw_term: Optiona
                    detail=_detail_of(it, creator, year), shape=SHAPE.get(kind, "poster"),
                    image=_image(it.get("artwork")), backdrop=_image(it.get("backdrop")), progress=progress, bar=bar,
                    summary=_plain(it.get("summary") or "", MAX_SUMMARY + 1) or None, action=action, action_href=href,
-                   action_label=f"{action} {title} in {label}", back_href=back)
+                   action_label=f"{action} {title} in {label}", back_href=back, facts=title_facts(it))

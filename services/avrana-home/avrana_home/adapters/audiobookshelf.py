@@ -46,7 +46,7 @@ How it stays member-scoped with an ADMIN-capable token (Audiobookshelf has no im
   * One title (`item`, for the title page): the member's own record first, then the item through
     `_visible` exactly as a cover; a saved position only from that member's own progress entry.
   * Recently added and the shelves (owner decision 2026-10-27, Home's Listen filter and the Library): the
-    member's own record first (Recently added keeps only what was added in the last RECENT_DAYS), then each of the
+    member's own record first (Recently added: the newest additions, with no date window since 2026-10-28), then each of the
     member's libraries (the same `_libraries` rule as search) is
     listed with `GET /api/libraries/{id}/items?sort=&desc=&limit=&minified=1[&filter=genres.<base64>]` and EVERY
     entry goes through `_visible`, exactly as search. A list body without `results`, or an entry from another
@@ -67,8 +67,8 @@ import time
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 from ..contract import (TRUNCATED, ArtworkRef, ArtworkResult, DEFAULT_LIMIT, Kind, MappingFailed, MediaItem,
-                        SectionResult, SectionState, Service, UpstreamUser, build_handoff_url, clean_summary,
-                        clean_text, valid_upstream_id)
+                        SectionResult, SectionState, Service, UpstreamUser, build_handoff_url, clean_names,
+                        clean_summary, clean_text, credits_of, valid_upstream_id)
 from .. import media_ids
 from ..principal import MemberPrincipal
 from ..resilience import (DEFAULT_TIMEOUT, FanOutSpent, ItemGone, RouteMissing, Transport, UpstreamMalformed,
@@ -99,9 +99,6 @@ MAX_LIST_PAGE = 36              # entries asked for per library list (recent or 
 CLASSIC_GENRE = re.compile(r"\bclassics?\b", re.IGNORECASE)
 MAX_CLASSIC_GENRES = 3
 SHORT_MIN, SHORT_MAX, EPIC_MIN = 30 * 60, 5 * 3600, 20 * 3600     # seconds
-# Recently added means added in the last two months (owner decision 2026-10-27): older additions are not "recent",
-# however few there are; Home then shows Recently released instead.
-RECENT_DAYS = 60
 # (shelf, sort key, descending, how many to ask for per wanted item): the upstream sorts, `_shelf_keep` filters.
 SHELVES = (("new", "media.metadata.publishedYear", True, 2), ("classics", "addedAt", True, 1),
            ("short", "media.duration", False, 3), ("epic", "media.duration", True, 2))
@@ -110,9 +107,6 @@ SHELVES = (("new", "media.metadata.publishedYear", True, 2), ("classics", "added
 def _this_year() -> int:
     return time.gmtime().tm_year
 
-
-def _now_ms() -> int:
-    return int(time.time() * 1000)
 
 ALLOWED_ROUTES = (
     Route("users", r"/api/users", (), user_scoped=False, needs_user=False, not_found=RouteMissing),
@@ -351,7 +345,14 @@ class AudiobookshelfAdapter(GuardedAdapter):
         media, _status = self._visible(raw, item_id, access, fraction, position, duration)
         if media is not None:                             # the synopsis only after every permission check passed
             meta = raw["media"]["metadata"]               # shape already checked by _visible
-            media = dataclasses.replace(media, summary=clean_summary(meta.get("description")))
+            # Richer Details (2026-10-28): the expanded item's authors ({id, name}), narrators and genres (names), and
+            # the item's own tags (already a list of str: _visible checked it for the permission test).
+            authors = meta.get("authors") if isinstance(meta.get("authors"), list) else []
+            media = dataclasses.replace(
+                media, summary=clean_summary(meta.get("description")),
+                credits=credits_of((("authors", [a.get("name") for a in authors if isinstance(a, dict)]),
+                                    ("narrators", meta.get("narrators")))),
+                genres=clean_names(meta.get("genres")), tags=clean_names(raw["media"]["tags"]))
         # A malformed item (a permission field missing or mistyped) is not shown: it fails closed to "hidden",
         # the same as forbidden or unknown, so its existence is not revealed either.
         return SectionResult.of(Service.AUDIOBOOKSHELF, "item", (media,) if media else ())
@@ -424,13 +425,13 @@ class AudiobookshelfAdapter(GuardedAdapter):
             raise RouteMissing(404)                       # every library answered 404: the route itself drifted
         if not found and counts[1]:
             raise UpstreamMalformed()
-        since = _now_ms() - RECENT_DAYS * 86_400_000      # an entry without an added time is never "recent"
-        found = sorted((t for t in found if t[0] >= since), key=lambda t: t[0], reverse=True)
+        found = sorted(found, key=lambda t: t[0], reverse=True)   # no date window (owner request 2026-10-28)
         return SectionResult.of(Service.AUDIOBOOKSHELF, "recent", tuple(_unique(m for _a, _y, m in found)[:limit]))
 
     def _released_items(self, user: UpstreamUser, limit: int) -> SectionResult:
-        """New releases on Home (owner decision 2026-10-28): the New releases shelf alone, published this year or
-        last, newest first (by day where the book gives one)."""
+        """New releases on Home (owner decision 2026-10-28): the New releases shelf's listing, newest publication first
+        (by day where the book gives one). No date window (owner request 2026-10-28, later the same day): the newest
+        are shown however old they are."""
         uid = user.upstream_id
         guard = self._guard.bind(uid)
         budget = self._budget()
@@ -447,9 +448,7 @@ class AudiobookshelfAdapter(GuardedAdapter):
             raise RouteMissing(404)
         if not found and counts[1]:
             raise UpstreamMalformed()
-        year = _this_year()
-        kept = sorted((t for t in found if _shelf_keep("new", t[2], year)),
-                      key=lambda t: (t[1], t[2].released or "", t[0]), reverse=True)
+        kept = sorted((t for t in found if t[1]), key=lambda t: (t[1], t[2].released or "", t[0]), reverse=True)
         return SectionResult.of(Service.AUDIOBOOKSHELF, "released", tuple(_unique(m for _a, _y, m in kept)[:limit]))
 
     def _shelves_items(self, user: UpstreamUser, limit: int) -> SectionResult:

@@ -58,17 +58,20 @@ from ..requests.shelfarr import FORMAT_GROUP, Provisioned as ShelfarrProvisioned
 from . import forms as forms_mod
 from . import security as security_mod
 from .identity import (IdentityResolver, Viewer, get_viewer, has_identity_headers, home_filter_from_scope,
-                       if_none_match_from_scope, library_chip_from_scope, library_view_from_scope, new_tab_from_scope,
+                       if_none_match_from_scope, library_chip_from_scope, library_view_from_scope, more_from_scope,
+                       new_tab_from_scope, release_chip_from_scope,
                        same_origin_form_post, search_term_from_scope, security_state_from_scope, show_from_scope,
                        tv_result_from_scope)
 from .logsafe import app_log, log_event, silence_uvicorn_access
 from .middleware import MAX_FORM_BODY, NOT_IMPLEMENTED_BODY, HygieneMiddleware
 from . import recovery
-from .routing import (ME_ROUTE, AccountFacts, Decision, chooser_intro, decide, library_decision, me_decision,
-                      normalise_target, not_found, parse_title_route, search_decision, title_decision, trouble_decision)
+from .routing import (ME_ROUTE, AccountFacts, Decision, chooser_intro, continue_decision, decide, library_decision,
+                      me_decision, normalise_target, not_found, parse_title_route, search_decision, title_decision,
+                      trouble_decision)
 from .settings import Settings, is_sealed_preview
-from .viewmodel import (ACCOUNT_LIBRARY, CONTRIBUTE_PATH, INTERSTITIAL_SHELL, LIBRARY_PLACE, NO_LIBRARY, REQUEST_FOR,
-                        SERVICE_LABEL, account_access, build_home, build_library, build_me, build_search, build_shell,
+from .viewmodel import (ACCOUNT_LIBRARY, CONTINUE_PAGE_MOST, CONTINUE_PATH, CONTRIBUTE_PATH, HOME_FETCH,
+                        INTERSTITIAL_SHELL, LIBRARY_PLACE, NO_LIBRARY, REQUEST_FOR, SERVICE_LABEL, account_access,
+                        build_continue_page, build_home, build_library, build_me, build_search, build_shell,
                         build_title, extra_sections_for, has_library, library_extra_sections, place_link, title_href)
 
 TEMPLATES = Path(__file__).resolve().parent / "templates"
@@ -502,6 +505,20 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
             scope["avrana_route"] = decision.label
             return respond(decision, scope, shell=shell_for(viewer, "library"))
 
+        if route == CONTINUE_PATH and settings.home_sections and adapter_list:
+            # The Continue page (owner request 2026-10-28): Home's "See all", everything this member can continue. A shell
+            # page like /library: only with the shell on and for a verified member with a library, else the standard 404.
+            tiles = decide("/", viewer.groups, cat).context["tiles"] if viewer.principal is not None else ()
+            if not has_library(tiles):
+                scope["avrana_route"] = "not_found"
+                return respond(not_found())
+            focus = home_filter_from_scope(scope)
+            view = await _gather(viewer, sections=("continue",), limit=CONTINUE_PAGE_MOST,
+                                 extras=(("jellyfin", "next_up"),) if focus is None else ())   # All: with Up next
+            decision = continue_decision(build_continue_page(view, tiles, focus=focus))
+            scope["avrana_route"] = decision.label
+            return respond(decision, scope, shell=shell_for(viewer, "continue"))
+
         if route.startswith("/title/") and settings.home_sections and adapter_list:
             # A title page (AVR-384). Unknown service, malformed id, no principal, no group, unknown or hidden
             # item: the one standard 404, exactly as an unknown route (portal parity, never 403).
@@ -617,7 +634,7 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
             home = build_home(await _gather(viewer, extras=extra_sections_for(focus)), decision.context["tiles"],
                               new_tab=new_tab_from_scope(scope), limit=settings.section_limit,
                               member_name=(facts.name or facts.username), title_services=title_services,
-                              focus=focus)
+                              focus=focus, rel_tab=release_chip_from_scope(scope), more=more_from_scope(scope))
             extra["home"] = home
             shell = shell_for(viewer, "home", places=home.places)
             extra["shell"] = dataclasses.replace(shell, filters=home.filters) if shell is not None else None
@@ -1052,16 +1069,18 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
         seen = notice_mod.visible_notice(notices.current(), place_paths(viewer))
         return dataclasses.replace(shell, notice=seen) if seen is not None else shell
 
-    async def _gather(viewer: Viewer, extras: tuple = ()) -> dict:
+    async def _gather(viewer: Viewer, extras: tuple = (), sections: tuple = ("continue", "recent"),
+                      limit: int = HOME_FETCH) -> dict:
         """The sections for the verified member, via the adapters' own principal checks and
         bounded timeouts. One failing adapter costs its own section only. `extras` (Up next for Watch, the shelves for
         Listen and the Audiobooks chip, New releases for All, Watch, Comics and Read) are (library, section) pairs,
         asked of those libraries only, AFTER the others: a member holds at most two upstream calls per library at once
         (contract.DEFAULT_MAX_IN_FLIGHT_PER_MEMBER), so a third alongside them would only be refused as busy. A library
         whose own sections did not all answer (down, refused, not set up, not permitted) is not asked again on this
-        page: one failed mapping per page (AVR-756), and nothing newer than what Continue was refused."""
-        result = await run_in_threadpool(gather, viewer.principal, adapter_list, ("continue", "recent"),
-                                        settings.section_limit)
+        page: one failed mapping per page (AVR-756), and nothing newer than what Continue was refused. `limit` is what
+        each library is asked for per section: more than a rail shows (HOME_FETCH), so Home knows when there is more
+        (owner request 2026-10-28); the Continue page asks for everything (CONTINUE_PAGE_MOST)."""
+        result = await run_in_threadpool(gather, viewer.principal, adapter_list, sections, limit)
         if provisioner is not None and provisioner.candidates(result.sections):
             # A library said "no account with this name": create it once, forget the cached "absent" mapping and
             # read the page again, so the member's first visit already shows that library.
@@ -1070,8 +1089,7 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
                 for a in adapter_list:
                     if a.service in created:
                         a.cache.for_member(viewer.principal).delete(a.service.value, "mapping")
-                result = await run_in_threadpool(gather, viewer.principal, adapter_list, ("continue", "recent"),
-                                                settings.section_limit)
+                result = await run_in_threadpool(gather, viewer.principal, adapter_list, sections, limit)
         sections = list(result.sections)
         view = result.member_view()
         answered = {}
@@ -1082,8 +1100,7 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
             wanted = {service for service, _section in extras if answered.get(service)}
             more = await run_in_threadpool(gather, viewer.principal,
                                            [a for a in adapter_list if a.service.value in wanted],
-                                           tuple(dict.fromkeys(section for _service, section in extras)),
-                                           settings.section_limit)
+                                           tuple(dict.fromkeys(section for _service, section in extras)), limit)
             sections += more.sections
             view["sections"] += more.member_view()["sections"]
         for s in sections:

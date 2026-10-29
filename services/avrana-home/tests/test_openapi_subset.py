@@ -48,10 +48,12 @@ SPEC_PATH = {"users": "/Users", "resume": "/UserItems/Resume", "latest": "/Items
              "image": "/Items/{itemId}/Images/{imageType}"}
 # contract entity -> spec schema
 SPEC_SCHEMA = {"item": "BaseItemDto", "item.UserData": "UserItemDataDto", "user": "UserDto",
-               "user.Policy": "UserPolicy"}
+               "user.Policy": "UserPolicy", "item.People": "BaseItemPerson"}
 # query key -> enum its comma-separated values must belong to
 VALUE_ENUM = {"fields": "ItemFields", "enableImageTypes": "ImageType", "includeItemTypes": "BaseItemKind",
               "mediaTypes": "MediaType"}
+# Enums the adapter only matches on in a response, never sends: kept so a renamed member fails here, not live.
+MATCHED_ONLY = {"PersonKind"}
 # Declared in contracts/jellyfin.json but not in the published schema. Each entry says why it stays declared.
 KNOWN_ABSENT = {
     ("item.UserData", "UserId"): "not in UserItemDataDto in 10.11.11 or 12.3.0; the adapter's scope tripwire "
@@ -203,10 +205,16 @@ class SentValueTests(unittest.TestCase):
                     sent.setdefault(enum, set()).update(v for v in query[key].split(",") if v)
         self.assertTrue(sent, "no enum-valued parameter was sent")
         # the extractor keeps exactly these members (Type matching uses the same three kinds)
-        self.assertEqual(sent, {k: set(v) for k, v in EXTRACT.ENUMS.items()})
+        self.assertEqual(sent, {k: set(v) for k, v in EXTRACT.ENUMS.items() if k not in MATCHED_ONLY})
         for version, doc in VERSIONS.items():
             for enum, values in sent.items():
                 self.assertEqual(values - set(doc["enums"][enum]), set(), (version, enum))
+
+    def test_matched_person_kinds_are_in_every_version(self):
+        from avrana_home.adapters.jellyfin import _PERSON_ROLE
+        self.assertEqual(set(_PERSON_ROLE), set(EXTRACT.ENUMS["PersonKind"]))
+        for version, doc in VERSIONS.items():
+            self.assertEqual(set(_PERSON_ROLE) - set(doc["enums"]["PersonKind"]), set(), version)
 
     def test_image_type_in_the_path_is_in_every_version(self):
         for version, doc in VERSIONS.items():

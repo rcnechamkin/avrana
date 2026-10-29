@@ -327,7 +327,8 @@ class LibraryPresentationTests(unittest.TestCase):
         self.assertRegex(css, r"\.d\{[^}]*white-space:nowrap;overflow:hidden;text-overflow:ellipsis;")
         self.assertRegex(css, r"\.rail \.frame\{[^}]*height:var\(--fh\)[^}]*margin-top:calc\(var\(--art-h\) - var\(--fh\)\)")
         self.assertRegex(css, r"\.art\{[^}]*object-fit:contain")      # natural shape, never cropped
-        self.assertNotIn("scrollbar-width:none", css.split(".rail{", 1)[1].split("}", 1)[0])
+        # owner request 2026-10-28: no visible scroll bar on a rail (touch, trackpad, keyboard and the rail buttons scroll)
+        self.assertIn("scrollbar-width:none", css.split(".rail{", 1)[1].split("}", 1)[0])
         # keyboard focus: the right scroll-padding leaves an optimal region one card wide, so a peeking card is
         # wholly outside it and Tab scrolls it fully into view (browser-checked by tests/ui/check_home_export.mjs)
         self.assertIn("scroll-padding-inline:var(--pad) max(var(--pad),calc(100% - var(--pad) - max(var(--cw),var(--wide-max)) - 0.5rem))", css)

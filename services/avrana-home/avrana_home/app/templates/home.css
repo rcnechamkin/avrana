@@ -274,14 +274,14 @@
      a region exactly one card (plus its focus ring) wide, so a peeking card counts as outside: Tab scrolls it
      fully into view and its focus ring is never clipped. That only holds while cards rest card-aligned, so
      phone rails snap mandatorily to card starts, and a trailing spacer lets the last card snap to the start
-     too (otherwise the end of the rail leaves the card before last straddling the left edge). The thin
-     scrollbar has its own padding, below the text. */
+     too (otherwise the end of the rail leaves the card before last straddling the left edge). No scroll bar is
+     drawn (owner request 2026-10-28, MK-11). */
   .rail{--art-h:8rem;--card-min:8.75rem;--pad:1.25rem;--cw:min(var(--card-min),80vw);--wide-max:var(--cw);
     list-style:none;margin:-0.375rem calc(0rem - var(--pad));padding:0.375rem var(--pad) 0.625rem;
     display:flex;align-items:flex-start;gap:0.875rem;overflow-x:auto;overscroll-behavior-x:contain;
     scroll-snap-type:x mandatory;
     scroll-padding-inline:var(--pad) max(var(--pad),calc(100% - var(--pad) - max(var(--cw),var(--wide-max)) - 0.5rem));
-    scrollbar-width:thin;scrollbar-color:var(--rule-quiet) transparent;}
+    scrollbar-width:none;}
   .rail.tall{--art-h:9rem;}
   .rail::after{content:"";flex:none;width:calc(100% - var(--cw) - 0.875rem);}
   .rail>li{--fw:min(var(--wide-max),calc(var(--art-h) * var(--r)));--fh:calc(var(--fw) / var(--r));
@@ -998,6 +998,47 @@
   .lib-v-list .frame{border-radius:4px;}
   .hero.has-backdrop .hero-backdrop,.title-page.has-backdrop .frame{border-radius:12px;}
 
+  /* ---- MK-11 Home shelves and richer Details (owner request 2026-10-28) ---- */
+  /* No visible scroll bars, across or down, anywhere in the shell. Scrolling itself is unchanged: wheel, trackpad and
+     touch; the keyboard (Tab brings each card into view, the rails' scroll-padding keeps its focus ring whole; arrow,
+     Page and Space keys scroll the page); rails keep their snap. On a wide screen with a mouse the page script adds a
+     pair of arrow buttons to each rail that overflows, the one thing a hidden horizontal bar took away. */
+  *{scrollbar-width:none;}
+  *::-webkit-scrollbar{display:none;width:0;height:0;}
+  .rail{padding-bottom:0.375rem;}
+  .rail>li[hidden],.lib-grid>li[hidden]{display:none;}
+  .shelf:has(> .rail-btns){position:relative;}
+  .rail-btns{position:absolute;top:0;right:0;display:flex;gap:0.5rem;}
+  .rail-btns[hidden]{display:none;}
+  @media (max-width:44.99rem),(hover:none){.rail-btns{display:none;}}     /* the window narrowed after the script ran */
+  .rail-btns button{display:inline-flex;align-items:center;justify-content:center;width:2.25rem;height:2.25rem;padding:0;
+    border:1px solid var(--line-strong);border-radius:999px;background:var(--raised);color:var(--cream);cursor:pointer;}
+  .rail-btns button:hover{border-color:var(--control);}
+  .rail-btns button:disabled{opacity:0.35;cursor:default;}
+  .rail-btns .kic{width:1.125rem;height:1.125rem;fill:none;stroke:currentColor;stroke-width:1.75;stroke-linecap:round;
+    stroke-linejoin:round;}
+  .rail-btns .back .kic{transform:scaleX(-1);}
+  @media (forced-colors:active){.rail-btns button{border-color:ButtonText;}}
+  /* The tile that ends a rail: "See all" (the in-progress rail) or "Show more". A poster-shaped quiet panel with a chevron, so it
+     stands as tall as the cards and reads as the way on, never as a title. */
+  .w-more{--r:0.6667;}
+  .rail .more-frame,.more-frame{display:flex;align-items:center;justify-content:center;background:var(--surface);
+    border:1px solid var(--line-strong);}
+  .more-ic{display:inline-flex;align-items:center;justify-content:center;width:2.75rem;height:2.75rem;border-radius:999px;
+    border:1px solid var(--line-strong);background:var(--raised);color:var(--cream);}
+  .more-ic::before{content:"";width:0.5rem;height:0.5rem;margin-left:-0.1875rem;border-top:2px solid currentColor;
+    border-right:2px solid currentColor;transform:rotate(45deg);}
+  .card.more:hover .more-ic,.card.more:focus-visible .more-ic{border-color:var(--cream);}
+  @media (forced-colors:active){.more-frame,.more-ic{border-color:CanvasText;}}
+  .topic-sub{display:block;margin-top:0.25rem;font-size:var(--text-secondary);font-weight:400;letter-spacing:0;color:var(--stone);}
+  /* Richer Details: who made it, genres and tags, as label-over-names pairs at the reading measure, after About (or
+     after the action's note, with About's hairline, when there is no synopsis). */
+  .title-facts{position:relative;z-index:1;display:grid;gap:0.875rem;max-width:62ch;margin:1.75rem 0 0;padding-top:1.25rem;
+    border-top:1px solid var(--line);}
+  .title-about+.title-facts{margin-top:1.25rem;padding-top:0;border-top:0;}
+  .title-fact .kicker{margin:0 0 0.25rem;}
+  .title-fact dd{margin:0;font-size:var(--text-body);line-height:1.5;color:var(--cream);overflow-wrap:break-word;}
+  @media (forced-colors:active){.title-facts{border-top-color:CanvasText;}}
   /* ---- MK-10 Mixed rails and the cover hero (owner review 2026-10-28) ---- */
   /* The in-progress rail mixes shapes. A title keeps room for its two lines (every card there has its dim line too),
      so the progress words and the action stand at one height across the rail, whatever each title's length. */
