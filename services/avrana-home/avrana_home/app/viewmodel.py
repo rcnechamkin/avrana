@@ -735,7 +735,12 @@ def release_key(it: ItemVM, today: str) -> Optional[str]:
     A book with only a release YEAR (owner request 2026-10-29; Audiobookshelf keeps only the year of what it matches,
     Calibre writes a year as 1 January) is placed by when it reached Avrana, kept inside that year: the release cannot
     be later than the day it arrived, nor outside its year. A 2026 audiobook added on 25 October sorts as 25 October;
-    a 1999 novel added last week as 31 December 1999. Without an added day, 1 January (never claiming it is newer)."""
+    a 1999 novel added last week as 31 December 1999. Without an added day, 1 January (never claiming it is newer).
+
+    A comic, for now (owner request 2026-10-29), by the day it reached the library: cover dates run months ahead and
+    behind, and what members ask about is what just arrived."""
+    if it.kind == "comic" and it.added:
+        return min(it.added, today)
     year_only = it.year is not None and (it.released is None or (it.kind in YEAR_ONLY_JAN_1
                                                                  and it.released == f"{it.year:04d}-01-01"))
     if year_only:
