@@ -40,5 +40,31 @@ class YamlGuardTests(unittest.TestCase):
                     run_offline.yaml_guard()
 
 
+class EverySuiteRunsTests(unittest.TestCase):
+    """One failing suite must not hide the rest (RC1: from #155 a repository-test failure kept CI from ever running
+    the Home suites), and the exit still fails."""
+
+    def run_main(self, codes):
+        calls = []
+
+        def fake_run(cmd, *a, **kw):
+            calls.append(cmd)
+            return mock.Mock(returncode=codes.pop(0) if codes else 0)
+        with mock.patch.object(run_offline, "yaml_guard"), \
+                mock.patch.object(run_offline, "kindle_offline", side_effect=AssertionError("boom")), \
+                mock.patch.object(run_offline.subprocess, "run", side_effect=fake_run), \
+                redirect_stderr(io.StringIO()), mock.patch("sys.stdout", new=io.StringIO()):
+            with self.assertRaises(SystemExit) as caught:
+                run_offline.main()
+        return calls, str(caught.exception.code)
+
+    def test_a_failure_first_still_runs_the_home_suites_and_fails_at_the_end(self):
+        calls, message = self.run_main([1])                       # the repository tests fail
+        self.assertEqual(len(calls), 8)                            # every subprocess suite still ran
+        self.assertTrue(any("webtests" in str(c) for c in calls))
+        self.assertIn("repository tests", message)
+        self.assertIn("kindle offline", message)                  # the in-process suite's failure is recorded too
+
+
 if __name__ == "__main__":
     unittest.main()
