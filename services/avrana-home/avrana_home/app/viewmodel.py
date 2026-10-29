@@ -801,10 +801,11 @@ def build_home(view: dict, tiles, *, new_tab: Optional[str] = None, limit: int =
                 cards = _cards(items_of("recent", s)[:limit], lambda it: it.detail or KIND_LABEL.get(it.kind),
                                title_services=title_services)
                 if not cards and s in RELEASED_FALLBACK:      # nothing new in two months: the newest releases
-                    released = shelf_rows(items_of("shelves", s), limit, title_services,
-                                          (("new", f"Recently released {SERVICE_LABEL[s].lower()}"),))
-                    built += [RowVM(s.replace("-", ""), r.heading, r.items) for r in released]
-                    released_only = released_only or bool(released)
+                    # `newest`, never `released`: that name holds All's New releases cards for HomeVM.
+                    newest = shelf_rows(items_of("shelves", s), limit, title_services,
+                                        (("new", f"Recently released {SERVICE_LABEL[s].lower()}"),))
+                    built += [RowVM(s.replace("-", ""), r.heading, r.items) for r in newest]
+                    released_only = released_only or bool(newest)
                 elif cards:
                     built.append(RowVM(s.replace("-", ""), SERVICE_LABEL[s], cards))
         elif services:
@@ -818,10 +819,10 @@ def build_home(view: dict, tiles, *, new_tab: Optional[str] = None, limit: int =
             else:
                 # Nothing added in the last two months (owner decision 2026-10-27): the row says Recently released and
                 # shows the newest releases instead of old additions; New releases is then that row.
-                released = shelf_rows(shelved, limit, title_services, (("new", "Recently released"),))
-                built += [RowVM("new", r.heading, r.items) for r in released]
+                newest = shelf_rows(shelved, limit, title_services, (("new", "Recently released"),))
+                built += [RowVM("new", r.heading, r.items) for r in newest]
                 built += shelf_rows(shelved, limit, title_services, SHELF_ROWS[1:])
-                released_only = bool(released)
+                released_only = bool(newest)
         # One row alone is the plain New to Avrana section, unless it is Recently released (it must keep its name).
         rows = tuple(built) if len(built) > 1 or released_only else ()
 
