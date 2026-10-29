@@ -154,6 +154,9 @@ services:
     image: ghcr.io/rcnechamkin/seerr:avrana-v3.4.1-028543b@sha256:b4ef806ff8de8900109baa12cb36add85c5536283fed10a1b201050b67f2bc32
     container_name: seerr
     init: true
+    # Avrana fork: the scoped on-behalf key Home uses (docs/runbooks/media-requests-rollout.md step 3). The file
+    # (mode 0600) holds ON_BEHALF_API_KEY only; the same value is Home's secrets/seerr_api_key.
+    env_file: [/home/cody/docker/seerr/on-behalf.env]
     environment:
       - TZ=America/Los_Angeles
       - PORT=5055

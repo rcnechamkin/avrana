@@ -2,16 +2,17 @@
 
 Status: prepared 2026-10-28. **Steps 1 and 2 applied 2026-10-29**: Shelfarr, Seerr and Omnibus run their fork
 images (backups in `/home/cody/backups/requests-rollout-20261029T001304Z`; Omnibus's first fork image failed and
-was replaced, see step 2). Steps 3 to 7 not started. Every step changes host `avrana` and needs the owner's yes at
+was replaced, see step 2). **Step 3 applied 2026-10-29**: the three keys are in Home's secret files and tested.
+Steps 4 to 7 not started. Every step changes host `avrana` and needs the owner's yes at
 the time (`AGENTS.md`); a yes for one step does not cover the next. Secrets are typed at a hidden prompt, never
 pasted into chat, a ticket, Git or a command line.
 
 ## Where things stand
 
-- **Live beta** (`media-beta.avrana.net`, one tester in `HOME_ALLOWED_USERS`): main `69ed1aa`, deployed
-  2026-10-28 23:22Z from `/tmp/home-live-69ed1aa` (rollback image `avrana-home-live:pre-69ed1aa`). It already has
-  My requests, the comics page, the season picker and the New releases / New to Avrana rows; every request switch
-  is **off**, so the request pages answer with the standard 404. #134 (Komga auto-keys) is merged, not deployed.
+- **Live beta** (`media-beta.avrana.net`, one tester in `HOME_ALLOWED_USERS`): main `3cae864` from
+  `~/avrana-deploy/home-3cae864`, deployed with `scripts/deploy-home-beta.sh` (2026-10-29). It already has My
+  requests, the comics page, the season picker and the New releases / New to Avrana rows; every request switch is
+  **off**, so the request pages answer with the standard 404.
 - **Forks**, built by their own CI, public on GHCR (no registry login needed on the host):
 
   | Service | Now on avrana | Fork image (pin by digest) | Schema change |
@@ -120,27 +121,40 @@ cd /home/cody/avrana/services/avrana-home   # where secrets/ already lives
   In the media compose file add `env_file: [/home/cody/docker/seerr/on-behalf.env]` to the `seerr` service, then
   `docker compose up -d seerr` and check it is healthy. The main Seerr API key is unchanged and stays unused by
   Home.
-- **Omnibus** (as an Omnibus admin): Admin → Settings → Access & Security → API keys → new key named
-  `avrana-home`, tick **Allow requests on behalf of members**. Copy it once:
+- **Omnibus** (as an Omnibus admin): `http://10.0.0.218:5058/admin/settings`, tab **Access & Security** → Key
+  Name, tick **Allow requests on behalf of members.**, **Generate New Key**; it then shows under Active API Keys.
+  Not the OPDS key on your profile page: that one is a personal reading key and the fork never accepts it for
+  requests. Copy it once:
   `read -rs -p "Omnibus key: " s && printf '%s' "$s" > secrets/omnibus_api_key && unset s && chmod 600 secrets/omnibus_api_key; echo`
 
 Check without printing anything: `for f in shelfarr_token seerr_api_key omnibus_api_key; do test -s secrets/$f && stat -c '%a %n' secrets/$f; done` (three lines, each `600`).
+
+**Applied 2026-10-29**, each key read from its file inside the test command, never shown:
+
+- Seerr (key generated on the host, `env_file` added, healthy): member directory 200; settings, acting as user 1
+  and approving a request 403; no key 401.
+- Shelfarr: search 200, no token 401, creating a user 403 (no `users:write`).
+- Omnibus: the first file held the owner's OPDS key (found by hash; no API key existed), so it was redone from the
+  settings page. The key is found by hash in the database: on-behalf allowed, made by an admin, no expiry.
+  Admin routes 401 with it, with or without a member header; an unknown member 401. **Note:** upstream Omnibus
+  lets any admin API key read its OPDS feed (`/api/opds` 200), so this key can also browse and download the comics
+  catalogue, though it can change nothing. Keep it as secret as the others; narrowing on-behalf keys away from
+  OPDS would be a fork change.
+- The media compose's `env_file` line is in Git (`services/media/docker-compose.yml`, byte-identical to the host).
 
 **Undo:** delete the Shelfarr token and the Omnibus key in their pages, remove the `env_file` line and
 `on-behalf.env`, `up -d seerr`, and `rm secrets/{shelfarr_token,seerr_api_key,omnibus_api_key}`.
 
 ## 4. Home: networks and switches
 
-Deploy main as for every Home change (export from the PC into `/tmp/home-live-<sha>`, link `beta-live.env`,
-`secrets/` and `state/` from `~/avrana/services/avrana-home`, build, and run `up -d` **from the export folder** with
-`-p avrana-home-beta`; tag the running image first as the rollback, e.g. `docker tag avrana-home-live:local
-avrana-home-live:pre-requests`). Use main at or after #136 so CI is green.
+Home is deployed with `scripts/deploy-home-beta.sh` (`home-beta-live.md` → "Routine deploys"), which exports a
+commit to `~/avrana-deploy/home-<sha>`, links `beta-live.env`, `secrets/` and `state/`, and **copies**
+`~/avrana/services/avrana-home/docker-compose.beta-live.yml`: that file is the record of what is switched on (it
+already has the Komga member keys and account provisioning). So the switches go into that file, not an export.
 
-In the export's `docker-compose.beta-live.yml`:
-
-1. Re-apply what the live container already has: the Komga member-keys lines (owner enabled them 2026-10-28; the
-   repo keeps them commented).
-2. Uncomment the block marked `MEMBER REQUESTS` in four places: the nine environment lines (three switches, three
+1. Back it up: `cp -p docker-compose.beta-live.yml docker-compose.beta-live.yml.pre-requests` (in
+   `~/avrana/services/avrana-home`).
+2. In it, add the block marked `MEMBER REQUESTS` from the repo's copy, in four places: the nine environment lines (three switches, three
    URLs, three key files), the `networks:` line that adds `shelfarr_default`, `omnibus` and
    `docker_request-backend` (Seerr's; names checked 2026-10-29), those three entries under `networks:` at the
    bottom, and the three secrets (add them to the `secrets:` line in use and uncomment their entries at the
@@ -150,16 +164,19 @@ In the export's `docker-compose.beta-live.yml`:
 Joining the networks creates none (the host is at Docker's network limit, so this matters). The Seerr network also
 holds Radarr and Sonarr; Home holds no key for them and its request code only calls Seerr's fixed routes.
 
+Then, from a checkout on the PC:
+
 ```sh
-docker compose -p avrana-home-beta -f docker-compose.beta-live.yml config --quiet && echo config-ok
-docker compose -p avrana-home-beta -f docker-compose.beta-live.yml up -d
-docker inspect --format '{{.State.Health.Status}}' avrana-home-beta     # healthy
-docker logs --tail 30 avrana-home-beta                                  # no "refusing"
+scripts/deploy-home-beta.sh            # dry run: export, build, `up -d --dry-run` (recreates only avrana-home-beta)
+scripts/deploy-home-beta.sh --apply    # after the owner's yes: tags avrana-home-live:pre-<sha>, up -d, health
 ```
 
-A broker that cannot start is a refusal in the log naming its setting; turn that one switch off and start again.
+The script refuses to create or remove a network, so the three request networks must already exist (they do:
+each app's own compose made them). It prints which optional features are on, never a value. A broker that cannot
+start is a refusal in the log naming its setting; turn that one switch off in `~/avrana`'s file and run again.
 
-**Undo:** comment the block again and `up -d`; or run the tagged rollback image.
+**Undo:** put back `docker-compose.beta-live.yml.pre-requests` and run the script again with `--apply`, or use the
+rollback the script prints (the `pre-<sha>` image).
 
 ## 5. Live check (as the tester)
 
