@@ -35,6 +35,9 @@ services:
     image: avrana-home-live:local
     container_name: avrana-home-beta
     networks: [authentik_home_beta, audiobookshelf_default, komga_default, calibre-web-automated_default]
+    # MEMBER REQUESTS (docs/runbooks/media-requests-rollout.md step 4): use this line instead to reach Shelfarr,
+    # Omnibus and Seerr by service name. All three networks exist already; joining creates none.
+    # networks: [authentik_home_beta, audiobookshelf_default, komga_default, calibre-web-automated_default, shelfarr_default, omnibus, media_request-backend]
     # Jellyfin runs on the host network (:8096): reached as host.docker.internal, never the LAN address.
     extra_hosts: ["host.docker.internal:host-gateway"]
     env_file: [beta-live.env]
@@ -63,8 +66,24 @@ services:
       - CALIBRE_WEB_CREDENTIAL_FILE=/run/secrets/calibre_web_credential
       - CALIBRE_WEB_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS=yes
       - TZ=America/Los_Angeles
+      # MEMBER REQUESTS (rollout step 4). A switch and its URL go together: a URL whose switch is off refuses to
+      # start. The keys are the forks' scoped on-behalf keys (rollout step 3), never an app's main admin key.
+      # - HOME_BOOK_REQUESTS=on
+      # - SHELFARR_BASE_URL=http://shelfarr:80
+      # - SHELFARR_TOKEN_FILE=/run/secrets/shelfarr_token
+      # - HOME_WATCH_REQUESTS=on
+      # - SEERR_BASE_URL=http://seerr:5055
+      # - SEERR_API_KEY_FILE=/run/secrets/seerr_api_key
+      # - HOME_COMIC_REQUESTS=on
+      # - OMNIBUS_BASE_URL=http://omnibus:3000
+      # - OMNIBUS_API_KEY_FILE=/run/secrets/omnibus_api_key
+      # Optional (rollout steps 6 and 7):
+      # - HOME_SHELFARR_PROVISION=on
+      # - HOME_SEERR_PROVISION=on
+      # - HOME_LIBRARY_IDS_FILE=/var/lib/avrana-home-index/library_ids.json
     secrets: [home_jwt_secret, jellyfin_api_key, audiobookshelf_token, komga_token, calibre_web_credential]
     # secrets: [home_jwt_secret, jellyfin_api_key, audiobookshelf_token, komga_token, calibre_web_credential, komga_admin_token]
+    # MEMBER REQUESTS: add shelfarr_token, seerr_api_key and omnibus_api_key to whichever secrets: line is in use.
     # volumes: ["./state:/var/lib/avrana-home:rw"]
     read_only: true
     tmpfs: ["/tmp:size=16m,mode=1777"]
@@ -95,6 +114,14 @@ networks:
     external: true
   calibre-web-automated_default:
     external: true
+  # MEMBER REQUESTS: Shelfarr's and Omnibus's own networks and the media stack's request network (Seerr; Radarr and
+  # Sonarr are on it too, but Home holds no key for them). Names as `docker inspect` prints them (rollout step 1).
+  # shelfarr_default:
+  #   external: true
+  # omnibus:
+  #   external: true
+  # media_request-backend:
+  #   external: true
 
 secrets:
   home_jwt_secret:
@@ -109,3 +136,10 @@ secrets:
   #   file: ./secrets/komga_admin_token
   calibre_web_credential:
     file: ./secrets/calibre_web_credential
+  # MEMBER REQUESTS (rollout step 3):
+  # shelfarr_token:
+  #   file: ./secrets/shelfarr_token
+  # seerr_api_key:
+  #   file: ./secrets/seerr_api_key
+  # omnibus_api_key:
+  #   file: ./secrets/omnibus_api_key
