@@ -104,7 +104,8 @@ class MeHub(Stub):
 
     def test_lists_only_what_the_member_has(self):
         main = main_of(self.page("/me"))
-        self.assertEqual(["/me/security", "/account", "/help", "/help/trouble", "/signout"], hrefs(main, "krow-a"))
+        # Devices first (ME-01): "Set up a device" opens the setup guides, so Help keeps only its trouble row
+        self.assertEqual(["/help", "/me/security", "/account", "/help/trouble", "/signout"], hrefs(main, "krow-a"))
         for absent in ("/ops", "Operations", "k-tag", "Admin", "Install", "This phone"):
             self.assertNotIn(absent, main, absent)
         # a member with no library gets the same hub, and still no library word

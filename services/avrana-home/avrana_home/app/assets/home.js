@@ -25,6 +25,8 @@
      14. My profile's photo cropper (owner 2026-10-28: members edit their picture): a chosen photo appears in a square,
         to drag and zoom, and what is sent is that square, already small (a 512px JPEG drawn on a canvas), instead of
         the whole camera file. The server still decodes and re-encodes whatever arrives (avatar.py).
+     15. Customize's section order (HOME-01): Move up / Move down buttons reorder the list in place and renumber its
+        hidden fields, so Save sends the new order. Without this, the buttons stay hidden and the saved order stands.
    It uses no browser storage, writes no HTML from text and does nothing when its elements are absent; only the
    title sheet (8) reads member data, and only the title page the member asked for. Inline preview behaviour (MK-4) is not here yet. */
 (function () {
@@ -875,6 +877,35 @@
     stage.addEventListener('pointercancel', end);
   }
 
+  /* 15. Section order. Contract: <ol data-order> of <li> each holding <input type=hidden name=o1..oN> and a hidden
+     .cz-moves with [data-move=up|down] buttons. A move swaps the row with its neighbour, rewrites the field names in
+     list order, keeps focus on the pressed button (or its pair at an end) and disables the impossible move. */
+  function order() {
+    Array.prototype.forEach.call(document.querySelectorAll('ol[data-order]'), function (list) {
+      function sync() {
+        var rows = list.querySelectorAll('li');
+        Array.prototype.forEach.call(rows, function (li, i) {
+          li.querySelector('input[type="hidden"]').name = 'o' + (i + 1);
+          li.querySelector('[data-move="up"]').disabled = i === 0;
+          li.querySelector('[data-move="down"]').disabled = i === rows.length - 1;
+        });
+      }
+      Array.prototype.forEach.call(list.querySelectorAll('.cz-moves'), function (m) { m.hidden = false; });
+      list.addEventListener('click', function (event) {
+        var button = event.target.closest('[data-move]');
+        if (!button || button.disabled) return;
+        var li = button.closest('li');
+        var up = button.getAttribute('data-move') === 'up';
+        var other = up ? li.previousElementSibling : li.nextElementSibling;
+        if (!other) return;
+        list.insertBefore(up ? li : other, up ? other : li);
+        sync();
+        (button.disabled ? li.querySelector('[data-move="' + (up ? 'down' : 'up') + '"]') : button).focus();
+      });
+      sync();
+    });
+  }
+
   lens();
   bfcache();
   worker();
@@ -889,4 +920,5 @@
   more();
   railButtons();
   crop();
+  order();
 })();

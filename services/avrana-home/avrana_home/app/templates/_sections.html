@@ -56,6 +56,10 @@
     <p class="hero-acts"><a class="hero-go" href="{{ h.action_href }}">{{ h.action }}<span class="sr">: {{ h.title }}</span></a>{% if h.details_href %} <a class="hero-details" href="{{ h.details_href }}">Details<span class="sr">: {{ h.title }}</span></a>{% endif %}</p>
   </section>
 {% endif %}
+{#- The three sections in the member's own order (Customize, HOME-01/02: one account-wide record, memberstore.py);
+   Home's order when they never chose. A place's own rows stand where New to Avrana would, as they replace it. #}
+{% for key in home.order %}
+{% if key == "continue" %}
 {% if home.show_continue %}
   <section class="shelf" aria-labelledby="h-continue">
     <h2 id="h-continue">Continue</h2>
@@ -71,25 +75,7 @@
 {% endif %}
   </section>
 {% endif %}
-{#- Watch (owner decisions 2026-10-27/28): Up next (episode stills), New releases, then Movies and TV shows, in place
-   of New to Avrana. #}
-{% for row in home.rows %}
-  <section class="shelf" aria-labelledby="h-{{ row.key }}">
-    <h2 id="h-{{ row.key }}">{{ row.heading }}</h2>
-{% if row.items %}
-    <ul class="rail{% if row.tall %} tall{% else %} stills{% endif %}" id="rail-{{ row.key }}">
-{% for c in row.items %}{{ card(c) }}
-{% endfor %}
-{% for c in row.more %}{{ card(c, more=True) }}
-{% endfor %}
-{% if row.more_href %}{{ more_tile(row.more_href, "Show more", " in " ~ row.heading, "rail-" ~ row.key) }}
-{% endif %}
-    </ul>
-{% elif row.said %}
-    <p class="said">{{ row.said }}</p>
-{% endif %}
-  </section>
-{% endfor %}
+{% elif key == "released" %}
 {#- New Releases (All): by the release date itself, across libraries; only when there is something. Chips by kind (owner
    request 2026-10-28), as New to Avrana's, only for the kinds the list holds. #}
 {% if home.released_items %}
@@ -112,6 +98,26 @@
     </ul>
   </section>
 {% endif %}
+{% elif key == "new" %}
+{#- Watch (owner decisions 2026-10-27/28): Up next (episode stills), New releases, then Movies and TV shows, in place
+   of New to Avrana. #}
+{% for row in home.rows %}
+  <section class="shelf" aria-labelledby="h-{{ row.key }}">
+    <h2 id="h-{{ row.key }}">{{ row.heading }}</h2>
+{% if row.items %}
+    <ul class="rail{% if row.tall %} tall{% else %} stills{% endif %}" id="rail-{{ row.key }}">
+{% for c in row.items %}{{ card(c) }}
+{% endfor %}
+{% for c in row.more %}{{ card(c, more=True) }}
+{% endfor %}
+{% if row.more_href %}{{ more_tile(row.more_href, "Show more", " in " ~ row.heading, "rail-" ~ row.key) }}
+{% endif %}
+    </ul>
+{% elif row.said %}
+    <p class="said">{{ row.said }}</p>
+{% endif %}
+  </section>
+{% endfor %}
 {% if home.show_new %}
   <section class="shelf" aria-labelledby="h-new">
     <h2 id="h-new">New to Avrana</h2>
@@ -137,6 +143,8 @@
 {% endif %}
   </section>
 {% endif %}
+{% endif %}
+{% endfor %}
 {% if home.focus_open %}
   <p class="focus-open"><a class="shelf-open" href="{{ home.focus_open[1] }}">Open {{ home.focus_open[0]|trusted }}<svg class="out" viewBox="0 0 16 16" width="12" height="12" aria-hidden="true" focusable="false"><path d="M5.5 3.5h7v7M12.5 3.5l-9 9"/></svg><span class="sr">, opens its own site</span></a></p>
 {% endif %}

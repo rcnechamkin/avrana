@@ -4,8 +4,13 @@ Status, 2026-10-28: **S1 and the profile (§3) are built** on `feat/me-invisible
 able to edit their pictures" and "proceed with implementing all this"): Home's member store, Me → My profile with a
 photo (cropped in the browser, re-encoded by Home with Pillow, no metadata kept) and a Home-owned display name. B1 is
 reversed: the name shown in Avrana is Home's, because members must never be sent to an Authentik settings page
-(ME-ACCOUNT-SECURITY.md §1). Multipart is parsed with the standard library, so python-multipart is not added. The rest
-was, on 2026-10-27, **proposals for owner decision**. Quick Connect direction chosen by the owner
+(ME-ACCOUNT-SECURITY.md §1). Multipart is parsed with the standard library, so python-multipart is not added.
+**HOME-01/02 and the ME-02 setup card are built** on `feat/me-customize` (stacked on the above): `/me/home` (Customize
+beside the Home heading and Preferences on Me open the same editor), one account-wide record (start place, hidden places,
+order of Continue / New Releases / New to Avrana), §2's rules as written (A1 categories = Home's filters; A2 explicit
+Save/Cancel), Move up / Move down with JavaScript (without it the saved order stands; start and visibility still work).
+The setup card's "hide" is account-wide, presentation only, with "Show the setup suggestion again" under Devices.
+Preview of a draft before saving is not built. The rest was, on 2026-10-27, **proposals for owner decision**. Quick Connect direction chosen by the owner
 the same day: the admin key with guardrails (§4). Companion to
 [ME-ACCOUNT-SECURITY.md](ME-ACCOUNT-SECURITY.md). Covers the three Media 2.0 Me items that need a decision before code:
 HOME-02 (account-wide Home preferences), ME-06 plus the supplement's profile (photo, display name, optional bio), and
@@ -231,8 +236,8 @@ What *is* different is the consequence, and the guardrails below exist for exact
 | --- | --- | --- |
 | S1 | Give Home a durable member store (SQLite in a named volume, backed up, purged on offboarding) | **Built** (2026-10-28) |
 | S2 | Allow Home's first POST routes with the CSRF design above | Yes |
-| A1 | Categories = Home's filters (All, Watch, Listen, Read); shelves = Continue, Up next, Recently added | Yes |
-| A2 | Explicit Save/Cancel rather than autosave | Save/Cancel |
+| A1 | Categories = Home's filters (All, Watch, Listen, Read); shelves = Continue, Up next, Recently added | **Built** (2026-10-28) with today's sections: Continue, New Releases, New to Avrana |
+| A2 | Explicit Save/Cancel rather than autosave | **Built**: Save/Cancel |
 | B1 | Display name stays in Authentik, edited by hand-off | **Reversed** (2026-10-28): Home-owned name, no hand-off |
 | B2 | Keep the optional bio although only the member sees it | Your call; it's cheap either way |
 | B3 | Photo upload with Pillow + python-multipart, or initials with a colour choice | **Photo built** (owner, 2026-10-28; Pillow, stdlib multipart) |

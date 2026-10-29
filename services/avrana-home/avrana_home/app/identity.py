@@ -250,6 +250,12 @@ def _same_origin_post(scope, full: bool = False) -> Optional[str]:
     return None
 
 
+def customize_from_scope(scope) -> Optional[str]:
+    """`?from=home` on /me/home's editor (Customize opened from Home's heading: Cancel and Save go back to Home).
+    Bounded text only; the caller compares it with the one fixed value and never echoes it."""
+    return _choice_from_scope(scope, "from")
+
+
 def security_result_from_scope(scope) -> Optional[str]:
     """`?r=<outcome>` on /me/security/sessions after a sign-out post (accountreader.py). Bounded text only; the page
     checks it against the fixed outcome list and never echoes it. It confers no identity and no access."""

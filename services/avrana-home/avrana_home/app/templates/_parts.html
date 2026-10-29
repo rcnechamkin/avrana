@@ -25,7 +25,9 @@
     <div class="mast{% if shell.current == "home" %} at-home{% endif %}">
 {% if shell.current == "home" %}
       <h1><a href="/" aria-current="page"><img class="lockup" src="/brand/avrana-media-l3.svg" alt="Avrana Media" width="1384" height="650"><span class="lockup-text" aria-hidden="true">Avrana Media</span></a></h1>
-{% else %}
+{#- Customize (HOME-01, placement A1): beside the Home heading, part of the heading area, never a filter or a tab. #}
+{% if shell.customize %}      <a class="custbtn glass" href="/me/home?from=home"><svg class="ic" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></svg><span>Customize</span><span class="sr"> Home</span></a>
+{% endif %}{% else %}
       <h1 class="sr">Avrana Media</h1>
 {% if shell.current not in ("library", "search", "me", "account", "help") %}
       <a class="homebtn glass" href="/"><img class="spire" src="/brand/spire-a-24.svg" alt="Home" width="24" height="24"><span class="homebtn-text" aria-hidden="true">Home</span></a>

@@ -23,6 +23,7 @@ from urllib.parse import quote
 
 from ..contract import (CREDIT_ROLES, HANDOFF_BASE, MAX_LIMIT, MAX_NAMES, MAX_SUMMARY, MIN_QUERY, REQUIRED_GROUP,
                         Service, clean_query, valid_upstream_id)
+from ..memberstore import HOME_PLACES, HOME_SHELVES
 from .artwork import src_for
 
 SERVICE_LABEL = {"jellyfin": "Movies and TV", "audiobookshelf": "Audiobooks",
@@ -389,6 +390,8 @@ class HomeVM:
     released_tabs: Tuple[Tuple[str, str, bool, str], ...] = ()   # New Releases' chips: (key, label, current, href)
     released_more: Tuple[CardVM, ...] = ()
     released_more_href: Optional[str] = None
+    order: Tuple[str, ...] = HOME_SHELVES     # Continue, New Releases, New to Avrana in the member's order (Customize)
+    customize: bool = False              # Customize beside the Home heading (the member store is on)
 
 
 def rail_shape(cards) -> str:
@@ -412,6 +415,7 @@ class ShellVM:
     notice: Optional[object] = None       # the operator notice this member sees (notice.ActiveNotice), AVR-365
     filters: Tuple["FilterVM", ...] = ()  # Home only: the filters that take the places bar's row (HomeVM.filters)
     avatar: str = ""                      # the member's photo version (My profile, memberstore.py); "" = the initial
+    customize: bool = False               # Home only: Customize beside the heading (the member store is on)
 
 
 @dataclass(frozen=True)
@@ -604,18 +608,45 @@ def shelf_rows(shelved, limit: int, title_services, rows_of=SHELF_ROWS) -> list:
     return out
 
 
-def build_filters(places, focus: Optional[str]):
+def build_filters(places, focus: Optional[str], all_href: str = "/"):
     """Home's filters and the chosen place. One per library place the member has, in the catalogue's order, after All;
     none at all for a member with fewer than two (one place is the same list as All). An unknown or foreign `focus`
-    falls back to All and is never echoed."""
+    falls back to All and is never echoed. `all_href` is "/?for=all" when the member's Home starts on a place, so
+    choosing All stays on All."""
     libs = [p for p in places if p.href[1:] in _PLACE_SERVICES]
     if len(libs) < 2:
         return (), None
     keys = {p.href[1:] for p in libs}
     chosen = focus if isinstance(focus, str) and focus in keys else None
-    out = [FilterVM(HOME_ALL, "All", "/", chosen is None)]
+    out = [FilterVM(HOME_ALL, "All", all_href, chosen is None)]
     out.extend(FilterVM(p.href[1:], p.label, "/?for=" + p.href[1:], p.href[1:] == chosen, p.up) for p in libs)
     return tuple(out), chosen
+
+
+# ---- Account-wide Home (HOME-01/02, owner 2026-10-28): what Customize saves, applied after the access filter ------
+HOME_SHELF_LABELS = {"continue": "Continue", "released": "New Releases", "new": NEW_TO_AVRANA}
+assert set(HOME_PLACES) == set(_PLACE_SERVICES) and set(HOME_SHELF_LABELS) == set(HOME_SHELVES)
+
+
+def effective_home(prefs, keys) -> Tuple[Optional[str], frozenset, Tuple[str, ...]]:
+    """(start, hidden, order) for a member whose library places are `keys` (catalogue paths, in order). Effective =
+    saved ∩ allowed now: a saved place the member lost drops out quietly, one they gain appears; at least one place
+    always stays; the start counts only while it is one of theirs and shown. `prefs` None (store off or unreadable,
+    or never saved) is Home's own defaults. Presentation only: nothing here opens or closes a library."""
+    if prefs is None:
+        return None, frozenset(), HOME_SHELVES
+    keys = [k for k in keys if k in _PLACE_SERVICES]
+    hidden = frozenset(h for h in prefs.hidden if h in keys)
+    if keys and hidden >= set(keys):
+        hidden = frozenset()
+    start = prefs.start if prefs.start in keys and prefs.start not in hidden else None
+    order = tuple(prefs.order) if sorted(prefs.order) == sorted(HOME_SHELVES) else HOME_SHELVES
+    return start, hidden, order
+
+
+def home_start(prefs, tiles) -> Optional[str]:
+    """The place Home opens on when the address names none (for the caller's gather: what to ask the libraries for)."""
+    return effective_home(prefs, [path for path, _l, _d in tiles])[0]
 
 
 def release_key(it: ItemVM, today: str) -> Optional[str]:
@@ -750,7 +781,8 @@ def _split(cards, limit: int, expanded: bool):
 
 def build_home(view: dict, tiles, *, new_tab: Optional[str] = None, limit: int = 12,
                member_name: str = "", title_services=frozenset(), focus: Optional[str] = None,
-               today: Optional[str] = None, rel_tab: Optional[str] = None, more: Optional[str] = None) -> HomeVM:
+               today: Optional[str] = None, rel_tab: Optional[str] = None, more: Optional[str] = None,
+               prefs=None, customize: bool = False) -> HomeVM:
     """Home as display data. Retry links point at `/` (the new tab is kept), the same page again.
     `title_services`: libraries with a title page (main.py's set), for the hero's Details link and the Recently added
     cards (which open the title page; Continue cards open the item where it plays). `limit` is how many cards a rail
@@ -759,7 +791,18 @@ def build_home(view: dict, tiles, *, new_tab: Optional[str] = None, limit: int =
     more = more if isinstance(more, str) and more in MORE_KEYS else None
     held = _sections_by_service(view)
     places = build_places(tiles, view)
-    filters, focus = build_filters(places, focus)
+    # Customize (HOME-02): an explicit `?for=` wins for this view and never rewrites the saved start; hidden places
+    # leave the filters and All. With a saved start, Home's own links say `for=all` so All stays All.
+    start, hidden, order = effective_home(prefs, [p.href[1:] for p in places])
+    places = tuple(p for p in places if p.href[1:] not in hidden)
+    if focus is None and start is not None:
+        focus = start
+    filters, focus = build_filters(places, focus, "/?for=all" if start else "/")
+    link_focus = focus or (HOME_ALL if start else None)
+    if focus is None and hidden:
+        shown = {s for p in places if p.href[1:] in _PLACE_SERVICES for s in _PLACE_SERVICES[p.href[1:]]}
+        gone = {s for h in hidden for s in _PLACE_SERVICES[h]} - shown
+        held = {s: v for s, v in held.items() if s not in gone}
     focus_open = None
     if focus is not None:      # Home for one place: only its libraries' sections, and its own site one tap away
         held = {s: v for s, v in held.items() if s in _PLACE_SERVICES[focus]}
@@ -767,7 +810,7 @@ def build_home(view: dict, tiles, *, new_tab: Optional[str] = None, limit: int =
     has_lib = has_library(tiles)
     name = _plain(member_name) or "Member"
     base = dict(member_name=name, initial=initial_of(name), places=places, filters=filters, focus=focus,
-                focus_open=focus_open)
+                focus_open=focus_open, order=order, customize=customize)
     if not has_lib:
         return HomeVM(**base, no_library=True, notices=(), show_continue=False, continue_items=(),
                       continue_said=None, show_new=False, new_tabs=(), new_items=(), new_said=None)
@@ -782,7 +825,7 @@ def build_home(view: dict, tiles, *, new_tab: Optional[str] = None, limit: int =
         elif any(sec["state"] == "not_linked" for sec in secs):
             notices.append(service_notice(service, "not_linked"))
             unset = True
-    keep = ([f"for={focus}"] if focus else []) + ([f"new={new_tab}"] if new_tab in SERVICE_LABEL else [])
+    keep = ([f"for={link_focus}"] if link_focus else []) + ([f"new={new_tab}"] if new_tab in SERVICE_LABEL else [])
     retry_href = ("/" + ("?" + "&".join(keep) if keep else "")) if retry else None
     setup_href = SETUP_HELP if unset else None
     all_secs = [sec for secs in held.values() for sec in secs]
@@ -845,7 +888,7 @@ def build_home(view: dict, tiles, *, new_tab: Optional[str] = None, limit: int =
         new_said = None if new_all else (NOTHING_NEW if len(libs) == 1
                                          else f"Nothing added to {SERVICE_LABEL[tab]} recently.")
     new, new_more = _split(new_all, limit, more == "new")
-    new_hrefs = tuple(home_href(focus, None if k == NEW_ALL or len(tabs) == 1 else k, rel, anchor="h-new")
+    new_hrefs = tuple(home_href(link_focus, None if k == NEW_ALL or len(tabs) == 1 else k, rel, anchor="h-new")
                       for k, _n in tabs)
 
     released, released_more, released_tabs, released_more_href = (), (), (), None
@@ -854,15 +897,15 @@ def build_home(view: dict, tiles, *, new_tab: Optional[str] = None, limit: int =
                                                 title_services=title_services), limit, more == "released")
         if len(chips) > 1:
             released_tabs = tuple((k, label, k == (rel or NEW_ALL),
-                                   home_href(None, new_key, None if k == NEW_ALL else k, anchor="h-released"))
+                                   home_href(link_focus, new_key, None if k == NEW_ALL else k, anchor="h-released"))
                                   for k, label in [(NEW_ALL, "All")] + [(k, label) for k, label, _ in chips])
-        released_more_href = home_href(None, new_key, rel, "released", "h-released") if released_more else None
+        released_more_href = home_href(link_focus, new_key, rel, "released", "h-released") if released_more else None
 
     def more_row(key: str, heading: str, cards, said=None) -> RowVM:
         """A row that shows `limit` cards, then "Show more" up to SHELF_MOST (New to Avrana and New Releases)."""
         shown, extra = _split(cards, limit, more == key)
         return RowVM(key, heading, shown, said, more=extra,
-                     more_href=home_href(focus, new_key, None, key, "h-" + key) if extra else None)
+                     more_href=home_href(link_focus, new_key, None, key, "h-" + key) if extra else None)
 
     # Watch (owner decision 2026-10-27): Up next, then Recently added split into Movies and TV shows, in place of the
     # one Recently added rail. Up next leaves out what Continue already shows; it shows each show's poster, as
@@ -938,11 +981,11 @@ def build_home(view: dict, tiles, *, new_tab: Optional[str] = None, limit: int =
     cont_cards = _cards(cont, lambda it: it.detail or KIND_LABEL.get(it.kind), progress=True)
     return HomeVM(**base, no_library=False, notices=tuple(notices), show_continue=bool(cont_services),
                   continue_items=cont_cards, continue_rail=rail_shape(cont_cards),
-                  continue_more_href=continue_href(focus) if len(cont_all) > limit else None,
+                  continue_more_href=continue_href(link_focus) if len(cont_all) > limit else None,
                   continue_said=continue_said, show_new=not rows, rows=rows,
                   new_tabs=tuple((k, n, k == tab) for k, n in tabs), new_items=new, new_said=new_said,
                   new_hrefs=new_hrefs, new_more=new_more,
-                  new_more_href=home_href(focus, new_key, rel, "new", "h-new") if new_more else None,
+                  new_more_href=home_href(link_focus, new_key, rel, "new", "h-new") if new_more else None,
                   retry_href=retry_href, setup_href=setup_href, hero=hero, released_items=released,
                   released_tabs=released_tabs, released_more=released_more, released_more_href=released_more_href)
 
@@ -966,6 +1009,7 @@ def build_continue_page(view: dict, tiles, *, focus: Optional[str] = None) -> Co
     """The Continue page as display data: Home's Continue, uncut. `focus` is the bounded `?for=` text: matched against
     the member's own places (build_filters) and never echoed; anything else is All."""
     places = build_places(tiles, view)
+    pinned_all = focus == HOME_ALL       # came from a Home that starts on a place: its back link stays on All
     _filters, focus = build_filters(places, focus)
     held = _sections_by_service(view)
     label = None
@@ -978,7 +1022,8 @@ def build_continue_page(view: dict, tiles, *, focus: Optional[str] = None) -> Co
     down = any(sec["section"] == "continue" and sec["state"] == "unavailable" for secs in held.values() for sec in secs)
     cards = _cards(items, lambda it: it.detail or KIND_LABEL.get(it.kind), progress=True)
     return ContinuePageVM(cards, None if cards or notices else CONTINUE_PAGE_EMPTY, tuple(dict.fromkeys(notices)),
-                          label, home_href(focus), continue_href(focus) if down else None, rail_shape(cards))
+                          label, home_href(focus or (HOME_ALL if pinned_all else None)),
+                          continue_href(focus or (HOME_ALL if pinned_all else None)) if down else None, rail_shape(cards))
 
 
 # ---- The Library page (Concept K MK-5a, AVR-719): chips, one shelf per library, the Request group ------------

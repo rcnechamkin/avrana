@@ -128,6 +128,12 @@
   /* Forced colours: glass shows as a system-coloured edge (the masked rim and blur mean nothing there). */
   @media (forced-colors:active){.glass{border:1px solid CanvasText;}.glass::before,.glass::after{display:none;}}
   .mast a{text-decoration:none;display:inline-flex;align-items:center;min-height:2.75rem;}
+  /* Customize (HOME-01, A1): a glass pill at the end of the heading row; the lockup gives it room. */
+  .mast.at-home:has(.custbtn){flex-direction:row;align-items:center;justify-content:space-between;gap:0.75rem;}
+  .mast.at-home:has(.custbtn) .lockup{max-width:calc(100vw - 11rem);}
+  .custbtn{flex:none;gap:0.375rem;padding:0 0.875rem;border-radius:1.375rem;color:var(--cream);
+    font-size:var(--text-secondary);font-weight:600;}
+  .custbtn .ic{fill:none;stroke:currentColor;stroke-width:1.75;stroke-linecap:round;}
   /* The glass Home button (D5): a 44px circle holding the Spire-A micro cut at the 24px it is drawn for. Focus is
      drawn inside it, because glass clips what lies outside. In forced colours the cream mark gives way to the word
      "Home" (the image's alt text, so the name and the visible word agree). */
@@ -792,6 +798,35 @@
     box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--focus);}
   .pf-crop{display:flex;flex-direction:column;gap:0.5rem;}
   .pf-crop[hidden]{display:none;}
+  /* Customize (HOME-01/02): fieldsets as Me's groups, each choice a 52px row in one panel, the order list with its
+     Move buttons (shown by home.js part 15), then Save (Cream) above Cancel. Native radios and checkboxes in Cream. */
+  .cz-form{display:flex;flex-direction:column;gap:1.75rem;max-width:36rem;}
+  fieldset.cz-set{display:flex;flex-direction:column;gap:0.625rem;min-width:0;margin:0;padding:0;border:0;}
+  fieldset.cz-set>legend{padding:0;margin-bottom:0.625rem;}
+  .cz-set .note{margin:0;color:var(--stone);font-size:var(--text-secondary);line-height:1.5;}
+  .cz-opt,.cz-shelf{display:flex;align-items:center;gap:0.75rem;min-height:3.25rem;padding:0.375rem 0.875rem;color:var(--cream);}
+  .cz-opt+.cz-opt,.cz-shelf+.cz-shelf{border-top:1px solid var(--line);}
+  .cz-opt{cursor:pointer;}
+  .cz-opt:hover{background:var(--raised);}
+  .cz-opt input{flex:none;width:1.25rem;height:1.25rem;margin:0;accent-color:var(--cream);}
+  .cz-opt input:focus-visible{outline:2px solid transparent;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--focus);}
+  ol.cz-order{counter-reset:cz;}
+  .cz-shelf{counter-increment:cz;}
+  .cz-shelf::before{content:counter(cz);flex:none;width:1.5rem;color:var(--ash);font-variant-numeric:tabular-nums;}
+  .cz-name{flex:1;min-width:0;}
+  .cz-moves{display:flex;flex-wrap:wrap;gap:0.375rem;justify-content:flex-end;}
+  .cz-moves[hidden]{display:none;}
+  .cz-moves .kbtn{min-height:2.75rem;padding:0 0.75rem;}
+  .cz-moves .kbtn:disabled{opacity:0.4;cursor:default;}
+  .cz-acts{display:flex;flex-direction:column;gap:0.5rem;}
+  /* The device-setup suggestion (ME-02): one raised panel near the top of Me, its primary action Cream, and a
+     labelled, full-size way to hide it (never a tiny unlabelled close icon). */
+  .setup-card{display:flex;flex-direction:column;gap:0.75rem;padding:1.25rem 1rem 1rem;background:var(--raised);}
+  .setup-h{margin:0;font-size:var(--text-shelf);font-weight:500;line-height:1.3;color:var(--cream);}
+  .setup-card .note{margin:0;color:var(--stone);font-size:var(--text-secondary);line-height:1.5;}
+  .setup-card form,.setup-again{margin:0;display:flex;}
+  .setup-hide,.setup-again .kbtn{width:100%;}
+  @media (forced-colors:active){.cz-opt input{forced-color-adjust:auto;}}
   .pf-stage{width:min(16rem,100%);aspect-ratio:1;border-radius:50%;overflow:hidden;border:1px solid var(--line-strong);
     touch-action:none;cursor:grab;background:var(--raised);}
   .pf-stage canvas{display:block;width:100%;height:100%;}
