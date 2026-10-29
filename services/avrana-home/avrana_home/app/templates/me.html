@@ -5,14 +5,16 @@
 {# The Me hub (Concept K, AVR-719; frame 17:872). Shell only: with sections off /me is the portal's 404. Everything
    here is the verified member's own: the name and username from the principal, and rows only for places the
    member's catalogue opens (Operations only behind its own group gate, which is also what the role tag says).
-   Not built (no data or no page today): an avatar image (Authentik gives Home none: the initial stands in), and
-   "This phone · Install" (no install help is served by Home yet; MK-3's install hint will bring one). #}
+   The photo and the name shown come from My profile (memberstore.py) when the member set them; otherwise the initial
+   and the sign-in name. Not built: "This phone · Install" (no install help is served by Home yet; MK-3's install hint will bring one). #}
   <h2 class="topic">Me</h2>
   <section class="me-id" aria-label="Signed in">
-    <span class="me-av" aria-hidden="true">{{ shell.initial }}</span>
-    <div class="me-who">
+{% if shell.avatar %}    <img class="me-av me-av-img" src="/me/avatar?v={{ shell.avatar }}" alt="" width="80" height="80">
+{% else %}    <span class="me-av" aria-hidden="true">{{ shell.initial }}</span>
+{% endif %}    <div class="me-who">
       <p class="me-name">{{ shell.member_name }}{% if me.admin %} <span class="k-tag">Admin</span>{% endif %}</p>
       <p class="k-meta">Signed in as {{ me.username }}</p>
+      <p class="me-edit"><a class="link" href="/me/profile">Edit profile<span class="sr">: photo and name</span></a></p>
     </div>
   </section>
 {#- Device setup comes before account settings (Media 2.0 ME-01 reading order). #}
@@ -27,8 +29,8 @@
   <section class="kgroup" aria-labelledby="me-account">
     <h3 class="kgroup-h" id="me-account">Account</h3>
     <ul class="krows">
-      {{ row("/account", "Account", "Your access and sign-in", "person") }}
       {{ row("/me/security", "Account & Security", "Sign-in, recovery, and sessions", "key") }}
+      {{ row("/account", "Your access", "Your libraries and requests", "person") }}
     </ul>
   </section>
   <section class="kgroup" aria-labelledby="me-help">

@@ -155,6 +155,8 @@ class ItemVM:
     up_next: bool = False          # the next unread book (contract shelf "next"), nothing read yet: "Up next"
     art_shape: Optional[str] = None  # the art's shape when it is not the kind's own (an episode's series poster)
     active: Optional[str] = None   # when this member last touched it (contract MediaItem.active, UTC), for ordering only
+    added: Optional[str] = None    # the day it reached the library (contract MediaItem.added), for New Releases only
+    series: Optional[str] = None   # the series name (display text), for "from your series" counts only
 
     @property
     def shape(self) -> str:
@@ -238,7 +240,9 @@ def _item_vm(it: dict) -> Optional[ItemVM]:
                   up_next=it.get("shelf") == UP_NEXT_SHELF and it.get("progress") is None,
                   art_shape=_art_shape(it.get("artwork")),
                   active=it.get("active") if isinstance(it.get("active"), str)
-                  and _INSTANT.fullmatch(it["active"]) else None)
+                  and _INSTANT.fullmatch(it["active"]) else None,
+                  added=it.get("added") if isinstance(it.get("added"), str) and _DAY.fullmatch(it["added"]) else None,
+                  series=_plain(it["series"]) or None if isinstance(it.get("series"), str) else None)
 
 
 def build_sections(view: dict) -> Tuple[SectionVM, ...]:
@@ -299,6 +303,12 @@ FOR_YOU_FROM = ("jellyfin", "audiobookshelf", "komga")
 RELEASE_CHIPS = (("watch", "Movies and TV", ("movie", "episode", "series")), ("listen", "Audiobooks", ("audiobook",)),
                  ("comics", "Comics", ("comic",)), ("books", "Books", ("ebook",)))
 BOOK_PLACES = ("/books", "/read")      # the places that hold books: Calibre-Web alone, or Komga with it
+# "This week in comics" (owner request 2026-10-29): on All, New Releases folds the comics into one card for the issues
+# that reached Komga in the last seven days (Komga's `week` section), when there are at least WEEK_MIN; the Comics chip
+# still lists them one by one. WEEK_PAGE is Komga's page size: a full page is "100+".
+WEEK_HEADING = "This week in comics"
+WEEK_MIN = 2
+WEEK_PAGE = 100
 NO_RELEASES_IN = "No new releases in {} right now."
 NO_LIBRARY = "No library is shared with this account yet. Ask the person who invited you, or read Help."
 
@@ -398,6 +408,17 @@ class HeroVM:
 
 
 @dataclass(frozen=True)
+class StackVM:
+    """New Releases' "This week in comics" card: one link to the Comics chip, a pile of the newest covers, the count."""
+    href: str
+    count: str                     # "34", or "100+" for a full page
+    line: str                      # "34 new issues"
+    images: Tuple[str, ...]        # up to three same-origin covers, newest (the front of the pile) first
+    mine: Optional[str] = None     # "3 from your series": the member's own state, so it carries the yellow dot
+    series: Optional[str] = None   # "21 series", when none is the member's
+
+
+@dataclass(frozen=True)
 class HomeVM:
     member_name: str
     initial: str
@@ -431,6 +452,8 @@ class HomeVM:
     released_more_href: Optional[str] = None
     for_you_items: Tuple[CardVM, ...] = ()   # New for You, newest arrival first; empty: the section is absent
     for_you_rail: str = ""                   # its shape class, as Continue's (rail_shape)
+    released_stack: Optional[StackVM] = None   # "This week in comics", in place of the comics on All
+    released_stack_at: int = 0                 # its place in the rail: where the newest comic would have been
     released_said: Optional[str] = None   # a chosen chip that holds nothing (Books before any book has a release date)
     released_rail: str = ""               # rail_shape of the New Releases cards: "mixed" lets stills stand as tall
 
@@ -455,6 +478,7 @@ class ShellVM:
     current: str                          # home | library | search | me | account | help | help-topic | place | title
     notice: Optional[object] = None       # the operator notice this member sees (notice.ActiveNotice), AVR-365
     filters: Tuple["FilterVM", ...] = ()  # Home only: the filters that take the places bar's row (HomeVM.filters)
+    avatar: str = ""                      # the member's photo version (My profile, memberstore.py); "" = the initial
 
 
 @dataclass(frozen=True)
@@ -615,12 +639,14 @@ SHELF_ROWS = (("new", NEW_RELEASES), ("classics", "Classics"), ("short", "Short 
 # Home asks them in waves (aggregate.waves) and New for You is the one that follows.
 _EXTRA_FOR = {"jellyfin": ("next_up", "released", "for_you"), "audiobookshelf": ("shelves", "for_you"),
               "komga": ("shelves", "for_you")}
+# Comics' "This week" list feeds All's New Releases card only, so it is asked on All alone, after the rest.
+WEEK_EXTRA = (("komga", "week"),)
 # All: New releases from every library that has release dates (Calibre-Web's OPDS gives a publication date, so its
 # newest additions count: owner request 2026-10-28, Books), Up next for Continue, and New for You (owner requests
 # 2026-10-28).
 RELEASED_FROM = ("jellyfin", "audiobookshelf", "komga", "calibre-web")
 ALL_EXTRAS = (tuple((s, "released") for s in RELEASED_FROM) + (("jellyfin", "next_up"),)
-              + tuple((s, "for_you") for s in FOR_YOU_FROM))
+              + tuple((s, "for_you") for s in FOR_YOU_FROM) + WEEK_EXTRA)
 # Libraries whose Recently added gives way to Recently released when nothing was added in the last two months
 # (owner decisions 2026-10-27 Audiobookshelf, 2026-10-28 Komga).
 RELEASED_FALLBACK = ("audiobookshelf", "komga")
@@ -666,10 +692,26 @@ def build_filters(places, focus: Optional[str]):
     return tuple(out), chosen
 
 
+# Kinds whose 1 January is a missing day, not a release day: Calibre (and an EPUB's dc:date) store a year-only date as
+# 1 January (live 2026-10-29: 33 of Calibre-Web's 60 newest books). Comics and films keep their exact dates.
+YEAR_ONLY_JAN_1 = ("audiobook", "ebook")
+
+
 def release_key(it: ItemVM, today: str) -> Optional[str]:
-    """What New releases sorts on: the release day, or 1 January of a bare release year (never claiming a book is
-    newer than it may be), and a future date (a comic's cover date runs ahead of sale) as today. None: unsortable."""
-    day = it.released or (f"{it.year:04d}-01-01" if it.year else None)
+    """What New releases sorts on: the release day, and a future date (a comic's cover date runs ahead of sale) as today.
+    None: unsortable.
+
+    A book with only a release YEAR (owner request 2026-10-29; Audiobookshelf keeps only the year of what it matches,
+    Calibre writes a year as 1 January) is placed by when it reached Avrana, kept inside that year: the release cannot
+    be later than the day it arrived, nor outside its year. A 2026 audiobook added on 25 October sorts as 25 October;
+    a 1999 novel added last week as 31 December 1999. Without an added day, 1 January (never claiming it is newer)."""
+    year_only = it.year is not None and (it.released is None or (it.kind in YEAR_ONLY_JAN_1
+                                                                 and it.released == f"{it.year:04d}-01-01"))
+    if year_only:
+        first, last = f"{it.year:04d}-01-01", f"{it.year:04d}-12-31"
+        day = max(first, min(it.added, last)) if it.added else first
+    else:
+        day = it.released
     return min(day, today) if day else None
 
 
@@ -723,6 +765,19 @@ def _cards(items, line_of, progress: bool = False, title_services=frozenset()) -
                           words, kind_label=KIND_LABEL.get(it.kind),
                           action=verb, action_label=name, bar=_bar(it) if progress else None))
     return tuple(out)
+
+
+def stack_of(week, mine_series, href: str) -> StackVM:
+    """The "This week in comics" card from Komga's week list (newest first, every issue): the count, the three newest
+    covers, and how many are from series the member reads (their Continue and New for You), else how many series."""
+    n = len(week)
+    count = f"{WEEK_PAGE}+" if n >= WEEK_PAGE else str(n)
+    mine = sum(1 for it in week if it.series and it.series in mine_series)
+    series = len({it.series or it.item_id for it in week})
+    return StackVM(href, count, f"{count} new issue{'' if n == 1 else 's'}",
+                   tuple(it.image for it in week if it.image)[:3],
+                   mine=f"{mine} from your series" if mine else None,
+                   series=None if mine else f"{series} series")
 
 
 def for_you_words(it: ItemVM, today: str) -> str:
@@ -943,9 +998,20 @@ def build_home(view: dict, tiles, *, new_tab: Optional[str] = None, limit: int =
                       for k, _n in tabs)
 
     released, released_more, released_tabs, released_more_href, released_rail = (), (), (), None, ""
+    stack, stack_at = None, 0
     if focus is None:
-        released, released_more = _split(_cards(picked, lambda it: it.detail or SERVICE_LABEL.get(it.library),
-                                                title_services=title_services), limit, more == "released")
+        rail_picked = picked
+        week = items_of("week", "komga")
+        if rel is None and len(chips) > 1 and len(week) >= WEEK_MIN:
+            stack_at = next((i for i, it in enumerate(picked) if it.kind == "comic"), 0)
+            rail_picked = [it for it in picked if it.kind != "comic"]
+            stack = stack_of(week, {it.series for sec in ("continue", "for_you") for it in items_of(sec, "komga")
+                                    if it.series},
+                             home_href(None, new_key, "comics", anchor="h-released"))
+        released, released_more = _split(_cards(rail_picked, lambda it: it.detail or SERVICE_LABEL.get(it.library),
+                                                title_services=title_services),
+                                         limit - (stack is not None), more == "released")
+        stack_at = min(stack_at, len(released))
         released_rail = rail_shape(released + released_more)
         if len(chips) > 1:
             released_tabs = tuple((k, label, k == (rel or NEW_ALL),
@@ -1045,7 +1111,8 @@ def build_home(view: dict, tiles, *, new_tab: Optional[str] = None, limit: int =
                   retry_href=retry_href, setup_href=setup_href, hero=hero, released_items=released,
                   released_tabs=released_tabs, released_more=released_more, released_more_href=released_more_href,
                   for_you_items=for_you, for_you_rail=rail_shape(for_you),
-                  released_said=released_said, released_rail=released_rail)
+                  released_said=released_said, released_rail=released_rail,
+                  released_stack=stack, released_stack_at=stack_at)
 
 
 # ---- The Continue page (owner request 2026-10-28): everything the member can continue, from Home's "See all" ------

@@ -35,14 +35,11 @@ async def read_form(request, fields: FrozenSet[str], limit: int = MAX_FORM_BYTES
                     exact: bool = False) -> Optional[Dict[str, str]]:
     """The posted fields, or None for an oversized, non-ASCII, malformed or unexpected body (or, with `exact`, one
     missing a field). Values are percent-decoded as strict UTF-8. Never logged."""
-    chunks, size = [], 0
-    async for chunk in request.stream():
-        size += len(chunk)
-        if size > limit:
-            return None
-        chunks.append(chunk)
+    raw = await read_body(request, limit)
+    if raw is None:
+        return None
     try:
-        text = b"".join(chunks).decode("ascii")
+        text = raw.decode("ascii")
         pairs = parse_qsl(text, keep_blank_values=True, strict_parsing=bool(text), max_num_fields=len(fields),
                           encoding="utf-8", errors="strict")
     except (UnicodeDecodeError, ValueError):
@@ -55,6 +52,18 @@ async def read_form(request, fields: FrozenSet[str], limit: int = MAX_FORM_BYTES
     if exact and set(out) != fields:
         return None
     return out
+
+
+async def read_body(request, limit: int) -> Optional[bytes]:
+    """The raw body, or None when it is larger than `limit`: the one bounded read behind read_form and Me → My
+    profile's photo upload (avatar.py parses that). Never logged."""
+    chunks, size = [], 0
+    async for chunk in request.stream():
+        size += len(chunk)
+        if size > limit:
+            return None
+        chunks.append(chunk)
+    return b"".join(chunks)
 
 
 class FormTokens:

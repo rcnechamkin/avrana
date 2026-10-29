@@ -8,6 +8,13 @@ metadata:
 # X-authentik-* headers injected. Adding the provider to the embedded outpost is done imperatively
 # after apply (the blueprint importer chokes on the outpost providers m2m — same as the LDAP one).
 entries:
+  # The sign-out flow lives in avrana-account.yaml; make sure it exists before the provider points at it.
+  - model: authentik_blueprints.metaapplyblueprint
+    attrs:
+      identifiers:
+        name: Avrana - account steps for Media Home (invisible identity)
+      required: true
+
   - model: authentik_providers_proxy.proxyprovider
     id: portal-provider
     identifiers:
@@ -19,7 +26,9 @@ entries:
       internal_host_ssl_validation: false
       # Proxy apps use implicit consent (no consent screen); gating is the policy binding below.
       authorization_flow: !Find [authentik_flows.flow, [slug, default-provider-authorization-implicit-consent]]
-      invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]
+      # Owner decision 2026-10-28: sign-out ends the Authentik session too and comes straight back to Avrana's sign-in
+      # screen. The stock flow's closing page linked Authentik's dashboard and kept the Authentik session alive.
+      invalidation_flow: !Find [authentik_flows.flow, [slug, avrana-sign-out]]
       signing_key: !Find [authentik_crypto.certificatekeypair, [name, authentik Self-signed Certificate]]
       access_token_validity: hours=24
 

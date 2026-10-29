@@ -85,6 +85,7 @@ READ = "READ"
 # New for You (owner request 2026-10-28): an On Deck book (the next unread book of a series the member is caught up on)
 # that Komga first scanned in the last FOR_YOU_DAYS.
 FOR_YOU_DAYS = 30
+WEEK_DAYS = 7                    # Home's "This week in comics" card: what arrived in the last seven days
 NO_MEMBER_KEY = "no_member_key"               # the provisioning trigger (provision.py)
 # Two or more trailing "(...)" groups: the year, "(Digital)", the scanner's tag. Komga's `metadata.title` falls back to
 # the file name when a book has no metadata, and that is how file names end ("Saga 055 (2021) (Digital) (Group)").
@@ -229,7 +230,7 @@ def _released(raw: dict) -> Optional[date]:
 class KomgaAdapter(GuardedAdapter):
     service = Service.KOMGA
     not_offered = frozenset({"continue"})
-    extra_sections = frozenset({"shelves", "released"})
+    extra_sections = frozenset({"shelves", "released", "week"})
 
     def __init__(self, transport: Transport, timeout: float = DEFAULT_TIMEOUT, *,
                  owner_confirms_no_member_restrictions: bool = False,
@@ -317,7 +318,7 @@ class KomgaAdapter(GuardedAdapter):
             title = _title(clean_text(info.get("title")), clean_text(raw.get("name")), series, number)
             kind, subtitle = Kind.COMIC, (f"#{number}" if number else None)
         return MediaItem(creator=creator, year=year_from(info.get("releaseDate")),
-                         released=iso_day(info.get("releaseDate")),
+                         released=iso_day(info.get("releaseDate")), added=iso_day(raw.get("created")),
                          id=f"komga:{book_id}", service=Service.KOMGA, kind=kind, title=title,
                          handoff_url=build_handoff_url(Service.KOMGA, book_id),
                          subtitle=subtitle, series=series,
@@ -523,6 +524,18 @@ class KomgaAdapter(GuardedAdapter):
         have = {it.id for it in out.items}
         return SectionResult.of(Service.KOMGA, "released",
                                 out.items + tuple(it for it in added.items if it.id not in have))
+
+    def _week_items(self, user: UpstreamUser, limit: int) -> SectionResult:
+        """This week (owner request 2026-10-29): every comic issue Komga first scanned (`created`) in the last WEEK_DAYS,
+        newest first, not one per series, so Home can say how many arrived. One page of MAX_PAGE: a full page means at
+        least that many (Home says "100+")."""
+        since = datetime.now(timezone.utc) - timedelta(days=WEEK_DAYS)
+
+        def keep(raw):
+            when = _created(raw)
+            return when is not None and when >= since
+        return self._listing(user, MAX_PAGE, "/api/v1/books", {"sort": ADDED_SORT}, "week", keep=keep,
+                             size=MAX_PAGE, kinds=(Kind.COMIC,))
 
     def _search(self, user: UpstreamUser, query: str, limit: int) -> SectionResult:
         """Search is the SAME shared-account listing as recent (contract 12.2): Komga applies the one regular

@@ -340,6 +340,10 @@ class MediaItem:
     # listen; an Up next or On Deck item carries its series' last one. Home orders Continue by it across libraries
     # (owner request 2026-10-28). In to_dict() only when present.
     active: Optional[str] = None
+    # The day it reached the library, ISO "YYYY-MM-DD" (Audiobookshelf addedAt, Komga created, Calibre-Web's OPDS
+    # <updated>, which Calibre fills with its date added). New Releases uses it to place a book whose release date is only
+    # a year (owner request 2026-10-29). In to_dict() only when present.
+    added: Optional[str] = None
 
     def to_dict(self) -> dict:
         progress = None
@@ -371,6 +375,8 @@ class MediaItem:
             out["tags"] = list(self.tags)
         if self.active:
             out["active"] = self.active
+        if self.added:
+            out["added"] = self.added
         return out
 
 
@@ -378,7 +384,8 @@ class MediaItem:
 class SectionResult:
     """One home-page section from one service. Stable data contract for the UI."""
     service: Service
-    section: str                  # "continue" | "recent" | "next_up" | "shelves" | "released" | "for_you" | "item" | "search"
+    section: str                  # "continue" | "recent" | "next_up" | "shelves" | "released" | "for_you" | "week" | "item"
+                                  # | "search"
     state: SectionState
     items: Tuple[MediaItem, ...] = ()
     reason: Optional[str] = None  # fixed diagnostic code for operators; NOT for display
@@ -571,6 +578,12 @@ class MediaAdapter:
         """New releases: the newest release dates first, nothing dated in the future."""
         raise NotImplementedError
 
+    def _week_items(self, user: UpstreamUser, limit: int) -> SectionResult:
+        """This week (owner request 2026-10-29, Home's "This week in comics" card): every comic issue that reached the
+        library in the last seven days, newest first, NOT one per series, so its length is the week's count. `limit`
+        does not cut it; the adapter's own page size does."""
+        raise NotImplementedError
+
     def _for_you_items(self, user: UpstreamUser, limit: int) -> SectionResult:
         """New for You (owner request 2026-10-28): what arrived lately that is the NEXT thing in a series THIS member is
         caught up on (the next episode, issue or book), newest arrival first. Each item's `active` is when it arrived."""
@@ -631,6 +644,9 @@ class MediaAdapter:
 
     def for_you_items(self, principal: MemberPrincipal, limit: int = DEFAULT_LIMIT) -> SectionResult:
         return self._extra(principal, "for_you", limit, self._for_you_items)
+
+    def week_items(self, principal: MemberPrincipal, limit: int = DEFAULT_LIMIT) -> SectionResult:
+        return self._extra(principal, "week", limit, self._week_items)
 
     def _extra(self, principal: MemberPrincipal, section: str, limit: int, hook) -> SectionResult:
         limit = _limit(limit)
@@ -1034,7 +1050,7 @@ class MediaAdapter:
 
     def cache_ttl(self, section: str) -> float:
         return {"continue": 30.0, "recent": 120.0, "next_up": 30.0, "shelves": 300.0, "released": 300.0,
-                "for_you": 120.0, "item": 120.0}.get(section, 30.0)
+                "for_you": 120.0, "week": 300.0, "item": 120.0}.get(section, 30.0)
 
 
 def _limit(limit: Any) -> int:

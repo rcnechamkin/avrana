@@ -1,0 +1,293 @@
+version: 1
+metadata:
+  name: Avrana - account steps for Media Home (invisible identity)
+  labels:
+    blueprints.goauthentik.io/instantiate: "true"
+# Owner decision 2026-10-28: members never think about "Authentik" and are never sent to its own pages. Media Home
+# (avrana.net/me/security) owns every screen a member reads or manages; Authentik runs only the moments that must
+# prove who the member is. Each of those is ONE single-purpose flow here, styled as Avrana by the brand CSS, that ends
+# with a redirect back to the exact Home page that started it. Home links to these flows only once the owner lists
+# their slugs in HOME_SECURITY_FLOWS (docs/design/ME-ACCOUNT-SECURITY.md).
+#
+#   avrana-password       confirm current password -> new password twice -> write -> back to /me/security/done/password
+#   avrana-passkey        confirm current password -> register a passkey   -> back to /me/security/done/passkey
+#   avrana-authenticator  confirm current password -> set up TOTP          -> back to /me/security/done/totp
+#   avrana-backup-codes   confirm current password -> show static codes    -> back to /me/security/done/recovery_codes
+#   avrana-sign-out       end the Authentik session -> back to avrana.net (the sign-in screen)
+#
+# Why "confirm current password" first: a borrowed or stolen session cookie must not be enough to change the password
+# or to plant a new way in. Every member has a local password today (no external sources are configured).
+#
+# Also here: the service account Home's scoped account reader uses (docs/runbooks/account-reader.md). Its role's
+# permissions are assigned by the owner (see the runbook); this file creates only the identity, group and role.
+#
+# NOT APPLIED. Apply only with the owner's approval, after a backup (AGENTS.md). Check each flow with a test member
+# before setting HOME_SECURITY_FLOWS.
+entries:
+  # --- shared stages -------------------------------------------------------------------------------------------------
+  - model: authentik_stages_password.passwordstage
+    id: stage-confirm-password
+    identifiers:
+      name: avrana-account-confirm-password
+    attrs:
+      backends:
+        - authentik.core.auth.InbuiltBackend
+      failed_attempts_before_cancel: 5
+      allow_show_password: true
+
+  - model: authentik_stages_prompt.prompt
+    id: prompt-new-password
+    identifiers:
+      name: avrana-account-new-password
+    attrs:
+      field_key: password
+      label: New password
+      type: password
+      required: true
+      placeholder: New password
+      order: 0
+      placeholder_expression: false
+
+  - model: authentik_stages_prompt.prompt
+    id: prompt-new-password-repeat
+    identifiers:
+      name: avrana-account-new-password-repeat
+    attrs:
+      field_key: password_repeat
+      label: New password again
+      type: password
+      required: true
+      placeholder: New password again
+      order: 1
+      placeholder_expression: false
+
+  - model: authentik_stages_prompt.promptstage
+    id: stage-new-password
+    identifiers:
+      name: avrana-account-new-password
+    attrs:
+      fields:
+        - !KeyOf prompt-new-password
+        - !KeyOf prompt-new-password-repeat
+
+  - model: authentik_stages_user_write.userwritestage
+    id: stage-write
+    identifiers:
+      name: avrana-account-write
+    attrs:
+      user_creation_mode: never_create
+
+  # The same settings as the invite flow's passkey stage (avrana-enrollment.yaml): "preferred" so Face ID is offered,
+  # not demanded, and hardware keys still work. The passkey's relying party is this host, auth.avrana.net, as for
+  # every passkey members already have.
+  - model: authentik_stages_authenticator_webauthn.authenticatorwebauthnstage
+    id: stage-passkey
+    identifiers:
+      name: avrana-account-passkey
+    attrs:
+      friendly_name: Avrana
+      user_verification: preferred
+      resident_key_requirement: preferred
+
+  - model: authentik_stages_authenticator_totp.authenticatortotpstage
+    id: stage-totp
+    identifiers:
+      name: avrana-account-authenticator
+    attrs:
+      friendly_name: Avrana
+      digits: 6
+
+  - model: authentik_stages_authenticator_static.authenticatorstaticstage
+    id: stage-static
+    identifiers:
+      name: avrana-account-backup-codes
+    attrs:
+      friendly_name: Avrana backup codes
+      token_count: 10
+      token_length: 12
+
+  - model: authentik_stages_user_logout.userlogoutstage
+    id: stage-logout
+    identifiers:
+      name: avrana-account-sign-out
+
+  # --- the way back: one fixed redirect per flow ---------------------------------------------------------------------
+  - model: authentik_stages_redirect.redirectstage
+    id: back-password
+    identifiers:
+      name: avrana-account-back-password
+    attrs:
+      mode: static
+      target_static: https://avrana.net/me/security/done/password
+  - model: authentik_stages_redirect.redirectstage
+    id: back-passkey
+    identifiers:
+      name: avrana-account-back-passkey
+    attrs:
+      mode: static
+      target_static: https://avrana.net/me/security/done/passkey
+  - model: authentik_stages_redirect.redirectstage
+    id: back-totp
+    identifiers:
+      name: avrana-account-back-totp
+    attrs:
+      mode: static
+      target_static: https://avrana.net/me/security/done/totp
+  - model: authentik_stages_redirect.redirectstage
+    id: back-codes
+    identifiers:
+      name: avrana-account-back-codes
+    attrs:
+      mode: static
+      target_static: https://avrana.net/me/security/done/recovery_codes
+  - model: authentik_stages_redirect.redirectstage
+    id: back-home
+    identifiers:
+      name: avrana-account-back-home
+    attrs:
+      mode: static
+      target_static: https://avrana.net/
+
+  # --- flows ---------------------------------------------------------------------------------------------------------
+  - model: authentik_flows.flow
+    id: flow-password
+    identifiers:
+      slug: avrana-password
+    attrs:
+      name: Avrana - change password
+      title: Change your password
+      designation: stage_configuration
+      authentication: require_authenticated
+  - model: authentik_flows.flow
+    id: flow-passkey
+    identifiers:
+      slug: avrana-passkey
+    attrs:
+      name: Avrana - add a passkey
+      title: Add a passkey
+      designation: stage_configuration
+      authentication: require_authenticated
+  - model: authentik_flows.flow
+    id: flow-totp
+    identifiers:
+      slug: avrana-authenticator
+    attrs:
+      name: Avrana - add an authenticator app
+      title: Add an authenticator app
+      designation: stage_configuration
+      authentication: require_authenticated
+  - model: authentik_flows.flow
+    id: flow-codes
+    identifiers:
+      slug: avrana-backup-codes
+    attrs:
+      name: Avrana - backup codes
+      title: Your backup codes
+      designation: stage_configuration
+      authentication: require_authenticated
+  # The portal's invalidation flow (avrana-portal.yaml): replaces default-provider-invalidation-flow, whose closing
+  # "You've logged out" page linked Authentik's dashboard and which left the Authentik session alive. The plan survives
+  # the logout (the executor stores it in the new session), so the redirect after it still runs: CHECK on a test account.
+  - model: authentik_flows.flow
+    id: flow-sign-out
+    identifiers:
+      slug: avrana-sign-out
+    attrs:
+      name: Avrana - sign out
+      title: Signing out
+      designation: invalidation
+      authentication: none
+
+  # --- bindings ------------------------------------------------------------------------------------------------------
+  - model: authentik_flows.flowstagebinding
+    identifiers: {target: !KeyOf flow-password, order: 10}
+    attrs: {stage: !KeyOf stage-confirm-password, evaluate_on_plan: true, re_evaluate_policies: false}
+  - model: authentik_flows.flowstagebinding
+    identifiers: {target: !KeyOf flow-password, order: 20}
+    attrs: {stage: !KeyOf stage-new-password, evaluate_on_plan: true, re_evaluate_policies: false}
+  - model: authentik_flows.flowstagebinding
+    identifiers: {target: !KeyOf flow-password, order: 30}
+    attrs: {stage: !KeyOf stage-write, evaluate_on_plan: true, re_evaluate_policies: false}
+  - model: authentik_flows.flowstagebinding
+    identifiers: {target: !KeyOf flow-password, order: 40}
+    attrs: {stage: !KeyOf back-password, evaluate_on_plan: true, re_evaluate_policies: false}
+
+  - model: authentik_flows.flowstagebinding
+    identifiers: {target: !KeyOf flow-passkey, order: 10}
+    attrs: {stage: !KeyOf stage-confirm-password, evaluate_on_plan: true, re_evaluate_policies: false}
+  - model: authentik_flows.flowstagebinding
+    identifiers: {target: !KeyOf flow-passkey, order: 20}
+    attrs: {stage: !KeyOf stage-passkey, evaluate_on_plan: true, re_evaluate_policies: false}
+  - model: authentik_flows.flowstagebinding
+    identifiers: {target: !KeyOf flow-passkey, order: 30}
+    attrs: {stage: !KeyOf back-passkey, evaluate_on_plan: true, re_evaluate_policies: false}
+
+  - model: authentik_flows.flowstagebinding
+    identifiers: {target: !KeyOf flow-totp, order: 10}
+    attrs: {stage: !KeyOf stage-confirm-password, evaluate_on_plan: true, re_evaluate_policies: false}
+  - model: authentik_flows.flowstagebinding
+    identifiers: {target: !KeyOf flow-totp, order: 20}
+    attrs: {stage: !KeyOf stage-totp, evaluate_on_plan: true, re_evaluate_policies: false}
+  - model: authentik_flows.flowstagebinding
+    identifiers: {target: !KeyOf flow-totp, order: 30}
+    attrs: {stage: !KeyOf back-totp, evaluate_on_plan: true, re_evaluate_policies: false}
+
+  - model: authentik_flows.flowstagebinding
+    identifiers: {target: !KeyOf flow-codes, order: 10}
+    attrs: {stage: !KeyOf stage-confirm-password, evaluate_on_plan: true, re_evaluate_policies: false}
+  - model: authentik_flows.flowstagebinding
+    identifiers: {target: !KeyOf flow-codes, order: 20}
+    attrs: {stage: !KeyOf stage-static, evaluate_on_plan: true, re_evaluate_policies: false}
+  - model: authentik_flows.flowstagebinding
+    identifiers: {target: !KeyOf flow-codes, order: 30}
+    attrs: {stage: !KeyOf back-codes, evaluate_on_plan: true, re_evaluate_policies: false}
+
+  - model: authentik_flows.flowstagebinding
+    identifiers: {target: !KeyOf flow-sign-out, order: 10}
+    attrs: {stage: !KeyOf stage-logout, evaluate_on_plan: true, re_evaluate_policies: false}
+  - model: authentik_flows.flowstagebinding
+    identifiers: {target: !KeyOf flow-sign-out, order: 20}
+    attrs: {stage: !KeyOf back-home, evaluate_on_plan: true, re_evaluate_policies: false}
+
+  # --- the account methods also point here, so nothing offers Authentik's own setup flows ----------------------------
+  # configure_flow is what Authentik's user settings use for "add"; members never see that page, but keeping it on our
+  # flow means the one setup path is the Avrana-styled one with the password confirmation.
+  - model: authentik_stages_authenticator_webauthn.authenticatorwebauthnstage
+    identifiers:
+      name: avrana-account-passkey
+    attrs:
+      configure_flow: !KeyOf flow-passkey
+  - model: authentik_stages_authenticator_totp.authenticatortotpstage
+    identifiers:
+      name: avrana-account-authenticator
+    attrs:
+      configure_flow: !KeyOf flow-totp
+  - model: authentik_stages_authenticator_static.authenticatorstaticstage
+    identifiers:
+      name: avrana-account-backup-codes
+    attrs:
+      configure_flow: !KeyOf flow-codes
+
+  # --- Home's scoped account reader (docs/runbooks/account-reader.md) ------------------------------------------------
+  - model: authentik_rbac.role
+    id: role-reader
+    identifiers:
+      name: Avrana Home reader
+  - model: authentik_core.group
+    id: group-reader
+    identifiers:
+      name: avrana-home-reader
+    attrs:
+      is_superuser: false
+      roles:
+        - !KeyOf role-reader
+  - model: authentik_core.user
+    id: user-reader
+    identifiers:
+      username: avrana-home-reader
+    attrs:
+      name: Avrana Home account reader
+      type: service_account
+      path: goauthentik.io/avrana
+      groups:
+        - !KeyOf group-reader

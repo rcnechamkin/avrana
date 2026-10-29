@@ -70,7 +70,7 @@
 {%- if t == "home" %}<svg class="ic" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false"><path d="M4 10.5 12 4l8 6.5V20h-5.5v-5.5h-5V20H4z"/></svg><span class="tl">Home</span>
 {%- elif t == "library" %}<svg class="ic" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false"><path d="M5 4v16M9 4v16M13.5 4.5l5.5 15"/></svg><span class="tl">Library</span>
 {%- elif t == "search" %}<svg class="ic" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false"><circle cx="10.5" cy="10.5" r="6"/><path d="m15 15 5 5"/></svg><span class="tl">Search</span>
-{%- else %}<span class="me" aria-hidden="true">{{ shell.initial }}</span><span class="tl">Me<span class="sr">, signed in as {{ shell.member_name }}</span></span>
+{%- else %}{% if shell.avatar %}<img class="me me-img" src="/me/avatar?v={{ shell.avatar }}" alt="" width="24" height="24" decoding="async">{% else %}<span class="me" aria-hidden="true">{{ shell.initial }}</span>{% endif %}<span class="tl">Me<span class="sr">, signed in as {{ shell.member_name }}</span></span>
 {%- endif %}</a>
 {% endfor %}
   <span class="lens" aria-hidden="true"></span>
@@ -117,6 +117,20 @@
       <a href="{{ hrefs[loop.index0] if hrefs else t[3] }}"{% if t[2] %} aria-current="true"{% endif %}>{{ t[1] }}{% if t[2] %}<span class="ul" aria-hidden="true"></span>{% endif %}</a>
 {% endfor %}
     </nav>
+{%- endmacro %}
+
+{# "This week in comics" (owner request 2026-10-29): one card in New Releases for the week's comic issues. A pile of the
+   three newest covers (decoration, hidden from assistive technology), the count on a Cream pill, then the words the
+   link is named by: title, "34 new issues", and either "3 from your series" (the member's own state: the yellow dot)
+   or how many series. One plain link to the Comics chip, so it works without script. The fan on hover and focus is
+   the stylesheet's, and only without reduced motion. #}
+{% macro stack_card(s) -%}
+<li class="w-comic w-stack"><a class="card stack" href="{{ s.href }}">
+  <span class="frame pile"><span class="ph" aria-hidden="true">C</span>{% for img in s.images %}<span class="sheet s{{ loop.index }}" aria-hidden="true"><img class="art" src="{{ img }}" alt="" width="160" height="246" loading="lazy"></span>{% endfor %}<span class="count" aria-hidden="true">{{ s.count }}</span></span>
+  <span class="t">This week in comics</span>
+  <span class="d"><span class="sr">, </span>{{ s.line }}</span>
+  {% if s.mine %}<span class="p mine"><span class="sr">, </span>{{ s.mine }}</span>{% elif s.series %}<span class="p"><span class="sr">, </span>{{ s.series }}</span>{% endif +%}
+</a></li>
 {%- endmacro %}
 
 {# The tile that ends a rail (owner request 2026-10-28): Continue's "See all" (a link to the Continue page) or "Show

@@ -213,41 +213,47 @@ def same_origin_form_post(scope) -> bool:
     """True only for a browser form post from this site: `Content-Type: application/x-www-form-urlencoded`, and
     `Sec-Fetch-Site: same-origin`, or (older browsers, no Sec-Fetch-Site) an `Origin` whose host equals `Host`. Each
     header must appear exactly once. A cross-site page can't forge either header (forms.py, CSRF locks)."""
+    return _same_origin_post(scope) == "application/x-www-form-urlencoded"
+
+
+def same_origin_upload_post(scope) -> Optional[str]:
+    """Me → My profile (avatar.py): the full `multipart/form-data; boundary=…` Content-Type of a same-origin browser
+    post (the same Sec-Fetch-Site / Origin locks as above), or None."""
+    full = _same_origin_post(scope, full=True)
+    if full is None or not full.lower().startswith("multipart/form-data") or len(full) > 200:
+        return None
+    return full
+
+
+def _same_origin_post(scope, full: bool = False) -> Optional[str]:
+    """The post's Content-Type (bare, lower case; or `full` as sent) when the same-origin locks hold, else None."""
     wanted = {b"content-type", b"sec-fetch-site", b"origin", b"host"}
     seen: dict = {}
     for raw_name, raw_value in scope.get("headers", ()):
         name = bytes(raw_name).lower()
         if name in wanted:
             if name in seen:
-                return False
+                return None
             try:
                 seen[name] = bytes(raw_value).decode("ascii").strip()
             except UnicodeDecodeError:
-                return False
-    ctype = seen.get(b"content-type", "").split(";", 1)[0].strip().lower()
-    if ctype != "application/x-www-form-urlencoded":
-        return False
+                return None
+    sent = seen.get(b"content-type", "")
+    ctype = sent if full else sent.split(";", 1)[0].strip().lower()
     site = seen.get(b"sec-fetch-site")
     if site is not None:
-        return site == "same-origin"
+        return ctype if site == "same-origin" else None
     origin, host = seen.get(b"origin", "").lower(), seen.get(b"host", "").lower()      # host names ignore case
     for scheme in ("https://", "http://"):
         if origin.startswith(scheme):
-            return bool(host) and origin[len(scheme):] == host
-    return False
-
-
-def security_state_from_scope(scope) -> Optional[str]:
-    """The opaque return state on `/me/security/back?s=<state>` (security.py). Bounded text only; security.py checks
-    its signature against the verified member. It confers no identity and no access, and is never echoed or logged."""
-    from urllib.parse import parse_qsl
-    raw = scope.get("query_string") or b""
-    if not isinstance(raw, (bytes, bytearray)) or len(raw) > 512:
-        return None
-    for key, value in parse_qsl(bytes(raw).decode("ascii", "ignore"), keep_blank_values=False):
-        if key == "s":
-            return value[:160]
+            return ctype if host and origin[len(scheme):] == host else None
     return None
+
+
+def security_result_from_scope(scope) -> Optional[str]:
+    """`?r=<outcome>` on /me/security/sessions after a sign-out post (accountreader.py). Bounded text only; the page
+    checks it against the fixed outcome list and never echoes it. It confers no identity and no access."""
+    return _choice_from_scope(scope, "r")
 
 
 def content_length_from_scope(scope) -> Optional[int]:

@@ -140,7 +140,8 @@ class OfflineTestsWorkflow(unittest.TestCase):
     def test_requirements_are_the_reviewed_hash_pinned_set(self):
         """D-8a (PyYAML) and D-8b (owner, 2026-10-26, AVR-757: web and connector test dependencies).
         Every line is one exact pin with one sha256, or the single include of the avrana-home lock,
-        whose entries are held to the same rule. Adding a package means changing this list."""
+        whose entries are held to the same rule. Adding a package means changing this list. Pillow: owner,
+        2026-10-28 (Me -> My profile photos, avatar.py)."""
         lines = [l.strip() for l in REQUIREMENTS.read_text(encoding='utf-8').splitlines()
                  if l.strip() and not l.lstrip().startswith('#')]
         self.assertNotIn(b'\r', REQUIREMENTS.read_bytes())
@@ -159,7 +160,7 @@ class OfflineTestsWorkflow(unittest.TestCase):
             self.assertRegex(entry, r'^[A-Za-z0-9_.-]+==[\w.]+( --hash=sha256:[0-9a-f]{64})+$')
         locked = {e.split('==', 1)[0].lower() for e in entries}
         self.assertEqual(locked, {'annotated-types', 'anyio', 'certifi', 'click', 'fastapi', 'h11', 'httpcore',
-                                  'httpx', 'idna', 'jinja2', 'markupsafe', 'pydantic', 'pydantic-core',
+                                  'httpx', 'idna', 'jinja2', 'markupsafe', 'pillow', 'pydantic', 'pydantic-core',
                                   'starlette', 'typing-extensions', 'typing-inspection', 'uvicorn'})
         self.assertFalse(names & locked, 'a package pinned twice')
 

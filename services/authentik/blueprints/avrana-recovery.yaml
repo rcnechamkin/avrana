@@ -12,6 +12,7 @@ metadata:
 #   20 email           - flow PAUSES here and resumes when they click the emailed link
 #   30 prompt          - new password + repeat
 #   40 user_write      - commit
+#   50 redirect        - back to avrana.net (the Avrana sign-in screen), never Authentik's own pages
 #
 # The email stage carries the SMTP2GO password, which is why this file stays gitignored, exactly
 # like the ABS/Komga OIDC secrets and the Jellyfin admin key in the other blueprints.
@@ -66,6 +67,18 @@ entries:
     identifiers:
       name: avrana-recovery-write
 
+  # --- back to Avrana --------------------------------------------------------------------------
+  # Without this the flow ends on Authentik's own pages (no `next`: the user interface, which then asks to sign in and
+  # lands on Authentik's dashboard). Owner decision 2026-10-28: members are never left on Authentik's pages. avrana.net
+  # sits behind the outpost, so this shows the Avrana sign-in screen, where the new password works at once.
+  - model: authentik_stages_redirect.redirectstage
+    id: recovery-back
+    identifiers:
+      name: avrana-recovery-back-to-avrana
+    attrs:
+      mode: static
+      target_static: https://avrana.net/
+
   # --- the flow -------------------------------------------------------------------------------
   - model: authentik_flows.flow
     id: flow-recovery
@@ -111,6 +124,15 @@ entries:
       order: 40
     attrs:
       stage: !KeyOf recovery-write
+      evaluate_on_plan: true
+      re_evaluate_policies: false
+
+  - model: authentik_flows.flowstagebinding
+    identifiers:
+      target: !KeyOf flow-recovery
+      order: 50
+    attrs:
+      stage: !KeyOf recovery-back
       evaluate_on_plan: true
       re_evaluate_policies: false
 

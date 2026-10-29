@@ -269,7 +269,7 @@ class JsonViewTests(Fixture):
             for it in s["items"]:
                 self.assertEqual({"id", "service", "kind", "title", "subtitle", "series", "progress",
                                   "artwork", "creator", "year", "summary", "handoff_url"},
-                                 set(it) - {"backdrop", "logo", "released", "active"})   # each only when the library gave it
+                                 set(it) - {"backdrop", "logo", "released", "active", "added"})   # each only when the library gave it
                 if "logo" in it:                       # only when the library gave one (Jellyfin's Logo, H3 refined)
                     self.assertRegex(it["logo"]["ref"], r"^jellyfin/logo/[0-9a-f]{32}$")
                 if "active" in it:                     # when this member last touched it, UTC (2026-10-28)

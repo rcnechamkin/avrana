@@ -21,7 +21,10 @@
         and moves focus to the first of them, and
      13. on a wide screen with a mouse, a pair of arrow buttons on each rail that overflows, because the stylesheet
         hides every scroll bar (owner request 2026-10-28). Keyboard and touch already scroll the rails, so the
-        buttons are left out of the tab order and out of the accessibility tree.
+        buttons are left out of the tab order and out of the accessibility tree, and
+     14. My profile's photo cropper (owner 2026-10-28: members edit their picture): a chosen photo appears in a square,
+        to drag and zoom, and what is sent is that square, already small (a 512px JPEG drawn on a canvas), instead of
+        the whole camera file. The server still decodes and re-encodes whatever arrives (avatar.py).
    It uses no browser storage, writes no HTML from text and does nothing when its elements are absent; only the
    title sheet (8) reads member data, and only the title page the member asked for. Inline preview behaviour (MK-4) is not here yet. */
 (function () {
@@ -781,6 +784,97 @@
     }
   }
 
+  /* 14. Photo cropper. Contract: <form data-crop> with <input type=file name=photo>, a hidden .pf-crop holding a
+     .pf-stage canvas and an <input type=range class=pf-zoom>. On a choice the photo is decoded with createImageBitmap
+     (no blob: URL, which the page's CSP would refuse, and the photo's own orientation applied), shown in the square,
+     and every move or zoom redraws the square and puts it back in the file input as a 512px JPEG (DataTransfer), so
+     the form still submits itself. Anything unsupported (no createImageBitmap or DataTransfer, a decode failure)
+     leaves the original file in place: the server crops it to the centre. Dragging is pointer events on the stage,
+     whose touch-action is none in the stylesheet, so the page doesn't scroll under the finger. */
+  function crop() {
+    var form = document.querySelector('form[data-crop]');
+    if (!form || !window.createImageBitmap || !window.DataTransfer || !HTMLCanvasElement.prototype.toBlob) return;
+    var input = form.querySelector('input[type="file"][name="photo"]');
+    var box = form.querySelector('.pf-crop');
+    var stage = box && box.querySelector('canvas');
+    var zoom = box && box.querySelector('.pf-zoom');
+    if (!input || !stage || !zoom) return;
+    var bitmap = null, name = 'photo.jpg', scale = 1, x = 0, y = 0, seq = 0, drag = null;
+    var OUT = 512;
+    function clamp() {
+      var side = Math.min(bitmap.width, bitmap.height) / scale;
+      x = Math.min(Math.max(x, 0), bitmap.width - side);
+      y = Math.min(Math.max(y, 0), bitmap.height - side);
+      return side;
+    }
+    function draw(canvas, size) {
+      var side = clamp();
+      var ctx = canvas.getContext('2d');
+      ctx.imageSmoothingQuality = 'high';
+      ctx.drawImage(bitmap, x, y, side, side, 0, 0, size, size);
+    }
+    function commit() {                       /* on load and on release only; the last crop wins */
+      var n = ++seq;
+      var out = document.createElement('canvas');
+      out.width = OUT;
+      out.height = OUT;
+      draw(out, OUT);
+      out.toBlob(function (blob) {
+        if (!blob || n !== seq) return;
+        var dt = new DataTransfer();
+        dt.items.add(new File([blob], name.replace(/\.[^.]*$/, '') + '.jpg', { type: 'image/jpeg' }));
+        input.files = dt.files;
+      }, 'image/jpeg', 0.9);
+    }
+    input.addEventListener('change', function () {
+      var file = input.files && input.files[0];
+      if (!file) return;
+      name = file.name || name;
+      createImageBitmap(file).then(function (bm) {
+        bitmap = bm;
+        scale = 1;
+        zoom.value = '1';
+        var side = Math.min(bm.width, bm.height);
+        x = (bm.width - side) / 2;
+        y = (bm.height - side) / 2;
+        box.hidden = false;
+        draw(stage, stage.width);
+        commit();
+      }, function () { box.hidden = true; });
+    });
+    zoom.addEventListener('input', function () {
+      if (!bitmap) return;
+      var before = Math.min(bitmap.width, bitmap.height) / scale;
+      scale = parseFloat(zoom.value) || 1;
+      var after = Math.min(bitmap.width, bitmap.height) / scale;
+      x += (before - after) / 2;            // zoom about the middle of the square
+      y += (before - after) / 2;
+      draw(stage, stage.width);
+    });
+    zoom.addEventListener('change', commit);
+    stage.addEventListener('pointerdown', function (event) {
+      if (!bitmap) return;
+      drag = { id: event.pointerId, px: event.clientX, py: event.clientY };
+      stage.setPointerCapture(event.pointerId);
+    });
+    stage.addEventListener('pointermove', function (event) {
+      if (!drag || event.pointerId !== drag.id) return;
+      var ratio = (Math.min(bitmap.width, bitmap.height) / scale) / stage.getBoundingClientRect().width;
+      x -= (event.clientX - drag.px) * ratio;
+      y -= (event.clientY - drag.py) * ratio;
+      drag.px = event.clientX;
+      drag.py = event.clientY;
+      draw(stage, stage.width);
+    });
+    function end(event) {
+      if (!drag || event.pointerId !== drag.id) return;
+      drag = null;
+      commit();
+    }
+    stage.addEventListener('pointerup', end);
+    stage.addEventListener('pointercancel', end);
+  }
+
   lens();
   bfcache();
   worker();
@@ -794,4 +888,5 @@
   once();
   more();
   railButtons();
+  crop();
 })();

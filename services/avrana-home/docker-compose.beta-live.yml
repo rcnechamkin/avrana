@@ -61,6 +61,10 @@ services:
       # komga_admin_token entry at the bottom, and use the second `secrets:` line below.
       # - KOMGA_MEMBER_KEYS_FILE=/var/lib/avrana-home/komga_member_keys
       # - KOMGA_ADMIN_TOKEN_FILE=/run/secrets/komga_admin_token
+      # Me -> My profile (members' own photo and display name; memberstore.py). One SQLite file in the same ./state
+      # mount. Off until the owner sets up ./state; then uncomment this line and the `volumes:` line. Back up
+      # ./state/members.sqlite3 with ./state; offboarding a member purges their row (docs/runbooks/offboarding.md).
+      # - HOME_MEMBER_STORE=/var/lib/avrana-home/members.sqlite3
       - KOMGA_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS=yes
       - CALIBRE_WEB_BASE_URL=http://calibre-web-automated:8083
       - CALIBRE_WEB_CREDENTIAL_FILE=/run/secrets/calibre_web_credential
