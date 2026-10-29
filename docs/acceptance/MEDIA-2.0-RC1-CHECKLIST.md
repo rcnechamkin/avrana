@@ -17,7 +17,7 @@ audio plays, a page renders in the reader) in the right app, at the right item, 
 | Owner physical-device tests | owner, with a **non-admin** tester account | Journeys A to F on real hardware and the live beta |
 | Independent member acceptance | 3 to 5 consenting members, unaided | That someone other than the builder can use it |
 
-Before members: items 1 to 6 of the RC1 owner list are done (S1 fix deployed and enrollment policy applied, e-mail proven, admin MFA, restore drill). Username and e-mail self-service changes were verified off on 2026-10-29.
+Before members: items 1 to 6 of the RC1 owner list are done (S1 bindings seeded and deployed and the enrollment policy applied, e-mail proven, admin MFA, restore drill). Username and e-mail self-service changes were verified off on 2026-10-29.
 
 ## Severity
 
@@ -48,6 +48,8 @@ With two non-admin testers whose libraries differ (one without comics, say):
 3. Remove tester 2 from a library group in Authentik; within 2 minutes tester 2 no longer sees that library or its
    covers (reload).
 4. Tester 1 makes a request; tester 2's My requests does not list it.
+5. `docker exec avrana-home-beta python3 -m avrana_home.identity_bindings count` shows the expected bound and
+   reserved numbers, and `docker logs avrana-home-beta | grep identity_jwt` shows no `bindings_unavailable` (S1).
 
 ## Results template
 
@@ -61,7 +63,7 @@ C  ...
 D  ...
 E  (owner only)
 F  ...
-Isolation 1-4: ...
+Isolation 1-5: ...
 Unaided? yes/no (did they need help; where)
 One thing that confused you:
 Would you use this instead of the apps directly? yes/no/sometimes
