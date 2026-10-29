@@ -158,6 +158,17 @@ class ItemVM:
     def shape(self) -> str:
         return self.art_shape or SHAPE.get(self.kind, "poster")
 
+    @property
+    def library(self) -> str:
+        """The library a member would say it is in: a Komga e-book is a book (`home_library`). `service` still
+        decides which app it opens in."""
+        return home_library(self.service, self.kind)
+
+
+def home_library(service, kind) -> str:
+    """Komga holds books as well as comics (owner decision 2026-10-29): an e-book from it belongs with Books."""
+    return "calibre-web" if service == "komga" and kind == "ebook" else service
+
 
 @dataclass(frozen=True)
 class SectionVM:
@@ -493,10 +504,21 @@ def initial_of(name: str) -> str:
 
 
 def _sections_by_service(view: dict) -> dict:
+    """Sections by the library they belong to. A Komga section that answered with e-books gives them to Books: the
+    e-books move to a Books section of the same name (state "ok"), and the Komga section keeps the comics, so every
+    row, tab and heading built from this dict files them under Books (`home_library`)."""
     out: dict = {}
     for raw in view.get("sections", ()):
-        if raw.get("service") in SERVICE_LABEL and raw.get("state") not in (None, "not_permitted"):
-            out.setdefault(raw["service"], []).append(raw)
+        if raw.get("service") not in SERVICE_LABEL or raw.get("state") in (None, "not_permitted"):
+            continue
+        items = raw.get("items") or ()
+        books = [it for it in items if isinstance(it, dict)
+                 and home_library(raw["service"], it.get("kind")) != raw["service"]]
+        if books and raw.get("state") == "ok":
+            comics = [it for it in items if it not in books]
+            raw = dict(raw, items=comics, state="ok" if comics else "empty")
+            out.setdefault("calibre-web", []).append(dict(raw, service="calibre-web", items=books, state="ok"))
+        out.setdefault(raw["service"], []).append(raw)
     return out
 
 
@@ -620,7 +642,7 @@ def action_of(it: ItemVM, in_continue: bool) -> Tuple[str, str]:
     upstream product). The Home hero is the one exception: its button names the app that opens (HERO_APP), as
     the approved design shows. It never claims that playback starts: the library opens at the item."""
     verb = "Resume" if (in_continue and it.resumable) else "Open"
-    library = SERVICE_LABEL.get(it.service)
+    library = SERVICE_LABEL.get(it.library)
     return verb, (f"{verb} in {library}" if library else verb)
 
 
@@ -661,7 +683,7 @@ def hero_of(it: ItemVM, state: str, title_services=frozenset()) -> Optional[Hero
     item lookup and the id is valid; otherwise there is no Details at all, never a dead link."""
     if it.service not in HERO_APP or not handoff_ok(it.href, it.service):
         return None
-    library = SERVICE_LABEL[it.service]
+    library = SERVICE_LABEL[it.library]
     kind = KIND_LABEL.get(it.kind)
     if state == "continue":
         meta = " · ".join(x for x in (it.progress or (UP_NEXT if it.up_next else it.detail), library) if x)
@@ -827,7 +849,7 @@ def build_home(view: dict, tiles, *, new_tab: Optional[str] = None, limit: int =
 
     released, released_more, released_tabs, released_more_href = (), (), (), None
     if focus is None:
-        released, released_more = _split(_cards(picked, lambda it: it.detail or SERVICE_LABEL.get(it.service),
+        released, released_more = _split(_cards(picked, lambda it: it.detail or SERVICE_LABEL.get(it.library),
                                                 title_services=title_services), limit, more == "released")
         if len(chips) > 1:
             released_tabs = tuple((k, label, k == (rel or NEW_ALL),
