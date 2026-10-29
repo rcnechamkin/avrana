@@ -257,11 +257,12 @@ class MockJellyfin:
                 for item in body["Items"]:
                     item.setdefault("UserData", {})["UserId"] = other_id
                 return self._json(h, body)
-            return self._json(h, self._per_user("resume", name))
+            return self._json(h, _dated(self._per_user("resume", name), "LastPlayedDate", (1, 3, 9)))
         if path == "/Items/Latest":
             return self._json(h, self._per_user("latest", name))
         if path == "/Shows/NextUp":
-            return self._json(h, self._per_user("nextup", name))
+            # Continue's order and New for You (2026-10-28): the third Up next episode arrived yesterday (SYNTHETIC).
+            return self._json(h, _dated(self._per_user("nextup", name), "DateCreated", (200, 200, 1, 200)))
         if path == "/Items" and "sortBy" in query:          # New releases: a premiere date per item (SYNTHETIC)
             kinds = set(query.get("includeItemTypes", "").split(","))
             today = datetime.date.today()
@@ -295,6 +296,18 @@ class MockJellyfin:
             h.wfile.write(body)
         except OSError:                      # the client gave up (a timeout is the point of slow mode)
             pass
+
+
+def _dated(body, field, days_ago):
+    """A copy of a list body whose items carry a SYNTHETIC date `field` (LastPlayedDate in UserData, else on the item),
+    n days ago in `days_ago` order, the last value repeated. Counted from the start of today (UTC), so two requests
+    a moment apart see the same dates."""
+    body = copy.deepcopy(body)
+    now = datetime.datetime.now(datetime.timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    for n, item in enumerate(body.get("Items", [])):
+        when = (now - datetime.timedelta(days=days_ago[min(n, len(days_ago) - 1)])).strftime("%Y-%m-%dT%H:%M:%SZ")
+        (item.setdefault("UserData", {}) if field == "LastPlayedDate" else item)[field] = when
+    return body
 
 
 def main() -> None:

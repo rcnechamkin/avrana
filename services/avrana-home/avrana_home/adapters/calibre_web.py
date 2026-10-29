@@ -1,4 +1,4 @@
-"""Calibre-Web read-only catalogue adapter: one section, "Recently added" (ebooks), through OPDS.
+"""Calibre-Web read-only catalogue adapter: "Recently added" and New releases (ebooks), through OPDS.
 
 Status: proposed, not deployed. Standard library only. Proven only against HAND-WRITTEN fixtures that
 are unverified against the deployed Calibre-Web (Automated); a recorded, read-only contract check is a
@@ -24,12 +24,19 @@ does. That must be false before the adapter is enabled, or the owner must choose
 OPDS is Atom/XML from an upstream: the body is size-capped by the transport, documents with a DOCTYPE or
 entity declaration are refused before parsing, and every parser failure is `UpstreamMalformed`.
 
+Release dates (owner request 2026-10-28, the Books chip of Home's New Releases): the one date OPDS gives a book that
+means "released" is the entry's `<published>` (Calibre's publication date; `<updated>` is only the last edit, and the
+feed's order is the date ADDED). Calibre's "unknown" date (year 101) is not a date (`iso_day`). There is no OPDS route
+that sorts by publication date, so New releases is the newest-ADDED page (`/opds/new`) put in publication order,
+without the books that have no date: a calm approximation, never a date Home made up.
+
 Route, feed and field names are recalled from Calibre-Web's public behaviour and are UNVERIFIED.
 """
 from __future__ import annotations
 
 import re
 import xml.etree.ElementTree as ET
+from datetime import datetime, timezone
 from typing import Any, List, Optional, Tuple
 
 from ..contract import (ArtworkRef, ArtworkResult, DEFAULT_LIMIT, Kind, MediaItem, SectionResult,
@@ -37,7 +44,7 @@ from ..contract import (ArtworkRef, ArtworkResult, DEFAULT_LIMIT, Kind, MediaIte
                         valid_upstream_id)
 from ..principal import MemberPrincipal
 from ..resilience import DEFAULT_TIMEOUT, ItemGone, RouteMissing, Transport, UpstreamMalformed
-from ._base import GuardedAdapter, Route, year_from
+from ._base import GuardedAdapter, Route, iso_day, year_from
 from ._base import GuardedTransport as _Guard
 
 SHARED_VIEWER = "shared"                      # the fixed, non-member upstream "user": a shared view, by design
@@ -97,6 +104,7 @@ def _relative(href: Any) -> Optional[str]:
 class CalibreWebAdapter(GuardedAdapter):
     service = Service.CALIBRE_WEB
     not_offered = frozenset({"continue", "item"})
+    extra_sections = frozenset({"released"})
 
     def __init__(self, transport: Transport, timeout: float = DEFAULT_TIMEOUT, *,
                  owner_confirms_no_member_restrictions: bool = False, **kw):
@@ -144,6 +152,10 @@ class CalibreWebAdapter(GuardedAdapter):
                          title=title, handoff_url=build_handoff_url(Service.CALIBRE_WEB, book_id),
                          subtitle=author, creator=author,
                          year=year_from(entry.findtext(_ATOM + "published")),
+                         released=iso_day(entry.findtext(_ATOM + "published")),
+                         # Calibre-Web writes Calibre's date added as <updated> (live 2026-10-29: never rises down the
+                         # newest-added feed); New Releases places a year-only book with it.
+                         added=iso_day(entry.findtext(_ATOM + "updated")),
                          artwork=ArtworkRef(f"calibre-web/cover/{book_id}",
                                                              f"Cover of {title}")), "ok"
 
@@ -153,6 +165,19 @@ class CalibreWebAdapter(GuardedAdapter):
         entries: List[Any] = parse_feed(resp.body).findall(_ATOM + "entry")
         items = self._parse_many(entries, MAX_ENTRIES, self._book)
         return SectionResult.of(Service.CALIBRE_WEB, "recent", items[:limit])
+
+    def _released_items(self, user: UpstreamUser, limit: int) -> SectionResult:
+        """Books by publication date, newest first, none later than today: the newest-added page (the only list OPDS
+        offers) without the books that have no publication date. See the module note: an approximation, not a date
+        index of the whole catalogue."""
+        guard = self._guard.bind(user.upstream_id)
+        resp = self._get(guard, self._budget(), "/opds/new", None)
+        entries: List[Any] = parse_feed(resp.body).findall(_ATOM + "entry")
+        today = datetime.now(timezone.utc).date().isoformat()
+        dated = [it for it in self._parse_many(entries, MAX_ENTRIES, self._book)
+                 if it.released is not None and it.released <= today]
+        dated.sort(key=lambda it: it.released, reverse=True)       # stable: ties keep the feed's (added) order
+        return SectionResult.of(Service.CALIBRE_WEB, "released", tuple(dated[:limit]))
 
     def _search(self, user: UpstreamUser, query: str, limit: int) -> SectionResult:
         """OPDS search of the SHARED viewer account's catalogue (contract 13.2 invariant), like recent. The term

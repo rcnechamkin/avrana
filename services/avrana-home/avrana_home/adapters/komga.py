@@ -26,7 +26,13 @@ ever have Komga restrictions, so there is nothing per member to enforce. What th
     key (provision.py, "Home does it", 2026-10-28), else `not_offered`. A refused member key is that member's
     problem: an empty row, never a count against the circuit every member shares.
     An On Deck book carries `shelf="next"` (UP_NEXT) and no progress, so Home can say "Up next" instead of
-    passing it off as started.
+    passing it off as started. Every Continue book carries `active` (owner request 2026-10-28: Home orders Continue by
+    it across libraries): an in-progress book its own `readProgress.readDate`, an On Deck book the newest read date in
+    its series, from one more own-key call (the member's read books, newest first).
+  * New for You (owner request 2026-10-28), also with the member's own key only: their On Deck books that Komga first
+    scanned (`created`) in the last FOR_YOU_DAYS, newest first. On Deck is the book after the last one read in a series
+    with nothing in progress, so a new issue shows only when the member was caught up (behind, On Deck is an older
+    book). A member without a key: not offered, as Continue.
   * A book with no metadata has its file name as `metadata.title`; `_title` shows "<series> #<number>" instead.
   * A reflowable EPUB (`media.mediaProfile` EPUB, not DiViNa-compatible) is an EBOOK: its own title, the author as
     subtitle, no "#<number>", and no series when the series is only its Calibre "Title (id)" folder.
@@ -60,9 +66,9 @@ from ..contract import (ArtworkRef, ArtworkResult, DEFAULT_LIMIT, Kind, MediaIte
                         clean_text, credits_of, valid_upstream_id)
 from .. import media_ids
 from ..principal import MemberPrincipal
-from ..resilience import (DEFAULT_TIMEOUT, ItemGone, RouteMissing, Transport, UpstreamAuthError,
+from ..resilience import (DEFAULT_TIMEOUT, ItemGone, RouteMissing, Transport, UpstreamAuthError, UpstreamError,
                           UpstreamMalformed, UpstreamMisbehaved)
-from ._base import GuardedAdapter, Route, bounded_int, iso_day, year_from
+from ._base import GuardedAdapter, Route, bounded_int, iso_day, iso_instant, year_from
 from ._base import GuardedTransport as _Guard
 from ..member_keys import MemberKeyStore, member_key_id  # noqa: F401  (member_key_id is re-exported)
 
@@ -75,6 +81,11 @@ MAX_PAGE = 100                   # books asked for in one page, whatever the lim
 RELEASE_AHEAD_DAYS = 92
 ADDED_SORT, RELEASED_SORT = "created,desc", "metadata.releaseDate,desc"     # fixed values, never member input
 READING_SORT, IN_PROGRESS = "readProgress.readDate,desc", "IN_PROGRESS"      # likewise
+READ = "READ"
+# New for You (owner request 2026-10-28): an On Deck book (the next unread book of a series the member is caught up on)
+# that Komga first scanned in the last FOR_YOU_DAYS.
+FOR_YOU_DAYS = 30
+WEEK_DAYS = 7                    # Home's "This week in comics" card: what arrived in the last seven days
 NO_MEMBER_KEY = "no_member_key"               # the provisioning trigger (provision.py)
 # Two or more trailing "(...)" groups: the year, "(Digital)", the scanner's tag. Komga's `metadata.title` falls back to
 # the file name when a book has no metadata, and that is how file names end ("Saga 055 (2021) (Digital) (Group)").
@@ -219,7 +230,7 @@ def _released(raw: dict) -> Optional[date]:
 class KomgaAdapter(GuardedAdapter):
     service = Service.KOMGA
     not_offered = frozenset({"continue"})
-    extra_sections = frozenset({"shelves", "released"})
+    extra_sections = frozenset({"shelves", "released", "week"})
 
     def __init__(self, transport: Transport, timeout: float = DEFAULT_TIMEOUT, *,
                  owner_confirms_no_member_restrictions: bool = False,
@@ -238,8 +249,9 @@ class KomgaAdapter(GuardedAdapter):
         self._member_transport = member_transport     # one member's key -> an inner Transport carrying it
         self._guards: Dict[str, MemberGuardedTransport] = {}
         self._provisioning = bool(provisioning) and member_keys is not None
-        if member_keys is not None:                    # Continue is offered (to the members with a key)
+        if member_keys is not None:                    # Continue and New for You are offered (to the members with a key)
             self.not_offered = frozenset()
+            self.extra_sections = self.extra_sections | {"for_you"}
 
     def __repr__(self) -> str:
         return "KomgaAdapter(<redacted>)"
@@ -263,6 +275,15 @@ class KomgaAdapter(GuardedAdapter):
         limit = _limit(limit)
         return self._section(principal, "continue", f"continue:{limit}",
                              lambda user: self._reading(guard, limit))
+
+    def for_you_items(self, principal: MemberPrincipal, limit: int = DEFAULT_LIMIT) -> SectionResult:
+        """New for You, with the member's own key only; without one (or without member keys at all), not offered."""
+        self._require_principal(principal)
+        guard = self._member_guard(principal.email) if "for_you" in self.extra_sections else None
+        if guard is None:
+            return self._not_offered(principal, "for_you")
+        limit = _limit(limit)
+        return self._section(principal, "for_you", f"for_you:{limit}", lambda user: self._for_you(guard, limit))
 
     # -- mapping: none. A shared view (OWNER DECISION, contract 12.2) ------------------------
     def _resolve_user(self, principal) -> UpstreamUser:
@@ -297,7 +318,7 @@ class KomgaAdapter(GuardedAdapter):
             title = _title(clean_text(info.get("title")), clean_text(raw.get("name")), series, number)
             kind, subtitle = Kind.COMIC, (f"#{number}" if number else None)
         return MediaItem(creator=creator, year=year_from(info.get("releaseDate")),
-                         released=iso_day(info.get("releaseDate")),
+                         released=iso_day(info.get("releaseDate")), added=iso_day(raw.get("created")),
                          id=f"komga:{book_id}", service=Service.KOMGA, kind=kind, title=title,
                          handoff_url=build_handoff_url(Service.KOMGA, book_id),
                          subtitle=subtitle, series=series,
@@ -375,11 +396,54 @@ class KomgaAdapter(GuardedAdapter):
             return None
         return page / pages
 
+    def _own_page(self, guard, budget, path: str, params: Dict[str, str], size: int) -> list:
+        """One page of books read with the member's own key: the raw list (UpstreamAuthError passes to the caller)."""
+        body = self._get_json(guard, budget, path, dict(params, page="0", size=str(size)))
+        raws = body.get("content") if isinstance(body, dict) else None
+        if not isinstance(raws, list):
+            raise UpstreamMalformed()
+        if len(raws) > size:
+            raise UpstreamMisbehaved()                         # the page size was ignored
+        return raws
+
+    def _series_last_read(self, guard, budget) -> Dict[str, str]:
+        """{series id: the member's newest read date in it}, from their read books, newest first (own key)."""
+        out: Dict[str, str] = {}
+        for raw in self._own_page(guard, budget, "/api/v1/books", {"read_status": READ, "sort": READING_SORT},
+                                  MAX_PAGE):
+            series_id = raw.get("seriesId") if isinstance(raw, dict) else None
+            prog = raw.get("readProgress") if isinstance(raw, dict) else None
+            when = iso_instant(prog.get("readDate")) if isinstance(prog, dict) else None
+            if _item_id(series_id) and when and when > out.get(series_id, ""):
+                out[series_id] = when
+        return out
+
+    def _for_you(self, member_guard: MemberGuardedTransport, limit: int) -> SectionResult:
+        """The member's On Deck books first scanned in the last FOR_YOU_DAYS, newest first, `active` = when scanned."""
+        guard, budget = member_guard.bind(SHARED_VIEWER), self._budget()
+        since = datetime.now(timezone.utc) - timedelta(days=FOR_YOU_DAYS)
+        try:
+            raws = self._own_page(guard, budget, "/api/v1/books/ondeck", {}, MAX_PAGE)
+        except UpstreamAuthError:
+            return SectionResult(Service.KOMGA, "for_you", SectionState.EMPTY, reason="member_key_refused")
+        shown, bad = [], 0
+        for raw in raws:
+            item, status = self._book(raw)
+            bad += status == "bad"
+            when = _created(raw) if item is not None else None
+            if when is not None and when >= since and all(item.id != s.id for s in shown):
+                shown.append(dataclasses.replace(item, shelf=UP_NEXT, active=iso_instant(when.isoformat())))
+        if not shown and bad:
+            raise UpstreamMalformed()
+        shown.sort(key=lambda i: i.active or "", reverse=True)
+        return SectionResult.of(Service.KOMGA, "for_you", tuple(shown[:limit]))
+
     def _reading(self, member_guard: MemberGuardedTransport, limit: int) -> SectionResult:
-        """In-progress books (most recently read first), then On Deck, as one list. Both calls use the member's own
+        """In-progress books (most recently read first), then On Deck, as one list. Every call uses the member's own
         key. A refused key (401/403) is the member's, not the service's: an empty row, never counted."""
         guard, budget = member_guard.bind(SHARED_VIEWER), self._budget()
         shown, bad, seen = [], 0, set()
+        last_read: Optional[Dict[str, str]] = None
         pages = (("/api/v1/books", {"read_status": IN_PROGRESS, "sort": READING_SORT}, True),
                  ("/api/v1/books/ondeck", {}, False))
         for path, params, in_progress in pages:
@@ -402,9 +466,17 @@ class KomgaAdapter(GuardedAdapter):
                     continue
                 seen.add(item.id)
                 if in_progress:
-                    item = dataclasses.replace(item, progress_fraction=self._progress(raw))
+                    prog = raw.get("readProgress")
+                    item = dataclasses.replace(item, progress_fraction=self._progress(raw),
+                                               active=iso_instant(prog.get("readDate")) if isinstance(prog, dict)
+                                               else None)
                 else:                                          # On Deck: the next unread book, nothing read yet
-                    item = dataclasses.replace(item, shelf=UP_NEXT)
+                    if last_read is None:
+                        try:
+                            last_read = self._series_last_read(guard, budget)
+                        except UpstreamError:                  # only the order suffers: the row still shows
+                            last_read = {}
+                    item = dataclasses.replace(item, shelf=UP_NEXT, active=last_read.get(raw.get("seriesId")))
                 shown.append(item)
         if not shown and bad:
             raise UpstreamMalformed()                          # nothing usable and some drift: never "empty"
@@ -429,15 +501,41 @@ class KomgaAdapter(GuardedAdapter):
                              per_series=True, size=MAX_PAGE, shelf="new")
 
     def _released_items(self, user: UpstreamUser, limit: int) -> SectionResult:
-        """Home's New releases (owner decision 2026-10-28): the same listing as the New releases shelf, as its own
-        section. Cover dates run ahead of sale, so Home sorts a future date as today."""
+        """Home's New releases (owner decision 2026-10-28): the newest release dates, one book per series, as its own
+        section. Cover dates run ahead of sale, so Home sorts a future date as today.
+
+        Up to `limit` of EACH kind (owner request 2026-10-28, the Books chip): the newest releases are nearly all
+        issues, so one `limit`-long list would never hold a novel. A novel's release date is usually years old, so
+        the newest page still may hold fewer than `limit` of them; then the library's newest ADDITIONS (the Recently
+        added order) are read once more for novels that have a release day, and fill the rest. Komga's book list has
+        no filter by kind (GET, and no `media_profile` key in the allow-list), so this is a second page, not a query."""
         latest = _today() + timedelta(days=RELEASE_AHEAD_DAYS)
 
         def keep(raw):
             day = _released(raw)
             return day is not None and day <= latest
-        return self._listing(user, limit, "/api/v1/books", {"sort": RELEASED_SORT}, "released", keep=keep,
-                             per_series=True, size=MAX_PAGE)
+        out = self._listing(user, limit, "/api/v1/books", {"sort": RELEASED_SORT}, "released", keep=keep,
+                            per_series=True, size=MAX_PAGE, per_kind=True)
+        novels = [it for it in out.items if it.kind is Kind.EBOOK]
+        if len(novels) >= limit:
+            return out
+        added = self._listing(user, limit - len(novels), "/api/v1/books", {"sort": ADDED_SORT}, "released",
+                              keep=keep, per_series=True, size=MAX_PAGE, kinds=(Kind.EBOOK,))
+        have = {it.id for it in out.items}
+        return SectionResult.of(Service.KOMGA, "released",
+                                out.items + tuple(it for it in added.items if it.id not in have))
+
+    def _week_items(self, user: UpstreamUser, limit: int) -> SectionResult:
+        """This week (owner request 2026-10-29): every comic issue Komga first scanned (`created`) in the last WEEK_DAYS,
+        newest first, not one per series, so Home can say how many arrived. One page of MAX_PAGE: a full page means at
+        least that many (Home says "100+")."""
+        since = datetime.now(timezone.utc) - timedelta(days=WEEK_DAYS)
+
+        def keep(raw):
+            when = _created(raw)
+            return when is not None and when >= since
+        return self._listing(user, MAX_PAGE, "/api/v1/books", {"sort": ADDED_SORT}, "week", keep=keep,
+                             size=MAX_PAGE, kinds=(Kind.COMIC,))
 
     def _search(self, user: UpstreamUser, query: str, limit: int) -> SectionResult:
         """Search is the SAME shared-account listing as recent (contract 12.2): Komga applies the one regular
@@ -446,9 +544,11 @@ class KomgaAdapter(GuardedAdapter):
 
     def _listing(self, user: UpstreamUser, limit: int, path: str, params: Dict[str, str], section: str, *,
                  keep=None, per_series: bool = False, size: Optional[int] = None,
-                 shelf: Optional[str] = None) -> SectionResult:
+                 shelf: Optional[str] = None, per_kind: bool = False,
+                 kinds: Optional[Tuple[Kind, ...]] = None) -> SectionResult:
         """One page of books, in the upstream's order. `keep` drops a book legitimately (not drift); `per_series`
-        keeps only the first (newest) book of each series."""
+        keeps only the first (newest) book of each series; `per_kind` counts `limit` for each kind apart (issues and
+        novels), so a long run of one cannot crowd the other out of the page; `kinds` keeps only those kinds."""
         guard, budget = self._guard.bind(user.upstream_id), self._budget()
         size = min(MAX_PAGE, size or limit * 3)
         body = self._get_json(guard, budget, path, dict(params, page="0", size=str(size)))
@@ -460,11 +560,15 @@ class KomgaAdapter(GuardedAdapter):
         shown, series = [], set()
         bad = 0
         for raw in raws:
-            if len(shown) >= limit:
+            if len(shown) >= limit and not per_kind:
                 break
             item, status = self._book(raw)
             bad += status == "bad"
             if item is None or (keep is not None and not keep(raw)) or any(item.id == s.id for s in shown):
+                continue
+            if kinds is not None and item.kind not in kinds:
+                continue
+            if per_kind and sum(1 for s in shown if s.kind is item.kind) >= limit:
                 continue
             if per_series:
                 key = raw.get("seriesId") if isinstance(raw.get("seriesId"), str) else item.id

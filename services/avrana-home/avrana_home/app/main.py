@@ -30,7 +30,7 @@ from ..adapters.audiobookshelf import AudiobookshelfAdapter
 from ..adapters.jellyfin import JellyfinAdapter
 from ..adapters.calibre_web import CalibreWebAdapter
 from ..adapters.komga import KomgaAdapter
-from ..aggregate import gather, health_summary, search as run_search
+from ..aggregate import gather, gather_pairs, health_summary, search as run_search, waves
 from urllib.parse import urlencode
 
 from ..contract import REQUIRED_GROUP, MediaAdapter, SectionState, Service, build_handoff_url
@@ -1191,7 +1191,9 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
         whose own sections did not all answer (down, refused, not set up, not permitted) is not asked again on this
         page: one failed mapping per page (AVR-756), and nothing newer than what Continue was refused. `limit` is what
         each library is asked for per section: more than a rail shows (HOME_FETCH), so Home knows when there is more
-        (owner request 2026-10-28); the Continue page asks for everything (CONTINUE_PAGE_MOST)."""
+        (owner request 2026-10-28); the Continue page asks for everything (CONTINUE_PAGE_MOST). The extras run in waves
+        (`aggregate.waves`): Movies and TV has three on All and Watch (Up next, New releases, New for You), so its third
+        follows the first two instead of being refused as busy."""
         result = await run_in_threadpool(gather, viewer.principal, adapter_list, sections, limit)
         if provisioner is not None and provisioner.candidates(result.sections):
             # A library said "no account with this name": create it once, forget the cached "absent" mapping and
@@ -1208,11 +1210,10 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
         for s in sections:
             answered[s.service.value] = answered.get(s.service.value, True) and s.state in (SectionState.OK,
                                                                                          SectionState.EMPTY)
-        if extras and any(answered.get(service) for service, _section in extras):
-            wanted = {service for service, _section in extras if answered.get(service)}
-            more = await run_in_threadpool(gather, viewer.principal,
-                                           [a for a in adapter_list if a.service.value in wanted],
-                                           tuple(dict.fromkeys(section for _service, section in extras)), limit)
+        for wave in waves([(service, section) for service, section in extras if answered.get(service)]):
+            more = await run_in_threadpool(gather_pairs, viewer.principal,
+                                           [a for a in adapter_list if a.service.value in {s for s, _x in wave}],
+                                           wave, limit)
             sections += more.sections
             view["sections"] += more.member_view()["sections"]
         for s in sections:

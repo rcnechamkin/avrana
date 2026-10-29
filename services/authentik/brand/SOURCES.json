@@ -10,12 +10,13 @@
    "licence": "AVRANA, all rights reserved (brand package README, Licences)",
    "embedded": true
   },
-  "geist_variable": {
-   "package_path": "03-Typography-and-Colors/fonts/Geist-Variable.woff2",
-   "bytes": 69652,
-   "sha256": "a369fcf5628ea2aa4e1b9e2ec6a5b3624e365bda588e1f0f2f12b564f728fbb8",
-   "licence": "SIL Open Font License 1.1 (03-Typography-and-Colors/fonts/OFL.txt)",
-   "embedded": false
+  "plus_jakarta_latin": {
+   "repo_path": "services/avrana-home/avrana_home/app/brand/PlusJakartaSans-Latin-Variable.woff2.b64",
+   "bytes": 27348,
+   "sha256": "153fc85b70298beeb1d61a5f723331649e7f23bb77302a66e61cb3e2fbdb5e79",
+   "licence": "SIL Open Font License 1.1 (services/avrana-home/avrana_home/app/brand/OFL-PlusJakartaSans.txt)",
+   "source": "npm @fontsource-variable/plus-jakarta-sans 5.3.0: the same file Media Home serves",
+   "embedded": true
   }
  }
 }

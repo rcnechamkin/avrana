@@ -13,8 +13,9 @@ below is the one place to change.
 """
 from __future__ import annotations
 
+import dataclasses
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping, Optional, Tuple
 
 from ..contract import (ArtworkRef, ArtworkResult, Kind, MappingFailed, MediaItem, SectionResult,
@@ -24,8 +25,8 @@ from ..resilience import (DEFAULT_TIMEOUT, ItemGone, RouteMissing, Transport, Up
                           UpstreamMisbehaved, UserGone)
 from .. import media_ids
 from . import _base
-from ._base import (GuardedAdapter, Route, bounded_int, image_magic_ok, lookup_username, match_exactly_one,
-                    member_override)
+from ._base import (GuardedAdapter, Route, bounded_int, image_magic_ok, iso_instant, lookup_username,
+                    match_exactly_one, member_override)
 
 TICKS_PER_SECOND = 10_000_000
 _GUID = re.compile(r"[0-9a-fA-F]{8}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{12}")
@@ -42,6 +43,12 @@ _TITLE_FIELDS = _ITEM_FIELDS + ",Overview,People,Genres,Tags"   # the title page
                                                               # and who made it (richer Details, 2026-10-28)
 # BaseItemPerson.Type (PersonKind) -> MediaItem.credits role. Every other kind (producer, composer, guest star) is left out.
 _PERSON_ROLE = {"Actor": "cast", "Director": "directors", "Writer": "writers"}
+# New for You (owner request 2026-10-28): what arrived in the last FOR_YOU_DAYS that is the next thing for this member.
+FOR_YOU_DAYS = 30
+FOR_YOU_ASK = 50              # Up next entries and newly added films looked at; most are older and are dropped
+PLAYED_ASK = 200              # the member's newest watched films (their collections) and episodes (their series)
+_FOR_YOU_FIELDS = _ITEM_FIELDS + ",DateCreated"
+_COLLECTION_ID = re.compile(r"[0-9]{1,12}")
 _int = bounded_int                    # names kept for the tests and for older importers
 _image_magic_ok = image_magic_ok
 
@@ -75,10 +82,12 @@ ALLOWED_ROUTES = (
     # keeps only as an obsolete, hidden alias (doc-verified against the 10.11 ItemsController source,
     # 2026-10-16; not live-verified). The term travels only as `searchTerm`.
     # New releases (owner decision 2026-10-28) is the same user-scoped listing sorted by premiere date, never later
-    # than today, without the placeholders of unaired episodes.
+    # than today, without the placeholders of unaired episodes. `isPlayed` (owner request 2026-10-28): THIS member's
+    # watched episodes by DatePlayed (when each series was last watched, for Continue's order) and watched or unwatched
+    # films (New for You's collections).
     Route("items", r"/Items", ("userId", "ids", "fields", "enableUserData", "enableImageTypes",
                                "searchTerm", "includeItemTypes", "recursive", "limit", "sortBy", "sortOrder",
-                               "maxPremiereDate", "isMissing"),
+                               "maxPremiereDate", "isMissing", "isPlayed"),
           user_scoped=True, not_found=UserGone),
     # The image route cannot carry a userId, so ITS member scoping is not enforced here: it rests on
     # the adapter calling `_visible_item` (a userId-scoped lookup) for the same item first.
@@ -116,10 +125,23 @@ def _details(raw: dict) -> dict:
 
 
 # ---- adapter ------------------------------------------------------------------------------
+def _arrived(raw: Any) -> Optional[str]:
+    """When the item was added to the library (`DateCreated`), as MediaItem.active, or None."""
+    return iso_instant(raw.get("DateCreated")) if isinstance(raw, dict) else None
+
+
+def _collection(raw: Any) -> Optional[str]:
+    """The film's TMDb collection id (ProviderIds `TmdbCollection`, set by Jellyfin's TMDb provider; UNVERIFIED
+    live), or None. It links the films of one series (a trilogy) without another call."""
+    ids = raw.get("ProviderIds") if isinstance(raw, dict) else None
+    value = ids.get("TmdbCollection") if isinstance(ids, dict) else None
+    return value if isinstance(value, str) and _COLLECTION_ID.fullmatch(value) else None
+
+
 class JellyfinAdapter(GuardedAdapter):
     service = Service.JELLYFIN
     artwork_rechecks_visibility = True     # visibility is per member: re-checked before any cached cover
-    extra_sections = frozenset({"next_up", "released"})
+    extra_sections = frozenset({"next_up", "released", "for_you"})
     RELEASED_ASK = 4          # episodes ask for more, because only the newest of each series is kept
 
     def __init__(self, transport: Transport, timeout: float = DEFAULT_TIMEOUT, *,
@@ -157,8 +179,8 @@ class JellyfinAdapter(GuardedAdapter):
                     series_poster: bool = False) -> Tuple[Optional[MediaItem], str]:
         """Returns (item, status). status: "ok", "filtered" (a legitimate drop: another type, not
         in progress) or "bad" (unparsable: wrong shape or invalid id). Only "bad" counts as drift.
-        `series_poster` (Continue only): an episode shows its series' poster instead of its own still, so it stands as
-        tall as the films and covers beside it; without one it keeps its still."""
+        `series_poster` (Continue, Up next and New releases): an episode shows its series' poster instead of its own
+        still, so it stands as tall as the films and covers beside it; without one it keeps its still."""
         if not isinstance(raw, dict):
             return None, "bad"
         item_id = normalise_guid(raw.get("Id"))
@@ -236,7 +258,7 @@ class JellyfinAdapter(GuardedAdapter):
                          handoff_url=build_handoff_url(Service.JELLYFIN, item_id),
                          subtitle=subtitle, series=series, progress_fraction=fraction,
                          position_seconds=position, duration_seconds=duration,
-                         artwork=artwork, year=year,
+                         artwork=artwork, year=year, active=iso_instant(data.get("LastPlayedDate")),
                          external_ids=media_ids.from_jellyfin(raw.get("ProviderIds")),
                          summary=clean_summary(raw.get("Overview")) if want_summary else None,
                          backdrop=backdrop, released=_base.iso_day(raw.get("PremiereDate")),
@@ -284,11 +306,94 @@ class JellyfinAdapter(GuardedAdapter):
         # The series poster, as in Continue (#138): All's Continue shows Up next among films and covers (2026-10-28).
         items = self._parse_list(body.get("Items"), user.upstream_id, limit, ("Episode",),
                                  want_progress=False, require_progress=False, series_poster=True)
+        # An Up next episode was never played, so it carries when its SERIES was last watched: Home orders Continue by
+        # it across libraries (owner request 2026-10-28), so a show left months ago no longer leads the rail.
+        series_of = self._series_ids(body.get("Items"))
+        last = self._series_last_played(guard, user)
+        items = tuple(dataclasses.replace(i, active=last.get(series_of.get(i.id))) for i in items)
         return SectionResult.of(Service.JELLYFIN, "next_up", items)
+
+    @staticmethod
+    def _series_ids(raws: Any) -> dict:
+        """{"jellyfin:<episode id>": series id} for the episodes of a listing that name a valid series."""
+        out = {}
+        for raw in raws if isinstance(raws, list) else ():
+            if isinstance(raw, dict):
+                item_id, series_id = normalise_guid(raw.get("Id")), normalise_guid(raw.get("SeriesId"))
+                if item_id and series_id:
+                    out[f"jellyfin:{item_id}"] = series_id
+        return out
+
+    def _series_last_played(self, guard, user: UpstreamUser) -> dict:
+        """{series id: when THIS member last watched an episode of it}, from their watched episodes, newest first."""
+        body = self._get_json(guard, self._budget(), "/Items", {
+            "userId": user.upstream_id, "includeItemTypes": "Episode", "recursive": "true", "isPlayed": "true",
+            "sortBy": "DatePlayed", "sortOrder": "Descending", "limit": str(PLAYED_ASK), "enableUserData": "true",
+            "enableImageTypes": "Primary"})
+        raws = body.get("Items") if isinstance(body, dict) else None
+        if not isinstance(raws, list):
+            raise UpstreamMalformed()
+        if len(raws) > PLAYED_ASK:
+            raise UpstreamMisbehaved()
+        out: dict = {}
+        for raw in raws:
+            data = raw.get("UserData") if isinstance(raw, dict) else None
+            if not isinstance(data, dict):
+                continue
+            if "UserId" in data and normalise_guid(data["UserId"]) != user.upstream_id:
+                raise UpstreamMisbehaved()                  # the same scope tripwire as `_parse_item`
+            series_id, when = normalise_guid(raw.get("SeriesId")), iso_instant(data.get("LastPlayedDate"))
+            if series_id and when and when > out.get(series_id, ""):
+                out[series_id] = when
+        return out
+
+    def _for_you_items(self, user: UpstreamUser, limit: int) -> SectionResult:
+        """New for You (owner request 2026-10-28), newest arrival first, each item's `active` when it arrived:
+          * the member's Up next episode of a show, when THAT episode arrived in the last FOR_YOU_DAYS: Jellyfin's Up
+            next is the episode after the last one watched, so it is new only when the member was caught up (behind on
+            a show, Up next is an older episode and is left out);
+          * an unwatched film added in the last FOR_YOU_DAYS from a TMDb collection the member has watched a film of
+            (the next film of a series). Collections come from ProviderIds; UNVERIFIED that the library has them."""
+        guard = self._guard.bind(user.upstream_id)
+        since = iso_instant((datetime.now(timezone.utc) - timedelta(days=FOR_YOU_DAYS)).isoformat())
+        body = self._get_json(guard, self._budget(), "/Shows/NextUp", {
+            "userId": user.upstream_id, "limit": str(FOR_YOU_ASK), "fields": _FOR_YOU_FIELDS, "enableUserData": "true",
+            "enableImageTypes": _IMAGE_TYPES, "enableTotalRecordCount": "false"})
+        if not isinstance(body, dict):
+            raise UpstreamMalformed()
+        arrived = {f"jellyfin:{normalise_guid(r.get('Id'))}": _arrived(r)
+                   for r in body.get("Items") or () if isinstance(r, dict) and normalise_guid(r.get("Id"))}
+        episodes = self._parse_list(body.get("Items"), user.upstream_id, FOR_YOU_ASK, ("Episode",),
+                                    want_progress=True, require_progress=False, series_poster=True)
+        found = [dataclasses.replace(i, active=arrived[i.id]) for i in episodes
+                 if (arrived.get(i.id) or "") >= since and i.position_seconds is None]   # started: Continue's
+
+        def films(played: bool, ask: int, sort: str):
+            raws = self._get_json(guard, self._budget(), "/Items", {
+                "userId": user.upstream_id, "includeItemTypes": "Movie", "recursive": "true",
+                "isPlayed": "true" if played else "false", "sortBy": sort, "sortOrder": "Descending",
+                "limit": str(ask), "fields": _FOR_YOU_FIELDS, "enableUserData": "true",
+                "enableImageTypes": _IMAGE_TYPES})
+            raws = raws.get("Items") if isinstance(raws, dict) else None
+            if not isinstance(raws, list):
+                raise UpstreamMalformed()
+            return raws
+        added = [r for r in films(False, FOR_YOU_ASK, "DateCreated") if (_arrived(r) or "") >= since and _collection(r)]
+        if added:
+            seen = {_collection(r) for r in films(True, PLAYED_ASK, "DatePlayed")} - {None}
+            fresh = [r for r in added if _collection(r) in seen]
+            when = {f"jellyfin:{normalise_guid(r.get('Id'))}": _arrived(r) for r in fresh}
+            found += [dataclasses.replace(i, active=when.get(i.id)) for i in
+                      self._parse_list(fresh, user.upstream_id, FOR_YOU_ASK, ("Movie",), want_progress=True,
+                                       require_progress=False) if i.position_seconds is None]
+        found.sort(key=lambda i: i.active or "", reverse=True)
+        return SectionResult.of(Service.JELLYFIN, "for_you", tuple(found[:limit]))
 
     def _released_items(self, user: UpstreamUser, limit: int) -> SectionResult:
         """Films and episodes by premiere date, newest first, none later than today; one episode per series (its
-        newest), so a show that drops a season is one card."""
+        newest), so a show that drops a season is one card. An episode shows its series' poster, as Continue and Up
+        next do (owner request 2026-10-28), so the rail stands as tall as the films beside it; a show without a poster
+        keeps the episode's still."""
         guard = self._guard.bind(user.upstream_id)
         today = datetime.now(timezone.utc).date().isoformat()
         body = self._get_json(guard, self._budget(), "/Items", {
@@ -300,7 +405,8 @@ class JellyfinAdapter(GuardedAdapter):
             raise UpstreamMalformed()
         # user data is requested only so the scope tripwire can run; it is never exposed here
         found = self._parse_list(body.get("Items"), user.upstream_id, min(50, limit * self.RELEASED_ASK),
-                                 ("Movie", "Episode"), want_progress=False, require_progress=False)
+                                 ("Movie", "Episode"), want_progress=False, require_progress=False,
+                                 series_poster=True)
         shown, series = [], set()
         for item in found:
             if item.released is None or item.released > today:

@@ -165,6 +165,26 @@ def iso_day(value: Any) -> Optional[str]:
         return None
 
 
+def iso_instant(value: Any) -> Optional[str]:
+    """A moment as UTC "YYYY-MM-DDTHH:MM:SSZ" (MediaItem.active), or None. Takes an upstream ISO 8601 timestamp (a
+    naive one is UTC) or epoch milliseconds (Audiobookshelf). The year must be plausible, as `year_from`."""
+    when = None
+    if isinstance(value, int) and not isinstance(value, bool):
+        if 0 < value < 10 ** 14:
+            when = _dt.datetime.fromtimestamp(value / 1000, _dt.timezone.utc)
+    elif isinstance(value, str) and 10 <= len(value) <= 40:
+        text = value.strip().replace("Z", "+00:00")
+        text = re.sub(r"(\.\d{6})\d+", r"\1", text)      # .NET sends seven fractional digits
+        try:
+            when = _dt.datetime.fromisoformat(text)
+        except ValueError:
+            return None
+        when = when.replace(tzinfo=_dt.timezone.utc) if when.tzinfo is None else when.astimezone(_dt.timezone.utc)
+    if when is None or year_from(str(when.year)) is None:
+        return None
+    return when.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def year_from(value: Any) -> Optional[int]:
     """A release or publication year from upstream JSON or XML text, or None. Accepts an integer, a
     four-digit string ("2004") or the start of an ISO date ("2004-05-01", "2004-05-01T00:00:00+00:00").
