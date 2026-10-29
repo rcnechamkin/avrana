@@ -149,6 +149,7 @@ class Settings:
     jwt_secret: str = field(default="", repr=False)             # HS256 client secret; never shown
     jwt_secret_previous: str = field(default="", repr=False)    # optional, rotation overlap only
     allowed_users: tuple = ()                    # () = no restriction; beta only, jwt_required only
+    identity_bindings_file: str = ""            # username -> Authentik user binding (identity_bindings.py); jwt_required
     provision_accounts: tuple = ()               # libraries Home may create a missing account in (provision.py)
     provision_cap_per_hour: int = 10
 
@@ -531,6 +532,11 @@ class Settings:
         # Beta allowlist (AVR-373): a second lock behind the Authentik application binding. It only
         # means something when the username comes from a verified token, so any other mode refuses it.
         allowed = _allowed_users(env, problems)
+        bindings_file = get("HOME_IDENTITY_BINDINGS_FILE")
+        if bindings_file and id_mode != "jwt_required":
+            problems.append("HOME_IDENTITY_BINDINGS_FILE needs HOME_IDENTITY_MODE=jwt_required (it binds the token's sub)")
+        elif bindings_file and not Path(bindings_file).parent.is_dir():
+            problems.append("HOME_IDENTITY_BINDINGS_FILE is in a folder that does not exist")
         if allowed and id_mode != "jwt_required":
             problems.append("HOME_ALLOWED_USERS needs HOME_IDENTITY_MODE=jwt_required")
         # A member's key is picked by their email, so the email must be the signed one.
@@ -578,7 +584,7 @@ class Settings:
                    jellyfin_member_username=jf_member, audiobookshelf_member_username=abs_member,
                    preview_seal=_OWNER_PREVIEW_SEAL if owner_preview else None,
                    identity_mode=id_mode, jwt_issuer=jwt_issuer, jwt_audience=jwt_audience,
-                   jwt_secret=jwt_secret, jwt_secret_previous=jwt_previous, allowed_users=allowed,
+                   jwt_secret=jwt_secret, jwt_secret_previous=jwt_previous, allowed_users=allowed, identity_bindings_file=bindings_file,
                    provision_accounts=provision, provision_cap_per_hour=cap)
 
 
