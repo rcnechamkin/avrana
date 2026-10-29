@@ -37,7 +37,7 @@ services:
     networks: [authentik_home_beta, audiobookshelf_default, komga_default, calibre-web-automated_default]
     # MEMBER REQUESTS (docs/runbooks/media-requests-rollout.md step 4): use this line instead to reach Shelfarr,
     # Omnibus and Seerr by service name. All three networks exist already; joining creates none.
-    # networks: [authentik_home_beta, audiobookshelf_default, komga_default, calibre-web-automated_default, shelfarr_default, omnibus, media_request-backend]
+    # networks: [authentik_home_beta, audiobookshelf_default, komga_default, calibre-web-automated_default, shelfarr_default, omnibus, docker_request-backend]
     # Jellyfin runs on the host network (:8096): reached as host.docker.internal, never the LAN address.
     extra_hosts: ["host.docker.internal:host-gateway"]
     env_file: [beta-live.env]
@@ -115,12 +115,13 @@ networks:
   calibre-web-automated_default:
     external: true
   # MEMBER REQUESTS: Shelfarr's and Omnibus's own networks and the media stack's request network (Seerr; Radarr and
-  # Sonarr are on it too, but Home holds no key for them). Names as `docker inspect` prints them (rollout step 1).
+  # Sonarr are on it too, but Home holds no key for them). Names as `docker inspect` printed them on 2026-10-29: the
+  # media stack's compose project is `docker`, hence `docker_request-backend`.
   # shelfarr_default:
   #   external: true
   # omnibus:
   #   external: true
-  # media_request-backend:
+  # docker_request-backend:
   #   external: true
 
 secrets:

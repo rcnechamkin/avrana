@@ -1,6 +1,8 @@
 # Switch on member requests in Avrana Media (books, films and TV, comics)
 
-Status: prepared 2026-10-28, **nothing applied**. Every step changes host `avrana` and needs the owner's yes at
+Status: prepared 2026-10-28. **Steps 1 and 2 applied 2026-10-29 for Shelfarr and Seerr** (backups in
+`/home/cody/backups/requests-rollout-20261029T001304Z`); **Omnibus is back on upstream** after its fork image failed
+(see step 2). Steps 3 to 7 not started. Every step changes host `avrana` and needs the owner's yes at
 the time (`AGENTS.md`); a yes for one step does not cover the next. Secrets are typed at a hidden prompt, never
 pasted into chat, a ticket, Git or a command line.
 
@@ -78,7 +80,16 @@ docker logs --tail 30 <container>                                  # no errors; 
 ```
 
 For Omnibus do `omnibus` and `omnibus-engine` together (they share the database). For Seerr the service lives in
-the media stack's compose file. Open each app's own page once and sign in as usual: same data, same settings.
+the media stack's compose file, whose compose **project is named `docker`** (not `media`): always run
+`docker compose -p docker -f /home/cody/avrana/services/media/docker-compose.yml ... --no-deps seerr`, or compose
+starts a second copy under a new project name. Open each app's own page once and sign in as usual: same data, same settings.
+
+**Applied 2026-10-29:** Shelfarr (healthy, web 200) and Seerr (healthy, reports v3.4.1 commit `028543b`). Omnibus
+`6c3ca88` started but every page was a 500 (`PrismaClient is not configured to run in Edge Runtime`): the fork's
+middleware imported its on-behalf module, which loads the database client, and Next.js runs middleware where
+Prisma cannot load. Unit tests mock the database, so CI passed. Rolled back to upstream within about five minutes
+(healthy); the fork is fixed by an import-free gate module plus a test that walks the middleware's imports, and is
+retried only after the built app has served pages locally.
 
 **Undo:** put the upstream `image:` line back and `up -d` that service. Omnibus's upstream `db push` drops the one
 added column again (it only holds the on-behalf flag). If the data itself looks wrong: stop the app, restore its
@@ -129,11 +140,11 @@ In the export's `docker-compose.beta-live.yml`:
 1. Re-apply what the live container already has: the Komga member-keys lines (owner enabled them 2026-10-28; the
    repo keeps them commented).
 2. Uncomment the block marked `MEMBER REQUESTS` in four places: the nine environment lines (three switches, three
-   URLs, three key files), the `networks:` line that adds `shelfarr_default`, `omnibus` and the media stack's
-   request network, those three entries under `networks:` at the bottom, and the three secrets (add them to the
-   `secrets:` line in use and uncomment their entries at the bottom). Switch and URL go together: Home refuses to start with a URL whose switch is off. If step 1
-   printed other network names than `shelfarr_default`, `omnibus` and `media_request-backend`, use the printed
-   ones. To leave one broker off, keep its three lines commented.
+   URLs, three key files), the `networks:` line that adds `shelfarr_default`, `omnibus` and
+   `docker_request-backend` (Seerr's; names checked 2026-10-29), those three entries under `networks:` at the
+   bottom, and the three secrets (add them to the `secrets:` line in use and uncomment their entries at the
+   bottom). Switch and URL go together: Home refuses to start with a URL whose switch is off. To leave one broker
+   off, keep its three lines commented.
 
 Joining the networks creates none (the host is at Docker's network limit, so this matters). The Seerr network also
 holds Radarr and Sonarr; Home holds no key for them and its request code only calls Seerr's fixed routes.

@@ -148,7 +148,10 @@ services:
   seerr:
     networks:
       - request-backend
-    image: ghcr.io/seerr-team/seerr@sha256:f4768de5f616248d723e05891f3345a1402123775d03bf0890dbfedc0831bda1
+    # Avrana fork v3.4.1 (scoped on-behalf key, off until ON_BEHALF_API_KEY is set), applied 2026-10-29,
+    # docs/runbooks/media-requests-rollout.md step 2. Upstream it replaces (v3.4.1):
+    # image: ghcr.io/seerr-team/seerr@sha256:f4768de5f616248d723e05891f3345a1402123775d03bf0890dbfedc0831bda1
+    image: ghcr.io/rcnechamkin/seerr:avrana-v3.4.1-028543b@sha256:b4ef806ff8de8900109baa12cb36add85c5536283fed10a1b201050b67f2bc32
     container_name: seerr
     init: true
     environment:
