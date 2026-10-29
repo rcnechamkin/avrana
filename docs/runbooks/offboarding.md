@@ -210,6 +210,23 @@ Do these in order. Each is marked with how well the repository supports it.
    (`docs/services/authentik.md:141-164`). The tool matches Jellyfin by username, so it finds the first.
    Grounded.
 
+
+## Step 4b. Media Home: the name stays bound to the former member
+
+Media Home binds each Authentik username to the Authentik user that holds it (RC1 finding S1,
+`services/avrana-home/avrana_home/identity_bindings.py`). After offboarding, **leave the binding in place**: if anyone
+is later given the same username, Home treats them as signed out instead of showing them the former member's
+libraries, requests or profile. Purge the member's Home profile now:
+
+```sh
+docker exec avrana-home-beta python3 -m avrana_home.memberstore purge <username>
+```
+
+The name is not reused: deactivating keeps the Authentik user, and Step 5 retires the name in Authentik before it
+deletes the user, so enrollment refuses it. Releasing a name for deliberate reuse has its own checked procedure:
+[identity-bindings.md](identity-bindings.md) section 3. Grounded (tests: `services/avrana-home/webtests/test_web_identity_bindings.py`,
+`services/avrana-home/tests/test_identity_bindings.py`, `tests/test_enrollment_username_available.py`, `tests/test_offboard_retire.py`).
+
 ## Step 5. Data removal (only when asked; irreversible)
 
 Only after Step 3 and Step 4 have been done and verified for a deactivation, and only with specific

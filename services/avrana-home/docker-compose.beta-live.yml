@@ -45,6 +45,11 @@ services:
       - HOME_UPSTREAM_MODE=real
       - HOME_GATES_VERIFIED=yes
       - HOME_IDENTITY_MODE=jwt_required
+      # RC1 S1: each username is accepted only as the Authentik user that holds it (identity_bindings.py), so a
+      # recreated or renamed account never inherits a former member's libraries, requests or profile. Lives in ./state
+      # (the `volumes:` line below must be on). INITIALISE IT FROM AUTHENTIK BEFORE THIS DEPLOY: without the file
+      # every member is refused (docs/runbooks/identity-bindings.md section 1).
+      - HOME_IDENTITY_BINDINGS_FILE=/var/lib/avrana-home/identity_bindings.json
       - HOME_JWT_SECRET_FILE=/run/secrets/home_jwt_secret
       - HOME_HEALTH_DETAIL=off
       - HOME_SECTIONS=on

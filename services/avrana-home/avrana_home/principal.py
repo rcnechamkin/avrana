@@ -57,7 +57,9 @@ HeaderInput = Union[Mapping[str, Union[str, Sequence[str]]], Iterable[tuple]]
 class MemberPrincipal:
     """Immutable, parser-minted identity. Not constructible, subclassable, copyable or replaceable."""
 
-    __slots__ = ("username", "groups", "email", "name", "_sealed")
+    # `subject`: the verified token's `sub` (Authentik `hashed_user_id`: stable for one Authentik user, new for a
+    # recreated user of the same name). None on the plain-header path. Identity bindings use it (identity_bindings.py).
+    __slots__ = ("username", "groups", "email", "name", "subject", "_sealed")
 
     def __init__(self, *args, **kwargs):
         raise TypeError("MemberPrincipal can only be built by principal_from_headers")
@@ -96,10 +98,10 @@ class MemberPrincipal:
     __str__ = __repr__
 
 
-def _mint_principal(username, groups, email, name) -> MemberPrincipal:
+def _mint_principal(username, groups, email, name, subject=None) -> MemberPrincipal:
     p = object.__new__(MemberPrincipal)
     for attr, value in (("username", username), ("groups", groups), ("email", email),
-                        ("name", name), ("_sealed", _MINT)):
+                        ("name", name), ("subject", subject), ("_sealed", _MINT)):
         object.__setattr__(p, attr, value)
     return p
 
@@ -332,7 +334,7 @@ def principal_from_verified_jwt(headers: HeaderInput, verifier) -> MemberPrincip
                                                   or parse_groups(sent[0]) != set(groups)))):
             raise PrincipalError("identity_mismatch")
     return _mint_principal(username, groups, _claim_text(claims, "email", MAX_OPTIONAL_LEN),
-                           _claim_text(claims, "name", MAX_OPTIONAL_LEN))
+                           _claim_text(claims, "name", MAX_OPTIONAL_LEN), _claim_text(claims, "sub", MAX_OPTIONAL_LEN))
 
 
 def principal_for_request(headers: HeaderInput, *, mode: str, verifier=None, report=None) -> MemberPrincipal:
