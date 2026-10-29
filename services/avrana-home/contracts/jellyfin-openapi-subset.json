@@ -122,7 +122,9 @@
      "ProductionYear": "integer",
      "ProviderIds": "object",
      "RunTimeTicks": "integer",
+     "SeriesId": "string",
      "SeriesName": "string",
+     "SeriesPrimaryImageTag": "string",
      "Type": "ref:BaseItemKind",
      "UserData": "ref:UserItemDataDto"
     },
@@ -262,7 +264,9 @@
      "ProductionYear": "integer",
      "ProviderIds": "object",
      "RunTimeTicks": "integer",
+     "SeriesId": "string",
      "SeriesName": "string",
+     "SeriesPrimaryImageTag": "string",
      "Type": "ref:BaseItemKind",
      "UserData": "ref:UserItemDataDto"
     },

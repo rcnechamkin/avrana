@@ -67,6 +67,43 @@ class Backdrop(unittest.TestCase):
             self.assertIs(self.adapter.fetch_artwork(who, ref).state, SectionState.EMPTY, ref)
             self.assertFalse([p for _, p, _ in self.fake.requests if "/Images/" in p], ref)
 
+    def test_continue_shows_an_episodes_series_poster_and_other_sections_keep_the_still(self):
+        series = "aaaa0000000000000000000000000011"          # latest_member_a.json: visible to member-a, has a poster
+        ep = next(i for i in self.adapter.continue_items(self.a).items if i.kind.value == "episode")
+        self.assertEqual((f"jellyfin/primary/{series}", "poster"), (ep.artwork.ref, ep.artwork.shape))
+        self.assertEqual({"ref": f"jellyfin/primary/{series}", "alt": "Poster for Synthetic Series Alpha",
+                          "shape": "poster"}, ep.to_dict()["artwork"])
+        raw = {"Id": "abcd0000000000000000000000000098", "Name": "Ep", "Type": "Episode", "SeriesName": "S",
+               "ImageTags": {"Primary": "t"}, "SeriesId": series, "SeriesPrimaryImageTag": "t"}
+        own = self.parse(raw).artwork                         # Up next, Recently added, search: the episode's still
+        self.assertEqual(("jellyfin/primary/abcd0000000000000000000000000098", None), (own.ref, own.shape))
+        self.assertNotIn("shape", own.to_dict())
+
+    def test_a_missing_or_bad_series_poster_keeps_the_still(self):
+        series = "aaaa0000000000000000000000000011"
+        base = {"Id": "abcd0000000000000000000000000098", "Name": "Ep", "Type": "Episode", "SeriesName": "S",
+                "ImageTags": {"Primary": "t"}}
+        for bad in ({"SeriesId": series}, {"SeriesId": series, "SeriesPrimaryImageTag": ""},
+                    {"SeriesId": series, "SeriesPrimaryImageTag": 3}, {"SeriesId": "../../Users/x",
+                                                                       "SeriesPrimaryImageTag": "t"}):
+            item, _ = self.adapter._parse_item({**base, **bad}, A, ("Episode",), want_progress=False,
+                                               require_progress=False, series_poster=True)
+            self.assertEqual("jellyfin/primary/abcd0000000000000000000000000098", item.artwork.ref, bad)
+        movie = {"Id": "abcd0000000000000000000000000097", "Name": "M", "Type": "Movie", "ImageTags": {"Primary": "t"},
+                 "SeriesId": series, "SeriesPrimaryImageTag": "t"}
+        item, _ = self.adapter._parse_item(movie, A, ("Movie",), want_progress=False, require_progress=False,
+                                           series_poster=True)
+        self.assertEqual("jellyfin/primary/abcd0000000000000000000000000097", item.artwork.ref)   # only episodes
+
+    def test_the_series_poster_is_fetched_only_after_this_members_check_of_the_series(self):
+        ref = "jellyfin/primary/aaaa0000000000000000000000000011"
+        self.assertIs(self.adapter.fetch_artwork(self.a, ref).state, SectionState.OK)
+        images = [p for _, p, _ in self.fake.requests if "/Images/" in p]
+        self.assertEqual(["/Items/aaaa0000000000000000000000000011/Images/Primary"], images)
+        self.fake.requests.clear()
+        self.assertIs(self.adapter.fetch_artwork(self.b, ref).state, SectionState.EMPTY)
+        self.assertFalse([p for _, p, _ in self.fake.requests if "/Images/" in p])
+
     def test_search_results_never_carry_a_backdrop(self):
         found = self.adapter.search(self.a, "Synthetic Film", 10).items
         self.assertTrue(found)

@@ -134,9 +134,12 @@ class JellyfinAdapter(GuardedAdapter):
     # -- item parsing --------------------------------------------------------------------
     def _parse_item(self, raw: Any, user_id: str, kinds: Tuple[str, ...],
                     want_progress: bool, require_progress: bool,
-                    want_summary: bool = False, want_backdrop: bool = True) -> Tuple[Optional[MediaItem], str]:
+                    want_summary: bool = False, want_backdrop: bool = True,
+                    series_poster: bool = False) -> Tuple[Optional[MediaItem], str]:
         """Returns (item, status). status: "ok", "filtered" (a legitimate drop: another type, not
-        in progress) or "bad" (unparsable: wrong shape or invalid id). Only "bad" counts as drift."""
+        in progress) or "bad" (unparsable: wrong shape or invalid id). Only "bad" counts as drift.
+        `series_poster` (Continue only): an episode shows its series' poster instead of its own still, so it stands as
+        tall as the films and covers beside it; without one it keeps its still."""
         if not isinstance(raw, dict):
             return None, "bad"
         item_id = normalise_guid(raw.get("Id"))
@@ -194,6 +197,11 @@ class JellyfinAdapter(GuardedAdapter):
             alt = (f"Still from {series}, {title}" if series else
                    f"Poster for {title}")
             artwork = ArtworkRef(f"jellyfin/primary/{item_id}", alt)
+        series_id, series_tag = normalise_guid(raw.get("SeriesId")), raw.get("SeriesPrimaryImageTag")
+        if (series_poster and kind is Kind.EPISODE and series_id is not None and isinstance(series_tag, str)
+                and series_tag):
+            # The ref names the series, as a borrowed backdrop does: the gateway checks THAT item is visible to the member.
+            artwork = ArtworkRef(f"jellyfin/primary/{series_id}", f"Poster for {series or title}", shape="poster")
         backdrop = None
         own = raw.get("BackdropImageTags")
         parent = normalise_guid(raw.get("ParentBackdropItemId"))
@@ -216,9 +224,9 @@ class JellyfinAdapter(GuardedAdapter):
 
     def _parse_list(self, raws: Any, user_id: str, limit: int, kinds, want_progress,
                     require_progress, want_summary: bool = False,
-                    want_backdrop: bool = True) -> Tuple[MediaItem, ...]:
+                    want_backdrop: bool = True, series_poster: bool = False) -> Tuple[MediaItem, ...]:
         return self._parse_many(raws, limit, lambda raw: self._parse_item(
-            raw, user_id, kinds, want_progress, require_progress, want_summary, want_backdrop))
+            raw, user_id, kinds, want_progress, require_progress, want_summary, want_backdrop, series_poster))
 
     # -- hooks ---------------------------------------------------------------------------
     def _continue_items(self, user: UpstreamUser, limit: int) -> SectionResult:
@@ -230,7 +238,8 @@ class JellyfinAdapter(GuardedAdapter):
         if not isinstance(body, dict):
             raise UpstreamMalformed()
         items = self._parse_list(body.get("Items"), user.upstream_id, limit,
-                                 ("Movie", "Episode"), want_progress=True, require_progress=True)
+                                 ("Movie", "Episode"), want_progress=True, require_progress=True,
+                                 series_poster=True)
         return SectionResult.of(Service.JELLYFIN, "continue", items)
 
     def _recent_items(self, user: UpstreamUser, limit: int) -> SectionResult:

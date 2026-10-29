@@ -43,7 +43,8 @@ PATHS = {
 SCHEMAS = {
     "BaseItemDto": ("Id", "Name", "Type", "SeriesName", "ParentIndexNumber", "IndexNumber", "ProductionYear",
                     "RunTimeTicks", "UserData", "ImageTags", "Overview", "ProviderIds",
-                    "BackdropImageTags", "ParentBackdropItemId", "ParentBackdropImageTags", "PremiereDate"),
+                    "BackdropImageTags", "ParentBackdropItemId", "ParentBackdropImageTags", "PremiereDate",
+                    "SeriesId", "SeriesPrimaryImageTag"),
     "BaseItemDtoQueryResult": ("Items",),
     # UserId is read only if present and is absent upstream; kept here so its absence is checked, not assumed
     "UserItemDataDto": ("PlaybackPositionTicks", "PlayedPercentage", "Played", "ItemId", "UserId"),
