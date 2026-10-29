@@ -104,12 +104,12 @@ class MeHub(Stub):
 
     def test_lists_only_what_the_member_has(self):
         main = main_of(self.page("/me"))
-        self.assertEqual(["/account", "/me/security", "/help", "/help/trouble", "/signout"], hrefs(main, "krow-a"))
+        self.assertEqual(["/me/security", "/account", "/help", "/help/trouble", "/signout"], hrefs(main, "krow-a"))
         for absent in ("/ops", "Operations", "k-tag", "Admin", "Install", "This phone"):
             self.assertNotIn(absent, main, absent)
         # a member with no library gets the same hub, and still no library word
         nolib = main_of(self.page("/me", NOLIB))
-        self.assertEqual(["/account", "/me/security", "/help", "/help/trouble", "/signout"], hrefs(nolib, "krow-a"))
+        self.assertEqual(["/me/security", "/account", "/help", "/help/trouble", "/signout"], hrefs(nolib, "krow-a"))
         for word in ("Movies", "Audiobook", "Comic", "Books"):
             self.assertNotIn(word, nolib, word)
 
@@ -166,7 +166,7 @@ class AccountPage(Stub):
     def test_section_headings_are_the_wrapping_eyebrow_not_the_letter_spaced_caps(self):
         main = main_of(self.page("/account"))
         heads = re.findall(r'<section class="block kgroup">\s*<h2>([^<]+)</h2>', main)
-        self.assertEqual(["Signed in as", "Your access", "Signing in", "Signing out", "Getting help", "Preferences"], heads)
+        self.assertEqual(["Signed in as", "Your access", "Signing in", "Signing out", "Getting help", "Password and sign&#8209;in"], heads)
         self.assertNotRegex(main, r'<section class="block">')
         block = (TEMPLATES / "home.css").read_text(encoding="utf-8").split(MARKER, 1)[1].split("\n  /* ---- MK-", 1)[0]
         rule = re.search(r"\.kgroup-h,section\.kgroup>h2,\.found>h3\{([^}]*)\}", block).group(1)
@@ -180,7 +180,9 @@ class AccountPage(Stub):
         main = main_of(text)
         self.assertIn("<dt>Username</dt><dd>member-a</dd>", main)
         self.assertIn('<a class="link" href="/help">Help</a>', main)
-        self.assertIn(f'<a class="krow-a" href="{self.cat.account_url}">', main)
+        # the sign-in service's own pages are never linked (owner, 2026-10-28): Account & Security instead
+        self.assertNotIn(self.cat.account_url, main)
+        self.assertIn('<a class="krow-a" href="/me/security">', main)
         self.assertIn('<a class="krow-a" href="/signout">', main)
         self.assertEqual([], re.findall(r"<a [^>]*>", footer_of(text)))   # rows moved up; the Home tab is the way back
         off = footer_of(self.off.get("/account", headers=ALL).text)

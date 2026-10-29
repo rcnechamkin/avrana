@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Mapping, Optional
 from urllib.parse import urlsplit
 
-from .security import SecurityConfigError, parse_flows, parse_return_origin
+from .security import SecurityConfigError, parse_flows
 
 MOCK_API_KEY = "mock-api-key-not-real"          # obviously fake; the only key mock mode accepts
 DEFAULT_MOCK_JELLYFIN_URL = "http://127.0.0.1:18096"
@@ -137,7 +137,9 @@ class Settings:
     notice_file: Optional[Path] = None           # HOME_NOTICE_FILE: the operator notice OliveTin writes (AVR-365)
     library_ids_file: Optional[Path] = None      # HOME_LIBRARY_IDS_FILE: the catalogue-id index (requests/owned.py)
     security_flows: tuple = ()                   # HOME_SECURITY_FLOWS: owner-verified Authentik flows (security.py)
-    security_return_origin: str = ""             # HOME_SECURITY_RETURN_ORIGIN: "" = no `next` on the hand-off
+    account_reader_url: str = ""                 # HOME_ACCOUNT_READER_URL: Authentik's API base (accountreader.py)
+    account_reader_token: str = field(default="", repr=False)   # the scoped reader's token: jwt_required in real mode
+    member_store: Optional[Path] = None          # HOME_MEMBER_STORE: Home's SQLite member store (memberstore.py), S1
     log_level: str = "INFO"
     host: str = "127.0.0.1"
     port: int = 8096
@@ -250,18 +252,28 @@ class Settings:
         if library_ids_file is not None and not library_ids_file.is_absolute():
             problems.append("HOME_LIBRARY_IDS_FILE must be an absolute path")
             library_ids_file = None
-        # Account & Security (security.py): Authentik flows the owner has verified on the deployed instance, and the
-        # origin Authentik may send members back to. Both default to off: every action opens Authentik's own settings.
+        # Account & Security (security.py): the single-purpose Authentik flows the owner has applied and verified. Unset
+        # = none, and those actions say "ask the person who invited you"; Home never sends a member to Authentik's own
+        # user pages (owner decision 2026-10-28). HOME_SECURITY_RETURN_ORIGIN is gone: every flow returns by itself.
         try:
             security_flows = parse_flows(get("HOME_SECURITY_FLOWS"))
         except SecurityConfigError as exc:
             problems.append(str(exc))
             security_flows = ()
-        try:
-            security_return_origin = parse_return_origin(get("HOME_SECURITY_RETURN_ORIGIN"))
-        except SecurityConfigError as exc:
-            problems.append(str(exc))
-            security_return_origin = ""
+        if get("HOME_SECURITY_RETURN_ORIGIN"):
+            problems.append("HOME_SECURITY_RETURN_ORIGIN is no longer used (each flow returns to Avrana by itself)")
+        # Home's member store (memberstore.py; owner decision S1, 2026-10-28): an absolute path to one SQLite file on a
+        # volume Home owns. Unset = no profile edits (Me → My profile says so); the shell renders as before.
+        member_store = Path(get("HOME_MEMBER_STORE")) if get("HOME_MEMBER_STORE") else None
+        if member_store is not None and not member_store.is_absolute():
+            problems.append("HOME_MEMBER_STORE must be an absolute path")
+            member_store = None
+        # The scoped account reader (accountreader.py, docs/runbooks/account-reader.md): the member's own sign-in
+        # methods and sessions on Avrana's pages. Both or neither; off by default.
+        reader_url = get("HOME_ACCOUNT_READER_URL")
+        reader_token = _read_key(env, problems, "HOME_ACCOUNT_READER_TOKEN")
+        if bool(reader_url) != bool(reader_token):
+            problems.append("HOME_ACCOUNT_READER_URL and HOME_ACCOUNT_READER_TOKEN (or _FILE) must be set together")
 
         base_url = get("JELLYFIN_BASE_URL")
         key = _read_key(env, problems)
@@ -393,6 +405,8 @@ class Settings:
             if omnibus_url and not is_loopback_host(url_host(omnibus_url) or ""):
                 problems.append("OMNIBUS_BASE_URL must be a loopback address in mock mode")
             omnibus_key = MOCK_API_KEY if omnibus_url else ""
+            if reader_url and not is_loopback_host(url_host(reader_url) or ""):
+                problems.append("HOME_ACCOUNT_READER_URL must be a loopback address in mock mode")
         else:
             if not owner_preview and get("HOME_GATES_VERIFIED").lower() != "yes":
                 problems.append("HOME_UPSTREAM_MODE=real needs HOME_GATES_VERIFIED=yes "
@@ -443,7 +457,7 @@ class Settings:
             for name, value in (("JELLYFIN_BASE_URL", base_url), ("AUDIOBOOKSHELF_BASE_URL", abs_url),
                                 ("KOMGA_BASE_URL", komga_url), ("CALIBRE_WEB_BASE_URL", cw_url),
                                 ("SHELFARR_BASE_URL", shelfarr_url), ("SEERR_BASE_URL", seerr_url),
-                                ("OMNIBUS_BASE_URL", omnibus_url)):
+                                ("OMNIBUS_BASE_URL", omnibus_url), ("HOME_ACCOUNT_READER_URL", reader_url)):
                 if value and urlsplit(value).scheme == "http" and not plain_http_allowed(url_host(value) or ""):
                     problems.append(f"{name} uses plain http to another machine: use https, or a Docker service "
                                     "name on a shared network (HTTPS across machines)")
@@ -461,6 +475,8 @@ class Settings:
             _check_url(seerr_url, problems, "SEERR_BASE_URL")
         if omnibus_url:
             _check_url(omnibus_url, problems, "OMNIBUS_BASE_URL")
+        if reader_url:
+            _check_url(reader_url, problems, "HOME_ACCOUNT_READER_URL")
 
         # Identity mode (AVR-498). The default keeps today's behaviour exactly; an unknown or empty
         # value is an error, never a silent fallback. The JWT modes need the provider's issuer,
@@ -501,6 +517,9 @@ class Settings:
             problems.append("HOME_BOOK_REQUESTS acts as the member: real mode needs HOME_IDENTITY_MODE=jwt_required")
         if mode == "real" and watch_requests and id_mode != "jwt_required" and not sealed:
             problems.append("HOME_WATCH_REQUESTS acts as the member: real mode needs HOME_IDENTITY_MODE=jwt_required")
+        if mode == "real" and reader_url and id_mode != "jwt_required" and not sealed:
+            problems.append("HOME_ACCOUNT_READER_TOKEN reads members' sign-in sessions: real mode needs "
+                            "HOME_IDENTITY_MODE=jwt_required")
         if mode == "real" and comic_requests and id_mode != "jwt_required" and not sealed:
             problems.append("HOME_COMIC_REQUESTS acts as the member: real mode needs HOME_IDENTITY_MODE=jwt_required")
         # The same holds for Jellyfin: Jellyfin gives every API key the Administrator role (CustomAuthenticationHandler,
@@ -553,7 +572,8 @@ class Settings:
                    comic_requests=comic_requests, omnibus_base_url=omnibus_url, omnibus_api_key=omnibus_key,
                    timeout=timeout, section_limit=limit,
                    health_detail=detail, pwa_sw=pwa_sw, motion_proposal=motion_proposal, catalogue_path=catalogue, notice_file=notice_file, library_ids_file=library_ids_file, log_level=level,
-                   security_flows=security_flows, security_return_origin=security_return_origin,
+                   security_flows=security_flows, account_reader_url=reader_url, account_reader_token=reader_token,
+                   member_store=member_store,
                    host=host, port=port, owner_preview=owner_preview, owner_preview_username=owner_name,
                    jellyfin_member_username=jf_member, audiobookshelf_member_username=abs_member,
                    preview_seal=_OWNER_PREVIEW_SEAL if owner_preview else None,

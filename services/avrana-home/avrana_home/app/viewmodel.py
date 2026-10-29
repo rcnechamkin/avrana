@@ -411,6 +411,7 @@ class ShellVM:
     current: str                          # home | library | search | me | account | help | help-topic | place | title
     notice: Optional[object] = None       # the operator notice this member sees (notice.ActiveNotice), AVR-365
     filters: Tuple["FilterVM", ...] = ()  # Home only: the filters that take the places bar's row (HomeVM.filters)
+    avatar: str = ""                      # the member's photo version (My profile, memberstore.py); "" = the initial
 
 
 @dataclass(frozen=True)

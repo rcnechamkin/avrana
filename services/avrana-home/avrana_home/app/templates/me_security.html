@@ -1,14 +1,29 @@
 {% extends "base.html" %}
-{% from "_rows.html" import row %}
+{% from "_rows.html" import row, glyph %}
 {% block title %}Account &amp; Security · Avrana{% endblock %}
+{% macro method_rows(items, now) -%}
+{% for m in items %}      <li class="kitem"><span class="krow-text"><span class="krow-t">{{ m.name or "Unnamed" }}</span><span class="krow-d"><span class="sr">, </span>Added {{ said_when(m.created, now) or "some time ago" }}{% if m.last_used %} · last used {{ said_when(m.last_used, now) }}{% endif %}</span></span></li>
+{% endfor %}
+{%- endmacro %}
+{% macro continue_or_ask(sec) -%}
+{% if sec.go_href %}
+    <ul class="krows">
+      {{ row(sec.go_href, "Continue", "Opens the secure Avrana sign-in screen, then brings you back", "key") }}
+    </ul>
+{% else %}
+    <p class="note msg">This isn't switched on yet. Ask the person who invited you.</p>
+{% endif %}
+{%- endmacro %}
 {% block body %}
-{# Me -> Account & Security (Media 2.0 supplement, 2026-10-27; security.py). Shell only, verified member only.
-   Avrana explains and hands off; every credential step happens on Avrana's secure sign-in page (Authentik), opened
-   top-level through /me/security/go/<action>. Nothing here says a change worked: Avrana cannot see the result, so
-   every page says where to check instead. Passkey and authenticator rows are the same macro, size and weight. #}
+{# Me -> Account & Security (Media 2.0 supplement; owner decision 2026-10-28; security.py, accountreader.py). Shell only,
+   verified member only. Avrana owns every screen here: what's set up and where you're signed in are read natively when
+   Home has the scoped reader. Only a new password, a new passkey or authenticator, and backup codes run on the sign-in
+   screen, as one Avrana-styled step that comes back to /me/security/done/<action>. Nothing here ever names the sign-in
+   service or links to its own pages. "Added" is said only on fresh evidence (a method created minutes ago). Passkey
+   and authenticator rows are the same macro, size and weight. #}
 {% if sec.page == "hub" %}
   <h2 class="topic">Account &amp; Security</h2>
-  <p class="k-meta">Manage your account · Signed in as {{ sec.username }}</p>
+  <p class="k-meta">Signed in as {{ sec.username }}</p>
   <section class="kgroup" aria-labelledby="sec-signin">
     <h3 class="kgroup-h" id="sec-signin">Sign-in &amp; recovery</h3>
     <ul class="krows">
@@ -20,88 +35,134 @@
   <section class="kgroup" aria-labelledby="sec-access">
     <h3 class="kgroup-h" id="sec-access">Account access</h3>
     <ul class="krows">
-      {{ row("/me/security/sessions", "Where you're signed in", "Review account sign-in sessions", "info") }}
+      {{ row("/me/security/sessions", "Where you're signed in", "Browsers signed in to your Avrana account", "info") }}
     </ul>
   </section>
   <section class="kgroup" aria-label="Sign out">
     <ul class="krows">
-      {{ row(sec.signout_href, "Sign out of Avrana", "Signs you out of Avrana Media on this device", "signout") }}
+      {{ row(sec.signout_href, "Sign out of Avrana", "Signs you out on this device", "signout") }}
     </ul>
   </section>
-  <p class="note">Changes to your password and sign&#8209;in methods happen on Avrana's secure sign&#8209;in page.</p>
 {% elif sec.page == "protection" %}
   <h2 class="topic">Sign-in protection</h2>
   <p class="note">Add a second way to prove it's you. Choose either one; you can add the other later.</p>
   <section class="kgroup" aria-labelledby="sec-methods">
-    <h3 class="kgroup-h" id="sec-methods">Choose a method</h3>
+    <h3 class="kgroup-h" id="sec-methods">Add a method</h3>
     <ul class="krows">
       {{ row("/me/security/protection/passkey", "Passkey", "Use your device or password manager to verify it's you", "key") }}
       {{ row("/me/security/protection/authenticator", "Authenticator app", "Use codes from an authenticator app", "key") }}
     </ul>
   </section>
-  <p class="note">Avrana can't see which methods you already have. Your Avrana account lists them.</p>
+  <section class="kgroup" aria-labelledby="sec-have">
+    <h3 class="kgroup-h" id="sec-have">On your account</h3>
+{% if sec.view %}
+{% set have = sec.view.of("passkey") + sec.view.of("authenticator") %}
+{% if have %}
+    <ul class="krows kitems">
+{{ method_rows(sec.view.of("passkey"), sec.now) }}{{ method_rows(sec.view.of("authenticator"), sec.now) }}    </ul>
+{% else %}
+    <p class="note">No passkey or authenticator app yet. You sign in with your password.</p>
+{% endif %}
+    <p class="note">Lost a phone or a security key? Ask the person who invited you to remove it.</p>
+{% elif sec.reader %}
+    <p class="note msg">Your sign-in methods couldn't be loaded just now. Try again in a moment.</p>
+{% else %}
+    <p class="note">To check which ones you already have, or to remove one from a lost phone, ask the person who invited you.</p>
+{% endif %}
+  </section>
   <p class="note">Backup codes are under <a class="link" href="/me/security/recovery">Account recovery</a>.</p>
 {% elif sec.page == "recovery" %}
   <h2 class="topic">Account recovery</h2>
-  <section class="block kgroup">
-    <h2>If you forget your password</h2>
-    <p class="note">On the Avrana sign&#8209;in page, choose “Forgot password?” We'll email a reset link to the address on your account. The link works for 30 minutes.</p>
+  <section class="kgroup" aria-labelledby="rec-forgot">
+    <h3 class="kgroup-h" id="rec-forgot">If you forget your password</h3>
+    <p class="note">On the Avrana sign&#8209;in screen, choose “Forgot password?” We'll email a reset link{% if sec.email %} to {{ sec.email }}{% else %} to the address on your account{% endif %}. The link works for 30 minutes.</p>
+    <p class="note">To change that address, ask the person who invited you.</p>
+  </section>
+  <section class="kgroup" aria-labelledby="rec-codes">
+    <h3 class="kgroup-h" id="rec-codes">Backup codes</h3>
+    <p class="note">One&#8209;time codes for when your passkey or authenticator isn't with you.</p>
     <ul class="krows">
-      {{ row("/me/security/go/account", "Check your email address", "Make sure the reset link reaches you", "info", leaves=True, leaves_said=True) }}
+      {{ row("/me/security/recovery/codes", "Backup codes", "Get a set to keep somewhere safe", "key") }}
     </ul>
   </section>
-  <section class="block kgroup">
-    <h2>Backup codes</h2>
-    <p class="note">One&#8209;time codes for when your passkey or authenticator isn't with you. Keep them somewhere safe; Avrana never sees or stores them.</p>
-    <ul class="krows">
-      {{ row("/me/security/go/recovery_codes", "Backup codes", "Opens Avrana's secure sign-in page", "key", leaves=True) }}
-    </ul>
-  </section>
-  <section class="block kgroup">
-    <h2>If you can't get in at all</h2>
+  <section class="kgroup" aria-labelledby="rec-lost">
+    <h3 class="kgroup-h" id="rec-lost">If you can't get in at all</h3>
     <p class="note">Lost your email and your sign&#8209;in methods? Ask the person who invited you. They'll confirm it's really you through a way you already talk, then help you back in.</p>
   </section>
-{% elif sec.page == "back" %}
-  <h2 class="topic">Back in Avrana</h2>
-{% if sec.result and sec.result.outcome == "session_changed" %}
-  <p class="note msg" role="status">You're signed in as {{ sec.username }} now. Nothing from the earlier step was carried over.</p>
-{% elif sec.action %}
-  <p class="note msg" role="status">Avrana couldn't confirm whether {{ sec.action_words }} changed. Your Avrana account shows what's set up.</p>
+{% elif sec.page == "sessions" %}
+  <h2 class="topic">Where you're signed in</h2>
+{% set r = sec.result %}
+{% if r %}
+  <p class="note msg" role="status">
+{%- if r == "ended" %}Signed out. That browser will need to sign in again.
+{%- elif r == "not_yours" %}That session wasn't found. It may have ended already.
+{%- elif r == "unavailable" %}That couldn't be done just now. Try again in a moment.
+{%- elif r == "unknown" %}We couldn't tell whether that worked. Check the list below.
+{%- elif r == "expired" %}This page was open too long. Try again.
+{%- endif %}</p>
+{% endif %}
+{% if sec.view %}
+  <section class="kgroup" aria-labelledby="ses-list">
+    <h3 class="kgroup-h" id="ses-list">Browsers signed in to Avrana</h3>
+{% if sec.view.sessions %}
+    <ul class="krows kitems">
+{% for s in sec.view.sessions %}      <li class="kitem"><span class="krow-text"><span class="krow-t">{{ s.device or "A browser" }}</span><span class="krow-d"><span class="sr">, </span>{% if s.place %}{{ s.place }} · {% endif %}{% if s.last_used %}Active {{ said_when(s.last_used, sec.now) }}{% else %}Signed in{% endif %}</span></span>
+        <form method="post" action="/me/security/sessions" class="kitem-act" data-once><input type="hidden" name="t" value="{{ sec.token }}"><input type="hidden" name="session" value="{{ s.uuid }}"><button class="kbtn kbtn-quiet" type="submit" data-busy="Signing out&hellip;">Sign out<span class="sr"> {{ s.device or "this browser" }}</span></button></form></li>
+{% endfor %}    </ul>
 {% else %}
-  <p class="note msg" role="status">Avrana couldn't confirm what changed. Your Avrana account shows what's set up.</p>
+    <p class="note">No browsers are signed in right now.</p>
+{% endif %}
+    <p class="note">If one of these is the browser you're using, signing it out signs you out here too.</p>
+  </section>
+{% elif sec.reader %}
+  <p class="note msg">The list couldn't be loaded just now. Try again in a moment.</p>
+{% else %}
+  <p class="note">Lost a device, or signed in somewhere you shouldn't be? Ask the person who invited you; they can sign it out for you.</p>
+{% endif %}
+  <p class="note">TV and phone apps you signed in to directly, such as TV and Movies, aren't on this list. Sign out inside each app.</p>
+  <ul class="krows">
+    {{ row(sec.signout_href, "Sign out of Avrana", "Signs you out on this device", "signout") }}
+  </ul>
+{% elif sec.page == "done" %}
+{% if sec.outcome == "confirmed" %}
+  <h2 class="topic">All set</h2>
+  <p class="said kok" role="status">{{ glyph("check") }}<span>
+{%- if sec.action == "password" %}Your password was changed.
+{%- elif sec.action == "passkey" %}Passkey added{% if sec.added_name %}: {{ sec.added_name }}{% endif %}.
+{%- elif sec.action == "totp" %}Authenticator app added{% if sec.added_name %}: {{ sec.added_name }}{% endif %}.
+{%- else %}New backup codes are ready. Keep them somewhere safe; Avrana never sees or stores them.
+{%- endif %}</span></p>
+{% else %}
+  <h2 class="topic">Back in Avrana</h2>
+  <p class="note msg" role="status">{% if sec.action == "recovery_codes" %}Avrana can't see backup codes, so it couldn't confirm a new set. If you saved them, you're set; keep them somewhere safe.{% elif sec.view %}We couldn't see a change to {{ sec.action_words }} yet. If you stopped partway, nothing changed; you can try again.{% else %}We couldn't confirm whether {{ sec.action_words }} changed.{% endif %}</p>
+{% endif %}
+{% if sec.action == "password" and sec.jellyfin_copy %}
+  <p class="note">TV and Movies keeps its own copy of your password, so it still uses the old one. Ask the person who invited you if you want that one changed too.</p>
 {% endif %}
   <ul class="krows">
-    {{ row("/me/security/go/account", "Open your Avrana account", None, "key", leaves=True, leaves_said=True) }}
-    {{ row("/me/security", "Account & Security", None, "person") }}
+    {{ row("/me/security/protection" if sec.action in ("passkey", "totp") else "/me/security", "Account & Security", None, "person") }}
   </ul>
 {% else %}
 {% if sec.page == "password" %}
   <h2 class="topic">Password</h2>
-  <p class="note">You'll change your password on Avrana's secure sign&#8209;in page, then come back here.</p>
+  <p class="note">You'll confirm your current password, then choose a new one, on the secure Avrana sign&#8209;in screen. It brings you straight back here.</p>
 {% if sec.jellyfin_copy %}
   <p class="note">TV and Movies keeps its own copy of your password, so changing it here doesn't change it there. Ask the person who invited you if you need that one changed too.</p>
 {% endif %}
 {% elif sec.page == "passkey" %}
   <h2 class="topic">Passkey</h2>
   <p class="note">Use your device or password manager to verify it's you. Depending on your device, this may ask for Face&nbsp;ID, Touch&nbsp;ID, Windows&nbsp;Hello, your device PIN or a security key.</p>
-  <p class="note">Adding a passkey doesn't remove your password.</p>
+  <p class="note">You'll confirm your password first. Adding a passkey doesn't remove your password.</p>
 {% elif sec.page == "authenticator" %}
   <h2 class="topic">Authenticator app</h2>
-  <p class="note">Use codes from an authenticator app. The secure page shows a QR code and a setup key. If the app is on this phone, copy the setup key instead of scanning.</p>
-{% elif sec.page == "sessions" %}
-  <h2 class="topic">Where you're signed in</h2>
-  <p class="note">Your Avrana account lists the browsers signed in to it, and lets you sign them out.</p>
-  <p class="note">TV and phone apps you signed in to directly, such as TV and Movies, aren't on that list. Sign out inside each app.</p>
+  <p class="note">Use codes from an authenticator app. You'll confirm your password, then see a QR code and a setup key. If the app is on this phone, copy the setup key instead of scanning.</p>
+{% elif sec.page == "codes" %}
+  <h2 class="topic">Backup codes</h2>
+  <p class="note">You'll confirm your password, then see a set of one&#8209;time codes. Write them down or save them in your password manager before you continue; Avrana never sees or stores them.</p>
 {% endif %}
   <section class="kgroup" aria-labelledby="sec-go">
     <h3 class="kgroup-h" id="sec-go">What to expect</h3>
-{% if sec.leaves_to_settings %}
-    <p class="note">Avrana's secure sign&#8209;in page opens on your account settings. {% if sec.page == "sessions" %}Look for Sessions.{% elif sec.page == "password" %}Look for Change password.{% else %}Look for MFA Devices, then Add.{% endif %}</p>
-{% endif %}
-    <ul class="krows">
-      {{ row(sec.go_href, "Continue securely", "Opens Avrana's secure sign-in page", "key", leaves=True) }}
-    </ul>
-    <p class="note">Avrana can't see whether a change went through. Your Avrana account shows what's set up.</p>
+    {{ continue_or_ask(sec) }}
   </section>
 {% endif %}
 {% endblock %}

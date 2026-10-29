@@ -63,10 +63,10 @@
     <p class="note">Open <a class="link" href="/help">Help</a> for your devices and libraries. If something is still wrong, ask the person who invited you.</p>
   </section>
   <section class="block kgroup">
-    <h2>Preferences</h2>
-    <p class="note">Your password, two&#8209;factor devices and active sessions are managed in your Avrana account. Per&#8209;service settings, such as notifications, live inside each service.</p>
+    <h2>Password and sign&#8209;in</h2>
+    <p class="note">Your password, sign&#8209;in protection and the browsers signed in to your account are under Account &amp; Security. Per&#8209;service settings, such as notifications, live inside each service.</p>
     <ul class="krows">
-      {{ row(account_url, "Manage account", "Password, two-factor devices and sessions", "key", leaves=True, leaves_said=True) }}
+      {{ row("/me/security", "Account & Security", "Sign-in, recovery, and sessions", "key") }}
     </ul>
   </section>
 {% else %}

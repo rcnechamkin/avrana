@@ -7,3 +7,5 @@ fastapi==0.115.6
 uvicorn==0.34.0
 jinja2==3.1.5
 httpx==0.28.1
+# Me -> My profile (owner 2026-10-28): decodes and re-encodes a member's photo (avatar.py). The only image decoder.
+pillow==13.0.0
