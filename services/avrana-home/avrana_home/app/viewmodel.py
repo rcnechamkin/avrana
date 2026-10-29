@@ -151,6 +151,11 @@ class ItemVM:
     shelf: Optional[str] = None    # a "shelves" item's shelf (SHELF_ROWS key); never upstream text
     released: Optional[str] = None # the release day, "YYYY-MM-DD" (contract MediaItem.released), for sorting only
     up_next: bool = False          # the next unread book (contract shelf "next"), nothing read yet: "Up next"
+    art_shape: Optional[str] = None  # the art's shape when it is not the kind's own (an episode's series poster)
+
+    @property
+    def shape(self) -> str:
+        return self.art_shape or SHAPE.get(self.kind, "poster")
 
 
 @dataclass(frozen=True)
@@ -171,6 +176,11 @@ def _plain(value, limit: int = 200) -> str:
 
 def _image(artwork) -> Optional[str]:
     return src_for(artwork.get("ref")) if isinstance(artwork, dict) else None
+
+
+def _art_shape(artwork) -> Optional[str]:
+    """The contract's artwork shape, only when it names a poster in place of the item's own shape (a fixed key)."""
+    return "poster" if isinstance(artwork, dict) and artwork.get("shape") == "poster" and _image(artwork) else None
 
 
 def _heading(service: str, section: str) -> str:
@@ -209,7 +219,8 @@ def _item_vm(it: dict) -> Optional[ItemVM]:
                   else None,
                   released=it.get("released") if isinstance(it.get("released"), str)
                   and _DAY.fullmatch(it["released"]) else None,
-                  up_next=it.get("shelf") == UP_NEXT_SHELF and it.get("progress") is None)
+                  up_next=it.get("shelf") == UP_NEXT_SHELF and it.get("progress") is None,
+                  art_shape=_art_shape(it.get("artwork")))
 
 
 def build_sections(view: dict) -> Tuple[SectionVM, ...]:
@@ -614,7 +625,7 @@ def _cards(items, line_of, progress: bool = False, title_services=frozenset()) -
         verb, name = action_of(it, progress)
         href = (None if progress else _details_href(it, title_services)) or it.href
         words = (it.progress or (UP_NEXT if it.up_next else None)) if progress else None
-        out.append(CardVM(it.title, href, SHAPE.get(it.kind, "poster"), line_of(it), it.image,
+        out.append(CardVM(it.title, href, it.shape, line_of(it), it.image,
                           words, kind_label=KIND_LABEL.get(it.kind),
                           action=verb, action_label=name, bar=_bar(it) if progress else None))
     return tuple(out)
@@ -637,7 +648,7 @@ def hero_of(it: ItemVM, state: str, title_services=frozenset()) -> Optional[Hero
         meta = kicker_of(kind or "", library)      # "Episode · Movies and TV", but "Movies and TV" for a movie
     verb = "Resume" if (state == "continue" and it.service == "jellyfin" and it.resumable) else HERO_VERB[it.service]
     details = _details_href(it, title_services)
-    return HeroVM(state, it.title, SHAPE.get(it.kind, "poster"), it.image, meta or None,
+    return HeroVM(state, it.title, it.shape, it.image, meta or None,
                   f"{verb} in {HERO_APP[it.service]}", it.href, details, it.backdrop)
 
 

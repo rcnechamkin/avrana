@@ -256,12 +256,17 @@ class UpstreamUser:
 @dataclass(frozen=True)
 class ArtworkRef:
     """Opaque artwork reference. The home fetches bytes server-side via `fetch_artwork`; the
-    reference never contains an upstream URL, API key or token. `alt` is the text alternative."""
+    reference never contains an upstream URL, API key or token. `alt` is the text alternative. `shape` is set only
+    when the image is not the item's own shape: "poster" for an episode in Continue that shows its series' poster."""
     ref: str
     alt: str
+    shape: Optional[str] = None
 
     def to_dict(self) -> dict:
-        return {"ref": self.ref, "alt": self.alt}
+        out = {"ref": self.ref, "alt": self.alt}
+        if self.shape:
+            out["shape"] = self.shape
+        return out
 
 
 @dataclass(frozen=True)

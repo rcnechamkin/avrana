@@ -19,7 +19,8 @@
       "ParentIndexNumber": "integer", "IndexNumber": "integer", "ProductionYear": "integer",
       "RunTimeTicks": "integer", "UserData": "object", "ImageTags": "object", "ProviderIds": "object",
       "Overview": "string", "BackdropImageTags": "array", "ParentBackdropItemId": "string",
-      "ParentBackdropImageTags": "array", "PremiereDate": "string"
+      "ParentBackdropImageTags": "array", "PremiereDate": "string", "SeriesId": "string",
+      "SeriesPrimaryImageTag": "string"
     },
     "item.UserData": {
       "PlaybackPositionTicks": "integer", "PlayedPercentage": "number", "Played": "boolean",
