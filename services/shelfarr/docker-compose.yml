@@ -27,7 +27,9 @@ services:
     # 2026-10-28 from 0.1.0 (f69538a); pre-upgrade snapshot in
     # /home/cody/backups/shelfarr-pre-upgrade-20261028T053926Z. Repo-wide convention:
     # tag and digest.
-    image: ghcr.io/pedro-revez-silva/shelfarr:2026.10.19.1@sha256:182e91e26249a35a21a95dd727ebf95632f73a4c8191bf6e29b1ca05ea203460
+    # Avrana fork (requests:on_behalf), applied 2026-10-29, docs/runbooks/media-requests-rollout.md step 2. Upstream it replaces:
+    # image: ghcr.io/pedro-revez-silva/shelfarr:2026.10.19.1@sha256:182e91e26249a35a21a95dd727ebf95632f73a4c8191bf6e29b1ca05ea203460
+    image: ghcr.io/rcnechamkin/shelfarr:avrana-2026.10.19.1-a8cc710@sha256:c0e1e78db13e38d9395815953c6cc7a7397b9d5a3053e8e3b211af9a8f5bc342
     container_name: shelfarr
 
     # PUID/PGID rather than `user:` -- the image runs a root startup flow that

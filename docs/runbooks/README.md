@@ -29,3 +29,6 @@ Rules that apply to all four:
 
 Related, owned elsewhere: gate G1 (network isolation) has its own runbook when it lands; the full list of
 owner actions is in [the roadmap](../ROADMAP.md) and [the owner scripts](../../deploy/host/owner-scripts/README.md).
+
+Media beta, after M0: [switch on member requests](media-requests-rollout.md) (fork images, scoped keys, Home's
+request switches, in seven steps with an undo each).
