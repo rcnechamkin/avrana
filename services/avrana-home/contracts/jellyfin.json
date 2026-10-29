@@ -20,17 +20,18 @@
       "RunTimeTicks": "integer", "UserData": "object", "ImageTags": "object", "ProviderIds": "object",
       "Overview": "string", "BackdropImageTags": "array", "ParentBackdropItemId": "string",
       "ParentBackdropImageTags": "array", "PremiereDate": "string", "SeriesId": "string",
-      "SeriesPrimaryImageTag": "string", "People": "array", "Genres": "array", "Tags": "array"
+      "SeriesPrimaryImageTag": "string", "People": "array", "Genres": "array", "Tags": "array",
+      "DateCreated": "string"
     },
     "item.People": {
       "Name": "string", "Type": "string"
     },
     "item.UserData": {
       "PlaybackPositionTicks": "integer", "PlayedPercentage": "number", "Played": "boolean",
-      "ItemId": "string", "UserId": "string", "Key": "string"
+      "ItemId": "string", "UserId": "string", "Key": "string", "LastPlayedDate": "string"
     },
     "item.ProviderIds": {
-      "Imdb": "string", "Tmdb": "string", "Tvdb": "string"
+      "Imdb": "string", "Tmdb": "string", "Tvdb": "string", "TmdbCollection": "string"
     },
     "item.ImageTags": {
       "Primary": "string"

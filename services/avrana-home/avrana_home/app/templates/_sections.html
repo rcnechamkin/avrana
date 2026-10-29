@@ -49,7 +49,7 @@
       {{ frame(h.image, h.title) }}
     </div>
 {% endif %}
-    <h2 id="h-hero" class="hero-title"><span class="k-eyebrow{% if h.state == "continue" %} yours{% endif %}">{% if h.state == "continue" %}Continue{% else %}New to Avrana{% endif %}<span class="sr">: </span></span> <span class="k-display">{{ h.title }}</span></h2>
+    <h2 id="h-hero" class="hero-title"><span class="k-eyebrow{% if h.state in ("continue", "for_you") %} yours{% endif %}">{% if h.state == "continue" %}Continue{% elif h.state == "for_you" %}New for You{% else %}New to Avrana{% endif %}<span class="sr">: </span></span> <span class="k-display">{{ h.title }}</span></h2>
 {% if h.meta %}
     <p class="k-meta">{{ h.meta }}</p>
 {% endif %}
@@ -69,6 +69,18 @@
 {% elif home.continue_said %}
     <p class="said">{{ home.continue_said }}</p>
 {% endif %}
+  </section>
+{% endif %}
+{#- New for You (owner request 2026-10-28): the next episode, issue or book of a series the member is caught up on, that
+   arrived lately, newest first. Each card says what it is and when it came ("New issue · today"). Only when there is
+   something: no empty state, no hint. #}
+{% if home.for_you_items %}
+  <section class="shelf" aria-labelledby="h-foryou">
+    <h2 id="h-foryou">New for You</h2>
+    <ul class="rail{% if home.for_you_rail %} {{ home.for_you_rail }}{% else %} tall{% endif %}" id="rail-foryou">
+{% for c in home.for_you_items %}{{ card(c, glow=home.for_you_rail == "mixed") }}
+{% endfor %}
+    </ul>
   </section>
 {% endif %}
 {#- Watch (owner decisions 2026-10-27/28): Up next (episode stills), New releases, then Movies and TV shows, in place

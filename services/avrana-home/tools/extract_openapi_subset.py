@@ -36,7 +36,7 @@ PATHS = {
                       "enableUserData"),
     "/Shows/NextUp": ("userId", "limit", "fields", "enableUserData", "enableImageTypes", "enableTotalRecordCount"),
     "/Items": ("userId", "ids", "fields", "enableUserData", "enableImageTypes", "searchTerm", "includeItemTypes",
-               "recursive", "limit", "sortBy", "sortOrder", "maxPremiereDate", "isMissing"),
+               "recursive", "limit", "sortBy", "sortOrder", "maxPremiereDate", "isMissing", "isPlayed"),
     "/Items/{itemId}/Images/{imageType}": ("maxWidth", "quality"),
 }
 # schema -> the properties the adapter reads
@@ -44,18 +44,18 @@ SCHEMAS = {
     "BaseItemDto": ("Id", "Name", "Type", "SeriesName", "ParentIndexNumber", "IndexNumber", "ProductionYear",
                     "RunTimeTicks", "UserData", "ImageTags", "Overview", "ProviderIds",
                     "BackdropImageTags", "ParentBackdropItemId", "ParentBackdropImageTags", "PremiereDate",
-                    "SeriesId", "SeriesPrimaryImageTag", "People", "Genres", "Tags"),
+                    "SeriesId", "SeriesPrimaryImageTag", "People", "Genres", "Tags", "DateCreated"),
     # one entry of BaseItemDto.People (title page only: richer Details, 2026-10-28)
     "BaseItemPerson": ("Name", "Type"),
     "BaseItemDtoQueryResult": ("Items",),
     # UserId is read only if present and is absent upstream; kept here so its absence is checked, not assumed
-    "UserItemDataDto": ("PlaybackPositionTicks", "PlayedPercentage", "Played", "ItemId", "UserId"),
+    "UserItemDataDto": ("PlaybackPositionTicks", "PlayedPercentage", "Played", "ItemId", "UserId", "LastPlayedDate"),
     "UserDto": ("Id", "Name", "Policy"),
     "UserPolicy": ("IsDisabled",),
 }
 # enum -> the members the adapter sends (fields, enableImageTypes, includeItemTypes, mediaTypes) or matches on
 ENUMS = {
-    "ItemFields": ("Genres", "Overview", "People", "PrimaryImageAspectRatio", "ProviderIds", "Tags"),
+    "ItemFields": ("DateCreated", "Genres", "Overview", "People", "PrimaryImageAspectRatio", "ProviderIds", "Tags"),
     "ImageType": ("Backdrop", "Logo", "Primary"),
     "BaseItemKind": ("Episode", "Movie", "Series"),
     "MediaType": ("Video",),

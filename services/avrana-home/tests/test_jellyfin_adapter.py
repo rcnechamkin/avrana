@@ -211,7 +211,7 @@ class ContinueAndRecentTests(Base):
         self.assertTrue(all(q.get("userId") for q in sent))
 
     def test_next_up_is_offered_by_this_library_only(self):
-        self.assertEqual(JellyfinAdapter.extra_sections, frozenset({"next_up", "released"}))
+        self.assertEqual(JellyfinAdapter.extra_sections, frozenset({"next_up", "released", "for_you"}))
 
     def test_empty_when_nothing_in_progress(self):
         self.fake.users.append({"Id": "99999999-9999-4999-8999-999999999999", "Name": "member-z",

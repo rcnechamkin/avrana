@@ -153,6 +153,7 @@ class ItemVM:
     released: Optional[str] = None # the release day, "YYYY-MM-DD" (contract MediaItem.released), for sorting only
     up_next: bool = False          # the next unread book (contract shelf "next"), nothing read yet: "Up next"
     art_shape: Optional[str] = None  # the art's shape when it is not the kind's own (an episode's series poster)
+    active: Optional[str] = None   # when this member last touched it (contract MediaItem.active, UTC), for ordering only
 
     @property
     def shape(self) -> str:
@@ -203,6 +204,7 @@ def _heading(service: str, section: str) -> str:
 
 
 _DAY = re.compile(r"\d{4}-\d{2}-\d{2}")
+_INSTANT = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z")
 
 
 def _item_vm(it: dict) -> Optional[ItemVM]:
@@ -232,7 +234,9 @@ def _item_vm(it: dict) -> Optional[ItemVM]:
                   released=it.get("released") if isinstance(it.get("released"), str)
                   and _DAY.fullmatch(it["released"]) else None,
                   up_next=it.get("shelf") == UP_NEXT_SHELF and it.get("progress") is None,
-                  art_shape=_art_shape(it.get("artwork")))
+                  art_shape=_art_shape(it.get("artwork")),
+                  active=it.get("active") if isinstance(it.get("active"), str)
+                  and _INSTANT.fullmatch(it["active"]) else None)
 
 
 def build_sections(view: dict) -> Tuple[SectionVM, ...]:
@@ -281,6 +285,12 @@ NOTHING_IN_PROGRESS = ("Nothing in progress. Whatever you start in a library app
 NEW_TO_AVRANA = "New to Avrana"
 NOTHING_NEW = "Nothing added to Avrana recently."
 NEW_RELEASES = "New Releases"     # owner request 2026-10-28: capitalised
+# New for You (owner request 2026-10-28), right under Continue: what arrived lately that is the next episode, issue or
+# book of a series this member is caught up on (each library decides, `for_you` section). Absent when there is none.
+NEW_FOR_YOU = "New for You"
+FOR_YOU_WORDS = {"episode": "New episode", "comic": "New issue", "movie": "Next in series",
+                 "audiobook": "Next in series", "ebook": "Next in series"}
+FOR_YOU_FROM = ("jellyfin", "audiobookshelf", "komga")
 # New Releases' chips (owner request 2026-10-28), by what a thing is, so an EPUB novel in Komga is a Book: (key,
 # label, kinds). A chip is offered only when the list holds something of its kind; `?rel=` picks one (never echoed).
 RELEASE_CHIPS = (("watch", "Movies and TV", ("movie", "episode", "series")), ("listen", "Audiobooks", ("audiobook",)),
@@ -389,6 +399,8 @@ class HomeVM:
     released_tabs: Tuple[Tuple[str, str, bool, str], ...] = ()   # New Releases' chips: (key, label, current, href)
     released_more: Tuple[CardVM, ...] = ()
     released_more_href: Optional[str] = None
+    for_you_items: Tuple[CardVM, ...] = ()   # New for You, newest arrival first; empty: the section is absent
+    for_you_rail: str = ""                   # its shape class, as Continue's (rail_shape)
 
 
 def rail_shape(cards) -> str:
@@ -567,11 +579,15 @@ NOTHING_UP_NEXT = "Nothing up next. The next episode of a show you are watching 
 # The Audiobooks shelves (owner decision 2026-10-27), in this order after Recently added. Keys are the adapter's.
 SHELF_ROWS = (("new", NEW_RELEASES), ("classics", "Classics"), ("short", "Short listens"),
               ("epic", "Epic listens"))
-_EXTRA_FOR = {"jellyfin": ("next_up", "released"), "audiobookshelf": ("shelves",), "komga": ("shelves",)}
-# All: New releases from every library that has release dates (Calibre-Web's catalogue gives none Home can sort), and
-# Up next for Continue (owner request 2026-10-28).
+# New for You last in each: Jellyfin then has three extra sections, one more than a member may run at once there, so
+# Home asks them in waves (aggregate.waves) and New for You is the one that follows.
+_EXTRA_FOR = {"jellyfin": ("next_up", "released", "for_you"), "audiobookshelf": ("shelves", "for_you"),
+              "komga": ("shelves", "for_you")}
+# All: New releases from every library that has release dates (Calibre-Web's catalogue gives none Home can sort),
+# Up next for Continue, and New for You (owner requests 2026-10-28).
 RELEASED_FROM = ("jellyfin", "audiobookshelf", "komga")
-ALL_EXTRAS = tuple((s, "released") for s in RELEASED_FROM) + (("jellyfin", "next_up"),)
+ALL_EXTRAS = (tuple((s, "released") for s in RELEASED_FROM) + (("jellyfin", "next_up"),)
+              + tuple((s, "for_you") for s in FOR_YOU_FROM))
 # Libraries whose Recently added gives way to Recently released when nothing was added in the last two months
 # (owner decisions 2026-10-27 Audiobookshelf, 2026-10-28 Komga).
 RELEASED_FALLBACK = ("audiobookshelf", "komga")
@@ -676,17 +692,33 @@ def _cards(items, line_of, progress: bool = False, title_services=frozenset()) -
     return tuple(out)
 
 
-def hero_of(it: ItemVM, state: str, title_services=frozenset()) -> Optional[HeroVM]:
+def for_you_words(it: ItemVM, today: str) -> str:
+    """A New for You card's own line: what it is to the member and when it arrived ("New issue · today")."""
+    words = FOR_YOU_WORDS.get(it.kind, "New")
+    if not it.active:
+        return words
+    try:
+        days = (_dt.date.fromisoformat(today) - _dt.date.fromisoformat(it.active[:10])).days
+    except ValueError:
+        return words
+    when = "today" if days <= 0 else "yesterday" if days == 1 else f"{days} days ago"
+    return f"{words} · {when}"
+
+
+def hero_of(it: ItemVM, state: str, title_services=frozenset(), words: Optional[str] = None) -> Optional[HeroVM]:
     """The hero for one of THIS member's items (already filtered by `_item_vm`: https hand-off on a fixed host).
-    Continue: progress in words, then the library. Recently added: the series or episode line (or what it is),
-    then the library. Details links to the title page only where that library offers the permission-checked
-    item lookup and the id is valid; otherwise there is no Details at all, never a dead link."""
+    Continue: progress in words, then the library. New for You: its words (`for_you_words`), then the library.
+    Recently added: the series or episode line (or what it is), then the library. Details links to the title page only
+    where that library offers the permission-checked item lookup and the id is valid; otherwise there is no Details at
+    all, never a dead link."""
     if it.service not in HERO_APP or not handoff_ok(it.href, it.service):
         return None
     library = SERVICE_LABEL[it.library]
     kind = KIND_LABEL.get(it.kind)
     if state == "continue":
         meta = " · ".join(x for x in (it.progress or (UP_NEXT if it.up_next else it.detail), library) if x)
+    elif state == "for_you":
+        meta = " · ".join(x for x in (it.detail, words, library) if x)
     elif it.detail:
         meta = f"{it.detail} · {library}"
     else:
@@ -727,17 +759,36 @@ def _with_up_next(resume, upcoming):
     return _round_robin([resume, nxt], len(resume) + len(nxt))
 
 
+def by_activity(lists):
+    """One list from each library's own, the one this member touched most recently first, whatever its library (owner
+    request 2026-10-28: an audiobook left a week ago no longer leads because its library comes first). An item without
+    a date (`active`) goes after every dated one; among equals the old round-robin order stands (the sort is stable)."""
+    return sorted(_round_robin(lists, sum(len(x) for x in lists)), key=lambda it: it.active or "", reverse=True)
+
+
+def for_you_list(held: dict):
+    """New for You across libraries, the newest arrival first, each title once."""
+    seen, out = set(), []
+    for it in by_activity([_items_of(held, "for_you", s) for s in FOR_YOU_FROM]):
+        if it.item_id not in seen:
+            seen.add(it.item_id)
+            out.append(it)
+    return out
+
+
 def continue_list(held: dict, focus: Optional[str]):
-    """(services, items): everything this member can continue, merged across libraries, the most recent of each first.
-    On All, Movies and TV's list includes Up next; a filtered Watch keeps Up next as its own row instead."""
+    """(services, items): everything this member can continue, merged across libraries, the most recently touched
+    first (`by_activity`). On All, Movies and TV's list includes Up next; a filtered Watch keeps Up next as its own row
+    instead. What New for You shows is left out: a new episode or issue the member is caught up to is New for You's."""
     services = [s for s in SERVICE_ORDER if any(x["section"] == "continue" for x in held.get(s, ()))]
+    fresh = {it.item_id for it in for_you_list(held)}
     lists = []
     for s in services:
         items = _items_of(held, "continue", s)
         if s == "jellyfin" and focus is None:
             items = _with_up_next(items, _items_of(held, "next_up", s))
-        lists.append(items)
-    return services, _round_robin(lists, sum(len(x) for x in lists))
+        lists.append([it for it in items if it.item_id not in fresh])
+    return services, by_activity(lists)
 
 
 def _split(cards, limit: int, expanded: bool):
@@ -806,16 +857,21 @@ def build_home(view: dict, tiles, *, new_tab: Optional[str] = None, limit: int =
     # then "See all" only when there is more: the Continue page lists everything.
     cont_services, cont_all = continue_list(held, focus)
     cont = cont_all[:limit]
+    today = today if isinstance(today, str) and _DAY.fullmatch(today) else _dt.date.today().isoformat()
+    # New for You (owner request 2026-10-28): right under Continue, only when there is something.
+    fresh = for_you_list(held)[:limit]
+    for_you = tuple(dataclasses.replace(c, progress=for_you_words(it, today)) for c, it in
+                    zip(_cards(fresh, lambda it: it.detail or KIND_LABEL.get(it.kind), title_services=title_services),
+                        fresh))
     cont_degraded = any(x["state"] in ("unavailable", "not_linked") for s in cont_services
                         for x in held[s] if x["section"] == "continue")
     continue_said = None if (cont or cont_degraded) else NOTHING_IN_PROGRESS
 
     # New Releases (owner decision 2026-10-28): by the release date itself, across libraries, newest first; a title
     # once, and never one Continue already shows. Chips by kind (owner request 2026-10-28), only for kinds it holds.
-    today = today if isinstance(today, str) and _DAY.fullmatch(today) else _dt.date.today().isoformat()
     dated = [(release_key(it, today), i, it) for i, it in
              enumerate(it for s in SERVICE_ORDER for it in items_of("released", s))]
-    seen, picked = {it.item_id for it in cont}, []
+    seen, picked = {it.item_id for it in cont} | {it.item_id for it in fresh}, []
     for _key, _i, it in sorted((t for t in dated if t[0]), key=lambda t: (t[0], -t[1]), reverse=True):
         if it.item_id not in seen:
             seen.add(it.item_id)
@@ -868,7 +924,7 @@ def build_home(view: dict, tiles, *, new_tab: Optional[str] = None, limit: int =
     # Continue does (#138), and stays a rail of stills only for episodes whose show has none.
     rows = ()
     if focus is not None and _PLACE_SERVICES[focus] == ("jellyfin",) and "jellyfin" in held:
-        shown = {it.item_id for it in cont}
+        shown = {it.item_id for it in cont} | {it.item_id for it in fresh}
         built = []
         if any(x["section"] == "next_up" and x["state"] in ("ok", "empty") for x in held["jellyfin"]):
             nxt = [it for it in items_of("next_up", "jellyfin") if it.item_id not in shown][:limit]
@@ -922,13 +978,17 @@ def build_home(view: dict, tiles, *, new_tab: Optional[str] = None, limit: int =
 
     # The hero (memo section 4, Actual states only): the member's own next thing. H1: the first Continue item that
     # is not from a library said to be down (a stale card stays in its rail, but is never the one big promise).
-    # H0, nothing in progress: the first Recently added item, newest of each library in library order, whichever
-    # tab is chosen (the hero does not jump when the member changes tab). Nothing at all: no hero.
+    # H0, nothing in progress: the newest New for You item, else the first Recently added item, newest of each library
+    # in library order, whichever tab is chosen (the hero does not jump when the member changes tab). Nothing at all:
+    # no hero.
     def up(it):
         return not library_down(held.get(it.service, ()))
     first_cont = next((it for it in cont if up(it)), None)
+    first_new = next((it for it in fresh if up(it)), None)
     if first_cont is not None:
         hero = hero_of(first_cont, "continue", title_services)
+    elif first_new is not None:
+        hero = hero_of(first_new, "for_you", title_services, for_you_words(first_new, today))
     else:
         recent = _round_robin([[it for it in items_of("recent", s) if up(it)] for s in SERVICE_ORDER], 1)
         hero = hero_of(recent[0], "recent", title_services) if recent else None
@@ -943,7 +1003,8 @@ def build_home(view: dict, tiles, *, new_tab: Optional[str] = None, limit: int =
                   new_hrefs=new_hrefs, new_more=new_more,
                   new_more_href=home_href(focus, new_key, rel, "new", "h-new") if new_more else None,
                   retry_href=retry_href, setup_href=setup_href, hero=hero, released_items=released,
-                  released_tabs=released_tabs, released_more=released_more, released_more_href=released_more_href)
+                  released_tabs=released_tabs, released_more=released_more, released_more_href=released_more_href,
+                  for_you_items=for_you, for_you_rail=rail_shape(for_you))
 
 
 # ---- The Continue page (owner request 2026-10-28): everything the member can continue, from Home's "See all" ------

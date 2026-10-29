@@ -387,3 +387,15 @@ reading; chose "Home does it" over running the tool at each invite).
 | **Home holds a Komga admin key, for making members' keys only** | Replaces the decision of 2026-10-15 ("no admin key") for this one use, as Home already holds admin-level Jellyfin and Audiobookshelf credentials for #128. `secrets/komga_admin_token`, used only by provision.py (`KomgaKeyCreator`); the read adapters never see it. |
 | **A member's first visit makes their key** | With `komga` in HOME_PROVISION_ACCOUNTS, a member with the comics group and an email but no key gets one on their first Home page (one Komga sign-out for an existing account; a new account gets Authentik sign-in defaults). The owner's own admin account gets its key without a password change; other admins are never touched. |
 | **Keys live in Home's one writable folder and reload by themselves** | `state/komga_member_keys` (gitignored, uid 1000, 0700) is mounted read-write; Home re-reads it when it changes, so neither Home nor the owner's tool needs a restart. `tools/komga_member_keys.py --missing` checks coverage. |
+
+## Proposed, 2026-10-28: Continue in the order you used things, and New for You
+
+From the owner's request of 2026-10-28 ("If I haven't listened to an audiobook in a week, it shouldn't be at the front
+of the line"; "I shouldn't have to go digging to find out that a new issue of Absolute Batman came out today if I'm
+totally caught up"). Draft until the owner merges it.
+
+| Decision | Consequence |
+|---|---|
+| **Continue is ordered by the member's own last activity** | Each Continue item carries `active` (contract `MediaItem.active`, UTC): Jellyfin `UserData.LastPlayedDate`, Audiobookshelf the progress entry's `lastUpdate`, Komga `readProgress.readDate`. Up next and On Deck items carry their series' last watch or read (one more member-scoped call each). Items without a date go last. The round-robin by library is gone. |
+| **New for You sits under Continue** | A new optional section `for_you`, asked of Jellyfin, Audiobookshelf and Komga (Komga only with the member's own key). It holds what arrived in the last 30 days that is the NEXT episode, issue or book of a series the member is caught up on: Jellyfin Up next and Komga On Deck filtered by arrival date, Audiobookshelf finished-series arithmetic, and newly added films from a TMDb collection the member has watched. Each title appears once on the page: New for You wins over Continue, Up next and New Releases. |
+| **No Trakt** | Every signal New for You needs (what the member watched, read, listened to, and what arrived) is already in Jellyfin, Komga and Audiobookshelf, per member. Trakt would add history from outside Avrana and recommendations, at the cost of a per-member OAuth link and a third-party copy of viewing history. Revisit for a "Coming soon" shelf or recommendations. |

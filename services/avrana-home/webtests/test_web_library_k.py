@@ -93,12 +93,15 @@ class ViewModel(unittest.TestCase):
 
     def test_extra_sections_are_asked_of_their_own_library_only(self):
         from avrana_home.app.viewmodel import extra_sections_for, library_extra_sections
-        self.assertEqual(extra_sections_for("listen"), (("audiobookshelf", "shelves"),))
-        self.assertEqual(extra_sections_for("comics"), (("komga", "shelves"),))
-        self.assertEqual(extra_sections_for("read"), (("komga", "shelves"),))
-        self.assertEqual(extra_sections_for("watch"), (("jellyfin", "next_up"), ("jellyfin", "released")))
+        # New for You (owner request 2026-10-28) last in each
+        self.assertEqual(extra_sections_for("listen"), (("audiobookshelf", "shelves"), ("audiobookshelf", "for_you")))
+        self.assertEqual(extra_sections_for("comics"), (("komga", "shelves"), ("komga", "for_you")))
+        self.assertEqual(extra_sections_for("read"), (("komga", "shelves"), ("komga", "for_you")))
+        self.assertEqual(extra_sections_for("watch"), (("jellyfin", "next_up"), ("jellyfin", "released"),
+                                                       ("jellyfin", "for_you")))
         released = (("jellyfin", "released"), ("audiobookshelf", "released"), ("komga", "released"),
-                    ("jellyfin", "next_up"))
+                    ("jellyfin", "next_up"), ("jellyfin", "for_you"), ("audiobookshelf", "for_you"),
+                    ("komga", "for_you"))
         self.assertEqual(extra_sections_for(None), released)          # All: every library's New Releases, and Up next
         self.assertEqual(extra_sections_for("nope"), released)        # an unknown filter is All
         self.assertEqual(library_extra_sections("komga"), ())

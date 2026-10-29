@@ -21,6 +21,7 @@
      "Primary"
     ],
     "ItemFields": [
+     "DateCreated",
      "Genres",
      "Overview",
      "People",
@@ -48,6 +49,7 @@
       "ids",
       "includeItemTypes",
       "isMissing",
+      "isPlayed",
       "limit",
       "maxPremiereDate",
       "recursive",
@@ -119,6 +121,7 @@
    "schemas": {
     "BaseItemDto": {
      "BackdropImageTags": "array",
+     "DateCreated": "string",
      "Genres": "array",
      "Id": "string",
      "ImageTags": "object",
@@ -154,6 +157,7 @@
     },
     "UserItemDataDto": {
      "ItemId": "string",
+     "LastPlayedDate": "string",
      "PlaybackPositionTicks": "integer",
      "Played": "boolean",
      "PlayedPercentage": "number"
@@ -179,6 +183,7 @@
      "Primary"
     ],
     "ItemFields": [
+     "DateCreated",
      "Genres",
      "Overview",
      "People",
@@ -206,6 +211,7 @@
       "ids",
       "includeItemTypes",
       "isMissing",
+      "isPlayed",
       "limit",
       "maxPremiereDate",
       "recursive",
@@ -277,6 +283,7 @@
    "schemas": {
     "BaseItemDto": {
      "BackdropImageTags": "array",
+     "DateCreated": "string",
      "Genres": "array",
      "Id": "string",
      "ImageTags": "object",
@@ -312,6 +319,7 @@
     },
     "UserItemDataDto": {
      "ItemId": "string",
+     "LastPlayedDate": "string",
      "PlaybackPositionTicks": "integer",
      "Played": "boolean",
      "PlayedPercentage": "number"

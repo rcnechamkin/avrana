@@ -55,6 +55,23 @@ How it stays member-scoped with an ADMIN-capable token (Audiobookshelf has no im
     to 5 hours) and Epic listens (20 hours or more). There is no "popular" shelf: the upstream has no listening
     signal that is not another member's own history. Route, sort keys, filter syntax and the minified item shape
     are recalled from the 2.x API and server source and are UNVERIFIED.
+  * Continue order (owner complaint 2026-10-28: a book not played for a week led Continue): every Continue item carries
+    `active`, the `lastUpdate` (epoch ms) of THAT member's own progress entry as a UTC instant; Home sorts Continue
+    across libraries by it.
+  * New for You (`for_you`, owner request 2026-10-28: "I shouldn't have to go digging to find out a new book in a series
+    came out if I'm caught up on that series"). Member record first, then each of the member's libraries listed newest
+    added first (as Recently added, every entry through `_visible`). A candidate is a book that carries a series name,
+    was added within FOR_YOU_DAYS and that the member has NOT started (no progress entry with progress > 0 or finished).
+    At most FOR_YOU_LOOKUPS candidates are examined, each only while LOOKUP_RESERVE of the request budget is left (cut
+    short: what is checked is shown, reason TRUNCATED). For each, the expanded item's `media.metadata.series` ({id, name,
+    sequence} list, UNVERIFIED) names its series, and `GET /api/libraries/{id}/items?filter=series.<base64 series id>`
+    lists that series (books the member may not see are simply absent). The candidate is "for you" when the member has
+    FINISHED at least one other book of the series AND every other book with a LOWER sequence is finished (caught up;
+    this is the next one). Books without a parseable sequence are ignored as blockers when the candidate has one; when
+    the candidate has none the rule is: finished at least one other book and no other book started but unfinished.
+    A series book's sequence is `media.metadata.series.sequence` (the filtered list's single object, or a list) when
+    its id matches, else the "#n" after the series name in `seriesName` (both UNVERIFIED). `active` is when the book
+    arrived (`addedAt`), newest first.
 
 Route and field names are recalled from Audiobookshelf's public API documentation and are UNVERIFIED.
 """
@@ -73,7 +90,7 @@ from .. import media_ids
 from ..principal import MemberPrincipal
 from ..resilience import (DEFAULT_TIMEOUT, FanOutSpent, ItemGone, RouteMissing, Transport, UpstreamMalformed,
                           UpstreamMisbehaved, UpstreamTimeout, UserGone)
-from ._base import (GuardedAdapter, Route, bounded_int, iso_day, lookup_username, match_exactly_one,
+from ._base import (GuardedAdapter, Route, bounded_int, iso_day, iso_instant, lookup_username, match_exactly_one,
                     member_override, year_from)
 from ._base import GuardedTransport as _Guard
 
@@ -96,6 +113,10 @@ MAX_SEARCH_PAGE = 50            # hits asked for per library, whatever the limit
 # broad search UpstreamTooLarge. This cap applies to the search route only.
 MAX_SEARCH_BYTES = 8 * 1024 * 1024
 MAX_LIST_PAGE = 36              # entries asked for per library list (recent or a shelf), whatever the limit
+FOR_YOU_DAYS = 30               # New for You: only books added this recently (owner decision 2026-10-28)
+FOR_YOU_LOOKUPS = 6             # candidates examined per request (each costs an item lookup and a series listing)
+MAX_SERIES_BOOKS = 100          # books asked for when a series is listed
+_SERIES_ID = re.compile(r"[A-Za-z0-9_-]{3,60}")   # "ser_..." or a UUID (UNVERIFIED); only ever sent base64-encoded
 CLASSIC_GENRE = re.compile(r"\bclassics?\b", re.IGNORECASE)
 MAX_CLASSIC_GENRES = 3
 SHORT_MIN, SHORT_MAX, EPIC_MIN = 30 * 60, 5 * 3600, 20 * 3600     # seconds
@@ -124,7 +145,8 @@ ALLOWED_ROUTES = (
     Route("search", r"/api/libraries/" + _LIBRARY_PATH + r"/search", ("q", "limit"), user_scoped=False,
           not_found=ItemGone),
     # Recently added and the shelves: the same scoping as search (the member's own libraries, every entry
-    # through `_visible`). `filter` only ever carries `genres.<base64 of a genre the library itself listed>`.
+    # through `_visible`). `filter` only ever carries `genres.<base64 of a genre the library itself listed>` or
+    # `series.<base64 of a series id the member's candidate item itself named>` (New for You).
     Route("library_items", r"/api/libraries/" + _LIBRARY_PATH + r"/items",
           ("sort", "desc", "limit", "minified", "filter"), user_scoped=False, not_found=ItemGone),
     Route("filterdata", r"/api/libraries/" + _LIBRARY_PATH + r"/filterdata", (), user_scoped=False,
@@ -208,7 +230,7 @@ def _left(budget) -> float:
 class AudiobookshelfAdapter(GuardedAdapter):
     service = Service.AUDIOBOOKSHELF
     artwork_rechecks_visibility = True     # visibility is per member: re-checked before any cached cover
-    extra_sections = frozenset({"shelves", "released"})
+    extra_sections = frozenset({"shelves", "released", "for_you"})
 
     def __init__(self, transport: Transport, timeout: float = DEFAULT_TIMEOUT, *,
                  member_username: Optional[Tuple[str, str]] = None, **kw):
@@ -383,9 +405,10 @@ class AudiobookshelfAdapter(GuardedAdapter):
 
     # -- Recently added and the shelves --------------------------------------------------------
     def _list(self, guard, budget, access: _Access, library_id: str, query: Dict[str, str],
-              counts: List[int]) -> List[Tuple[int, int, MediaItem]]:
+              counts: List[int], keep: Optional[Dict[str, Any]] = None) -> List[Tuple[int, int, MediaItem]]:
         """One library list, every entry checked with THIS member's permissions. (added at, published year, item)
-        for each entry the member may see. `counts` gathers [answered, unusable] across calls."""
+        for each entry the member may see. `counts` gathers [answered, unusable] across calls. `keep`, when given,
+        receives {item id: the raw minified entry} for those entries (New for You reads the series from it)."""
         try:
             body = self._get_json(guard, budget, f"/api/libraries/{library_id}/items", dict(query, minified="1"))
         except ItemGone:
@@ -407,6 +430,8 @@ class AudiobookshelfAdapter(GuardedAdapter):
             media, status = self._visible(raw, item_id, access, None, None, None)
             counts[1] += status == "bad"
             if media is not None:
+                if keep is not None:
+                    keep[item_id] = raw
                 out.append((bounded_int(raw.get("addedAt")) or 0, media.year or 0, media))
         return out
 
@@ -450,6 +475,150 @@ class AudiobookshelfAdapter(GuardedAdapter):
             raise UpstreamMalformed()
         kept = sorted((t for t in found if t[1]), key=lambda t: (t[1], t[2].released or "", t[0]), reverse=True)
         return SectionResult.of(Service.AUDIOBOOKSHELF, "released", tuple(_unique(m for _a, _y, m in kept)[:limit]))
+
+    # -- New for You ---------------------------------------------------------------------------
+    def _for_you_items(self, user: UpstreamUser, limit: int) -> SectionResult:
+        """The next book of a series the member is caught up on, added in the last FOR_YOU_DAYS (rule: module docstring).
+        Newest arrival first; `active` is `addedAt`. Cut short by the request budget, the candidates already checked are
+        shown (reason TRUNCATED). Unusable upstream data fails closed as in the other sections."""
+        uid = user.upstream_id
+        guard = self._guard.bind(uid)
+        budget = self._budget()
+        record, access = self._member_access(guard, budget, uid)   # BEFORE any library is listed
+        states = self._progress_states(record.get("mediaProgress"), uid)
+        libraries = self._libraries(guard, budget, access)[:MAX_LIBRARIES]
+        counts = [0, 0]
+        since = (time.time() - FOR_YOU_DAYS * 86400) * 1000
+        visible = 0
+        fresh: List[Tuple[int, str, str]] = []                 # (added at ms, library id, item id)
+        for library_id in libraries:
+            listed = self._list(guard, budget, access, library_id,
+                                {"sort": "addedAt", "desc": "1", "limit": str(MAX_LIST_PAGE)}, counts)
+            visible += len(listed)
+            for added, _year, media in listed:
+                item_id = media.id[len(Service.AUDIOBOOKSHELF.value) + 1:]
+                if added >= since and media.series and not states.get(item_id, (False, False))[0]:
+                    fresh.append((added, library_id, item_id))
+        if libraries and not counts[0]:
+            raise RouteMissing(404)                           # every library answered 404: the route itself drifted
+        fresh.sort(key=lambda t: t[0], reverse=True)
+        shown: List[MediaItem] = []
+        by_id = {}
+        truncated = False
+        examined = answered = 0
+        bad = [0]
+        series_cache: Dict[Tuple[str, str], List[Tuple[str, Optional[float]]]] = {}
+        for added, library_id, item_id in fresh[:FOR_YOU_LOOKUPS]:
+            if len(shown) >= limit:
+                break
+            if _left(budget) < LOOKUP_RESERVE:
+                truncated = True
+                break                                         # what is already checked is accurate: show it
+            examined += 1
+            try:
+                found = self._next_in_series(guard, budget, access, library_id, item_id, states, series_cache, bad)
+            except ItemGone:
+                continue                                      # vanished upstream: omitted, neutral
+            except UpstreamTimeout:
+                if shown or answered:
+                    truncated = True
+                    break
+                raise                                         # nothing answered at all: real evidence
+            answered += 1
+            if found is not None:
+                shown.append(dataclasses.replace(found, active=iso_instant(added)))
+        if not shown and ((counts[1] and not visible) or (examined and bad[0] >= examined)):
+            raise UpstreamMalformed()                         # nothing could be judged safely: drift, not "empty"
+        result = SectionResult.of(Service.AUDIOBOOKSHELF, "for_you", tuple(_unique(shown)[:limit]))
+        if truncated:
+            result = SectionResult(result.service, result.section, result.state, result.items, reason=TRUNCATED)
+        return result
+
+    def _next_in_series(self, guard, budget, access: _Access, library_id: str, item_id: str,
+                        states: Dict[str, Tuple[bool, bool]], cache: Dict[Tuple[str, str], Any],
+                        bad: List[int]) -> Optional[MediaItem]:
+        """The candidate as a MediaItem if it is the next book of a series the member is caught up on, else None. The
+        candidate was already listed and checked with `_visible`; the expanded item only names its series."""
+        raw = self._get_json(guard, budget, f"/api/items/{item_id}", {"expanded": "1"})
+        if not isinstance(raw, dict):
+            bad[0] += 1
+            return None
+        if raw.get("id") != item_id or raw.get("libraryId") != library_id:
+            raise UpstreamMisbehaved()                        # a different item, or one from another library
+        media, status = self._visible(raw, item_id, access, None, None, None)
+        if media is None:
+            bad[0] += status == "bad"
+            return None
+        series = raw["media"]["metadata"].get("series")       # shape checked by _visible
+        if series is None:
+            return None                                       # not part of a series (as far as the item says)
+        if not isinstance(series, list):
+            bad[0] += 1
+            return None
+        for entry in series:
+            sid = entry.get("id") if isinstance(entry, dict) else None
+            if not isinstance(sid, str) or _SERIES_ID.fullmatch(sid) is None:
+                bad[0] += 1
+                continue
+            key = (library_id, sid)
+            if key not in cache:
+                cache[key] = self._series_books(guard, budget, access, library_id, sid,
+                                                clean_text(entry.get("name")) or "")
+            books = cache[key]
+            mine = _parse_sequence(entry.get("sequence"))
+            if mine is None:
+                mine = next((s for i, s in books if i == item_id), None)
+            if _caught_up(item_id, mine, books, states):
+                return media
+        return None
+
+    def _series_books(self, guard, budget, access: _Access, library_id: str, series_id: str,
+                      series_name: str) -> List[Tuple[str, Optional[float]]]:
+        """(item id, sequence or None) of the series' books in this library that the member may see. The listing is
+        counted apart from the section's own, so one odd series entry never makes the whole section unavailable."""
+        keep: Dict[str, Any] = {}
+        own = [0, 0]
+        listed = self._list(guard, budget, access, library_id,
+                            {"filter": "series." + _encode(series_id), "limit": str(MAX_SERIES_BOOKS)}, own, keep)
+        out = []
+        for _added, _year, media in listed:
+            item_id = media.id[len(Service.AUDIOBOOKSHELF.value) + 1:]
+            belongs, sequence = _sequence_in(keep[item_id], series_id, series_name)
+            if belongs:
+                out.append((item_id, sequence))
+        return out
+
+    @staticmethod
+    def _progress_states(progress: Any, uid: str) -> Dict[str, Tuple[bool, bool]]:
+        """{item id: (started, finished)} from THIS user's own progress entries. Identity is mandatory on every entry
+        (as `_candidates`). Started: progress above zero or finished. Podcast episodes are not books and are skipped."""
+        if not isinstance(progress, list):
+            raise UpstreamMalformed()
+        out: Dict[str, Tuple[bool, bool]] = {}
+        bad = 0
+        for e in progress:
+            if not isinstance(e, dict):
+                bad += 1
+                continue
+            if e.get("userId") != uid:                        # another user's entry, or no identity at all
+                raise UpstreamMisbehaved()
+            item_id = e.get("libraryItemId")
+            if not valid_upstream_id(Service.AUDIOBOOKSHELF, item_id):
+                bad += 1
+                continue
+            if e.get("episodeId") is not None:
+                continue
+            frac = e.get("progress")
+            if isinstance(frac, bool) or not isinstance(frac, (int, float)) or frac != frac:
+                bad += 1
+                continue
+            finished = e.get("isFinished") is True or frac >= 1
+            started = finished or frac > 0
+            was = out.get(item_id, (False, False))
+            out[item_id] = (was[0] or started, was[1] or finished)
+        if progress and bad == len(progress):
+            raise UpstreamMalformed()
+        return out
 
     def _shelves_items(self, user: UpstreamUser, limit: int) -> SectionResult:
         """Every shelf's items in one section, each item marked with its shelf. Cut short by the request budget, the
@@ -549,7 +718,7 @@ class AudiobookshelfAdapter(GuardedAdapter):
             media, status = self._visible(raw, item_id, access, fraction, position, duration)
             unusable += status == "bad"
             if media is not None:
-                shown.append(media)
+                shown.append(dataclasses.replace(media, active=iso_instant(last_update)))   # this member's own last play
         if not shown and unusable:
             raise UpstreamMalformed()                     # nothing could be shown safely: drift, not "empty"
         result = SectionResult.of(Service.AUDIOBOOKSHELF, "continue", tuple(shown))
@@ -650,6 +819,57 @@ def _unique(items) -> List[MediaItem]:
             seen.add(m.id)
             out.append(m)
     return out
+
+
+_SEQUENCE_TEXT = re.compile(r"\s*#?(\d{1,6}(?:\.\d{1,4})?)\s*")
+
+
+def _parse_sequence(value: Any) -> Optional[float]:
+    """A series sequence ("3", "1.5", 2) as a number, or None when it is missing or not a plain number."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value) if value == value and 0 <= value < 10 ** 6 else None
+    if isinstance(value, str) and len(value) <= 20:
+        m = _SEQUENCE_TEXT.fullmatch(value)
+        return float(m.group(1)) if m else None
+    return None
+
+
+def _sequence_in(raw: Dict[str, Any], series_id: str, series_name: str) -> Tuple[bool, Optional[float]]:
+    """(belongs, sequence) for one entry of a series-filtered minified list (both UNVERIFIED). From
+    `media.metadata.series` (an object, or a list) when its id is the series'; an entry that names only OTHER series
+    does not belong. Else the "#n" after the series name in `seriesName` ("Name #3"); else the upstream's filter is
+    trusted and the sequence is unknown."""
+    meta = raw["media"]["metadata"]                           # shape checked by _visible
+    here = meta.get("series")
+    entries = [s for s in (here if isinstance(here, list) else [here]) if isinstance(s, dict) and s.get("id") is not None]
+    for s in entries:
+        if s["id"] == series_id:
+            return True, _parse_sequence(s.get("sequence"))
+    if entries:
+        return False, None
+    text = meta.get("seriesName")
+    if isinstance(text, str) and series_name:
+        m = re.search(re.escape(series_name) + r" #(\d{1,6}(?:\.\d{1,4})?)(?:,|$)", text)
+        if m:
+            return True, float(m.group(1))
+    return True, None
+
+
+def _caught_up(item_id: str, sequence: Optional[float], books: List[Tuple[str, Optional[float]]],
+               states: Dict[str, Tuple[bool, bool]]) -> bool:
+    """Is `item_id` the next book of a series the member is caught up on? Finished at least one OTHER book, and: with
+    a sequence, every other book of a lower sequence is finished (books of unknown sequence do not block); without
+    one, no other book is started but unfinished."""
+    others = [(i, s) for i, s in books if i != item_id]
+    finished = lambda i: states.get(i, (False, False))[1]     # noqa: E731
+    started = lambda i: states.get(i, (False, False))[0]      # noqa: E731
+    if not any(finished(i) for i, _s in others):
+        return False
+    if sequence is None:
+        return not any(started(i) and not finished(i) for i, _s in others)
+    return all(finished(i) for i, s in others if s is not None and s < sequence)
 
 
 def _shelf_keep(shelf: str, item: MediaItem, year: int) -> bool:

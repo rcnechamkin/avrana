@@ -17,7 +17,7 @@ _ITEM = {"Id": SECRETS[2], "Name": SECRETS[4], "Type": "Episode", "SeriesName": 
          "Path": SECRETS[3], "ProviderIds": {"Imdb": "tt0000001"}, "Overview": "A private overview text",
          "UserData": {"PlaybackPositionTicks": 6_000_000_000, "PlayedPercentage": 46.2, "Played": False,
                       "ItemId": SECRETS[2], "UserId": SECRETS[6], "Key": "Private Show Title-s2e5",
-                      "LastPlayedDate": "2026-10-01T20:00:00Z"},
+                      "LastPlayedDate": "2026-10-01T20:00:00Z", "Likes": True},
          "ImageTags": {"Primary": SECRETS[5], "Thumb": "thumbtag0000"}}
 RAW_RESUME = {
     "Items": [copy.deepcopy(_ITEM) for _ in range(5)],
@@ -58,7 +58,7 @@ class SanitiserTests(unittest.TestCase):
         rec = rs.build_recording("resume", copy.deepcopy(RAW_RESUME), "10.11.11", CONTRACT)
         self.assertEqual(rec["_undeclared_fields"], {
             "(envelope)": ["SomethingNew"], "item": ["Path"],
-            "item.ImageTags": ["Thumb"], "item.UserData": ["LastPlayedDate"]})
+            "item.ImageTags": ["Thumb"], "item.UserData": ["Likes"]})
         item = rec["response"]["Items"][0]
         self.assertNotIn("Path", item)
         # ProviderIds is declared (R2-B): its keys stay, its values are synthetic, never the real id
