@@ -17,7 +17,7 @@ audio plays, a page renders in the reader) in the right app, at the right item, 
 | Owner physical-device tests | owner, with a **non-admin** tester account | Journeys A to F on real hardware and the live beta |
 | Independent member acceptance | 3 to 5 consenting members, unaided | That someone other than the builder can use it |
 
-Before members: O1 (e-mail), O2 (admin MFA), O3 (username/e-mail change off), O4 (restore drill) are done.
+Before members: items 1 to 6 of the RC1 owner list are done (S1 fix deployed and enrollment policy applied, e-mail proven, admin MFA, restore drill). Username and e-mail self-service changes were verified off on 2026-10-29.
 
 ## Severity
 

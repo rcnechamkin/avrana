@@ -1,8 +1,8 @@
 # Media 2.0 Release Candidate 1: state, evidence and go/no-go
 
-Status: **engineering RC1 review packet, 2026-10-29.** Prepared by an agent under the RC1 sprint brief (feature
-freeze). Nothing here was merged, deployed, rotated or changed on the host. One read-only `docker inspect` on
-avrana established the running revision. Every claim is tagged with its evidence type:
+Status: **engineering RC1 review packet, 2026-10-29; security closure update the same day (S1, section 5a).** Prepared by an agent under the RC1 sprint brief (feature
+freeze). Nothing here was merged, deployed, rotated or changed on the host. Read-only observation on avrana: `docker inspect`
+for the running revision, and for S1 an `ak shell` query and a Home-container query that printed booleans and counts only. Every claim is tagged with its evidence type:
 
 - **[offline]**: tests in this repository with fixtures and fakes. Proves code behaviour, not live behaviour.
 - **[host-read]**: read-only observation on avrana.
@@ -15,9 +15,10 @@ The member checklist is [../acceptance/MEDIA-2.0-RC1-CHECKLIST.md](../acceptance
 
 | Decision | Verdict | Why |
 |---|---|---|
-| **Ready for engineering RC1 review** | **READY once the three RC1 PRs are merged** (proposed RC1 = `origin/main` 50a8761 + #161, #162, #163; checked together in draft #164) | Every offline suite passes on the integrated tree (section 4). CI on main was red from #155 to #159 and never reached the Home suites; now it reaches them and times out (cancelled on 50a8761). #161 fixes that. |
-| **Ready for controlled member beta (3 to 5 people)** | **BLOCKED** | Owner blockers O1 to O5 (section 6): invite/reset e-mail never proven (AVR-346), Authentik admin MFA (AVR-347), username/e-mail change in Authentik unverified (finding S1), no restore drill (AVR-350), no real-device pass of the journeys. |
-| **Ready for private production cutover** | **NO** | Needs the member beta itself (AVR-387), Seerr CSRF/proxy trust (AVR-348), an old-portal rollback rehearsal and owner sign-off (AVR-389). |
+| **RC1 engineering acceptance** | **GO once #161, #163 and #166 merge** (#162 may merge with them; deploy it only after the Komga key swap) | Main 50a8761 + #161, #162, #163, #166 passes every CI suite in both passes (draft #164, run 40952029300: 2,707 tests per pass). S1 is resolved in code (section 5a). Main's own CI stays cancelled at the time cap until #161 merges. |
+| **Controlled 3 to 5 member beta** | **NO-GO** until the owner steps in section 6, items 1 to 7, are done | S1 fix deployed and enrollment policy applied (with the two leftover Jellyfin accounts handled); invite and reset e-mail proven (AVR-346); akadmin MFA (AVR-347); one restore drill (AVR-350); owner device pass. |
+| **UX/UI smoothness sprint** | **GO to start after the RC1 merges**, on branches, with nothing deployed to the beta during member acceptance without owner approval | Backlog ready: rail focus at 200% text (A11Y-1, section 4.1), Concept K owner choices (AVR-727 to 735), Home audit items. |
+| Private production cutover | NO | Needs the member beta (AVR-387), Seerr CSRF/proxy (AVR-348), old-portal rollback rehearsal and sign-off (AVR-389). |
 
 ## 2. Codebase and deployment state (Deliverable A)
 
@@ -65,7 +66,20 @@ post-RC1 decision.
 | **#162** `fix/avr-782-komga-admin-guard` | Real mode refuses an ADMIN everyday Komga key (Comics unavailable, logged) | P1 (least privilege) | **Owner key swap first** (O6) | `tests/test_komga.py` 58/58 incl. 4 new | Merge any time; **deploy only after** `secrets/komga_token` is a regular account's key. |
 | **#163** `fix/rc1-deploy-dry-run` | Dry run no longer leaves `avrana-home-live:local` on an untested build; a plan touching another container stops; prints running revision | P1 (rollback safety) | none | new `tests/test_deploy_home_beta.py` 3/3 (stub docker) | Merge; first real use is a dry run on avrana. |
 | #164 `rc1/integration` | CI evidence for the three together on 838fa70 | — | #161–#163 | full CI | **Do not merge**; close after the three merge. |
-| #165 | RC1 packet (this file and the checklist) | — | — | docs | Merge after review. |
+| **#166** `fix/s1-identity-binding` | S1: username bound to its Authentik user (`sub`); enrollment refuses names Jellyfin already has | **P1 authorization** | none (deploy: owner adopts one compose line; blueprint applied on the host) | 8 web + 9 unit + 5 blueprint tests | **Merge third**, then deploy with #161/#163. |
+| #165 | RC1 packet (this file and the checklist) | — | — | docs | Merge last. |
+
+### 3.1 Safe merge order
+
+1. **#161** CI: main's `offline-tests` is cancelled at the 10-minute cap until this lands.
+2. **#163** deploy script: the next deploy (S1) should use the fixed dry run.
+3. **#166** S1. Then deploy (owner): add the `HOME_IDENTITY_BINDINGS_FILE` line to `~/avrana`'s compose (the script stops
+   with exit 3 until you do), dry run, `--apply`.
+4. **#162** Komga guard: merge any time, but the first deploy that contains it must come **after** the AVR-782 key swap,
+   or Comics go unavailable. Simplest: swap the key, then merge and deploy #162 on its own.
+5. **#165** this packet. 6. Close draft **#164** (evidence only).
+
+All of them merged together in #164 without conflicts.
 
 ## 4. Test evidence (Deliverable C)
 
@@ -127,13 +141,60 @@ ADAPTER-CONTRACT (AVR-772). No browser/axe run was done in this sprint (`tests/u
 axe pass is from the Concept K work). No performance numbers were taken against the live beta. The deploy-script
 test uses canned Compose output.
 
+### 4.1 Security closure re-run (with #166)
+
+| Run | Result |
+|---|---|
+| Linux CI, `rc1/integration` f436f01 = 50a8761 + #161 #162 #163 #166 (run 40952029300) | **success**, both passes: repository 441, Home adapters 1007, Home web 990, Kindle 4/92/44, backups 30, assistant 93, imax OK. 1 expected failure (Kindle authz, by design). |
+| Windows, `fix/s1-identity-binding` | Home web 990 OK. Home adapters 1003: **1 failure**, `test_phase1.N6EvictionIsNotQuadratic` (asserts 300 evictions finish in under 10 s wall-clock; took 13.3 s while three suites and Chromium ran; passed alone 2 of 3 times under the same load, and passes in CI). Classified test-environment timing, not a defect (P2: bound it by operation count). |
+| Browser (Chromium via Playwright, axe-core 4.10.3), static export of the RC1 tree, 183 pages x 390/1280/844x390 x light/dark (1,098 views) | **0 serious or critical axe violations, no sideways scroll.** 16 keyboard findings, one kind (**A11Y-1**): at 390 px with 200% text a focused rail card is not wholly in view (card 308 to 548 px in a 390 px viewport). **Present on 0e8c330 too**, so not caused by #159/#160. P2, UX sprint. |
+
+Suites that exist but CI does not run (P2, recorded): `scripts/test_offboard.py` (runs the real script at
+`/home/cody/avrana`: host-only), `scripts/test_epub_audiobook_matcher.py` (one Windows path failure), the Audible connector's
+tests (6 failures and 9 errors on Windows; not Media scope), `services/calibre-web-automated/tests` (needs Calibre-Web's
+`cps`), imax `test_server.py`. None is a Media Home suite.
+
+## 5a. Finding S1: member identity mapping (closed in code by #166)
+
+**How members map** [offline, code]: Home reads `preferred_username`, `email` and now `sub` from the signed outpost token.
+Jellyfin and Audiobookshelf: exact username; loose (case/Unicode) look-alikes refused as `case_or_unicode_mismatch` or
+`ambiguous`; disabled/inactive accounts refused. Seerr requests: through the member's Jellyfin id (admins refused).
+Shelfarr and Omnibus requests: the username. Komga: shared account for the catalogue; the member's own key by **verified**
+e-mail. Member store, cache, Customize: the username.
+
+**What Authentik allows** [host-read 2026-10-29, counts only]: Authentik 2026.5.6; `default_user_change_username=False`,
+`default_user_change_email=False` (`change_name=True`, display only); enforced by `default-user-settings-authorization` on the
+brand's `default-user-settings-flow`; 0 groups carry the `can-change-username/email` attributes; 0 usernames collide by case;
+0 e-mails shared by two users; 19 users (16 active). Enrollment verifies the e-mail before any upstream account is made.
+All Home proxy providers use `sub_mode=hashed_user_id` (stable per user, new for a recreated user).
+
+| Scenario | Before #166 | After #166 |
+|---|---|---|
+| Member renames self or changes e-mail | **Not possible** (settings off, policy enforced) | same; and a rename would not carry the old name's data (binding) |
+| Case or Unicode look-alike of another name | refused by Home's matcher | same |
+| Two Authentik users with one e-mail (Komga key) | not possible today (0 shared; e-mail verified at enrollment) | same |
+| **Recycled name**: a former member's username given to a new Authentik user (invitation, or admin rename) | **Exposed**: the new user got the old name's Shelfarr/Omnibus requests, Home profile and cache; Jellyfin/ABS too unless offboarding disabled them | **Refused**: a different `sub` gets the signed-out page and nothing is read; the owner releases the name deliberately (offboarding Step 4b) |
+| **Enrollment collision**: an invitee picks the name of a Jellyfin account with no Authentik user | **Exposed** (live: 3 such Jellyfin accounts, 2 enabled, 0 admin; jellyfin-create treats "exists" as success) | **Refused at sign-up** once the blueprint is applied; the 2 enabled leftovers should be disabled or renamed first |
+
+Proof [offline]: `webtests/test_web_identity_bindings.py` (a recreated `member-a` with a new `sub` sees exactly the
+signed-out page on `/`, `/library`, `/continue`, `/me`, `/account` and search, and the mock Jellyfin receives zero requests;
+`member-b` unaffected; release; a broken bindings file refuses everyone and recovers), `tests/test_identity_bindings.py`,
+`tests/test_enrollment_username_available.py`. Existing members keep everything: no upstream change, and each name binds to
+its current owner at the next sign-in.
+
+**Remaining risk.** (1) Until #166 is deployed and the blueprint applied, both exposed paths stay open; each needs an
+owner-issued invitation or an admin rename, so the practical risk today is low but real. (2) The binding is trust on first
+use: a name first seen after deployment binds to whoever signs in with it first, which after the enrollment check is the
+person the account was made for. (3) Upstream accounts an admin creates by hand outside enrollment are not checked: do not
+create Jellyfin/ABS accounts by hand for members. (4) Shelfarr/Omnibus offboarding is still manual (offboarding Step 4).
+
 ## 5. Security findings matrix (Deliverable B)
 
 | # | Finding | Sev. | Evidence | Remediation | Automated check | Remaining owner check |
 |---|---|---|---|---|---|---|
-| S1 | Home maps members to Jellyfin/ABS by the Authentik **username** and to their own Komga key by **e-mail** (both from the signed JWT). If members can change their own username or e-mail in Authentik's user settings, one member could take another's mapping and read their Continue, Komga On Deck, requests and profile. The repo has no record that self-service username/e-mail change is off. | **P0 if enabled**, else closed | [offline] `principal.py:330`, `member_keys.py` | Owner: Authentik Admin → System → Settings: "Allow users to change username" and "…change e-mail" **off**; confirm the user-settings flow's prompt has no username/e-mail field. Post-RC1: map by the stable `sub` claim. | Not automatable offline | **O3**: screenshot or boolean evidence |
+| S1 | Member identity mapping by username/e-mail (section 5a) | P1 | [host-read] + [offline] | #166 binding + enrollment policy | yes (section 5a) | deploy #166; apply the blueprint; handle 2 leftover Jellyfin accounts |
 | S2 | Everyday Komga key belongs to an ADMIN account | P1 | [recorded] AVR-782 | #162 guard + owner key swap | `AdminKeyRefused` tests | **O6** |
-| S3 | Invitee could register an Authentik username equal to an existing Jellyfin/ABS account that is not theirs (exact-name mapping) | P1 | [offline] mapping rule | Owner: before each invite, list upstream usernames without an Authentik match; reserve or rename them | — | part of **O4** |
+| S3 | Enrollment collision with a leftover upstream account | P1 | [host-read] 3 Jellyfin accounts without an Authentik user | #166 enrollment policy | `test_enrollment_username_available` | as S1 |
 | S4 | Forged identity headers, duplicate/oversized/non-ASCII tokens, header smuggling | closed [offline] | `test_web_jwt_identity` (41), `test_web_identity`, `test_verified_identity` (43), wire tests over real sockets | — | yes | G1 production proof recorded 2026-10-27 [recorded] |
 | S5 | Cross-member leakage of titles, progress, covers, cached pages; revocation during cache lifetime | closed [offline] | `test_web_isolation_h2`, `test_bench_cache_revocation`, `test_artwork_gateway` | — | yes | two-member live check (AVR-772) **not run** |
 | S6 | Request brokers act as the member upstream, refuse admins, PRG without term in URL | closed [offline] | `test_broker_hardening`, `test_my_requests` | — | yes | first live check passed for watch requests [recorded] |
@@ -142,32 +203,26 @@ test uses canned Compose output.
 | S9 | Seerr: CSRF protection and proxy trust | P1 for cutover | runbook only | AVR-348 | — | **O7** |
 
 AVR-345 (independent identity-boundary review): offline evidence complete; production evidence = the
-2026-10-27 G1 apply and owner E2 pass [recorded]. Remaining: S1 and S3 are identity questions the earlier review
-did not cover.
+2026-10-27 G1 apply and owner E2 pass [recorded], plus the S1 read-only checks above. Closes when #166 is deployed.
 
 ## 6. Owner action list (Deliverable F)
 
-Mandatory before the member beta, in order:
+In dependency order. "Prepared" = done by the agent; "You" = needs your hands or your approval.
 
-1. **O1 · AVR-346 SMTP2GO**: rotate, then prove invite, reset and alert e-mail arrive (runbook
-   `m0-smtp2go-email.md`). Evidence: three timestamps. Blocks invites and recovery (journeys A, D).
-2. **O2 · AVR-347 akadmin MFA**: enrol two factors, store recovery codes, decide P1 to P6 (`m0-authentik-admin-mfa.md`).
-3. **O3 · S1 username/e-mail change**: in Authentik check the two settings above are off and the user-settings
-   flow cannot write `username` or `email`. Five minutes. Rollback: re-enable.
-4. **O4 · AVR-350 restore drill**: B2 catch-up ran 2026-10-27 [recorded]; still needed: one representative
-   restore (`m0-offhost-backup-restore.md`). Plus S3: compare upstream usernames to Authentik users before inviting.
-5. **O5 · Device pass**: run journeys A to F on your iPhone (Safari and installed PWA) and one TV client with a
-   non-admin tester (checklist, section "Owner physical-device tests").
+| # | Action | Prepared | You | Done when |
+|---|---|---|---|---|
+| 1 | **Merge #161, #163, #166** | PRs, CI evidence (#164) | Approve the merges | main CI green |
+| 2 | **Deploy S1** | compose line, fixed deploy script | Add `- HOME_IDENTITY_BINDINGS_FILE=/var/lib/avrana-home/identity_bindings.json` under `environment:` in `~/avrana/services/avrana-home/docker-compose.beta-live.yml`; run `scripts/deploy-home-beta.sh` (dry run), then `--apply` | `docker logs avrana-home-beta` shows `identity_bindings state=bound` after your first visit; Home works for you |
+| 3 | **Leftover Jellyfin accounts, then the enrollment policy** | blueprint and test (#166) | In Jellyfin Dashboard, Users: find the accounts whose names are not Authentik users (3; one already disabled). Disable or rename the 2 enabled ones unless they are knowingly shared. Then copy `services/authentik/blueprints/avrana-enrollment.yaml` to the host's `~/avrana/services/authentik/blueprints/` (the worker applies it) | an invitation used with an existing Jellyfin name says "That username is taken" |
+| 4 | **AVR-346 SMTP2GO**: rotate, then send yourself an invitation, a password reset and an alert | runbook `m0-smtp2go-email.md` | Rotate in SMTP2GO, enter at the hidden prompt, approve the worker recreate | three arrival timestamps |
+| 5 | **AVR-347 akadmin MFA**: enrol two factors, store recovery codes | runbook `m0-authentik-admin-mfa.md`; username/e-mail change already verified off (nothing to do there) | Enrol, store, test a recovery sign-in | MFA prompt on akadmin sign-in |
+| 6 | **AVR-350 restore drill** | runbook `m0-offhost-backup-restore.md` | Run `restore-test.py` against one representative backup | a restored file opens; times recorded |
+| 7 | **Owner device pass** (journeys A to F) | checklist `docs/acceptance/MEDIA-2.0-RC1-CHECKLIST.md` | iPhone Safari, installed app and one TV, as a non-admin tester; two-member isolation check | no S0/S1 in the results template |
+| 8 | **AVR-782 Komga viewer key**, then merge and deploy #162 | #162; owner steps in the issue | Create the non-admin Komga user and key, write `secrets/komga_token` at the hidden prompt; approve the deploy | Comics rows load; no `SharedKeyIsAdmin` in the log |
+| 9 | **AVR-348 Seerr** CSRF and proxy trust | runbook `m0-seerr-csrf-proxy-trust.md` | Toggle in Seerr settings; test web, Pocket for Seerr and Home "Ask for a show" with the tester | all three still work, or a recorded exception |
 
-Required before cutover, not before the beta:
-
-6. **O6 · AVR-782** Komga viewer account and key (owner steps in the issue), then deploy #162.
-7. **O7 · AVR-348** Seerr CSRF/proxy trust with an iPhone.
-8. **O8 · AVR-363** invite onboarding end to end (depends on O1).
-9. **O9 · AVR-389** cutover plan with old-portal rollback, after AVR-387.
-
-Optional hardening: restart or remove `avrana-home-preview` so `avrana-boot-verify.service` stops failing
-[recorded 2026-10-27]; alert mail (`services/backups/.env.alert`) after O1.
+Items 1 to 7 gate the member beta. 8 and 9 gate cutover, not the beta (8 shrinks blast radius; Home also holds the
+provisioning admin key by decision). Optional: restart or remove `avrana-home-preview` (`avrana-boot-verify.service`).
 
 ## 7. Deployment and rollback packet (Deliverable D)
 
@@ -199,7 +254,7 @@ Owner-approved steps (each needs a yes at the time): `--apply`; any rollback; th
 | AVR-782 | Backlog | In Review, link #162 | guard written; owner key swap remains |
 | AVR-386 | In Review | stay In Review; comment: CI red since #155, fixed by #161 | gate was hiding Home suites |
 | AVR-587 | In Review | Done after #161 merges and main is green | web-tier deps are installed; suites now run |
-| AVR-345 | In Progress | stay; add S1/S3 as remaining scope | identity questions not in the 10-14 review |
+| AVR-345 | In Progress | In Review with #166; Done after the S1 deploy and blueprint apply | S1 investigated and fixed (section 5a) |
 | AVR-356 | Done | keep Done | G1 applied and signed off 2026-10-27 |
 | AVR-772 | Backlog | Todo, M2; first item: two-member live leakage check after O3 | still no live two-member proof |
 | AVR-381, AVR-382, AVR-378, AVR-379 | In Progress / In Review | Done (shipped and running on the beta) | live since 10-28/29; acceptance wording is "built", not "member-accepted" |
@@ -209,11 +264,14 @@ Owner-approved steps (each needs a yes at the time): `--apply`; any rollback; th
 | AVR-387 | Backlog | Todo after O1 to O5 | member beta |
 | AVR-727, 728, 729, 730, 731, 735 (Concept K F-*) | Backlog, M1 | move to M4 | design choices, frozen for RC1 |
 | AVR-781 | Backlog | do (cleanup) | — |
-| New | — | "Map members by `sub`, not username/e-mail" (M4, P2) | defence in depth for S1 |
+| AVR-375 | (trusted member identity) | link #166; acceptance now includes the `sub` binding | stable identity binding implemented |
+| New | — | "A11Y-1: focused rail card not wholly visible at 390 px with 200% text" (UX sprint, P2) | pre-existing, section 4.1 |
+| New | — | "N6 cache eviction test: bound by operations, not wall-clock" (P2) | flaky under load |
+| New | — | "Offboarding: Shelfarr and Omnibus accounts" (M3, P2) | requests keyed by username |
 
 ## 9. Explicitly deferred beyond Media 2.0
 
 Profile photos and Customize going live; Authentik Avrana-styled flows (#151); new shelves and discovery
 (New for You tuning, comic logos from Komga covers); paste-your-own Komga key (rejected by owner); Trakt;
-Omnibus per-member `canRequest` fork change; mapping by `sub` (post-RC1); search index (AVR-503 unless
+Omnibus per-member `canRequest` fork change; search index (AVR-503 unless
 measurements say otherwise); every Concept K F-* owner choice.
