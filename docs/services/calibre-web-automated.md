@@ -65,10 +65,10 @@ auto-fetch on ingest) from **Hardcover first, Kobo as fallback**.
 - Separate from Hardcover *reading-progress sync* (`config_hardcover_sync`) and the scheduled
   `hardcover_auto_fetch` batch job (left off).
 
-## The custom image fixes two things (not just Kindle titles)
+## The custom image fixes three things (not just Kindle titles)
 
 `avrana-calibre-web-automated:v4.0.6-kindlefilename` (built from `services/calibre-web-automated/
-Dockerfile`; patch in `avrana-patch/`) applies **two** additive patches:
+Dockerfile`; patch in `avrana-patch/`) applies **three** additive patches:
 
 1. **Clean Kindle titles**: MIME attachment filename `{title}.epub` (see *Send to Kindle*).
 2. **Local-account OPDS/API auth in LDAP mode**: upstream CWA, when LDAP login is on, only tries
@@ -77,6 +77,20 @@ Dockerfile`; patch in `avrana-patch/`) applies **two** additive patches:
    *local* viewer (not in the directory). The patch adds a local-hash fallback (LDAP-managed users
    have no usable local hash, so they still can't bypass LDAP). This also restores OPDS/API for
    the break-glass `admin`.
+3. **Valid XHTML from the Kindle EPUB fixer** (upstream
+   [#1473](https://github.com/crocodilestick/Calibre-Web-Automated/issues/1473), open in v4.0.8): the
+   fixer wrote an unclosed `<meta charset="utf-8">` into book pages, which makes them invalid XML, so
+   browsers and Komga's EPUB reader showed a blank page after the cover. The patch writes
+   `<meta charset="utf-8"/>`. Deployed 2026-10-29 (rollback image tag
+   `v4.0.6-kindlefilename-pre-charset`). 24 of 91 library books had been damaged before the patch;
+   see the repair note below.
+
+## Repairing books damaged by the fixer bug
+
+`services/calibre-web-automated/tools/epub_charset_fix.py ROOT` lists EPUBs that still carry the
+unclosed tag (dry run). With `--apply --backup DIR` it copies each one to DIR first, then closes the
+tag in place (only page entries that contain it change; owner, mode and mtime are kept) and checks
+every rewritten page parses as XML. Run it on the host against `/mnt/avrana_media/calibre-library`.
 
 ## OPDS performance (LDAP cached mode)
 
