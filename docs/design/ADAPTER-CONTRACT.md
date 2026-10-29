@@ -793,6 +793,11 @@ nothing to restrict.
 - **Key scope: a REGULAR (non-admin) Komga account's API key, minimum scope.** The home holds one dedicated account
   with the comics libraries shared to it, and no upload, download-of-others or admin role. There is no admin key
   anywhere. The read-only property comes from the three-route GET allow-list, not from the key.
+  **Enforced since RC1 (AVR-782):** in real mode the adapter reads the shared account's own record
+  (`GET /api/v2/users/me`, the allow-list's `self` route, once per process, before any shared read) and, if its roles
+  include `ADMIN`, refuses every Komga section (state unavailable, log `adapter_failure ... error=SharedKeyIsAdmin`)
+  until a regular account's key is in place and Home restarts. (Member Komga keys and the provisioning admin key of
+  #134 are separate credentials and unaffected by this check.)
 - **No member mapping.** `resolve_user` returns the fixed non-member `shared` viewer for every member who holds
   `avrana-comics`; it never names a Komga account, and **`/api/v2/users` (admin-only) is never called** and is not in
   the route table. Authorization is the Authentik group, checked before any upstream call and before any cache read.
