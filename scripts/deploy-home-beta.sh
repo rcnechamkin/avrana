@@ -77,6 +77,11 @@ for f in beta-live.env secrets state; do
   [ -e "$LIVE/$f" ] || { echo "!! $LIVE/$f is missing" >&2; exit 4; }
   [ -L "$f" ] || ln -s "$LIVE/$f" "$f"
 done
+# RC1 S1: with HOME_IDENTITY_BINDINGS_FILE on, Home refuses every member until the owner has initialised the file
+# from Authentik. Never build or start it without one (docs/runbooks/identity-bindings.md section 1).
+if grep -qE '^[[:space:]]*- HOME_IDENTITY_BINDINGS_FILE=' "$LIVE/$COMPOSE" && [ ! -s "$LIVE/state/identity_bindings.json" ]; then
+  echo "!! identity bindings are on but state/identity_bindings.json is missing: initialise it first" >&2; exit 7
+fi
 cp "$LIVE/$COMPOSE" "$COMPOSE"
 dc() { docker compose -p "$PROJECT" -f "$COMPOSE" "$@"; }
 dc config -q && echo "config ok"

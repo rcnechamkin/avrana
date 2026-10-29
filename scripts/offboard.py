@@ -191,15 +191,15 @@ def act_authentik(ident, purge, apply_):
         # A plain DELETE fails: authentik_core_user_groups (and several other tables) hold FK
         # references, so postgres refuses. Django's ORM knows the cascade order, so delete through
         # it rather than hand-rolling a list of child tables that changes between versions.
-        script = (
+        script = RETIRE_NAME_FIRST % {"name": repr(u)} + (      # RC1 S1: see RETIRE_NAME_FIRST
             "from authentik.core.models import User\n"
             f"qs = User.objects.filter(username__iexact={u!r})\n"
             "print('DELETED' if qs.exists() and qs.delete() else 'NOTFOUND')\n"
         )
         out = sh(f"docker exec -i authentik-server ak shell -c {shlex.quote(script)}")
-        if "DELETED" not in out:
-            return f"FAILED to delete authentik/{u} - check by hand"
-        return f"deleted authentik/{u}"
+        if "RETIRED" not in out or "DELETED" not in out:
+            return f"FAILED to retire or delete authentik/{u} - check by hand"
+        return f"retired the name and deleted authentik/{u}"
     sh("docker exec authentik-postgresql psql -U authentik -d authentik -c "
        f"\"UPDATE authentik_core_user SET is_active=false WHERE lower(username)=lower('{u}');\"")
     return f"deactivated authentik/{u}"
@@ -337,6 +337,24 @@ def audit():
     print("\nNOTE: UNMATCHED does not always mean orphaned. Jellyfin stores no email, and the "
           "admin is 'akadmin' in Authentik but 'Cody' elsewhere. Confirm before acting.")
     return 0
+
+
+# RC1 finding S1: --purge never frees the name for someone else. Before the user is deleted, in the same ak shell
+# script (so a failure here deletes nothing), the name is added to the `usernames` attribute of the Authentik group
+# avrana-retired-usernames, which the enrollment policy refuses (services/authentik/blueprints/avrana-enrollment.yaml).
+# A retired name may still have rows in apps that match by username on a direct sign-in (Calibre-Web over LDAP,
+# Shelfarr linking existing users) and in Media Home, which keeps it bound to the former member. Shelfarr, Omnibus,
+# Calibre-Web and Komga accounts are deleted by hand; releasing a name: docs/runbooks/identity-bindings.md.
+RETIRE_NAME_FIRST = (
+    "from authentik.core.models import Group\n"
+    "g, _ = Group.objects.get_or_create(name='avrana-retired-usernames')\n"
+    "names = list((g.attributes or {}).get('usernames') or [])\n"
+    "if %(name)s.casefold() not in {str(n).casefold() for n in names}:\n"
+    "    names.append(%(name)s)\n"
+    "g.attributes = dict(g.attributes or {}, usernames=names)\n"
+    "g.save()\n"
+    "print('RETIRED')\n"
+)
 
 
 if __name__ == "__main__":

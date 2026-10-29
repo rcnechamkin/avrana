@@ -96,6 +96,18 @@ entries:
   # belongs to no Authentik user (a local-only account, or a former member's kept account) would be shown that
   # account's history in Media. Checked on the prompt, before the Authentik user is written; any match ignoring
   # case refuses the name. Jellyfin unreachable = refuse (try again later), never a silent pass.
+  # Also refused: a letter-case twin of an existing Authentik user, and a RETIRED name (the `usernames` list on the
+  # group below, which scripts/offboard.py --purge appends to before it deletes a user). A retired name may still
+  # have rows in apps that match by username on a direct sign-in (Calibre-Web over LDAP, Shelfarr when it links
+  # existing users) or in Home; it stays retired until the owner releases it (docs/runbooks/identity-bindings.md).
+  - model: authentik_core.group
+    id: group-retired-usernames
+    state: created
+    identifiers:
+      name: avrana-retired-usernames
+    attrs:
+      attributes:
+        usernames: []
   - model: authentik_policies_expression.expressionpolicy
     id: policy-username-available
     identifiers:
@@ -105,9 +117,17 @@ entries:
       expression: !Format
         - |
           from urllib.parse import urljoin
+          from authentik.core.models import Group, User
 
           wanted = (request.context.get("prompt_data") or {}).get("username") or ""
           if not wanted:
+              return False
+          retired = Group.objects.filter(name="avrana-retired-usernames").first()
+          retired = (retired.attributes.get("usernames") or []) if retired else []
+          if (User.objects.filter(username__iexact=wanted).exists()
+                  or wanted.casefold() in {str(n).casefold() for n in retired}):
+              ak_logger.warning("username-available: refused a retired name or a twin of an existing user")
+              ak_message("That username is taken. Please pick another.")
               return False
           try:
               resp = requests.get(urljoin("http://10.0.0.218:8096", "/Users"),

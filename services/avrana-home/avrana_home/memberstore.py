@@ -241,6 +241,16 @@ class MemberStore:
         etag = hashlib.sha256(data).hexdigest()[:20] if data is not None else ""
         return self._write(member, expected_version, "avatar = ?, avatar_etag = ?", (data, etag))
 
+    def holds(self, member: str) -> Optional[bool]:
+        """Whether any row is kept for this member (None if unreadable): identity_bindings refuses a release until not."""
+        try:
+            with self._lock:
+                db = self._conn()
+                return any(db.execute(f"SELECT 1 FROM {table} WHERE member = ?", (member,)).fetchone()
+                           for table in ("member_profile", "member_home", "member_setup"))
+        except sqlite3.Error:
+            return None
+
     def purge(self, member: str) -> bool:
         """Offboarding: delete everything Home keeps for this member."""
         try:
