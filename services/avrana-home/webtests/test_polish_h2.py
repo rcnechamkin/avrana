@@ -144,7 +144,8 @@ class ResumeAgreementThroughTheAdapter(unittest.TestCase):
         card = re.search(r'<a class="card" href="https://listen\.avrana\.net/item/li_book000001">.*?</a>', home, re.S)
         self.assertIsNotNone(card)
         self.assertIn("42 percent listened", card.group(0))
-        self.assertIn('<span aria-hidden="true">Open</span>', card.group(0))
+        self.assertIn('<span class="sr">, Open in Audiobooks</span>', card.group(0))
+        self.assertNotIn("Resume", card.group(0))
 
 
 class NotSetUpIsNotADeadEnd(unittest.TestCase):
