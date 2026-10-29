@@ -9,8 +9,8 @@ pasted into chat, a ticket, Git or a command line.
 
 ## Where things stand
 
-- **Live beta** (`media-beta.avrana.net`, one tester in `HOME_ALLOWED_USERS`): main `3cae864` from
-  `~/avrana-deploy/home-3cae864`, deployed with `scripts/deploy-home-beta.sh` (2026-10-29). It already has My
+- **Live beta** (`media-beta.avrana.net`, one tester in `HOME_ALLOWED_USERS`): main `8f41e3b` (as of
+  2026-10-29) from `~/avrana-deploy/home-8f41e3b`, deployed with `scripts/deploy-home-beta.sh`. It already has My
   requests, the comics page, the season picker and the New releases / New to Avrana rows; every request switch is
   **off**, so the request pages answer with the standard 404.
 - **Forks**, built by their own CI, public on GHCR (no registry login needed on the host):
