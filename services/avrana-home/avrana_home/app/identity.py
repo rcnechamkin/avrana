@@ -28,6 +28,7 @@ from typing import Optional
 
 from fastapi import Request
 
+from ..identity_bindings import OK as BOUND_OK, IdentityBindings
 from ..outpost_jwt import OutpostJwtVerifier
 from ..principal import (EMAIL_HEADER, GROUPS_HEADER, JWT_HEADER, MAX_GROUPS_HEADER_LEN, MAX_OPTIONAL_LEN,
                          MAX_USERNAME_LEN, MODE_HEADERS, MODE_JWT_REQUIRED, NAME_HEADER, USERNAME_HEADER,
@@ -89,13 +90,16 @@ class IdentityResolver:
     what the application did before AVR-498."""
 
     def __init__(self, mode: str = MODE_HEADERS, verifier: Optional[OutpostJwtVerifier] = None,
-                 allowed_users=()):
+                 allowed_users=(), bindings: Optional[IdentityBindings] = None):
         if mode not in IDENTITY_MODES or (mode != MODE_HEADERS and verifier is None):
             raise SettingsError("identity mode is not usable")
         if allowed_users and mode != MODE_JWT_REQUIRED:
             raise SettingsError("an allowlist needs jwt_required")
+        if bindings is not None and mode != MODE_JWT_REQUIRED:
+            raise SettingsError("identity bindings need jwt_required")
         self.mode, self.verifier = mode, verifier
         self.allowed = frozenset(allowed_users)
+        self.bindings = bindings
 
     @classmethod
     def from_settings(cls, settings: Settings) -> "IdentityResolver":
@@ -110,7 +114,11 @@ class IdentityResolver:
                                           hmac_secrets=secrets)
         except ValueError:
             raise SettingsError("the JWT identity settings are not usable") from None
-        return cls(mode, verifier, getattr(settings, "allowed_users", ()))
+        path = getattr(settings, "identity_bindings_file", "")
+        bindings = None
+        if path:
+            bindings = IdentityBindings(path, log=lambda **f: log_event(app_log, logging.INFO, "identity_bindings", **f))
+        return cls(mode, verifier, getattr(settings, "allowed_users", ()), bindings)
 
     def viewer(self, scope) -> Viewer:
         names = _TRUSTED_NAMES if self.mode == MODE_HEADERS else _JWT_NAMES
@@ -126,6 +134,12 @@ class IdentityResolver:
         if self.allowed and principal is not None and principal.username not in self.allowed:
             _report("not_allowed")                    # a verified member who is not a beta tester
             return Viewer(None)
+        if self.bindings is not None and principal is not None:
+            # S1: this username is accepted only as the Authentik user it was first seen as (identity_bindings.py).
+            outcome = self.bindings.check(principal.username, principal.subject)
+            if outcome != BOUND_OK:
+                _report(outcome)                      # fixed codes only: no name, no sub
+                return Viewer(None)
         return Viewer(principal)
 
 

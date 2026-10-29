@@ -90,6 +90,40 @@ entries:
       # false = no token, no enrollment. This is what keeps the flow invite-only
       # rather than open self-registration.
       continue_flow_without_invitation: false
+  # --- the chosen username must not already be someone's library account (RC1 finding S1) ----------------
+  # Home and Seerr find a member's Jellyfin account by EXACT username, and jellyfin-create below treats "that
+  # name exists" as done. Without this check an invitee who picks the name of an existing Jellyfin account that
+  # belongs to no Authentik user (a local-only account, or a former member's kept account) would be shown that
+  # account's history in Media. Checked on the prompt, before the Authentik user is written; any match ignoring
+  # case refuses the name. Jellyfin unreachable = refuse (try again later), never a silent pass.
+  - model: authentik_policies_expression.expressionpolicy
+    id: policy-username-available
+    identifiers:
+      name: avrana-enrollment-username-available
+    attrs:
+      execution_logging: true
+      expression: !Format
+        - |
+          from urllib.parse import urljoin
+
+          wanted = (request.context.get("prompt_data") or {}).get("username") or ""
+          if not wanted:
+              return False
+          try:
+              resp = requests.get(urljoin("http://10.0.0.218:8096", "/Users"),
+                                  headers={"X-MediaBrowser-Token": "%s"}, timeout=10)
+              resp.raise_for_status()
+              names = {(u.get("Name") or "").casefold() for u in resp.json()}
+          except Exception as e:
+              ak_logger.error("username-available: Jellyfin unreachable", error=type(e).__name__)
+              ak_message("Sign-up is briefly unavailable. Please try again in a few minutes.")
+              return False
+          if wanted.casefold() in names:
+              ak_logger.warning("username-available: refused a name that already has a Jellyfin account")
+              ak_message("That username is taken. Please pick another.")
+              return False
+          return True
+        - !Env AVRANA_JELLYFIN_API_KEY
   - model: authentik_stages_prompt.promptstage
     id: stage-prompt
     identifiers:
@@ -101,6 +135,8 @@ entries:
         - !KeyOf prompt-email
         - !KeyOf prompt-password
         - !KeyOf prompt-password-repeat
+      validation_policies:
+        - !KeyOf policy-username-available
   - model: authentik_stages_user_write.userwritestage
     id: stage-user-write
     identifiers:
