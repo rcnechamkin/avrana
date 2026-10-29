@@ -17,6 +17,7 @@
     ],
     "ImageType": [
      "Backdrop",
+     "Logo",
      "Primary"
     ],
     "ItemFields": [
@@ -159,6 +160,7 @@
     ],
     "ImageType": [
      "Backdrop",
+     "Logo",
      "Primary"
     ],
     "ItemFields": [
