@@ -26,6 +26,8 @@ Scope of change (4 files, additive):
                           (the read-only Homepage dashboard user, break-glass admin) that aren't
                           in the directory get a 401 on OPDS/API. This restores them without
                           letting LDAP-managed users (no usable local hash) bypass LDAP.
+  scripts/kindle_epub_fixer.py  write a self-closing <meta charset="..."/> so fixed XHTML pages stay
+                          valid XML (upstream #1473).
 """
 from __future__ import annotations
 
@@ -171,6 +173,24 @@ EDITS = {
             "                                                               attachment_name=attachment_name)",
         ),
     ],
+    # Upstream bug crocodilestick/Calibre-Web-Automated#1473 (open, still in v4.0.8): the Kindle EPUB
+    # fixer writes an UNCLOSED <meta charset="..."> into XHTML pages. One unclosed tag makes the page
+    # invalid XML, so strict renderers (browsers, Komga's EPUB reader, Apple Books) show nothing.
+    # A self-closing tag is valid in both XHTML and HTML, so Kindles are unaffected.
+    "scripts/kindle_epub_fixer.py": [
+        (
+            "return meta_charset_pattern.sub(f'<meta charset=\"{charset}\">', content, count=1)",
+            "return meta_charset_pattern.sub(f'<meta charset=\"{charset}\"/>', content, count=1)",
+        ),
+        (
+            "content[:insert_at] + f\"\\n    <meta charset=\\\"{charset}\\\">\" + content[insert_at:]",
+            "content[:insert_at] + f\"\\n    <meta charset=\\\"{charset}\\\"/>\" + content[insert_at:]",
+        ),
+        (
+            "return f\"<meta charset=\\\"{charset}\\\">\\n\" + content",
+            "return f\"<meta charset=\\\"{charset}\\\"/>\\n\" + content",
+        ),
+    ],
 }
 
 
@@ -194,7 +214,7 @@ def main() -> int:
         with open(path, "w", encoding="utf-8") as fh:
             fh.write(text)
         print(f"  patched {rel} ({len(subs)} edits)")
-    print("avrana CWA MIME-filename patch applied OK")
+    print("avrana CWA patches applied OK")
     return 0
 
 

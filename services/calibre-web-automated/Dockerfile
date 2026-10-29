@@ -17,4 +17,5 @@ RUN python3 /tmp/avrana/apply_avrana_patches.py \
       /app/calibre-web-automated/cps/tasks/convert.py \
       /app/calibre-web-automated/cps/usermanagement.py \
       /app/calibre-web-automated/scripts/cwa_db.py \
+      /app/calibre-web-automated/scripts/kindle_epub_fixer.py \
  && rm -rf /tmp/avrana
