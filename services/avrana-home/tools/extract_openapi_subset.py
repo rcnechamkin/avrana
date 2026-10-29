@@ -56,7 +56,7 @@ SCHEMAS = {
 # enum -> the members the adapter sends (fields, enableImageTypes, includeItemTypes, mediaTypes) or matches on
 ENUMS = {
     "ItemFields": ("Genres", "Overview", "People", "PrimaryImageAspectRatio", "ProviderIds", "Tags"),
-    "ImageType": ("Backdrop", "Primary"),
+    "ImageType": ("Backdrop", "Logo", "Primary"),
     "BaseItemKind": ("Episode", "Movie", "Series"),
     "MediaType": ("Video",),
     "PersonKind": ("Actor", "Director", "Writer"),     # matched on only (BaseItemPerson.Type), never sent

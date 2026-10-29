@@ -37,7 +37,19 @@ class Backdrop(unittest.TestCase):
         self.assertEqual(f"jellyfin/backdrop/{FILM}", items[f"jellyfin:{FILM}"].to_dict()["backdrop"]["ref"])
         self.assertNotIn("backdrop", items[f"jellyfin:{NO_BACKDROP}"].to_dict())
         resume = [q for _, p, q in self.fake.requests if p == "/UserItems/Resume"]
-        self.assertEqual("Primary,Backdrop", resume[0]["enableImageTypes"])
+        self.assertEqual("Primary,Backdrop,Logo", resume[0]["enableImageTypes"])
+
+    def test_every_list_that_can_hold_an_episode_asks_for_logo_so_jellyfin_sends_the_series_backdrop(self):
+        # Live 2026-10-29: with "Primary,Backdrop" alone, Jellyfin 10.11 sent no ParentBackdrop* for any episode, so
+        # an episode's hero fell back to its still or poster. Asking for Logo too makes it walk up to the series.
+        self.adapter.continue_items(self.a)
+        self.adapter.recent_items(self.a)
+        self.adapter.next_up_items(self.a)
+        self.adapter.fetch_artwork(self.a, f"jellyfin/backdrop/{FILM}")
+        asked = {p: q["enableImageTypes"] for _, p, q in self.fake.requests if "enableImageTypes" in q}
+        self.assertTrue({"/UserItems/Resume", "/Shows/NextUp", "/Items"} <= set(asked), asked)
+        for path, kinds in asked.items():
+            self.assertIn("Logo", kinds.split(","), path)
 
     def test_an_episode_uses_its_series_backdrop_and_bad_values_give_none(self):
         series = "abcd0000000000000000000000000099"
