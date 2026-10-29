@@ -4,7 +4,8 @@ import unittest
 
 from avrana_home.app.settings import MOCK_API_KEY, Settings, SettingsError
 from avrana_home.requests.forms import DOUBLE_TAP_WINDOW, RATE_MAX, RATE_WINDOW, TOKEN_TTL, FormSigner, RequestGuard
-from avrana_home.requests.shelfarr import ForbiddenCall, Outcome, ShelfarrRequests, clean_term, member_username
+from avrana_home.requests.shelfarr import (SEARCH_TIMEOUT, ForbiddenCall, Outcome, ShelfarrRequests, clean_term,
+                                           member_username)
 from avrana_home.resilience import MAX_REQUEST_BODY, TransportResponse, UpstreamTimeout
 
 ON = {"HOME_SECTIONS": "on", "HOME_BOOK_REQUESTS": "on", "SHELFARR_BASE_URL": "http://127.0.0.1:18300"}
@@ -163,6 +164,22 @@ class Client(unittest.TestCase):
                       .create("a", "hardcover:1", "ebook", "T", "A"))
         self.assertIs(Outcome.UNAVAILABLE, ShelfarrRequests(Recorder(TransportResponse(204, b"")))
                       .create("a", "hardcover:1", "ebook", "T", "A"))
+
+    def test_search_waits_longer_than_the_other_calls(self):
+        # Shelfarr's search asks its metadata providers in-line (4.5 s seen live); the 2 s default made it "could not
+        # be reached". Search alone gets SEARCH_TIMEOUT; requests and listings keep the client's own timeout.
+        seen = []
+
+        class Timed(Recorder):
+            def request(self, method, path, query, timeout, max_bytes, **kw):
+                seen.append((path, timeout))
+                return super().request(method, path, query, timeout, max_bytes, **kw)
+
+        c = ShelfarrRequests(Timed(TransportResponse(200, b'{"results": []}')), timeout=2.0)
+        c.search("batman resurrection")
+        c.mine("a")
+        self.assertEqual([("/api/v1/search", SEARCH_TIMEOUT), ("/api/v1/requests", 2.0)], seen)
+        self.assertGreaterEqual(SEARCH_TIMEOUT, 8.0)
 
     def test_breaker_opens_and_fails_fast(self):
         rec = Recorder(raises=UpstreamTimeout())

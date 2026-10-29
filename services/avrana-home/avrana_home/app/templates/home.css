@@ -681,6 +681,14 @@
   ul.hits li:has(a.t:focus-visible){outline:2px solid var(--focus);outline-offset:-2px;}
   ul.hits .d{font-size:var(--text-secondary);color:var(--stone);}
   .hit-go{grid-area:go;}
+  /* Request rows (Ask for a book, film or show, comic) have no artwork: title and details, then the Ask buttons (a book
+     can have two), which never wrap word by word. The buttons follow the text while it keeps 14rem, and go under it
+     on a phone. Without this the rows kept the 40px artwork column and a button was squeezed into it, over the title
+     (2026-10-29). */
+  ul.asks-list li{display:flex;flex-wrap:wrap;align-items:center;gap:0.625rem 1rem;}
+  ul.asks-list .meta{flex:1 1 14rem;}
+  ul.asks-list .ask-f{flex:none;margin:0;}
+  ul.asks-list .ask-f button{white-space:nowrap;}
   /* A library that could not answer: words in a rectangle with the triangle glyph and a 1px amber edge. Never the
      yellow, never colour alone. */
   .said.kwarn{display:flex;align-items:flex-start;gap:0.75rem;max-width:none;padding:0.875rem 1rem;color:var(--cream);
