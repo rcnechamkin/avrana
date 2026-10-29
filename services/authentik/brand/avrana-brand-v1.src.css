@@ -1,6 +1,10 @@
-/* AVRANA Brand v1.0.0 on Authentik (auth.avrana.net): flow pages and the user library.
+/* AVRANA Brand v1.0.0 on Authentik (auth.avrana.net), in Media Home's Concept K dress (owner, 2026-10-28: "if we
+   have to send people to Authentik, they shouldn't even know that it's Authentik. Keep it visually consistent").
+   The same tokens as Home's home.css: Spire Ink ground, Surface panels, Cream type, Stone secondary, Control edges,
+   the Media yellow for focus and the chosen option, Plus Jakarta Sans, rounded panels, buttons and fields.
    Source for Brand.branding_custom_css. build_brand_css.py fills the wordmark token below with the package's
-   cream wordmark (base64, byte-exact, SHA-256 pinned in SOURCES.json) and writes avrana-brand-v1.css and the
+   cream wordmark and Home's Plus Jakarta Sans Latin face (base64, byte-exact, SHA-256 pinned in SOURCES.json) and
+   writes avrana-brand-v1.css and the
    avrana-landing.yaml blueprint. Edit this file, never the generated ones.
    Authentik puts this text in a document style element after replacing the three HTML-special characters
    (less-than, greater-than, ampersand) with JSON escapes (authentik/brands/utils.py:63), and adopts it raw into
@@ -34,6 +38,8 @@ html[data-theme="light"] {
   --pf-global--BorderColor--200: #6e6c72;
   --pf-global--BorderColor--300: #6e6c72;
   --pf-global--BorderColor--400: #8f8c89;
+  --pf-global--BorderRadius--sm: 0.75rem;
+  --pf-global--BorderRadius--lg: 1rem;
   --pf-global--primary-color--100: #edeae4;
   --pf-global--primary-color--200: #aeaba7;
   --pf-global--active-color--100: #edeae4;
@@ -43,7 +49,7 @@ html[data-theme="light"] {
   --pf-global--danger-color--100: #ff8b8b;
   --pf-global--danger-color--200: #ff8b8b;
   --pf-global--BoxShadow--md: none;
-  --ak-accent: #edeae4;
+  --ak-accent: #eada6e;
   --ak-dark-foreground: #edeae4;
   --ak-dark-background: #121214;
   --ak-dark-background-light: #161618;
@@ -97,26 +103,36 @@ body,
   background-image: none !important;
 }
 
+/* Panels: Home's opaque Surface panel, 1rem corners, a hairline edge, no shadow. */
 .pf-c-login__main,
 .pf-c-card,
 .pf-c-modal-box {
-  background: #121214 !important;
+  background: #161618 !important;
   color: #edeae4 !important;
-  border: 1px solid #5e5b57 !important;
-  border-radius: 0 !important;
+  border: 1px solid rgb(255 255 255 / 0.09) !important;
+  border-radius: 1rem !important;
   box-shadow: none !important;
 }
 
-/* Fields: transparent, Control edge, square; native controls drawn dark. */
+/* The flow title is Home's page heading: Light-ish, slightly tight. */
+.pf-c-login__main-header h1,
+.pf-c-title {
+  font-weight: 400 !important;
+  letter-spacing: -0.01em;
+  color: #edeae4 !important;
+}
+
+/* Fields: Home's controls: Spire Ink well, Control edge, 0.75rem corners, 44px tall; native controls drawn dark. */
 .pf-c-form-control,
 input:not([type="checkbox"]):not([type="radio"]),
 select,
 textarea {
-  background-color: transparent !important;
+  background-color: #121214 !important;
   color: #edeae4 !important;
   border: 1px solid #6e6c72 !important;
-  border-radius: 0 !important;
+  border-radius: 0.75rem !important;
   box-shadow: none !important;
+  min-height: 2.75rem;
   max-width: 100%;
 }
 
@@ -135,7 +151,7 @@ textarea::placeholder {
 
 input[type="checkbox"],
 input[type="radio"] {
-  accent-color: #edeae4;
+  accent-color: #eada6e;
   width: 1.25rem;
   height: 1.25rem;
 }
@@ -153,26 +169,45 @@ input[type="radio"] {
   color: #ff8b8b !important;
 }
 
-/* Buttons: square, 44px; primary is Cream on Spire Ink and inverts on hover. */
+/* Buttons: Home's .kbtn: 0.875rem corners, 44px (52px for the main action), SemiBold; the primary is Home's
+   Continue (.kbtn-go): Cream on Spire Ink, an inset Ink ring on hover, a small press. */
 .pf-c-button {
-  border-radius: 0 !important;
+  border-radius: 0.875rem !important;
   box-shadow: none !important;
   min-height: 2.75rem;
+  font-weight: 600 !important;
+  transition: transform 150ms ease, box-shadow 150ms ease;
 }
 
 .pf-c-button::after {
-  border-radius: 0 !important;
+  border-radius: 0.875rem !important;
+}
+
+.pf-c-button:active {
+  transform: scale(0.97);
 }
 
 .pf-c-button.pf-m-primary {
+  min-height: 3.25rem;
   color: #121214 !important;
   background: #edeae4 !important;
   border: 1px solid #edeae4 !important;
 }
 
 .pf-c-button.pf-m-primary:hover {
-  color: #edeae4 !important;
-  background: #121214 !important;
+  color: #121214 !important;
+  background: #edeae4 !important;
+  box-shadow: inset 0 0 0 2px #121214 !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pf-c-button {
+    transition: none;
+  }
+
+  .pf-c-button:active {
+    transform: none;
+  }
 }
 
 .pf-c-button.pf-m-secondary,
@@ -186,9 +221,9 @@ input[type="radio"] {
 .pf-c-button.pf-m-secondary:hover,
 .pf-c-button.pf-m-tertiary:hover,
 .pf-c-button.pf-m-control:hover {
-  color: #121214 !important;
-  background: #edeae4 !important;
-  border-color: #edeae4 !important;
+  color: #edeae4 !important;
+  background: #1e1e21 !important;
+  border-color: #8f8c89 !important;
 }
 
 a,
@@ -205,7 +240,8 @@ a:hover,
   text-decoration-color: #edeae4 !important;
 }
 
-/* One focus ring everywhere (DESIGN.md, the Focus Ring Rule); the outline keeps one in forced colours.
+/* One focus ring everywhere, in the Media yellow as on Home (DESIGN.md, the Focus Ring Rule); the outline keeps one
+   in forced colours.
    The field selectors repeat the field rule's :not() chain so this rule outranks its box-shadow: none. */
 a:focus-visible,
 button:focus-visible,
@@ -219,7 +255,7 @@ summary:focus-visible,
 .pf-c-button:focus-visible {
   outline: 2px solid transparent !important;
   outline-offset: 0 !important;
-  box-shadow: 0 0 0 2px #121214, 0 0 0 4px #edeae4 !important;
+  box-shadow: 0 0 0 2px #121214, 0 0 0 4px #eada6e !important;
 }
 
 /* The mark. branding_logo cannot carry the package file (a media path or an http(s) URL only:
@@ -283,7 +319,19 @@ img.pf-c-brand {
   }
 }
 
+/* Nothing on these pages may name the service behind them: the footer ("Powered by authentik"), the language picker
+   and the flow inspector's button all go. */
 ak-flow-executor::part(locale-select),
-.pf-c-login__footer {
+.pf-c-login__footer,
+.pf-c-login__main-footer-band a[href*="goauthentik"],
+ak-flow-inspector-button {
   display: none !important;
+}
+
+/* Setup codes (authenticator setup key, backup codes): Home's code chip. */
+code,
+pre {
+  background: #1e1e21;
+  border-radius: 4px;
+  padding: 0 0.25rem;
 }

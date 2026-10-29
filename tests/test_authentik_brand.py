@@ -20,7 +20,8 @@ import build_brand_css as build  # noqa: E402
 import brand_css_change as change  # noqa: E402
 
 CSS = (BRAND / 'avrana-brand-v1.css').read_text(encoding='utf-8')
-PALETTE = {'#121214', '#edeae4', '#aeaba7', '#8f8c89', '#5e5b57', '#6e6c72', '#161618', '#1e1e21', '#ff8b8b'}
+# Media Home's Concept K tokens (home.css): the brand base colours plus the Media yellow (focus, chosen option).
+PALETTE = {'#121214', '#edeae4', '#aeaba7', '#8f8c89', '#5e5b57', '#6e6c72', '#161618', '#1e1e21', '#ff8b8b', '#eada6e'}
 
 
 class GeneratedCss(unittest.TestCase):
@@ -34,9 +35,13 @@ class GeneratedCss(unittest.TestCase):
         self.assertEqual(len(found['image/svg+xml']), pin['bytes'])
         self.assertEqual(CSS.count('data:image/svg+xml'), 1, 'one copy, shared through --avr-wordmark')
 
-    def test_geist_not_embedded_by_default(self):
-        self.assertNotIn('font/woff2', build.embedded(CSS))
-        self.assertFalse(build.sources()['geist_variable']['embedded'])
+    def test_homes_plus_jakarta_sans_is_embedded_once(self):
+        # Owner, 2026-10-28: the sign-in screens look like Home, so they use Home's own font file, byte for byte.
+        found = build.embedded(CSS)
+        pin = build.sources()['plus_jakarta_latin']
+        self.assertEqual(hashlib.sha256(found['font/woff2']).hexdigest(), pin['sha256'])
+        self.assertEqual(CSS.count('data:font/woff2'), 1)
+        self.assertLess(len(CSS.encode()), 64 * 1024)
 
     def test_survives_authentik_escaping(self):
         for ch in '<>&\r':
@@ -49,12 +54,17 @@ class GeneratedCss(unittest.TestCase):
         mono = re.search(r'--ak-font-family-monospace: ([^;]+);', CSS).group(1)
         self.assertTrue(mono.startswith('ui-monospace'))
         ui = re.search(r'textarea \{\n  font-family: ([^;]+);', CSS).group(1)
-        self.assertTrue(ui.startswith('"Geist", system-ui'), ui)
+        self.assertTrue(ui.startswith('"Plus Jakarta Sans", system-ui'), ui)
 
     def test_no_rule_under_the_wordmark(self):
         # Owner, 2026-10-18: no rule beneath the mark (here and on Home).
         self.assertNotIn('.pf-c-brand::after', CSS)
         self.assertNotIn('linear-gradient', CSS)
+
+    def test_never_names_the_service(self):
+        # Owner, 2026-10-28: nothing a member sees may say "authentik"; the footer and inspector are hidden.
+        self.assertIn('.pf-c-login__footer', CSS)
+        self.assertIn('ak-flow-inspector-button', CSS)
 
     def test_colours_are_brand_tokens(self):
         used = {c.lower() for c in re.findall(r'#[0-9a-fA-F]{6}\b', CSS)}
