@@ -20,7 +20,7 @@
       "RunTimeTicks": "integer", "UserData": "object", "ImageTags": "object", "ProviderIds": "object",
       "Overview": "string", "BackdropImageTags": "array", "ParentBackdropItemId": "string",
       "ParentBackdropImageTags": "array", "PremiereDate": "string", "SeriesId": "string",
-      "SeriesPrimaryImageTag": "string", "People": "array", "Genres": "array", "Tags": "array",
+      "SeriesPrimaryImageTag": "string", "ParentLogoItemId": "string", "ParentLogoImageTag": "string", "People": "array", "Genres": "array", "Tags": "array",
       "DateCreated": "string"
     },
     "item.People": {
@@ -34,7 +34,7 @@
       "Imdb": "string", "Tmdb": "string", "Tvdb": "string", "TmdbCollection": "string"
     },
     "item.ImageTags": {
-      "Primary": "string"
+      "Primary": "string", "Logo": "string"
     }
   }
 }

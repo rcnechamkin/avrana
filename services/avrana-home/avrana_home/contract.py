@@ -319,6 +319,9 @@ class MediaItem:
     # A wide 16:9 backdrop (Jellyfin's Backdrop image; an episode borrows its series'), for Home's hero only. Same
     # opaque, member-checked artwork path as `artwork`; in to_dict() only when present.
     backdrop: Optional[ArtworkRef] = None
+    # The title-treatment image (Jellyfin's Logo, usually a transparent PNG; an episode borrows its series'), shown by
+    # Home's hero in place of typed text. Its alt is the title it spells. In to_dict() only when present.
+    logo: Optional[ArtworkRef] = None
     # Which shelf of a "shelves" section the item belongs to ("new", "classics", "short", "epic"), or "next" for a
     # Komga On Deck book in "continue" (the next unread book, no progress); a fixed key set by the adapter, never
     # upstream text. In to_dict() only when present.
@@ -354,6 +357,8 @@ class MediaItem:
                "handoff_url": self.handoff_url}
         if self.backdrop:
             out["backdrop"] = self.backdrop.to_dict()
+        if self.logo:
+            out["logo"] = self.logo.to_dict()
         if self.shelf:
             out["shelf"] = self.shelf
         if self.released:

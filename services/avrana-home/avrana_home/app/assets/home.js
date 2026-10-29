@@ -175,7 +175,7 @@
         var link = links[i];
         if (link.origin + link.pathname + link.search !== to.origin + to.pathname + to.search) continue;
         var holder = link.closest('.hero, li');
-        var art = holder ? holder.querySelector('.frame') : null;
+        var art = holder ? holder.querySelector('.frame, .hero-art') : null;
         if (art && visible(art)) { tag(art, transition); return; }
       }
     });
@@ -357,7 +357,7 @@
       if (!dialog) build();
       opener = link;
       var holder = link.closest('.hero, li');
-      origin = holder ? holder.querySelector('.frame, .hero-backdrop') : null;
+      origin = holder ? holder.querySelector('.frame, .hero-art') : null;
       if (!shown(origin)) origin = shown(link) ? link : null;
       var img = origin ? origin.querySelector('img.art') : null;
       var href = link.href;

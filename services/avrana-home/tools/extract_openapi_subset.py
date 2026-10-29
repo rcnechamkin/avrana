@@ -44,7 +44,7 @@ SCHEMAS = {
     "BaseItemDto": ("Id", "Name", "Type", "SeriesName", "ParentIndexNumber", "IndexNumber", "ProductionYear",
                     "RunTimeTicks", "UserData", "ImageTags", "Overview", "ProviderIds",
                     "BackdropImageTags", "ParentBackdropItemId", "ParentBackdropImageTags", "PremiereDate",
-                    "SeriesId", "SeriesPrimaryImageTag", "People", "Genres", "Tags", "DateCreated"),
+                    "SeriesId", "SeriesPrimaryImageTag", "ParentLogoItemId", "ParentLogoImageTag", "People", "Genres", "Tags", "DateCreated"),
     # one entry of BaseItemDto.People (title page only: richer Details, 2026-10-28)
     "BaseItemPerson": ("Name", "Type"),
     "BaseItemDtoQueryResult": ("Items",),

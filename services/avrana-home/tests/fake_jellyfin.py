@@ -86,7 +86,7 @@ class FakeJellyfin:
             vis = self._visible(uid)
             found = [vis[i] for i in query.get("ids", "").split(",") if i in vis]
             return self._json({"Items": found, "TotalRecordCount": len(found)})
-        if path.startswith("/Items/") and path.endswith(("/Images/Primary", "/Images/Backdrop")):
+        if path.startswith("/Items/") and path.endswith(("/Images/Primary", "/Images/Backdrop", "/Images/Logo")):
             return self.image
         return 404, b"{}", "application/json"
 

@@ -2,10 +2,12 @@
 
 Tier A (standard library): the view-model picks the member's own next thing (the first Continue item, else the first
 Recently added item), never an item from a library said to be down; one primary hand-off whose words never claim
-playback; Details only where a title page exists; the progress rule in 5% steps beside the words; the MK-4 stylesheet
-block (yellow only for the member's own state, Cream progress, no new image source).
-Tier B (framework): the markup (eyebrow inside the heading, one hand-off link, art only from /art, the letter frame
-without art), and two members through the real transport, each seeing only their own hero.
+playback; the card opens Details where a title page exists, else the app (H3 refined, owner decision 2026-10-29); the
+progress rule in 5% steps beside the words; the MK-4 stylesheet block (yellow only for the hero's progress line, Cream
+card progress, no new image source).
+Tier B (framework): the markup (one link for the whole card, the state inside the heading, a logo image or the title
+plate, art only from /art, a titled cover blurred with a small mark), and two members through the real transport, each
+seeing only their own hero.
 """
 import re
 import unittest
@@ -114,6 +116,26 @@ class HeroViewModel(unittest.TestCase):
         other = view(sec("jellyfin", "continue", "ok", [dict(item("jellyfin", JF1, "F", progress=SAVED), id=f"komga:{JF1}")]))
         self.assertIsNone(build_home(other, TILES, title_services=TITLED).hero.details_href)
 
+    def test_the_card_opens_details_else_the_app(self):
+        # H3 refined (owner decision 2026-10-29): the whole card is one link, to the Details sheet where Resume lives.
+        v = view(sec("jellyfin", "continue", "ok", [item("jellyfin", JF1, "F", progress=SAVED)]))
+        self.assertEqual(f"/title/jellyfin/{JF1}", build_home(v, TILES, title_services=TITLED).hero.href)
+        self.assertEqual(HOST["jellyfin"] + JF1, build_home(v, TILES).hero.href)
+
+    def test_logo_progress_line_and_cover_mark(self):
+        logo = dict(item("jellyfin", JF1, "F", progress=SAVED, art=f"jellyfin/primary/{JF1}"),
+                    logo={"ref": f"jellyfin/logo/{JF1}", "alt": "F"}, backdrop={"ref": f"jellyfin/backdrop/{JF1}", "alt": ""})
+        hero = build_home(view(sec("jellyfin", "continue", "ok", [logo])), TILES).hero
+        self.assertEqual((f"/art/jellyfin/logo/{JF1}", 30, f"/art/jellyfin/backdrop/{JF1}", False),
+                         (hero.logo, hero.bar, hero.art, hero.cover_mark))
+        foreign = dict(logo, logo={"ref": "https://evil.example/x.png", "alt": "F"})
+        self.assertIsNone(build_home(view(sec("jellyfin", "continue", "ok", [foreign])), TILES).hero.logo)
+        book = item("calibre-web", "17", "B", "ebook", art="calibre-web/cover/17")
+        hero = build_home(view(sec("calibre-web", "recent", "ok", [book])), TILES).hero
+        self.assertEqual((None, True, hero.image), (hero.bar, hero.cover_mark, hero.art))
+        comic = item("komga", "BOOKAAAA01", "C", "comic", art="komga/book/BOOKAAAA01")
+        self.assertFalse(build_home(view(sec("komga", "recent", "ok", [comic])), TILES).hero.cover_mark)
+
     def test_no_art_and_foreign_art_refs_leave_the_letter_frame(self):
         v = view(sec("jellyfin", "continue", "ok", [item("jellyfin", JF1, "F", progress=SAVED,
                                                          art="https://evil.example/x.png")]))
@@ -147,10 +169,9 @@ class Stylesheet(unittest.TestCase):
         self.block = re.split(r"\n  /\* ---- MK-(?!4 )", css.split(marker, 1)[1], maxsplit=1)[0]
         self.rules = re.sub(r"/\*.*?\*/", "", self.block, flags=re.S)
 
-    def test_yellow_marks_only_the_members_own_state_and_progress_is_cream(self):
-        self.assertIn(".hero-title .k-eyebrow.yours::before{", self.rules)
-        self.assertIn("background:var(--accent);", re.search(r"\.k-eyebrow\.yours::before\{[^}]*\}", self.rules).group(0))
-        self.assertEqual(1, self.rules.count("var(--accent)"))            # the signal bar, nothing else
+    def test_yellow_marks_only_the_heros_progress_line_and_card_progress_is_cream(self):
+        self.assertIn("background:var(--accent);", re.search(r"\.hero-bar \.fill\{[^}]*\}", self.rules).group(0))
+        self.assertEqual(1, self.rules.count("var(--accent)"))            # the hero's progress line, nothing else
         self.assertIn(".frame .bar .fill{display:block;height:100%;border-radius:inherit;background:var(--cream);}", self.rules)
         for banned in ("#e8cf8a", "#b9a9e8", "purple", "--accent-selected", "--accent-lens"):
             self.assertNotIn(banned, self.rules.lower())
@@ -171,12 +192,18 @@ class Stylesheet(unittest.TestCase):
         self.assertIn("body:has(.mast.at-home) .shelf h2{font-size:var(--text-shelf);", self.rules)
         self.assertIn("text-transform:none", re.search(r"\.shelf h2\{[^}]*\}", self.rules).group(0))
 
-    def test_the_display_title_wraps_and_is_never_fitted_to_its_title(self):
-        title = re.search(r"\.hero-title \.k-display\{[^}]*\}", self.rules).group(0)
-        self.assertIn("font-size:min(var(--text-display),calc(0.5rem + 12.5vw))", title)   # 48px at default text
+    def test_the_title_plate_wraps_and_is_never_fitted_to_its_title(self):
+        title = re.search(r"\.hero-plate\{[^}]*\}", self.rules).group(0)
+        self.assertIn("font-size:min(2.25rem,calc(0.5rem + 8vw))", title)
+        self.assertIn("font-weight:600", title)
         self.assertNotIn("white-space:nowrap", title)
         self.assertIn("overflow-wrap:break-word", title)
         self.assertNotIn("anywhere", title)
+
+    def test_the_picture_goes_where_contrast_is_asked_for(self):
+        self.assertIn("@media (prefers-contrast:more){.hero-art,.hero-card::after{display:none;}", self.rules)
+        self.assertIn("@media (forced-colors:active){.hero-art,.hero-card::after{display:none;}", self.rules)
+        self.assertRegex(self.rules, r"\.hero-card:focus-visible\{[^}]*var\(--focus\)")
 
 
 class Markup(unittest.TestCase):
@@ -198,32 +225,51 @@ class Markup(unittest.TestCase):
                                                          art=f"jellyfin/primary/{JF1}")]))
         hero = self.hero_of(self.render(v, title_services=TITLED))
         self.assertIn('<section class="hero w-poster" aria-labelledby="h-hero">', hero)
-        self.assertIn('<h2 id="h-hero" class="hero-title"><span class="k-eyebrow yours">Continue<span class="sr">: </span>'
-                      '</span> <span class="k-display">Harbour &lt;b&gt;&amp;</span></h2>', hero)
-        links = re.findall(r"<a [^>]*>", hero)
-        self.assertEqual([f'<a class="hero-go" href="{HOST["jellyfin"]}{JF1}">', f'<a class="hero-details" href="/title/jellyfin/{JF1}">'], links)
-        # the visible words start each link's name; the title follows for screen readers; no aria-label hides them
-        self.assertIn('>Resume in Jellyfin<span class="sr">: Harbour &lt;b&gt;&amp;</span></a>', hero)
-        self.assertIn('>Details<span class="sr">: Harbour &lt;b&gt;&amp;</span></a>', hero)
+        # one link, the whole card, to the Details sheet (H3 refined, owner decision 2026-10-29)
+        self.assertEqual([f'<a class="hero-card" href="/title/jellyfin/{JF1}">'], re.findall(r"<a [^>]*>", hero))
+        self.assertIn('<h2 id="h-hero" class="hero-title"><span class="sr">Continue: </span>'
+                      '<span class="hero-plate">Harbour &lt;b&gt;&amp;</span></h2>', hero)
+        # how far along and where it goes, for screen readers only; no aria-label hides them
+        self.assertIn('<span class="sr">, 70 minutes left · Movies and TV, Details</span>', hero)
         self.assertNotIn("aria-label=", hero)
-        imgs = re.findall(r"<img[^>]*>", hero)
-        self.assertEqual(2, len(imgs))                                     # crisp and blurred: the same /art image
-        for tag in imgs:
-            self.assertEqual(f'<img class="art" src="/art/jellyfin/primary/{JF1}" alt="" width="160" height="240" loading="lazy">', tag)
-        self.assertIn('<span class="hero-glow" aria-hidden="true">', hero)
+        self.assertEqual([f'<img class="art" src="/art/jellyfin/primary/{JF1}" alt="" width="160" height="240">'],
+                         re.findall(r"<img[^>]*>", hero))
+        self.assertIn('<span class="hero-art" aria-hidden="true">', hero)
+        self.assertIn('<span class="bar hero-bar" aria-hidden="true"><span class="fill pc30"></span></span>', hero)
         self.assertNotRegex(hero, r"style=|<script|on\w+=")
 
-    def test_recently_added_hero_is_stone_and_no_art_shows_the_letter(self):
+    def test_a_logo_is_the_title_over_the_backdrop(self):
+        it = dict(item("jellyfin", JF1, "Harbour", progress=SAVED, art=f"jellyfin/primary/{JF1}"),
+                  logo={"ref": f"jellyfin/logo/{JF1}", "alt": "Harbour"}, backdrop={"ref": f"jellyfin/backdrop/{JF1}", "alt": ""})
+        hero = self.hero_of(self.render(view(sec("jellyfin", "continue", "ok", [it]))))
+        self.assertIn('<section class="hero w-poster has-backdrop" aria-labelledby="h-hero">', hero)
+        self.assertIn(f'<a class="hero-card" href="{HOST["jellyfin"]}{JF1}">', hero)   # no title page: the app
+        self.assertIn(f'<img class="art" src="/art/jellyfin/backdrop/{JF1}" alt="" width="1280" height="720">', hero)
+        self.assertIn(f'<span class="sr">Continue: </span><img class="hero-logo" src="/art/jellyfin/logo/{JF1}" '
+                      'alt="Harbour" width="320" height="120"></h2>', hero)
+        self.assertNotIn("hero-plate", hero)
+        self.assertIn(", Resume in Jellyfin</span>", hero)
+
+    def test_a_titled_cover_is_blurred_behind_and_set_small_beside_the_title(self):
+        book = item("calibre-web", "17", "Quiet", "ebook", art="calibre-web/cover/17")
+        hero = self.hero_of(self.render(view(sec("calibre-web", "recent", "ok", [book]))))
+        self.assertIn('<section class="hero w-book has-cover" aria-labelledby="h-hero">', hero)
+        self.assertIn('<span class="hero-art blurred" aria-hidden="true">', hero)
+        self.assertIn('<span class="hero-mark" aria-hidden="true">', hero)
+        self.assertEqual(2, hero.count('src="/art/calibre-web/cover/17"'))
+        self.assertIn('<span class="hero-plate">Quiet</span>', hero)
+        self.assertNotIn("hero-bar", hero)
+
+    def test_recently_added_hero_without_art_is_the_title_alone(self):
         v = view(sec("komga", "recent", "ok", [item("komga", "BOOKAAAA01", "zebra", "comic")]))
         html = self.render(v)
         hero = self.hero_of(html)
         self.assertIn('<section class="hero w-comic no-art" aria-labelledby="h-hero">', hero)
-        self.assertIn('<span class="k-eyebrow">New to Avrana<span class="sr">: </span></span>', hero)
-        self.assertNotIn("yours", hero)
+        self.assertIn('<span class="sr">New to Avrana: </span><span class="hero-plate">zebra</span>', hero)
         self.assertNotIn("<img", hero)
-        self.assertNotIn("hero-glow", hero)
-        self.assertIn('<span class="frame"><span class="ph" aria-hidden="true">Z</span></span>', hero)
-        self.assertNotIn("hero-details", hero)                             # no title services: no Details
+        self.assertNotIn("hero-art", hero)
+        self.assertNotIn("hero-bar", hero)
+        self.assertIn(f'<a class="hero-card" href="{HOST["komga"]}BOOKAAAA01">', hero)   # no title services: the app
         self.assertIn('<h2 id="h-new">New to Avrana</h2>', html)
         self.assertNotIn('aria-label="New to Avrana, by library"', html)   # one library: no filter row
         self.assertNotIn("New this week", html)
@@ -278,11 +324,11 @@ class TwoMembers(unittest.TestCase):
         self.assertIn("Synthetic Film Two", b)
         for mine, theirs, page in ((a, "bbbb", a_text), (b, "aaaa", b_text)):
             self.assertNotIn(theirs, page)                                 # no id, art ref or hand-off of the other
-            self.assertEqual(1, mine.count('class="hero-go"'))
-            href = re.search(r'<a class="hero-go" href="([^"]*)">', mine).group(1)
-            self.assertTrue(href.startswith("https://watch.avrana.net/web/#/details?id="), href)
+            self.assertEqual(1, mine.count('class="hero-card"'))
+            href = re.search(r'<a class="hero-card" href="([^"]*)">', mine).group(1)
+            self.assertTrue(href.startswith(("https://watch.avrana.net/web/#/details?id=", "/title/jellyfin/")), href)
             for src in re.findall(r'src="([^"]*)"', mine):
-                self.assertTrue(src.startswith(("/art/jellyfin/primary/", "/art/jellyfin/backdrop/")), src)
+                self.assertTrue(src.startswith(("/art/jellyfin/primary/", "/art/jellyfin/backdrop/", "/art/jellyfin/logo/")), src)
         self.assertNotIn("Synthetic Film Two", a_text)
         self.assertNotIn("Synthetic Film One", b_text)
 

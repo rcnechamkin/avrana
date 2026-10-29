@@ -121,10 +121,10 @@ class Backdrop(unittest.TestCase):
         self.assertTrue(found)
         self.assertTrue(all(i.backdrop is None for i in found))
 
-    def test_the_allow_list_takes_only_primary_and_backdrop_images(self):
-        for kind in ("Primary", "Backdrop"):
+    def test_the_allow_list_takes_only_primary_backdrop_and_logo_images(self):
+        for kind in ("Primary", "Backdrop", "Logo"):
             check_request("GET", f"/Items/{FILM}/Images/{kind}", {"maxWidth": "400"}, A)
-        for kind in ("Logo", "Backdrop/1", "Thumb"):
+        for kind in ("Logo/1", "Backdrop/1", "Thumb"):
             with self.assertRaises(ForbiddenRequest):
                 check_request("GET", f"/Items/{FILM}/Images/{kind}", {}, A)
 
