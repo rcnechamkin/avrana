@@ -294,31 +294,31 @@ class LibraryPresentationTests(unittest.TestCase):
         card = env.get_template("_parts.html").module.card
         long_title = "Synthetic Film: A Very Long Subtitle That Is Clamped to Two Lines (Extended Edition) <b>&"
         c = viewmodel.CardVM(long_title, "https://x.example/1", "poster", "Synthetic Series · S3 E10", None,
-                             "1 hour 21 minutes left", kind_label="Movie", action="Resume")
+                             "1 hour 21 minutes left", kind_label="Movie", action="Resume", glance="S3 E10 · 1h 21m left")
         html = str(card(c, verb=True))
         self.assertEqual(1, html.count("<a "))                        # one link, no second control
         link = re.search(r"<a [^>]*>", html).group(0)
         self.assertNotRegex(link, r"aria-label|aria-labelledby")      # the content IS the name: nothing hides it
-        self.assertEqual(1, html.count('<span class="go"><span class="sr">, </span>Resume</span>'))
+        self.assertNotIn('class="go"', html)                           # owner 2026-10-29: the card is the action
         self.assertNotIn("<b>", html)                                  # still autoescaped
-        # the full title first, then the line, progress and verb, each after a spoken comma
+        # what shows: the title and the glance (aria-hidden, it repeats the words in short); what is heard: the
+        # full title, then the line, progress and verb, each after a spoken comma
         self.assertEqual("Synthetic Film: A Very Long Subtitle That Is Clamped to Two Lines (Extended Edition) "
                          "&lt;b&gt;&amp;, Synthetic Series · S3 E10, 1 hour 21 minutes left, Resume",
-                         self._name_of(html))
-        self.assertRegex(html, r'class="t">[^<]*</span>\s*<span class="d"><span class="sr">, </span>Synthetic Series · S3 E10'
-                               r'</span>\s*<span class="p"><span class="sr">, </span>1 hour 21 minutes left</span>\s*'
-                               r'<span class="go"><span class="sr">, </span>Resume</span>\s*</a>')
-        # an action_label stands in for the verb for assistive technology; the verb stays visible
+                         self._name_of(re.sub(r'<span class="d" aria-hidden="true">[^<]*</span>', "", html)))
+        self.assertRegex(html, r'class="t">[^<]*</span>\s*<span class="d" aria-hidden="true">S3 E10 · 1h 21m left</span>\s*'
+                               r'<span class="sr">, Synthetic Series · S3 E10</span>\s*'
+                               r'<span class="sr">, 1 hour 21 minutes left</span>\s*<span class="sr">, Resume</span>\s*</a>')
+        # an action_label stands in for the verb for assistive technology
         labelled = str(card(viewmodel.CardVM("Pilot", "https://x.example/2", "still", None, None, "40 minutes left",
                                              action="Resume", action_label="Resume, 40 minutes left"), verb=True))
-        self.assertIn('<span class="go"><span class="sr">, </span><span aria-hidden="true">Resume</span>'
-                      '<span class="sr">Resume, 40 minutes left</span></span>', labelled)
+        self.assertIn('<span class="sr">, Resume, 40 minutes left</span>', labelled)
         self.assertNotRegex(re.search(r"<a [^>]*>", labelled).group(0), r"aria-label|aria-labelledby")
         self.assertEqual("Pilot, 40 minutes left, Resume, 40 minutes left", self._name_of(labelled))
-        # New this week: no verb; the kind label stands in when there is no line
+        # New this week: no verb; the kind label is heard when there is no line, never shown
         new = str(card(viewmodel.CardVM("Book", "https://x.example/3", "book", None, None, kind_label="Book")))
-        self.assertNotIn('class="go"', new)
-        self.assertIn('<span class="d"><span class="sr">, </span>Book</span>', new)
+        self.assertNotIn('class="d"', new)
+        self.assertIn('<span class="sr">, Book</span>', new)
         self.assertEqual("Book, Book", self._name_of(new))
 
     def test_titles_clamp_visually_and_rails_share_one_artwork_height(self):

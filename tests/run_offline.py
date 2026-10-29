@@ -23,10 +23,7 @@ def yaml_guard():
     print(f'WARN {message}', file=sys.stderr)
 
 
-def main():
-    yaml_guard()
-    subprocess.run([sys.executable, '-B', '-m', 'unittest', 'discover', '-s', str(ROOT / 'tests'), '-p', 'test_*.py'], check=True)
-    subprocess.run([sys.executable, '-B', str(ROOT / 'services/avrana-imax-verify/tests/test_classify.py')], check=True)
+def kindle_offline():
     path = ROOT / 'services/avrana-kindle-connector/tests/test_kindle.py'
     spec = importlib.util.spec_from_file_location('kindle_tests', path)
     module = importlib.util.module_from_spec(spec)
@@ -40,17 +37,40 @@ def main():
         test()
         print('PASS', name)
     print(f'{len(tests)} offline Kindle tests passed')
-    subprocess.run([sys.executable, '-B', '-m', 'unittest', 'discover', '-s', str(ROOT / 'services/avrana-kindle-connector/tests'), '-p', 'test_authz.py'], check=True)
-    subprocess.run([sys.executable, '-B', '-m', 'unittest', 'discover', '-s', str(ROOT / 'services/avrana-kindle-connector/tests'), '-p', 'test_a11y.py'], check=True)
-    subprocess.run([sys.executable, '-B', '-m', 'unittest', 'discover', '-s', str(ROOT / 'services/backups/tests'), '-p', 'test_*.py'], check=True)
-    subprocess.run([sys.executable, '-B', '-m', 'unittest', 'discover', '-s', str(ROOT / 'services/avrana-assistant/tests'), '-p', 'test_*.py'], check=True)
+
+
+def main():
+    yaml_guard()
     home = ROOT / 'services/avrana-home'
-    subprocess.run([sys.executable, '-B', '-m', 'unittest', 'discover', '-s', str(home / 'tests'),
-                    '-t', str(home), '-p', 'test_*.py'], check=True)
-    # Web application suite (loopback sockets only, so a separate process from the adapter tests,
-    # which forbid every socket). Tier B skips itself with an explicit line when FastAPI is absent.
-    subprocess.run([sys.executable, '-B', '-m', 'unittest', 'discover', '-s', str(home / 'webtests'),
-                    '-t', str(home), '-p', 'test_*.py'], check=True)
+    unit = [sys.executable, '-B', '-m', 'unittest', 'discover']
+    # Every suite runs even when an earlier one fails, so one red suite cannot hide the others (RC1: from #155 until
+    # this change a repository-test failure stopped CI before the Home suites ran). The exit code covers them all.
+    suites = [
+        ('repository tests', unit + ['-s', str(ROOT / 'tests'), '-p', 'test_*.py']),
+        ('imax-verify', [sys.executable, '-B', str(ROOT / 'services/avrana-imax-verify/tests/test_classify.py')]),
+        ('kindle offline', kindle_offline),
+        ('kindle authz', unit + ['-s', str(ROOT / 'services/avrana-kindle-connector/tests'), '-p', 'test_authz.py']),
+        ('kindle a11y', unit + ['-s', str(ROOT / 'services/avrana-kindle-connector/tests'), '-p', 'test_a11y.py']),
+        ('backups', unit + ['-s', str(ROOT / 'services/backups/tests'), '-p', 'test_*.py']),
+        ('assistant', unit + ['-s', str(ROOT / 'services/avrana-assistant/tests'), '-p', 'test_*.py']),
+        ('home adapters', unit + ['-s', str(home / 'tests'), '-t', str(home), '-p', 'test_*.py']),
+        # Web application suite (loopback sockets only, so a separate process from the adapter tests,
+        # which forbid every socket). Tier B skips itself with an explicit line when FastAPI is absent.
+        ('home web', unit + ['-s', str(home / 'webtests'), '-t', str(home), '-p', 'test_*.py']),
+    ]
+    failed = []
+    for name, suite in suites:
+        print(f'== {name}', flush=True)
+        try:
+            ok = suite() is None if callable(suite) else subprocess.run(suite).returncode == 0
+        except Exception as exc:          # an in-process suite (Kindle) failing: record it, keep going
+            print(f'FAIL {name}: {type(exc).__name__}: {exc}', file=sys.stderr)
+            ok = False
+        if not ok:
+            failed.append(name)
+    if failed:
+        sys.exit('FAIL offline suites: ' + ', '.join(failed))
+    print(f'all {len(suites)} offline suites passed')
 
 
 if __name__ == '__main__':

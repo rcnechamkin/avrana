@@ -2,12 +2,13 @@
 
 Tier A (standard library): the view-model picks the member's own next thing (the first Continue item, else the first
 Recently added item), never an item from a library said to be down; one primary hand-off whose words never claim
-playback; the card opens Details where a title page exists, else the app (H3 refined, owner decision 2026-10-29); the
-progress rule in 5% steps beside the words; the MK-4 stylesheet block (yellow only for the hero's progress line, Cream
-card progress, no new image source).
-Tier B (framework): the markup (one link for the whole card, the state inside the heading, a logo image or the title
-plate, art only from /art, a titled cover blurred with a small mark), and two members through the real transport, each
-seeing only their own hero.
+playback; the picture opens Details where a title page exists, else the app, and the button opens the app (Round 10,
+owner decision 2026-10-29); the progress rule in 5% steps beside the words; the MK-4 stylesheet block (yellow only for
+the hero's progress line, Cream card progress, no new image source).
+Tier B (framework): the markup (the picture's link and the button's link, the state inside the heading, a logo image or
+the title plate, art only from /art, a titled cover blurred behind and shown whole, the scrolled strip's round button
+hidden from screen readers and the keyboard), and two members through the real transport, each seeing only their own
+hero.
 """
 import re
 import unittest
@@ -57,7 +58,8 @@ class HeroViewModel(unittest.TestCase):
         self.assertEqual(("continue", "Harbour", "poster"), (hero.state, hero.title, hero.shape))
         self.assertEqual("Resume in Jellyfin", hero.action)
         self.assertEqual(HOST["jellyfin"] + JF1, hero.action_href)
-        self.assertEqual("70 minutes left · Movies and TV", hero.meta)
+        self.assertEqual(("Movies and TV", "70 minutes left"), (hero.facts, hero.left))
+        self.assertEqual(("Resume", "Jellyfin"), (hero.verb, hero.app))
         self.assertEqual(f"/art/jellyfin/primary/{JF1}", hero.image)
         self.assertEqual(f"/title/jellyfin/{JF1}", hero.details_href)
 
@@ -82,9 +84,10 @@ class HeroViewModel(unittest.TestCase):
                  sec("komga", "recent", "ok", [item("komga", "BOOKAAAA01", "Comic", "comic")]))
         for tab in (None, "komga", "jellyfin"):
             hero = build_home(v, TILES, new_tab=tab).hero
-            self.assertEqual(("recent", "Film", "Saga · Movies and TV"), (hero.state, hero.title, hero.meta), tab)
+            self.assertEqual(("recent", "Film", "Saga · Movies and TV", None),
+                             (hero.state, hero.title, hero.facts, hero.left), tab)
         only = build_home(view(sec("komga", "recent", "ok", [item("komga", "BOOKAAAA01", "Comic", "comic")])), TILES).hero
-        self.assertEqual(("recent", "comic", "Comics"), (only.state, only.shape, only.meta))   # kicker_of: no "Comic · Comics"
+        self.assertEqual(("recent", "comic", "Comics"), (only.state, only.shape, only.facts))   # kicker_of: no "Comic · Comics"
 
     def test_a_library_said_to_be_down_never_supplies_the_hero(self):
         # Movies and TV answer from the cache (ok) but also said unavailable: its card stays, the hero moves on.
@@ -107,6 +110,14 @@ class HeroViewModel(unittest.TestCase):
         self.assertIsNone(build_home(view(sec("jellyfin", "continue", "empty"),
                                           sec("jellyfin", "recent", "empty")), TILES).hero)         # nothing at all
 
+    def test_facts_lead_with_the_year_and_say_it_once(self):
+        dated = dict(item("jellyfin", JF1, "Harbour", progress=SAVED, subtitle="2005"), year=2005)
+        hero = build_home(view(sec("jellyfin", "continue", "ok", [dated])), TILES).hero
+        self.assertEqual("2005 · Movies and TV", hero.facts)
+        episode = dict(item("jellyfin", JF1, "Pilot", "episode", SAVED, series="Harbour", subtitle="S1 E1"), year=2024)
+        self.assertEqual("2024 · S1 E1 · Harbour · Movies and TV",
+                         build_home(view(sec("jellyfin", "continue", "ok", [episode])), TILES).hero.facts)
+
     def test_details_only_where_a_title_page_exists_and_the_id_is_valid(self):
         good = view(sec("jellyfin", "continue", "ok", [item("jellyfin", JF1, "F", progress=SAVED)]))
         self.assertIsNone(build_home(good, TILES).hero.details_href)                 # no title services: no Details
@@ -117,9 +128,10 @@ class HeroViewModel(unittest.TestCase):
         self.assertIsNone(build_home(other, TILES, title_services=TITLED).hero.details_href)
 
     def test_the_card_opens_details_else_the_app(self):
-        # H3 refined (owner decision 2026-10-29): the whole card is one link, to the Details sheet where Resume lives.
+        # Round 10 (owner decision 2026-10-29): the picture opens the Details sheet; the button opens the app.
         v = view(sec("jellyfin", "continue", "ok", [item("jellyfin", JF1, "F", progress=SAVED)]))
-        self.assertEqual(f"/title/jellyfin/{JF1}", build_home(v, TILES, title_services=TITLED).hero.href)
+        hero = build_home(v, TILES, title_services=TITLED).hero
+        self.assertEqual((f"/title/jellyfin/{JF1}", HOST["jellyfin"] + JF1), (hero.href, hero.action_href))
         self.assertEqual(HOST["jellyfin"] + JF1, build_home(v, TILES).hero.href)
 
     def test_logo_progress_line_and_cover_mark(self):
@@ -194,16 +206,25 @@ class Stylesheet(unittest.TestCase):
 
     def test_the_title_plate_wraps_and_is_never_fitted_to_its_title(self):
         title = re.search(r"\.hero-plate\{[^}]*\}", self.rules).group(0)
-        self.assertIn("font-size:min(2.25rem,calc(0.5rem + 8vw))", title)
+        self.assertIn("font-size:min(1.75rem,calc(0.5rem + 6vw))", title)
         self.assertIn("font-weight:600", title)
         self.assertNotIn("white-space:nowrap", title)
         self.assertIn("overflow-wrap:break-word", title)
         self.assertNotIn("anywhere", title)
 
     def test_the_picture_goes_where_contrast_is_asked_for(self):
-        self.assertIn("@media (prefers-contrast:more){.hero-art,.hero-card::after{display:none;}", self.rules)
-        self.assertIn("@media (forced-colors:active){.hero-art,.hero-card::after{display:none;}", self.rules)
-        self.assertRegex(self.rules, r"\.hero-card:focus-visible\{[^}]*var\(--focus\)")
+        self.assertIn("@media (prefers-contrast:more){.hero-art,.hero-light,.hero-card::after{display:none;}", self.rules)
+        self.assertIn("@media (forced-colors:active){.hero-art,.hero-light,.hero-card::after{display:none;}", self.rules)
+        self.assertRegex(self.rules, r"\.hero-card:focus-visible,\.hero-go:focus-visible\{[^}]*var\(--focus\)")
+
+    def test_the_scrolled_strip_is_progressive_and_leaves_with_the_picture(self):
+        # Round 10: the strip exists only where scroll timelines do; elsewhere the window simply scrolls away.
+        timed = self.rules.split("@supports (animation-timeline:view()){", 1)[1]
+        self.assertIn("@keyframes hero-shrink{to{height:var(--strip);}}", timed)
+        self.assertIn(".hero-mini,.hero-play{display:flex;", timed)
+        self.assertIn(".hero-mini,.hero-play{display:none;}", self.rules.split("@supports", 1)[0])
+        for media in ("@media (prefers-contrast:more){", "@media (forced-colors:active){.hero-art"):
+            self.assertIn(".hero-mini,.hero-play{display:none;}", self.rules.split(media, 1)[1].split("}}", 1)[0] + "}")
 
 
 class Markup(unittest.TestCase):
@@ -225,16 +246,24 @@ class Markup(unittest.TestCase):
                                                          art=f"jellyfin/primary/{JF1}")]))
         hero = self.hero_of(self.render(v, title_services=TITLED))
         self.assertIn('<section class="hero w-poster" aria-labelledby="h-hero">', hero)
-        # one link, the whole card, to the Details sheet (H3 refined, owner decision 2026-10-29)
-        self.assertEqual([f'<a class="hero-card" href="/title/jellyfin/{JF1}">'], re.findall(r"<a [^>]*>", hero))
+        # the picture opens the Details sheet, the button the app; the strip's round button repeats it, hidden from
+        # screen readers and the keyboard (Round 10, owner decision 2026-10-29)
+        self.assertEqual([f'<a class="hero-card" href="/title/jellyfin/{JF1}">', f'<a class="hero-go" href="{HOST["jellyfin"]}{JF1}">',
+                          f'<a class="hero-play" href="{HOST["jellyfin"]}{JF1}" tabindex="-1" aria-hidden="true">'],
+                         re.findall(r"<a [^>]*>", hero))
+        self.assertIn('<span class="hero-tri" aria-hidden="true"></span>Resume<span class="sr"> in Jellyfin</span></a>', hero)
+        self.assertIn('<span class="hero-facts"><span class="sr">, </span>Movies and TV</span>', hero)
+        self.assertIn('<span class="hero-left">70 minutes left</span>', hero)
+        self.assertIn('<span class="hero-mini" aria-hidden="true">', hero)
         self.assertIn('<h2 id="h-hero" class="hero-title"><span class="sr">Continue: </span>'
                       '<span class="hero-plate">Harbour &lt;b&gt;&amp;</span></h2>', hero)
-        # how far along and where it goes, for screen readers only; no aria-label hides them
-        self.assertIn('<span class="sr">, 70 minutes left · Movies and TV, Details</span>', hero)
+        # where the picture goes, for screen readers only; no aria-label hides it
+        self.assertIn('<span class="sr">, Details</span>', hero)
         self.assertNotIn("aria-label=", hero)
-        self.assertEqual([f'<img class="art" src="/art/jellyfin/primary/{JF1}" alt="" width="160" height="240">'],
-                         re.findall(r"<img[^>]*>", hero))
+        self.assertEqual(2 * [f'<img class="art" src="/art/jellyfin/primary/{JF1}" alt="" width="160" height="240">'],
+                         re.findall(r"<img[^>]*>", hero))                    # the picture and its light
         self.assertIn('<span class="hero-art" aria-hidden="true">', hero)
+        self.assertIn('<span class="hero-light" aria-hidden="true">', hero)
         self.assertIn('<span class="bar hero-bar" aria-hidden="true"><span class="fill pc30"></span></span>', hero)
         self.assertNotRegex(hero, r"style=|<script|on\w+=")
 
@@ -247,16 +276,19 @@ class Markup(unittest.TestCase):
         self.assertIn(f'<img class="art" src="/art/jellyfin/backdrop/{JF1}" alt="" width="1280" height="720">', hero)
         self.assertIn(f'<span class="sr">Continue: </span><img class="hero-logo" src="/art/jellyfin/logo/{JF1}" '
                       'alt="Harbour" width="320" height="120"></h2>', hero)
+        # the strip repeats the logo with an empty alt: the heading already names the title
+        self.assertIn(f'<span class="hero-mini" aria-hidden="true"><img class="hero-mini-logo" src="/art/jellyfin/logo/{JF1}" alt=""', hero)
         self.assertNotIn("hero-plate", hero)
         self.assertIn(", Resume in Jellyfin</span>", hero)
 
-    def test_a_titled_cover_is_blurred_behind_and_set_small_beside_the_title(self):
+    def test_a_titled_cover_is_blurred_behind_and_shown_whole_above_the_title(self):
         book = item("calibre-web", "17", "Quiet", "ebook", art="calibre-web/cover/17")
         hero = self.hero_of(self.render(view(sec("calibre-web", "recent", "ok", [book]))))
         self.assertIn('<section class="hero w-book has-cover" aria-labelledby="h-hero">', hero)
         self.assertIn('<span class="hero-art blurred" aria-hidden="true">', hero)
-        self.assertIn('<span class="hero-mark" aria-hidden="true">', hero)
-        self.assertEqual(2, hero.count('src="/art/calibre-web/cover/17"'))
+        self.assertIn('<span class="hero-cover" aria-hidden="true">', hero)
+        self.assertEqual(3, hero.count('src="/art/calibre-web/cover/17"'))      # its light, the blur, the whole cover
+        self.assertIn('</span>Open<span class="sr"> in Calibre-Web</span></a>', hero)
         self.assertIn('<span class="hero-plate">Quiet</span>', hero)
         self.assertNotIn("hero-bar", hero)
 

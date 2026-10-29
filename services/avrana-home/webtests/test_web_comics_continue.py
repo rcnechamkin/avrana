@@ -52,10 +52,10 @@ class ContinueComics(unittest.TestCase):
 
     def test_an_up_next_hero_says_so(self):
         hero = build_home({"sections": [cont("komga", NEXT)]}, TILES).hero
-        self.assertEqual(("continue", "Synthetic Saga #3", "Up next · Comics", "Read in Komga"),
-                         (hero.state, hero.title, hero.meta, hero.action))
+        self.assertEqual(("continue", "Synthetic Saga #3", "Up next · Comics", None, "Read in Komga"),
+                         (hero.state, hero.title, hero.facts, hero.left, hero.action))
         hero = build_home({"sections": [cont("komga", READ)]}, TILES).hero
-        self.assertEqual("40 percent read · Comics", hero.meta)
+        self.assertEqual(("#2 · Comics", "40 percent read"), (hero.facts, hero.left))
 
     def test_up_next_needs_the_shelf_and_no_progress(self):
         started = dict(NEXT, progress=READING)
@@ -157,7 +157,8 @@ class Markup(unittest.TestCase):
         covers = self.rail(cont("komga", READ, NEXT))
         self.assertIn('<ul class="rail cont">', covers)
         self.assertNotIn("glow", covers)
-        self.assertIn('<span class="p"><span class="sr">, </span>Up next</span>', covers)
+        self.assertIn('<span class="d" aria-hidden="true">Up next</span>', covers)
+        self.assertIn('<span class="sr">, Up next</span>', covers)
 
     def test_a_still_without_art_has_no_blurred_copy(self):
         rail = self.rail(cont("jellyfin", dict(EPISODE, artwork=None)), cont("komga", READ))

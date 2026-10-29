@@ -72,6 +72,7 @@ class JellyfinContinue(unittest.TestCase):
         self.assertEqual("Resume in Movies and TV", c.action_label)
         self.assertNotIn("Synthetic Edge Film", c.action_label)       # the link already starts with the title
         self.assertEqual("Movie", c.kind_label)
+        self.assertEqual("82m left", c.glance)                      # what the card shows: no year, kind or verb
         r = self.serve(jf_item(pos))
         self.assertEqual((2339, 7200), (r.items[0].position_seconds, r.items[0].duration_seconds))
 
@@ -116,6 +117,7 @@ class JellyfinContinue(unittest.TestCase):
         (c,) = self.card(jf_item(60 * TICKS_PER_SECOND, kind="Episode", SeriesName="Synthetic Series",
                                  ParentIndexNumber=1, IndexNumber=3))
         self.assertEqual("S1 E3 · Synthetic Series", c.line)      # the marker survives a one-line clamp
+        self.assertEqual("S1 E3 · 119m left", c.glance)             # the episode mark, then progress in short
         self.assertEqual("Episode", c.kind_label)
         self.assertEqual("still", c.shape)
 
