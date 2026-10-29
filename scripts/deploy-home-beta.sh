@@ -66,7 +66,7 @@ fi
 
 echo "== 1. export to $HOST:$dir"
 git archive "$sha" services/avrana-home services/avrana-portal |
-  ssh "$HOST" "set -e; if [ -e '$dir' ]; then echo 'export exists, reusing'; exit 0; fi
+  ssh "$HOST" "set -e; if [ -e '$dir' ]; then echo 'export exists, reusing'; cat >/dev/null; exit 0; fi
                mkdir -p '$dir.tmp' && tar -x -C '$dir.tmp' && mv '$dir.tmp' '$dir'"
 
 echo "== 2-4. link configuration, build, dry run$([ "$apply" = yes ] && echo ", apply")"
