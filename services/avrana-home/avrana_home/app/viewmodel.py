@@ -308,6 +308,10 @@ BOOK_PLACES = ("/books", "/read")      # the places that hold books: Calibre-Web
 # that reached Komga in the last seven days (Komga's `week` section), when there are at least WEEK_MIN; the Comics chip
 # still lists them one by one. WEEK_PAGE is Komga's page size: a full page is "100+".
 WEEK_HEADING = "This week in comics"
+# Owner 2026-10-29: comics are one member's interest, so on All they ALWAYS fold into one card when there are at least
+# WEEK_MIN; on a quiet week (fewer than WEEK_MIN issues arrived) the card holds the newest comics New Releases has, one
+# issue per series, under LATEST_HEADING.
+LATEST_HEADING = "New in comics"
 # New Releases' All (owner 2026-10-29, "still way too comic book heavy"): no chip's kinds take more than a third of the
 # rail while the other kinds still have cards; what does not fit stays under its chip, in order.
 ALL_SHARE = 3
@@ -420,6 +424,7 @@ class StackVM:
     images: Tuple[str, ...]        # up to three same-origin covers, newest (the front of the pile) first
     mine: Optional[str] = None     # "3 from your series": the member's own state, so it carries the yellow dot
     series: Optional[str] = None   # "21 series", when none is the member's
+    title: str = WEEK_HEADING      # "This week in comics", or "New in comics" on a quiet week
 
 
 @dataclass(frozen=True)
@@ -806,17 +811,19 @@ def _cards(items, line_of, progress: bool = False, title_services=frozenset()) -
     return tuple(out)
 
 
-def stack_of(week, mine_series, href: str) -> StackVM:
+def stack_of(week, mine_series, href: str, latest: bool = False) -> StackVM:
     """The "This week in comics" card from Komga's week list (newest first, every issue): the count, the three newest
-    covers, and how many are from series the member reads (their Continue and New for You), else how many series."""
+    covers, and how many are from series the member reads (their Continue and New for You), else how many series.
+    `latest`: a quiet week's card from New Releases' own comics (one issue per series), "New in comics"."""
     n = len(week)
     count = f"{WEEK_PAGE}+" if n >= WEEK_PAGE else str(n)
     mine = sum(1 for it in week if it.series and it.series in mine_series)
     series = len({it.series or it.item_id for it in week})
-    return StackVM(href, count, f"{count} new issue{'' if n == 1 else 's'}",
-                   tuple(it.image for it in week if it.image)[:3],
+    line = f"New issues in {count} series" if latest else f"{count} new issue{'' if n == 1 else 's'}"
+    return StackVM(href, count, line, tuple(it.image for it in week if it.image)[:3],
                    mine=f"{mine} from your series" if mine else None,
-                   series=None if mine else f"{series} series")
+                   series=None if mine or latest else f"{series} series",
+                   title=LATEST_HEADING if latest else WEEK_HEADING)
 
 
 def for_you_words(it: ItemVM, today: str) -> str:
@@ -1069,12 +1076,15 @@ def build_home(view: dict, tiles, *, new_tab: Optional[str] = None, limit: int =
     if focus is None:
         rail_picked = picked
         week = items_of("week", "komga")
-        if rel is None and len(chips) > 1 and len(week) >= WEEK_MIN:
+        comics = [it for it in picked if it.kind == "comic"]
+        if rel is None and len(chips) > 1 and (len(week) >= WEEK_MIN or len(comics) >= WEEK_MIN):
             stack_at = next((i for i, it in enumerate(picked) if it.kind == "comic"), 0)
             rail_picked = [it for it in picked if it.kind != "comic"]
-            stack = stack_of(week, {it.series for sec in ("continue", "for_you") for it in items_of(sec, "komga")
-                                    if it.series},
-                             home_href(link_focus, new_key, "comics", anchor="h-released"))
+            quiet = len(week) < WEEK_MIN
+            stack = stack_of(comics if quiet else week,
+                             {it.series for sec in ("continue", "for_you") for it in items_of(sec, "komga")
+                              if it.series},
+                             home_href(link_focus, new_key, "comics", anchor="h-released"), latest=quiet)
         if rel is None and len(chips) > 1:
             rail_picked = balanced(rail_picked, limit - (stack is not None))
         released, released_more = _split(_cards(rail_picked, lambda it: it.detail or SERVICE_LABEL.get(it.library),

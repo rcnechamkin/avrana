@@ -129,7 +129,7 @@
 {% macro stack_card(s) -%}
 <li class="w-comic w-stack"><a class="card stack" href="{{ s.href }}">
   <span class="frame pile"><span class="ph" aria-hidden="true">C</span>{% for img in s.images %}<span class="sheet s{{ loop.index }}" aria-hidden="true"><img class="art" src="{{ img }}" alt="" width="160" height="246" loading="lazy"></span>{% endfor %}<span class="count" aria-hidden="true">{{ s.count }}</span></span>
-  <span class="t">This week in comics</span>
+  <span class="t">{{ s.title }}</span>
   <span class="d"><span class="sr">, </span>{{ s.line }}</span>
   {% if s.mine %}<span class="p mine"><span class="sr">, </span>{{ s.mine }}</span>{% elif s.series %}<span class="p"><span class="sr">, </span>{{ s.series }}</span>{% endif +%}
 </a></li>
