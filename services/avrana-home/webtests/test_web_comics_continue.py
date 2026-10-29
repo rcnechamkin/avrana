@@ -157,7 +157,8 @@ class Markup(unittest.TestCase):
         covers = self.rail(cont("komga", READ, NEXT))
         self.assertIn('<ul class="rail cont">', covers)
         self.assertNotIn("glow", covers)
-        self.assertIn('<span class="p"><span class="sr">, </span>Up next</span>', covers)
+        self.assertIn('<span class="d" aria-hidden="true">Up next</span>', covers)
+        self.assertIn('<span class="sr">, Up next</span>', covers)
 
     def test_a_still_without_art_has_no_blurred_copy(self):
         rail = self.rail(cont("jellyfin", dict(EPISODE, artwork=None)), cont("komga", READ))

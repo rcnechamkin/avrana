@@ -265,12 +265,9 @@
     -webkit-line-clamp:2;line-clamp:2;overflow:hidden;}
   .d{font-size:0.875rem;line-height:1.35;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
   .p{font-size:0.875rem;line-height:1.35;color:var(--fg);}
-  .go{align-self:flex-start;margin-top:0.25rem;font-size:0.875rem;line-height:1.35;letter-spacing:0.03em;color:var(--fg);
-    text-decoration:underline;text-decoration-color:var(--rule-strong);text-decoration-thickness:1px;text-underline-offset:0.25em;}
   .card:hover .frame{border-color:var(--fg);}
   .card:focus-visible .frame{border-color:var(--focus);}
   .card:hover .t{text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:0.2em;}
-  .card:hover .go,.card:focus-visible .go{text-decoration-color:var(--fg);}
   /* Rails scroll sideways whenever the column cannot hold them. Every frame in a rail stands on the same
      baseline: the rail's height (--art-h) and its own natural width, except that a shape wider than the card
      (a video still) is held to --wide-max and stands shorter, bottom-aligned, so titles still line up.
