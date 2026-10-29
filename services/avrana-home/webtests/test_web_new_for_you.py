@@ -6,7 +6,7 @@ synthetic data only.
   * New for You sits right under Continue: what arrived lately that is the next episode, issue or book of a series the
     member is caught up on (each library decides), newest arrival first, each card saying what it is and when it came.
     It is absent when there is nothing. An item it shows is not repeated in Continue, Up next or New Releases.
-  * With nothing in progress, the hero is the newest New for You item (eyebrow "New for You", the member's own yellow).
+  * With nothing in progress, the hero is the newest New for You item (its heading starts "New for You").
 """
 import unittest
 
@@ -168,7 +168,7 @@ class Rendered(unittest.TestCase):
         self.assertIn("New issue · today", html)
         empty = self.env.get_template("_sections.html").render(
             home=build_home(view(sec("komga", "for_you", [ISSUE])), TILES, title_services=TITLES, today=TODAY))
-        self.assertIn('<span class="k-eyebrow yours">New for You<span class="sr">: </span></span>', empty)
+        self.assertIn('<span class="sr">New for You: </span>', empty)
         none = self.env.get_template("_sections.html").render(
             home=build_home(view(sec("jellyfin", "continue", [FILM])), TILES, today=TODAY))
         self.assertNotIn("h-foryou", none)

@@ -33,9 +33,9 @@ from pathlib import Path
 from urllib.parse import parse_qsl, urlsplit
 
 try:
-    from dev.synthetic_art import JELLYFIN_SHAPE, cover
+    from dev.synthetic_art import JELLYFIN_SHAPE, cover, logo
 except ImportError:                        # run as a script: dev/ itself is on the path
-    from synthetic_art import JELLYFIN_SHAPE, cover
+    from synthetic_art import JELLYFIN_SHAPE, cover, logo
 
 FIXTURES = Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "jellyfin"
 QC_WAITING = "123456"                        # the code a synthetic TV is showing
@@ -274,6 +274,8 @@ class MockJellyfin:
             vis = self._visible(name)
             found = [vis[i] for i in query.get("ids", "").split(",") if i in vis]
             return self._json(h, {"Items": found, "TotalRecordCount": len(found)})
+        if path.startswith("/Items/") and path.endswith("/Images/Logo"):
+            return self._send(h, 200, logo(path), "image/png")              # a transparent synthetic title logo
         if path.startswith("/Items/") and path.endswith("/Images/Backdrop"):
             return self._send(h, 200, cover("still", path), "image/png")   # a wide synthetic backdrop
         if path.startswith("/Items/") and path.endswith("/Images/Primary"):

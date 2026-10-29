@@ -102,9 +102,13 @@ class SectionRenderingTests(Fixture):
         # Continue is bounded (the section limit, 12: owner request 2026-10-28); artwork is decoration (alt="") from the
         # artwork route only
         self.assertLessEqual(len(re.findall(r'class="card"', above.split('id="h-released"')[0])), 12)
-        for tag in re.findall(r"<img[^>]*>", above):
-            self.assertRegex(tag, r'^<img class="art" src="/art/[A-Za-z0-9_/-]+" alt="" (width="160" height="240" loading="lazy"'
-                                  r'|width="1280" height="720")>$')   # the second: the hero's wide backdrop
+        # the hero's title logo is the one image with words: its alt is the title (H3 refined, 2026-10-29)
+        logos = re.findall(r'<img class="hero-logo"[^>]*>', above)
+        for tag in logos:
+            self.assertRegex(tag, r'^<img class="hero-logo" src="/art/jellyfin/logo/[0-9a-f]{32}" alt="[^"]+" width="320" height="120">$')
+        for tag in set(re.findall(r"<img[^>]*>", above)) - set(logos):
+            self.assertRegex(tag, r'^<img class="art" src="/art/[A-Za-z0-9_/-]+" alt="" (width="160" height="240"( loading="lazy")?'
+                                  r'|width="1280" height="720")>$')   # the hero's picture loads at once
         # Search and Me are tabs (D1): each once, in the tab bar after the footer, never a sixth place
         bar = re.search(r'<nav class="tabbar glass" aria-label="Sections".*?</nav>', text, flags=re.S).group(0)
         self.assertEqual(1, text.count('href="/search"'))
@@ -265,7 +269,9 @@ class JsonViewTests(Fixture):
             for it in s["items"]:
                 self.assertEqual({"id", "service", "kind", "title", "subtitle", "series", "progress",
                                   "artwork", "creator", "year", "summary", "handoff_url"},
-                                 set(it) - {"backdrop", "released", "active", "added"})   # each only when the library gave it
+                                 set(it) - {"backdrop", "logo", "released", "active", "added"})   # each only when the library gave it
+                if "logo" in it:                       # only when the library gave one (Jellyfin's Logo, H3 refined)
+                    self.assertRegex(it["logo"]["ref"], r"^jellyfin/logo/[0-9a-f]{32}$")
                 if "active" in it:                     # when this member last touched it, UTC (2026-10-28)
                     self.assertRegex(it["active"], r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
                 if "backdrop" in it:                   # only when the library gave one (Jellyfin's Backdrop)

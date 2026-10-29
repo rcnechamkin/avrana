@@ -33,10 +33,10 @@ _GUID = re.compile(r"[0-9a-fA-F]{8}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]{4}-?[0-9a-fA-F]
 _HEX32 = r"[0-9a-f]{32}"
 _BOUND_ID = re.compile(_HEX32)
 MAX_INT = _base.MAX_INT
-_ARTWORK_REF = re.compile(r"jellyfin/(primary|backdrop)/(" + _HEX32 + r")")
-# Backdrop: the wide image for Home's hero (an episode uses its series'). Logo is asked for only because Jellyfin
-# (DtoService.AddInheritedImages, 10.11) sends ParentBackdrop* for an episode only when Logo or Thumb is asked too;
-# episodes never have a logo of their own, so the series' backdrop always comes. Logo tags are never read.
+_ARTWORK_REF = re.compile(r"jellyfin/(primary|backdrop|logo)/(" + _HEX32 + r")")
+# Backdrop: the wide image for Home's hero (an episode uses its series'). Logo: the title-treatment image Home's hero
+# shows in place of typed text (a transparent PNG; an episode uses its series', ParentLogo*). Asking for Logo also
+# makes Jellyfin (DtoService.AddInheritedImages, 10.11) send ParentBackdrop* for an episode.
 _IMAGE_TYPES = "Primary,Backdrop,Logo"
 _ITEM_FIELDS = "PrimaryImageAspectRatio,ProviderIds"   # ProviderIds: media_ids.from_jellyfin
 _TITLE_FIELDS = _ITEM_FIELDS + ",Overview,People,Genres,Tags"   # the title page alone asks for the synopsis (R2-C)
@@ -91,7 +91,7 @@ ALLOWED_ROUTES = (
           user_scoped=True, not_found=UserGone),
     # The image route cannot carry a userId, so ITS member scoping is not enforced here: it rests on
     # the adapter calling `_visible_item` (a userId-scoped lookup) for the same item first.
-    Route("image", r"/Items/" + _HEX32 + r"/Images/(?:Primary|Backdrop)", ("maxWidth", "quality"),
+    Route("image", r"/Items/" + _HEX32 + r"/Images/(?:Primary|Backdrop|Logo)", ("maxWidth", "quality"),
           user_scoped=False, not_found=ItemGone),
 )
 
@@ -254,6 +254,15 @@ class JellyfinAdapter(GuardedAdapter):
         elif (kind is Kind.EPISODE and parent is not None and isinstance(theirs, list) and theirs
               and isinstance(theirs[0], str) and theirs[0]):
             backdrop = ArtworkRef(f"jellyfin/backdrop/{parent}", "")   # the series' backdrop
+        logo = None
+        logo_parent, logo_tag = normalise_guid(raw.get("ParentLogoItemId")), raw.get("ParentLogoImageTag")
+        logo_name = series or title
+        if not want_backdrop:
+            pass                                                     # only the hero shows a logo, as with backdrops
+        elif isinstance(tags, dict) and isinstance(tags.get("Logo"), str) and tags["Logo"]:
+            logo = ArtworkRef(f"jellyfin/logo/{item_id}", logo_name)
+        elif kind is Kind.EPISODE and logo_parent is not None and isinstance(logo_tag, str) and logo_tag:
+            logo = ArtworkRef(f"jellyfin/logo/{logo_parent}", logo_name)   # the series' logo
         return MediaItem(id=f"jellyfin:{item_id}", service=Service.JELLYFIN, kind=kind, title=title,
                          handoff_url=build_handoff_url(Service.JELLYFIN, item_id),
                          subtitle=subtitle, series=series, progress_fraction=fraction,
@@ -261,7 +270,7 @@ class JellyfinAdapter(GuardedAdapter):
                          artwork=artwork, year=year, active=iso_instant(data.get("LastPlayedDate")),
                          external_ids=media_ids.from_jellyfin(raw.get("ProviderIds")),
                          summary=clean_summary(raw.get("Overview")) if want_summary else None,
-                         backdrop=backdrop, released=_base.iso_day(raw.get("PremiereDate")),
+                         backdrop=backdrop, logo=logo, released=_base.iso_day(raw.get("PremiereDate")),
                          **(_details(raw) if want_summary else {})), "ok"
 
     def _parse_list(self, raws: Any, user_id: str, limit: int, kinds, want_progress,
@@ -457,7 +466,8 @@ class JellyfinAdapter(GuardedAdapter):
         # Member-scoped permission check. A backdrop ref names the item that owns the image: the movie or series
         # itself (an episode's ref names its series), so that item must be visible to this member and have one.
         visible = self._visible_item(guard, budget, user, item_id)
-        owned = None if visible is None else (visible.backdrop if image == "backdrop" else visible.artwork)
+        owned = (None if visible is None else
+                 {"backdrop": visible.backdrop, "logo": visible.logo}.get(image, visible.artwork))
         if owned is None or owned.ref != ref:
             return ArtworkResult(SectionState.EMPTY)
         hit = cached() if cached is not None else None      # only AFTER this member's visibility check
@@ -466,5 +476,8 @@ class JellyfinAdapter(GuardedAdapter):
         if image == "backdrop":
             return self._fetch_image(guard, budget, f"/Items/{item_id}/Images/Backdrop",
                                      {"maxWidth": "1280", "quality": "80"})
+        if image == "logo":
+            return self._fetch_image(guard, budget, f"/Items/{item_id}/Images/Logo",
+                                     {"maxWidth": "800", "quality": "90"})
         return self._fetch_image(guard, budget, f"/Items/{item_id}/Images/Primary",
                                  {"maxWidth": "400", "quality": "80"})

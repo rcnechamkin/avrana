@@ -107,7 +107,7 @@ class Markup(unittest.TestCase):
         self.assertLess(keys.index("released"), keys.index("new"))
         self.assertIn(f'<h2 id="h-released">{NEW_RELEASES}</h2>', html)
         self.assertIn(f'<h2 id="h-new">{NEW_TO_AVRANA}</h2>', html)
-        self.assertIn(f'<span class="k-eyebrow">{NEW_TO_AVRANA}<span class="sr">: </span>', html)   # the hero
+        self.assertIn(f'<span class="sr">{NEW_TO_AVRANA}: </span>', html)   # the hero
         self.assertNotIn("Recently added", html)
 
     def test_no_dates_no_section(self):

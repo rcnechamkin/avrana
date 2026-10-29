@@ -100,7 +100,7 @@ class ContinueComics(unittest.TestCase):
 class Stylesheet(unittest.TestCase):
     def setUp(self):
         css = (TEMPLATES / "home.css").read_text(encoding="utf-8")
-        marker = "  /* ---- MK-10 Mixed rails and the cover hero (owner review 2026-10-28) ---- */\n"
+        marker = "  /* ---- MK-10 Mixed rails (owner review 2026-10-28) ---- */\n"
         self.assertEqual(1, css.count(marker))
         self.block = re.split(r"\n  /\* ---- MK-", css.split(marker, 1)[1], maxsplit=1)[0]
         self.rules = re.sub(r"/\*.*?\*/", "", self.block, flags=re.S)
@@ -114,10 +114,9 @@ class Stylesheet(unittest.TestCase):
     def test_titles_keep_two_lines_of_room_in_the_rail(self):
         self.assertIn(".rail.cont .t{min-height:2.6em;}", self.rules)
 
-    def test_the_cover_hero_is_a_halo_and_a_still_keeps_the_stacked_layout(self):
-        self.assertIn(".hero:not(.has-backdrop,.w-still) .hero-glow{", self.rules)
-        self.assertIn("radial-gradient(closest-side", self.rules)
-        self.assertNotRegex(self.rules, r"\.hero(?:\.w-still|:not\(\.has-backdrop\))\{")
+    def test_the_hero_has_no_rules_here(self):
+        # The cover-beside-the-words hero went with H3 refined (owner decision 2026-10-29): one picture for every shape.
+        self.assertNotIn(".hero", self.rules)
 
     def test_no_new_colour_image_source_or_library_word(self):
         self.assertNotIn("url(", self.rules)

@@ -53,5 +53,33 @@ def cover(shape: str, seed: str) -> bytes:
     return _CACHE[key]
 
 
+def logo(seed: str) -> bytes:
+    """A synthetic title logo, as Jellyfin's Logo image is: a wide, transparent RGBA PNG with a light "wordmark" of
+    blocks (one per letter, widths from `seed`), so the hero's logo slot shows a real transparent image. Cached."""
+    digest = hashlib.sha256(seed.encode("utf-8")).digest()
+    key = ("logo", digest[:6])
+    if key not in _CACHE:
+        w, h = 320, 96
+        blocks, x = [], 6
+        for b in digest[:6]:
+            bw = 26 + b % 22
+            if x + bw > w - 6:
+                break
+            blocks.append((x, x + bw))
+            x += bw + 10
+        on, off = bytes((246, 239, 224, 255)), bytes(4)
+        rows = []
+        for y in range(h):
+            row = bytearray(b"\x00")
+            band = 18 <= y < h - 18
+            for px in range(w):
+                row += on if band and any(a <= px < c for a, c in blocks) else off
+            rows.append(bytes(row))
+        ihdr = struct.pack(">IIBBBBB", w, h, 8, 6, 0, 0, 0)
+        _CACHE[key] = (b"\x89PNG\r\n\x1a\n" + _chunk(b"IHDR", ihdr)
+                       + _chunk(b"IDAT", zlib.compress(b"".join(rows), 9)) + _chunk(b"IEND", b""))
+    return _CACHE[key]
+
+
 # Jellyfin item Type -> shape (as the Home view-model's SHAPE table does for the contract's kinds).
 JELLYFIN_SHAPE = {"Movie": "poster", "Series": "poster", "Episode": "still", "Season": "poster"}

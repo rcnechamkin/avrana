@@ -7,7 +7,7 @@
        "ProductionYear": 2001, "RunTimeTicks": 72000000000,
        "UserData": {"PlaybackPositionTicks": 30240000000, "PlayedPercentage": 42.0, "Played": false,
                     "ItemId": "aaaa0000000000000000000000000001", "Key": "synthetic-key-1"},
-       "ImageTags": {"Primary": "synthtag1"}, "BackdropImageTags": ["synthbackdrop1"]},
+       "ImageTags": {"Primary": "synthtag1", "Logo": "synthlogo1"}, "BackdropImageTags": ["synthbackdrop1"]},
       {"Id": "aaaa0000-0000-0000-0000-000000000002", "Name": "Synthetic Pilot", "Type": "Episode",
        "SeriesName": "Synthetic Series Alpha", "ParentIndexNumber": 1, "IndexNumber": 3,
        "RunTimeTicks": 27000000000,
