@@ -189,6 +189,7 @@ Each public method runs these steps, in this order, in the shared base class
 | `artwork` | object or null | `ref` (opaque) and `alt` (text alternative) |
 | `summary` | string or null | Synopsis as plain text, at most 1,200 characters (cut at a word with an ellipsis). **Only on title-page lookups** (`item`); always `null` in Continue, Recent and search. Upstream HTML is reduced to its text (`contract.clean_summary`): tags, attributes, scripts, styles and comments dropped, entities decoded; the template escapes the result (R2-C) |
 | `handoff_url` | string | `https://` URL on a fixed Avrana hostname |
+| `shelf` | string, only when present | A fixed key the adapter sets, never upstream text: in a `shelves` section the shelf (`new`, `classics`, `short`, `epic`); in Komga's `continue`, `next` marks an On Deck book (the next unread book of a series the member has started, `progress` null), which Home shows as "Up next" |
 
 `MediaItem.external_ids` (validated TMDB, IMDb, TVDB, ISBN-13 and ASIN values the upstream returned) is internal
 and deliberately **not** in `to_dict()`: it exists only to link the same title across one member's results

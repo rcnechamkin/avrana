@@ -939,6 +939,33 @@
   .lib-v-list .frame{border-radius:4px;}
   .hero.has-backdrop .hero-backdrop,.title-page.has-backdrop .frame{border-radius:12px;}
 
+  /* ---- MK-10 Mixed rails and the cover hero (owner review 2026-10-28) ---- */
+  /* The in-progress rail mixes shapes. A title keeps room for its two lines (every card there has its dim line too),
+     so the progress words and the action stand at one height across the rail, whatever each title's length. */
+  .rail.cont .t{min-height:2.6em;}
+  /* A video still among taller covers takes the rail's full height at its card width, so every card stands as tall:
+     the still sits whole in the middle, over a blurred, dimmed copy of itself (the same /art image, never cropped).
+     A rail of stills alone is a still's height instead (.stills, as Up next). */
+  .rail.mixed>li.w-still{--fh:var(--art-h);}
+  .frame .glow{position:absolute;inset:0;overflow:hidden;}
+  .frame .glow .art{object-fit:cover;transform:scale(1.25);filter:blur(14px) saturate(1.1) brightness(0.5);}
+  @media (prefers-contrast:more){.frame .glow{display:none;}}
+  @media (forced-colors:active){.frame .glow{display:none;}}
+  /* The cover hero (a poster, book or square cover, no wide backdrop): the glow is a soft halo around the cover, not
+     a band across the column, so a tall cover reads as set on purpose rather than lost in a wide frame. From 45rem
+     the cover stands beside the words, larger, and the words sit in the middle of its height. A still keeps the
+     stacked layout: beside the words it would take most of the column. */
+  .hero:not(.has-backdrop,.w-still) .hero-glow{left:50%;right:auto;width:calc(var(--hero-h) * var(--r) * 2.2);transform:translateX(-50%);
+    -webkit-mask-image:radial-gradient(closest-side,#000 40%,transparent);mask-image:radial-gradient(closest-side,#000 40%,transparent);}
+  @media (min-width:45rem){
+    .hero:not(.has-backdrop,.w-still){--hero-h:270px;display:grid;grid-template-columns:calc(var(--hero-h) * var(--r)) minmax(0,1fr);
+      grid-template-rows:1fr auto auto auto 1fr;column-gap:2.5rem;row-gap:0.5rem;}
+    .hero:not(.has-backdrop,.w-still) .hero-stage{grid-column:1;grid-row:1 / -1;align-self:center;padding:1rem 0;}
+    .hero:not(.has-backdrop,.w-still) .hero-title{grid-column:2;grid-row:2;}
+    .hero:not(.has-backdrop,.w-still) .k-meta{grid-column:2;grid-row:3;}
+    .hero:not(.has-backdrop,.w-still) .hero-acts{grid-column:2;grid-row:4;max-width:30rem;}
+    .hero:not(.has-backdrop,.w-still) .hero-glow{width:calc(var(--hero-h) * var(--r) * 1.9);}
+  }
   /* ---- MK-6 Motion (AVR-720) ---- */
   /* Page-to-page motion (memo section 10; the motion tiers above). One block, appended last. Everything that moves is
      inside the no-preference query: with Reduce Motion there is no transition at all, not even a fade, and the

@@ -286,8 +286,9 @@ class MediaItem:
     # A wide 16:9 backdrop (Jellyfin's Backdrop image; an episode borrows its series'), for Home's hero only. Same
     # opaque, member-checked artwork path as `artwork`; in to_dict() only when present.
     backdrop: Optional[ArtworkRef] = None
-    # Which shelf of a "shelves" section the item belongs to ("new", "classics", "short", "epic"); a fixed key set
-    # by the adapter, never upstream text. In to_dict() only when present.
+    # Which shelf of a "shelves" section the item belongs to ("new", "classics", "short", "epic"), or "next" for a
+    # Komga On Deck book in "continue" (the next unread book, no progress); a fixed key set by the adapter, never
+    # upstream text. In to_dict() only when present.
     shelf: Optional[str] = None
     # The release day, ISO "YYYY-MM-DD", when the upstream gives a full date (Jellyfin PremiereDate, Komga
     # releaseDate, Audiobookshelf publishedDate). Home's New releases sorts on it across libraries (owner decision

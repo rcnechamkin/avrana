@@ -100,6 +100,14 @@ class Reading(unittest.TestCase):
         self.assertEqual([r[1] for r in self.mine.requests], ["/api/v1/books", "/api/v1/books/ondeck"])
         self.assertEqual(self.mine.requests[0][2]["sort"], "readProgress.readDate,desc")
 
+    def test_only_on_deck_books_are_marked_up_next(self):
+        # Book 3 is in progress at page 0 (no believable fraction): still in progress, never "Up next".
+        got = self.adapter.continue_items(self.alice)
+        self.assertEqual([i.shelf for i in got.items], [None, None, None, "next"])
+        self.assertEqual(got.items[3].to_dict()["shelf"], "next")
+        self.assertIsNone(got.items[3].to_dict()["progress"])
+        self.assertNotIn("shelf", got.items[0].to_dict())
+
     def test_on_deck_is_not_asked_when_in_progress_fills_the_row(self):
         got = self.adapter.continue_items(self.alice, limit=2)
         self.assertEqual(len(got.items), 2)

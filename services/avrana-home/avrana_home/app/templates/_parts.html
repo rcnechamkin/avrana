@@ -83,9 +83,11 @@
    In a rail every frame has the rail's height, so titles start on one line whatever the shapes.
    `bar` (Continue cards only, AVR-718): the 3px Cream progress rule along the foot of the art, its length in 5%
    steps as a class (no inline style: the CSP and the markup tests forbid it). It is decoration beside the progress
-   words, never instead of them, so it is hidden from assistive technology. Never the Media yellow. #}
-{% macro frame(image, title, bar=None) -%}
-<span class="frame"><span class="ph" aria-hidden="true">{{ (title[:1] or "A")|upper }}</span>{% if image %}<img class="art" src="{{ image }}" alt="" width="160" height="240" loading="lazy">{% endif %}{% if bar is not none %}<span class="bar" aria-hidden="true"><span class="fill pc{{ bar }}"></span></span>{% endif %}</span>
+   words, never instead of them, so it is hidden from assistive technology. Never the Media yellow.
+   `glow` (a still in a rail it shares with taller covers): the frame takes the rail's full height and the still sits
+   in its middle, whole, over a blurred copy of itself (CSS only, the same /art image), so every card stands as tall. #}
+{% macro frame(image, title, bar=None, glow=False) -%}
+<span class="frame"><span class="ph" aria-hidden="true">{{ (title[:1] or "A")|upper }}</span>{% if image and glow %}<span class="glow" aria-hidden="true"><img class="art" src="{{ image }}" alt="" width="160" height="240" loading="lazy"></span>{% endif %}{% if image %}<img class="art" src="{{ image }}" alt="" width="160" height="240" loading="lazy">{% endif %}{% if bar is not none %}<span class="bar" aria-hidden="true"><span class="fill pc{{ bar }}"></span></span>{% endif %}</span>
 {%- endmacro %}
 
 {# One card, one link, one action. Order: title (two lines at most), the creator, series or episode line
@@ -95,9 +97,9 @@
    When `action_label` is set it stands in for the verb for assistive technology.
    Without script the card stays a plain link to where the item opens; an in-place preview is MK-3's script
    territory (progressive enhancement over this link, never a replacement for it). #}
-{% macro card(c, verb=False) -%}
+{% macro card(c, verb=False, glow=False) -%}
 <li class="w-{{ c.shape }}"><a class="card" href="{{ c.href }}">
-  {{ frame(c.image, c.title, c.bar) }}
+  {{ frame(c.image, c.title, c.bar, glow and c.shape == "still") }}
   <span class="t">{{ c.title }}</span>
   {% if c.line or (not verb and c.kind_label) %}<span class="d"><span class="sr">, </span>{{ c.line or c.kind_label }}</span>{% endif +%}
   {% if c.progress %}<span class="p"><span class="sr">, </span>{{ c.progress }}</span>{% endif +%}
