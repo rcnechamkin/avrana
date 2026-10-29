@@ -83,6 +83,17 @@ class ContinueComics(unittest.TestCase):
         self.assertEqual("stills", build_home({"sections": [cont("jellyfin", EPISODE)]}, TILES).continue_rail)
         self.assertEqual("", build_home({"sections": [cont("komga", READ, NEXT)]}, TILES).continue_rail)
         self.assertEqual("", rail_shape(()))
+
+    def test_an_episode_with_its_series_poster_is_a_poster_card(self):
+        poster = dict(EPISODE, artwork={"ref": "jellyfin/primary/" + "b" * 32, "alt": "Poster", "shape": "poster"})
+        home = build_home({"sections": [cont("jellyfin", poster), cont("komga", READ)]}, TILES)
+        self.assertEqual(["poster", "comic"], [c.shape for c in home.continue_items])
+        self.assertEqual("", home.continue_rail)                          # no still left: nothing to even out
+        self.assertEqual(("poster", "/art/jellyfin/primary/" + "b" * 32), (home.hero.shape, home.hero.image))
+        self.assertEqual("S1 E3 · Synthetic Harbour", home.continue_items[0].line)   # still says which episode
+        for odd in ({"ref": "jellyfin/primary/" + "b" * 32, "shape": "banner"}, {"ref": "../x", "shape": "poster"}):
+            home = build_home({"sections": [cont("jellyfin", dict(EPISODE, artwork=odd))]}, TILES)
+            self.assertEqual("still", home.continue_items[0].shape, odd)
         self.assertEqual("mixed", rail_shape([CardVM("a", "h", "still", None, None), CardVM("b", "h", "square", None, None)]))
 
 

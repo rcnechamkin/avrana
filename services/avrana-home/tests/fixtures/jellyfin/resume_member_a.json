@@ -11,6 +11,7 @@
       {"Id": "aaaa0000-0000-0000-0000-000000000002", "Name": "Synthetic Pilot", "Type": "Episode",
        "SeriesName": "Synthetic Series Alpha", "ParentIndexNumber": 1, "IndexNumber": 3,
        "RunTimeTicks": 27000000000,
+       "SeriesId": "aaaa0000000000000000000000000011", "SeriesPrimaryImageTag": "synthtag11",
        "UserData": {"PlaybackPositionTicks": 6750000000, "PlayedPercentage": 25.0, "Played": false},
        "ImageTags": {"Primary": "synthtag2"}},
       {"Id": "aaaa0000000000000000000000000003", "Type": "Movie", "RunTimeTicks": 36000000000,

@@ -167,7 +167,10 @@ class ContinueAndRecentTests(Base):
         self.assertAlmostEqual(untitled.progress_fraction, 0.1)
         self.assertEqual(film.artwork.ref, "jellyfin/primary/aaaa0000000000000000000000000001")
         self.assertEqual(film.artwork.alt, "Poster for Synthetic Film One")
-        self.assertEqual(ep.artwork.alt, "Still from Synthetic Series Alpha, Synthetic Pilot")
+        # Continue shows an episode's series poster (owner review 2026-10-28), so it stands as tall as the films
+        self.assertEqual((ep.artwork.ref, ep.artwork.alt, ep.artwork.shape),
+                         ("jellyfin/primary/aaaa0000000000000000000000000011", "Poster for Synthetic Series Alpha",
+                          "poster"))
         self.assertIsNone(untitled.artwork)
         for i in r.items:
             self.assertRegex(i.handoff_url, r"^https://watch\.avrana\.net/web/#/details\?id=[0-9a-f]{32}$")
