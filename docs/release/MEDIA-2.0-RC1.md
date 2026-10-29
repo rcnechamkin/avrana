@@ -15,7 +15,7 @@ The member checklist is [../acceptance/MEDIA-2.0-RC1-CHECKLIST.md](../acceptance
 
 | Decision | Verdict | Why |
 |---|---|---|
-| **RC1 engineering acceptance** | **GO once #161, #163 and #166 merge** (#162 may merge with them; deploy it only after the Komga key swap) | Main 50a8761 + #161, #162, #163, #166 (S1 v2) passes every CI suite in both passes (draft #164 at 25916c8, run 40968839930: 2,736 tests per pass) and the enrollment policy passes 17 of 17 checks in a real Authentik 2026.5.6 (run 40968839906). S1 is resolved in code (section 5a). Main's own CI stays cancelled at the time cap until #161 merges. |
+| **RC1 engineering acceptance** | **GO: #161, #163 and #166 merged 2026-10-29 with owner approval** (main 2cb228f, CI run 40973080456 green; nothing deployed). #162 waits for the Komga key swap | Main 50a8761 + #161, #162, #163, #166 (S1 v2) passes every CI suite in both passes (draft #164 at 25916c8, run 40968839930: 2,736 tests per pass) and the enrollment policy passes 17 of 17 checks in a real Authentik 2026.5.6 (run 40968839906). S1 is resolved in code (section 5a). Main's own CI stays cancelled at the time cap until #161 merges. |
 | **Controlled 3 to 5 member beta** | **NO-GO** until the owner steps in section 6, items 1 to 7, are done | S1 bindings seeded from Authentik, Home deployed with them and the enrollment policy applied; invite and reset e-mail proven (AVR-346); akadmin MFA (AVR-347); one restore drill (AVR-350); owner device pass. |
 | **UX/UI smoothness sprint** | **GO to start after the RC1 merges**, on branches, with nothing deployed to the beta during member acceptance without owner approval | Backlog ready: rail focus at 200% text (A11Y-1, section 4.1), Concept K owner choices (AVR-727 to 735), Home audit items. |
 | Private production cutover | NO | Needs the member beta (AVR-387), Seerr CSRF/proxy (AVR-348), old-portal rollback rehearsal and sign-off (AVR-389). |
@@ -70,6 +70,10 @@ post-RC1 decision.
 | #165 | RC1 packet (this file and the checklist) | — | — | docs | Merge last. |
 
 ### 3.1 Safe merge order
+
+Done for 1 to 3 on 2026-10-29 (owner-approved): #161 11fc711, #163 385f227 (own CI green on bae688a), #166 2cb228f
+(own CI and the real-Authentik check green on 458946a); main CI green at 2cb228f. Not deployed.
+
 
 1. **#161** CI: main's `offline-tests` is cancelled at the 10-minute cap until this lands.
 2. **#163** deploy script: the next deploy (S1) should use the fixed dry run.
@@ -256,7 +260,7 @@ In dependency order. "Prepared" = done by the agent; "You" = needs your hands or
 
 | # | Action | Prepared | You | Done when |
 |---|---|---|---|---|
-| 1 | **Merge #161, #163, #166** | PRs, CI evidence (#164) | Approve the merges | main CI green |
+| 1 | ~~Merge #161, #163, #166~~ **done 2026-10-29** | PRs, CI evidence | approved | main 2cb228f CI green |
 | 2 | **Seed, then deploy S1** | seed script, `init` tool, runbook `identity-bindings.md`, deploy guard | Follow `docs/runbooks/identity-bindings.md` section 1: make the seed in `ak shell` (read-only), `init --seed ... --reserve-upstream` with the new image, check `count` (expect 23 bound, 3 reserved), add the `HOME_IDENTITY_BINDINGS_FILE` line to `~/avrana`'s compose, then `scripts/deploy-home-beta.sh` (dry run), then `--apply`. The deploy refuses (exit 7) while the file is missing | you and a non-admin tester see your own Home; no `bindings_unavailable` in `docker logs avrana-home-beta` |
 | 3 | **Enrollment policy; leftover accounts** | blueprint (#166), verified in a real Authentik 2026.5.6 by CI | Copy `services/authentik/blueprints/avrana-enrollment.yaml` to the host's `~/avrana/services/authentik/blueprints/` (the worker applies it; it also creates the empty group `avrana-retired-usernames`). The 3 Jellyfin accounts without an Authentik user are reserved by the seed and refused at sign-up; disable the 2 enabled ones unless knowingly shared. Check that Shelfarr's "link existing users" OIDC setting is off (could not be read from the CLI) and look at Calibre-Web's user list for rows whose Authentik user is gone | an invitation used with an existing Jellyfin name says "That username is taken" |
 | 4 | **AVR-346 SMTP2GO**: rotate, then send yourself an invitation, a password reset and an alert | runbook `m0-smtp2go-email.md` | Rotate in SMTP2GO, enter at the hidden prompt, approve the worker recreate | three arrival timestamps |
