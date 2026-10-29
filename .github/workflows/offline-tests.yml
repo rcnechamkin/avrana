@@ -36,7 +36,8 @@ jobs:
   offline-tests:
     name: python tests/run_offline.py
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # The Home web tests (~980) take several minutes on a runner; 10 was set before they all ran in CI.
+    timeout-minutes: 20
     steps:
       # actions/checkout v4.2.2
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
