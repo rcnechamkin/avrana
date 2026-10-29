@@ -15,7 +15,7 @@ The member checklist is [../acceptance/MEDIA-2.0-RC1-CHECKLIST.md](../acceptance
 
 | Decision | Verdict | Why |
 |---|---|---|
-| **Ready for engineering RC1 review** | **READY once the three RC1 PRs are merged** (proposed RC1 = `origin/main` 838fa70 + #161, #162, #163; checked together in draft #164) | Every offline suite passes on the integrated tree (section 4). CI on main has been red since #155 and has not run the Home suites since then; #161 fixes both. |
+| **Ready for engineering RC1 review** | **READY once the three RC1 PRs are merged** (proposed RC1 = `origin/main` 50a8761 + #161, #162, #163; checked together in draft #164) | Every offline suite passes on the integrated tree (section 4). CI on main was red from #155 to #159 and never reached the Home suites; now it reaches them and times out (cancelled on 50a8761). #161 fixes that. |
 | **Ready for controlled member beta (3 to 5 people)** | **BLOCKED** | Owner blockers O1 to O5 (section 6): invite/reset e-mail never proven (AVR-346), Authentik admin MFA (AVR-347), username/e-mail change in Authentik unverified (finding S1), no restore drill (AVR-350), no real-device pass of the journeys. |
 | **Ready for private production cutover** | **NO** | Needs the member beta itself (AVR-387), Seerr CSRF/proxy trust (AVR-348), an old-portal rollback rehearsal and owner sign-off (AVR-389). |
 
@@ -24,11 +24,11 @@ The member checklist is [../acceptance/MEDIA-2.0-RC1-CHECKLIST.md](../acceptance
 | Item | Value | Evidence |
 |---|---|---|
 | `origin/main` at sprint start | **0e8c330** (merge of #158, 2026-10-29 17:18Z) | [offline] `git log` |
-| `origin/main` now | **838fa70**: #160 "quiet cards" (card markup and copy) was merged **during the freeze**, by another session or the owner | [offline] |
-| Running Home beta (media-beta.avrana.net) | **0e8c330**, healthy, started 2026-10-29 17:18:30Z, from `~/avrana-deploy/home-0e8c330` | [host-read] container label `com.docker.compose.project.working_dir` |
+| `origin/main` now | **50a8761**: #160 "quiet cards" (838fa70) and #159 "hero R10" (50a8761, which also fixed the static export) were merged **during the freeze** by another session or the owner | [offline] |
+| Running Home beta (media-beta.avrana.net) | at sprint start **0e8c330**; at the end of the sprint **50a8761** (#159 deployed during the freeze), healthy | [host-read] container label `com.docker.compose.project.working_dir`, read twice |
 | Previous exports kept on host | home-981357f, home-9eacec2, home-df5757d (rollback tags `avrana-home-live:pre-<sha>`) | [host-read] |
 | Open PRs at sprint start | **none** | [offline] `gh pr list` |
-| CI `offline-tests` on main | **failing since #155** (5227ac1, 08:28Z). Last green: 8aaa1b1 (#148). | [offline] GitHub Actions runs 40842428344 … 40920026425 |
+| CI `offline-tests` on main | **failed** from #155 (5227ac1) to 838fa70; **cancelled** (10-min cap) on 50a8761. Last green: 8aaa1b1 (#148). | [offline] GitHub Actions |
 | CI `beta-image` on main | green on 0e8c330 | [offline] run 40920026323 |
 
 Live = main, so there is no code drift between Git and the beta. Configuration drift is by design: `~/avrana`'s
@@ -42,7 +42,7 @@ All of #128 to #158 are **merged**. None is open, stacked or conflicting.
 |---|---|---|
 | #128 provisioning, #130/#134/#135/#138 Komga member keys, #131/#144 requests, #132/#146/#149/#152/#154/#156/#157/#158 Home shelves, #133, #136, #139/#142 deploy script, #141/#143/#145, #148 | Merged and deployed (running 0e8c330) | [host-read] |
 | #150 Me identity, #151 Authentik flows, #153 Customize | Merged and deployed, **dormant**: `HOME_SECURITY_FLOWS` and `HOME_MEMBER_STORE` unset, #151 blueprints not applied | [recorded] |
-| #155 H3 hero | Merged, deployed; **broke CI** (static export) | fixed by #161 |
+| #155 H3 hero | Merged, deployed; **broke CI** (static export) | fixed on main by f764b1f (#159) |
 | #137 requests runbook, #140 CWA charset, #129 | Merged; host-side steps recorded in #137 | [recorded] |
 | #147 | Closed, superseded by #146 (fix) + #148 (test) | — |
 
@@ -52,7 +52,7 @@ the repository suite failed first; it passes locally on the RC1 tree [offline].
 
 ### 2.2 Should anything recent be backed out for RC1?
 
-No. #160 is a presentation change merged during the freeze; it is in the RC1 tree and its suites pass, but whether it is deployed was not checked after it merged, and the freeze should hold from here. Features that are on are stable in the offline suites; the dormant Me features cost nothing while their
+No. #160 and #159 are presentation changes merged (and #159 deployed) during the freeze; they are in the RC1 tree. The freeze should hold from here: no more UI merges until the member beta. Features that are on are stable in the offline suites; the dormant Me features cost nothing while their
 switches are unset. Two recent additions are **not RC1 scope and should stay off**: Customize/profile photos
 (member store, needs a writable state volume) and the Authentik Avrana-styled flows (#151). Turning them on is a
 post-RC1 decision.
@@ -61,7 +61,7 @@ post-RC1 decision.
 
 | PR | Purpose | Severity | Depends on | Tests | Recommendation |
 |---|---|---|---|---|---|
-| **#161** `fix/rc1-ci-gate` | Static export rewrites the H3 hero logo; `run_offline.py` runs every suite and fails at the end | P1 (CI gate integrity) | none | `test_home_static_export` 8/8, new `EverySuiteRunsTests` | **Merge first.** Then CI shows the true state of the Home suites again. |
+| **#161** `fix/rc1-ci-gate` | `run_offline.py` runs every suite and fails at the end; job timeout 10 → 20 min | P1 (CI gate integrity) | none | new `EverySuiteRunsTests`; `test_ci_workflow` | **Merge first.** Main's CI is cancelled at the cap until then. |
 | **#162** `fix/avr-782-komga-admin-guard` | Real mode refuses an ADMIN everyday Komga key (Comics unavailable, logged) | P1 (least privilege) | **Owner key swap first** (O6) | `tests/test_komga.py` 58/58 incl. 4 new | Merge any time; **deploy only after** `secrets/komga_token` is a regular account's key. |
 | **#163** `fix/rc1-deploy-dry-run` | Dry run no longer leaves `avrana-home-live:local` on an untested build; a plan touching another container stops; prints running revision | P1 (rollback safety) | none | new `tests/test_deploy_home_beta.py` 3/3 (stub docker) | Merge; first real use is a dry run on avrana. |
 | #164 `rc1/integration` | CI evidence for the three together on 838fa70 | — | #161–#163 | full CI | **Do not merge**; close after the three merge. |
@@ -69,7 +69,7 @@ post-RC1 decision.
 
 ## 4. Test evidence (Deliverable C)
 
-Revision: `rc1/integration` = `origin/main` 838fa70 plus #161, #162, #163. Windows 11, Python 3.12.3, the CI
+Revision: `rc1/integration` = `origin/main` plus #161, #162, #163 (d3ed4e4 on 838fa70; re-run as cff913f on 50a8761). Windows 11, Python 3.12.3, the CI
 versions from `.github/requirements-ci.txt` and `services/avrana-home/requirements.lock` installed without hashes
 (the hashes are for the Linux wheels CI uses).
 
@@ -82,7 +82,8 @@ python -B -m unittest discover -s services/avrana-home/webtests -t services/avra
 ```
 
 **Linux CI, `rc1/integration` d3ed4e4** (draft #164, run 40937036543, 19:06 to 19:17Z): `offline-tests` **success**,
-`beta-image` **success**. The job runs every suite twice, the second time inside `unshare --net` with
+`beta-image` **success**. **Re-run on main 50a8761 as cff913f** (run 40939721479): success, identical except Home
+web 982 tests (two new from #159). The job runs every suite twice, the second time inside `unshare --net` with
 `AVRANA_REQUIRE_YAML=1`; both passes identical:
 
 | Suite | Tests | Result |
@@ -99,7 +100,9 @@ python -B -m unittest discover -s services/avrana-home/webtests -t services/avra
 **Windows, local** (same tree minus #160 for the first run): repository tests 432 OK (25 min; the G1 stub tests are
 slow on Windows), Home adapters 997 OK (1 skip), Home web 980 with **2 failures that this sprint introduced and
 fixed** (the owner preview runs real mode against the mock Komga, which did not answer `/api/v2/users/me`; fixed
-in #162 8c08e89). Running suites that start mock servers concurrently on one machine gives port clashes; run them
+in #162 8c08e89). On d3ed4e4, Home adapters 997 OK and Home web 979/980; the one failure
+(`test_web_sections` markup) came from merging main into that worktree while the suite ran, and passes (31/31) on
+the settled tree cff913f. Running suites that start mock servers concurrently on one machine gives port clashes; run them
 one at a time.
 
 **Before RC1**: main 0e8c330 failed `repository tests` (4 failures, static export) and never ran the Home suites
