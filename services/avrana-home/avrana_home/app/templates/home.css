@@ -380,52 +380,107 @@
   /* Section headings in the Concept K shelf role (20px, regular, Cream), not the old letter-spaced caps. */
   body:has(.mast.at-home) .shelf h2{font-size:var(--text-shelf);font-weight:400;line-height:1.25;letter-spacing:-0.01em;
     text-transform:none;color:var(--cream);}
-  /* The hero (H3 refined, owner decision 2026-10-29): one picture, edge to edge under the places at phone width (it
-     takes back the column's gutters), 380px tall on a 390px screen and never taller than the screen is wide, its
-     bottom corners rounded. Only the title and a progress line sit on it, over a fade at its foot into Spire Ink, so
-     the type always reads. The whole card is the link. From 45rem it stays in the column with all four corners
-     rounded. With large text the title grows and the card with it (a minimum height, never a clip). */
-  .hero{position:relative;min-width:0;
-    margin-left:calc(0rem - max(1.25rem,env(safe-area-inset-left)));margin-right:calc(0rem - max(1.25rem,env(safe-area-inset-right)));}
-  .hero:first-child{margin-top:-1rem;}
+  /* The hero (Round 10, owner decision 2026-10-29): a framed living window, inset 0.75rem from the screen edges at
+     phone width with 10px corners. The picture fills the window above a 48px band of the page colour and fades into
+     it, so the art keeps its upper part clean; its own blurred light spills softly around the frame. One centred stack
+     sits low: the title (a logo held to its own shape, else the title plate), the facts line, then the progress line,
+     the time left and an outlined button, which sit in the band. A titled cover is blurred behind and shown whole above
+     the stack. The picture is one link; the button is a second, separate link laid over the band. */
+  .hero{--art-h:min(404px,103.6vw);--band:48px;--strip:140px;
+    --head-t:calc(max(0.5rem,env(safe-area-inset-top)) + 3.125rem);--head-h:calc(max(0.5rem,env(safe-area-inset-top)) + 6.5625rem);
+    position:relative;min-width:0;
+    margin-left:calc(0.75rem - max(1.25rem,env(safe-area-inset-left)));margin-right:calc(0.75rem - max(1.25rem,env(safe-area-inset-right)));}
+  .hero:first-child{margin-top:-0.5rem;}
+  .hero-stick{position:relative;isolation:isolate;}
+  .hero-light{position:absolute;z-index:-1;left:-4px;right:-4px;top:2.25rem;bottom:calc(var(--band) - 2.25rem);overflow:hidden;
+    pointer-events:none;opacity:0.5;filter:blur(48px) saturate(1.2);}
+  .hero-light .art{display:block;width:100%;height:100%;object-fit:cover;}
   .hero-card{position:relative;isolation:isolate;display:flex;flex-direction:column;justify-content:flex-end;
-    min-height:min(380px,97.5vw);overflow:hidden;border-radius:0 0 28px 28px;background:var(--raised);
-    color:var(--cream);text-decoration:none;}
-  .hero-art{position:absolute;inset:0;z-index:-2;overflow:hidden;}
+    align-items:center;height:100%;min-height:calc(var(--art-h) + var(--band));overflow:hidden;border-radius:10px;
+    background:var(--bg);color:var(--cream);text-align:center;text-decoration:none;}
+  .hero-art{position:absolute;left:0;right:0;top:0;bottom:var(--band);z-index:-2;overflow:hidden;}
   .hero-art .art{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:50% 25%;}
   /* A cover that prints its own title: the same image, blurred and dimmed, so only its colour carries. */
   .hero-art.blurred .art{inset:-15%;width:130%;height:130%;max-width:none;filter:blur(28px) saturate(1.15) brightness(0.55);}
-  .hero-card::after{content:"";position:absolute;inset:0;z-index:-1;pointer-events:none;
-    background:linear-gradient(to bottom,transparent 40%,rgb(13 13 15 / 0.55) 72%,rgb(13 13 15 / 0.88));}
-  .hero-foot{display:flex;align-items:flex-end;gap:0.875rem;min-width:0;
-    padding:1.5rem max(1.25rem,env(safe-area-inset-right)) 1.75rem max(1.25rem,env(safe-area-inset-left));}
-  .hero-mark{position:relative;flex:none;width:76px;aspect-ratio:var(--r);overflow:hidden;border-radius:6px;
-    background:var(--raised);box-shadow:0 10px 24px rgb(0 0 0 / 0.5);}
-  .hero-mark .art{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;}
-  .hero-title{margin:0;flex:1 1 auto;min-width:0;font-weight:inherit;}
-  /* A logo image is the title: held to its own shape, never wider than most of the card or taller than 120px. */
-  .hero-logo{display:block;width:auto;height:auto;max-width:min(80%,340px);max-height:120px;object-fit:contain;
-    filter:drop-shadow(0 2px 12px rgb(0 0 0 / 0.55));}
+  .hero-card::after{content:"";position:absolute;left:0;right:0;top:0;bottom:var(--band);z-index:-1;pointer-events:none;
+    background:linear-gradient(to bottom,transparent 50%,rgb(18 18 20 / 0.6) 80%,var(--bg) 96%);}
+  .hero-cover{position:absolute;z-index:-1;top:2.5rem;left:50%;transform:translateX(-50%);
+    height:min(220px,calc(var(--art-h) - 11rem));aspect-ratio:var(--r);overflow:hidden;border-radius:4px;
+    background:var(--raised);box-shadow:0 10px 24px rgb(0 0 0 / 0.6);}
+  .hero-cover .art{display:block;width:100%;height:100%;object-fit:cover;}
+  .hero-foot{display:flex;flex-direction:column;align-items:center;gap:0.5rem;min-width:0;max-width:100%;
+    padding:1.5rem 1.25rem 3.375rem;}
+  .hero-title{margin:0;min-width:0;max-width:100%;font-weight:inherit;}
+  /* A logo image is the title: held to its own shape, at most 60% of the screen wide and 64px tall. */
+  .hero-logo{display:block;margin-inline:auto;width:auto;height:auto;max-width:min(60vw,240px);max-height:64px;
+    object-fit:contain;filter:drop-shadow(0 2px 12px rgb(0 0 0 / 0.55));}
   /* No logo: the title plate, SemiBold on a soft shadow. It wraps (three lines at most, visually; the full title stays
      in the heading) and grows with text size no faster than the screen allows. */
   .hero-plate{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;line-clamp:3;overflow:hidden;
-    font-size:min(2.25rem,calc(0.5rem + 8vw));font-weight:600;line-height:1.1;letter-spacing:-0.015em;
+    font-size:min(1.75rem,calc(0.5rem + 6vw));font-weight:600;line-height:1.1;letter-spacing:-0.015em;
     overflow-wrap:break-word;padding-bottom:0.06em;text-shadow:0 2px 16px rgb(0 0 0 / 0.6);}
-  .hero-bar{position:absolute;left:max(1.25rem,env(safe-area-inset-left));right:max(1.25rem,env(safe-area-inset-right));
-    bottom:0.875rem;height:3px;border-radius:2px;background:rgb(255 255 255 / 0.22);}
+  .hero-facts{font-size:0.75rem;line-height:1.35;color:rgb(237 234 228 / 0.78);font-variant-numeric:tabular-nums;
+    text-shadow:0 1px 8px rgb(0 0 0 / 0.6);}
+  .hero-ctl{position:absolute;z-index:2;left:0;right:0;bottom:0.5rem;display:flex;flex-wrap:wrap;align-items:center;
+    justify-content:center;gap:0.5rem 1rem;padding:0 1rem;pointer-events:none;}
+  .hero-ctl>*{pointer-events:auto;}
+  .hero-time{display:flex;align-items:center;gap:0.5rem;}
+  .hero-bar{position:relative;display:block;flex:none;width:90px;height:2px;border-radius:1px;background:rgb(255 255 255 / 0.25);}
   .hero-bar .fill{display:block;height:100%;border-radius:inherit;background:var(--accent);}
+  .hero-left{font-size:0.6875rem;color:rgb(237 234 228 / 0.78);font-variant-numeric:tabular-nums;}
+  .hero-tri{display:block;flex:none;width:8px;height:9px;background:currentColor;clip-path:polygon(0 0,100% 50%,0 100%);}
+  .hero-go{position:relative;display:inline-flex;align-items:center;gap:0.5rem;min-height:32px;padding:0 0.875rem;
+    border:1px solid rgb(237 234 228 / 0.45);border-radius:16px;color:var(--cream);font-size:0.75rem;font-weight:600;
+    text-decoration:none;}
+  .hero-go::before{content:"";position:absolute;inset:-6px;}
+  .hero-go:hover{background:rgb(237 234 228 / 0.1);}
+  /* The scrolled strip's own pieces: hidden at rest, drawn only by the scroll timeline below. */
+  .hero-mini,.hero-play{display:none;}
+  .hero-mini{position:absolute;left:1rem;bottom:0.875rem;flex-direction:column;align-items:flex-start;gap:0.5rem;
+    max-width:calc(100% - 5rem);text-align:left;}
+  .hero-mini-logo{display:block;width:auto;height:auto;max-width:150px;max-height:38px;object-fit:contain;
+    filter:drop-shadow(0 2px 12px rgb(0 0 0 / 0.55));}
+  .hero-mini .hero-plate{font-size:1.125rem;-webkit-line-clamp:2;line-clamp:2;}
+  .hero-mini .hero-bar{width:110px;}
+  .hero-play{position:absolute;z-index:2;right:1rem;bottom:0.875rem;width:32px;height:32px;border-radius:50%;
+    align-items:center;justify-content:center;border:1px solid rgb(237 234 228 / 0.45);color:var(--cream);}
+  .hero-play .hero-tri{margin-left:2px;}
   .hero-card:hover .hero-plate{text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:0.15em;}
   /* Focus: the shell's two-ring mark (an ink gap, then the yellow), the same as every other shell link. */
-  .hero-card:focus-visible{outline:2px solid transparent;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--focus);}
-  @media (min-width:45rem){.hero{margin-left:0;margin-right:0;}.hero:first-child{margin-top:0;}
-    .hero-card{min-height:380px;border-radius:28px;}
-    .hero-foot{padding-left:1.75rem;padding-right:1.75rem;}.hero-bar{left:1.75rem;right:1.75rem;}}
-  /* More contrast: the picture goes; the title sits on the raised surface. Forced colours: the same, with a border. */
-  @media (prefers-contrast:more){.hero-art,.hero-card::after{display:none;}.hero-card{min-height:0;}
-    .hero-plate{text-shadow:none;}}
-  @media (forced-colors:active){.hero-art,.hero-card::after{display:none;}.hero-card{min-height:0;border:1px solid CanvasText;}
-    .hero-plate{text-shadow:none;}.hero-bar{forced-color-adjust:none;background:Canvas;box-shadow:0 0 0 1px CanvasText;}
-    .hero-bar .fill{background:CanvasText;}}
+  .hero-card:focus-visible,.hero-go:focus-visible{outline:2px solid transparent;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--focus);}
+  @media (min-width:45rem){.hero{--art-h:440px;margin-left:0;margin-right:0;}.hero:first-child{margin-top:0;}}
+  /* Scrolled (where the browser has scroll timelines; elsewhere the window simply scrolls away): the window sticks
+     under the header and shrinks one pixel per pixel scrolled, so the next section rides up right under it, until it
+     is a 140px strip; then it leaves with the page. The stack fades out early, the strip's title, progress and round
+     button fade in late, and the band closes. It sticks under the slim header (--head-t) while the places are tucked
+     away, and glides down under them (--head-h) when they come back. Both are the header's own boxes (the top
+     padding, the lockup, the places) less the slide the header makes once scrolled, plus the glass under it. */
+  @supports (animation-timeline:view()){
+    .hero{height:calc(var(--art-h) + var(--band));view-timeline:--hero block;view-timeline-inset:var(--head-t) auto;}
+    .hero-stick{position:sticky;z-index:2;top:var(--head-t);height:calc(var(--art-h) + var(--band));transition:top 560ms cubic-bezier(0.37,0,0.2,1);
+      animation:hero-shrink linear both;animation-timeline:--hero;animation-range:exit 0% exit calc(100% - var(--strip));}
+    .hero-card{min-height:0;}
+    .hero-art,.hero-card::after{animation:hero-unband linear both;animation-timeline:--hero;
+      animation-range:exit 0% exit calc(100% - var(--strip));}
+    .hero-foot,.hero-ctl,.hero-cover{animation:hero-out linear both;animation-timeline:--hero;animation-range:exit 0% exit 30%;}
+    .hero-mini,.hero-play{display:flex;animation:hero-in linear both;animation-timeline:--hero;
+      animation-range:exit 35% exit calc(100% - var(--strip));}
+    html[data-scrolled]:not([data-chrome="tucked"]) .hero-stick{top:var(--head-h);}
+    @keyframes hero-shrink{to{height:var(--strip);}}
+    @keyframes hero-unband{to{bottom:0;}}
+    @keyframes hero-out{to{opacity:0;visibility:hidden;}}
+    @keyframes hero-in{from{opacity:0;visibility:hidden;}to{opacity:1;visibility:visible;}}}
+  /* More contrast: the picture and the strip go; the title sits on the raised surface. Forced colours: the same, with
+     a border. */
+  @media (prefers-contrast:more){.hero-art,.hero-light,.hero-card::after{display:none;}
+    .hero,.hero-stick,.hero-card{height:auto;min-height:0;}.hero-stick{position:relative;animation:none;}
+    .hero-foot,.hero-ctl,.hero-cover{animation:none;}.hero-mini,.hero-play{display:none;}.hero-card{background:var(--raised);}
+    .hero-plate,.hero-facts{text-shadow:none;}}
+  @media (forced-colors:active){.hero-art,.hero-light,.hero-card::after{display:none;}
+    .hero,.hero-stick,.hero-card{height:auto;min-height:0;}.hero-stick{position:relative;animation:none;}
+    .hero-foot,.hero-ctl,.hero-cover{animation:none;}.hero-mini,.hero-play{display:none;}.hero-card{border:1px solid CanvasText;}
+    .hero-plate,.hero-facts{text-shadow:none;}.hero-bar{forced-color-adjust:none;background:Canvas;box-shadow:0 0 0 1px CanvasText;}
+    .hero-bar .fill{background:CanvasText;}.hero-go{border-color:ButtonText;}}
   /* The title page's glow (it keeps the cover-over-its-own-blur stage): the same /art image, blurred and dimmed,
      bleeding to the screen edges and fading out before the text. */
   .hero-glow{position:absolute;z-index:0;top:-1.5rem;bottom:-1.5rem;overflow:hidden;pointer-events:none;

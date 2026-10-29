@@ -46,8 +46,8 @@ class KomgaBooks(unittest.TestCase):
 
     def test_the_hero_names_books_and_still_opens_komga(self):
         hero = build_home({"sections": [sec("continue", dict(NOVEL, progress=READING))]}, TILES).hero
-        self.assertEqual((hero.title, hero.meta, hero.action, hero.action_href),
-                         ("Synthetic Novel", "40 percent read · Books", "Read in Komga", HOST + "BOOKNOVEL001"))
+        self.assertEqual((hero.title, hero.facts, hero.left, hero.action, hero.action_href),
+                         ("Synthetic Novel", "Synthetic Author · Books", "40 percent read", "Read in Komga", HOST + "BOOKNOVEL001"))
 
     def test_a_komga_outage_is_still_a_comics_notice_only(self):
         home = build_home({"sections": [sec("recent", state="unavailable")]}, TILES)

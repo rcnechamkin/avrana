@@ -139,7 +139,7 @@ class NewForYou(unittest.TestCase):
         home = build_home(view(sec("komga", "for_you", [ISSUE]), sec("komga", "recent", [COMIC])), TILES,
                           title_services=TITLES, today=TODAY)
         self.assertEqual(("for_you", "Synthetic Hero #9"), (home.hero.state, home.hero.title))
-        self.assertIn("New issue · today", home.hero.meta)
+        self.assertIn("New issue · today", home.hero.facts)
 
     def test_every_view_asks_for_it_last(self):
         self.assertEqual([("jellyfin", "for_you"), ("audiobookshelf", "for_you"), ("komga", "for_you")],
