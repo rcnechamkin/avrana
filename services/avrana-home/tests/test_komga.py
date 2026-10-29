@@ -187,6 +187,10 @@ class EbooksInKomga(unittest.TestCase):
         self.assertEqual((item.kind, item.title, item.subtitle, item.series),
                          (Kind.EBOOK, "Synthetic Novel", "Synthetic Author", None))
 
+    def test_a_calibre_file_name_title_loses_its_author_tail(self):
+        self.assertEqual(self.book("x", title="Synthetic Novel - Synthetic Author").title, "Synthetic Novel")
+        self.assertEqual(self.book("x", title="Synthetic Novel - Someone Else").title, "Synthetic Novel - Someone Else")
+
     def test_a_real_series_is_kept_and_a_one_shot_series_is_dropped(self):
         self.assertEqual(self.book("Synthetic Cycle").series, "Synthetic Cycle")
         self.assertIsNone(self.book("Synthetic Novel").series)

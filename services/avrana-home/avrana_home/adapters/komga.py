@@ -266,6 +266,8 @@ class KomgaAdapter(GuardedAdapter):
             # A reflowable EPUB is a book, not an issue: its own title, the author under it, and a series only
             # when it names a real one (a Calibre folder gives each book a "Title (id)" series of its own).
             title = clean_text(info.get("title")) or clean_text(raw.get("name")) or "Untitled"
+            if creator and title.endswith(f" - {creator}") and len(title) > len(creator) + 3:
+                title = title[:-len(creator) - 3].strip()     # Calibre's "<title> - <author>" file name as a title
             kind, subtitle = Kind.EBOOK, creator
             if series and (series == title or _CALIBRE_FOLDER.fullmatch(series)):
                 series = None
