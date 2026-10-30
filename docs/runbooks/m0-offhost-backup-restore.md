@@ -137,6 +137,8 @@ after the nightly job and before 00:00 UTC.
    zstd -dc $RUN/stack-config/stack-config.tar.zst | tar -tf - | grep -E '^services/avrana-home/(docker-compose.beta-live.yml|state/identity_bindings.json)$'
    ```
    Expect both lines. `identity_bindings.json` is what docs/runbooks/identity-bindings.md section 4 restores.
+   Caveat: only runs made after the live script and required list are synced on avrana contain Home state; after
+   the sync a host without the bindings file fails the completeness check by design.
 
 7. **Full drill (once; the part that takes the cap).** Only after step 1, after the nightly job has finished,
    and before 00:00 UTC. Use a fresh directory and the OFFHOST.md recipe:

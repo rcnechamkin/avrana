@@ -6,6 +6,7 @@ import json
 import os
 import pathlib
 import re
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -366,6 +367,40 @@ class StackConfigAllowlistTests(unittest.TestCase):
                     matched.add(pathlib.Path(hit).relative_to(repo).as_posix())
             self.assertIn("services/avrana-home/docker-compose.beta-live.yml", matched)
             self.assertIn("services/avrana-home/state", matched)
+
+    def collect(self, repo):
+        """Run the real collection loop from avrana-backup.sh under bash against a temp tree."""
+        bash = shutil.which("bash")
+        if not bash:
+            self.skipTest("bash not available")
+        text = (BACKUPS / "avrana-backup.sh").read_text(encoding="utf-8")
+        body = text.split("backup_stack_config() {", 1)[1].split(chr(10) + "}", 1)[0]
+        loop = "for p in" + body.split("for p in", 1)[1].split("shopt -u nullglob", 1)[0]
+        script = "REPO=" + pathlib.Path(repo).as_posix() + "; paths=(); shopt -s nullglob" + chr(10) + loop + (
+            chr(10) + 'printf "%s\n" "${paths[@]}"')
+        done = subprocess.run([bash, "-c", script], capture_output=True, text=True, check=True)
+        return done.stdout.split()
+
+    def test_absent_home_paths_are_skipped_not_passed_to_tar(self):
+        with tempfile.TemporaryDirectory() as repo:
+            root = pathlib.Path(repo)
+            (root / "scripts").mkdir()
+            (root / "scripts" / "a.sh").write_text("x", encoding="utf-8")
+            paths = self.collect(repo)
+            self.assertIn("scripts", paths)
+            self.assertNotIn("services/avrana-home/state", paths)
+            self.assertNotIn("services/avrana-home/docker-compose.beta-live.yml", paths)
+            for entry in paths:
+                self.assertTrue((root / entry).exists(), entry)
+
+    def test_present_home_paths_are_listed(self):
+        with tempfile.TemporaryDirectory() as repo:
+            home = pathlib.Path(repo) / "services/avrana-home"
+            (home / "state").mkdir(parents=True)
+            (home / "docker-compose.beta-live.yml").write_text("x", encoding="utf-8")
+            paths = self.collect(repo)
+            self.assertIn("services/avrana-home/state", paths)
+            self.assertIn("services/avrana-home/docker-compose.beta-live.yml", paths)
 
     def test_required_home_members_are_covered_by_the_allowlist(self):
         members = []

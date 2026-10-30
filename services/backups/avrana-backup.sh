@@ -462,6 +462,8 @@ backup_stack_config() {
            "$REPO"/scripts \
            "$REPO"/.env "$REPO"/kern_secrets \
            "$REPO"/deploy "$REPO"/.gitignore; do
+    # Plain (non-wildcard) entries survive nullglob when absent; tar would then exit 2 and fail the component.
+    [[ -e "$p" || -L "$p" ]] || continue
     paths+=("${p#$REPO/}")            # store repo-relative for a clean archive
   done
   shopt -u nullglob
