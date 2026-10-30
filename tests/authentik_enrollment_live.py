@@ -21,7 +21,10 @@ import urllib.request
 POLICY = "avrana-enrollment-username-available"
 FLOW = "avrana-invite"
 BLUEPRINT_PATH = "avrana/avrana-enrollment.yaml"
-GROUPS = ["avrana-users", "avrana-audiobooks", "avrana-comics", "avrana-books", "avrana-videos", "avrana-requests"]
+GROUPS = ["avrana-users", "avrana-audiobooks", "avrana-comics", "avrana-books", "avrana-videos", "avrana-requests",
+          "library-contributors", "Avrana Home (Beta)"]
+# The blueprint's first entry sets the groups of production's admin, so that user has to exist as it does live.
+ADMIN = "Cody"
 TAKEN = "That username is taken"
 UNAVAILABLE = "briefly unavailable"
 
@@ -103,6 +106,9 @@ def apply_blueprint(api):
         if not api.get("/api/v3/core/groups/?name=" + urllib.parse.quote(name))["results"]:
             status, body = api.call("POST", "/api/v3/core/groups/", {"name": name})
             assert status == 201, (name, status, body)
+    if not api.get("/api/v3/core/users/?username=" + urllib.parse.quote(ADMIN))["results"]:
+        status, body = api.call("POST", "/api/v3/core/users/", {"username": ADMIN, "name": ADMIN})
+        assert status == 201, (ADMIN, status, body)
     wait("blueprint discovered",
          lambda: any(b.get("path") == BLUEPRINT_PATH for b in api.get("/api/v3/managed/blueprints/available/")))
     found = api.get("/api/v3/managed/blueprints/?path=" + urllib.parse.quote(BLUEPRINT_PATH))["results"]
