@@ -1,6 +1,6 @@
 """Trusted member principal, built only from Authentik outpost headers.
 
-Status: proposed, not deployed. Standard library only.
+Status: deployed in the live member beta since 2026-10-29 (revision 2cb228f). Standard library only.
 
 The principal is the ONLY way a member identity enters an adapter. It is built by exactly
 one function, `principal_from_headers`, and that function fails closed: any problem with the

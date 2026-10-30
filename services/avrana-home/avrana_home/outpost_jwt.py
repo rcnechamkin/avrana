@@ -1,8 +1,8 @@
 """D-3 proof of concept: prove identity with the outpost's signed JWT instead of trusting bare headers.
 
-Status: PROPOSED, NOT WIRED IN, NOT DEPLOYED. Standard library only. See
+Status: wired in and deployed in the live member beta since 2026-10-29 (revision 2cb228f; jwt_required on). Standard library only. See
 docs/design/D3-outpost-identity-proof.md for the design, the Authentik 2026.5.6 source evidence and the
-rollout/rollback plan. Nothing imports this module outside its tests.
+rollout/rollback plan. Home's identity resolution (app/identity.py) imports it.
 
 Why: Gate G1 makes the Authentik outpost the only container that can reach a backend, but anything in the
 host network namespace can still send forged X-authentik-* headers. The embedded outpost (2026.5.6) also
