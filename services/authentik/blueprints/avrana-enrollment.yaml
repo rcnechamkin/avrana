@@ -6,13 +6,13 @@ metadata:
 entries:
   # Application access is gated by group membership (see the policybinding entries in
   # audiobookshelf.yaml / komga.yaml, and the Jellyfin creation policy below).
-  # Superusers are NOT exempt from those bindings, so akadmin has to be a member of every
+  # Superusers are NOT exempt from those bindings, so the admin (Cody) has to be a member of every
   # avrana-* group or the admin loses access to its own apps. "authentik Admins" is listed
-  # explicitly because this is a full m2m assignment -- omitting it would strip akadmin's
+  # explicitly because this is a full m2m assignment -- omitting it would strip Cody's
   # superuser status.
   - model: authentik_core.user
     identifiers:
-      username: akadmin
+      username: Cody
     attrs:
       groups:
         - !Find [authentik_core.group, [name, authentik Admins]]
@@ -22,6 +22,8 @@ entries:
         - !Find [authentik_core.group, [name, avrana-books]]
         - !Find [authentik_core.group, [name, avrana-videos]]
         - !Find [authentik_core.group, [name, avrana-requests]]
+        - !Find [authentik_core.group, [name, library-contributors]]
+        - !Find [authentik_core.group, [name, Avrana Home (Beta)]]
 
   # --- enrollment prompts -------------------------------------------------------
   - model: authentik_stages_prompt.prompt
@@ -224,26 +226,29 @@ entries:
               return True
 
           username = prompt.get("username")
-          password = prompt.get("password")
           email = prompt.get("email")
 
-          if not (username and password and email):
-              ak_logger.warning("jellyfin-create: missing prompt data", username=bool(username), password=bool(password), email=bool(email))
+          if not (username and email):
+              ak_logger.warning("jellyfin-create: missing prompt data", username=bool(username), email=bool(email))
               return True
 
           # Jellyfin runs on HOST networking, so it is NOT reachable by container name
           # from the authentik-server container -- it must be addressed by the host LAN IP.
-          # POST /Users/New (CreateUserByName) takes {Name, Password} and sets the password
-          # server-side. This is credential REPLICATION, not SSO: Jellyfin stores its own
-          # copy, so a later Authentik password change will not propagate here.
+          # Jellyfin authenticates against Authentik over LDAP (jellyfin-ldap.yaml), so the
+          # enrollee's password is NOT copied any more: the account is created with a random
+          # throwaway password and immediately switched to the LDAP provider, after which the
+          # Authentik password is the only one that works (and changes/resets apply at once).
+          # The account is still created up front so Seerr and the precreate path see it.
+          import secrets
           jellyfin_url = "http://10.0.0.218:8096"
           api_key = "%s"
           headers = {"X-MediaBrowser-Token": api_key}
+          ldap_provider = "Jellyfin.Plugin.LDAP_Auth.LdapAuthenticationProviderPlugin"
 
           try:
               resp = requests.post(
                   urljoin(jellyfin_url, "/Users/New"),
-                  json={"Name": username, "Password": password},
+                  json={"Name": username, "Password": secrets.token_urlsafe(32)},
                   headers=headers,
                   timeout=10,
               )
@@ -252,29 +257,31 @@ entries:
                   return True
               ak_logger.info("jellyfin-create: user created", username=username, status=resp.status_code)
 
+              # Switch to LDAP (and, precreate-only, disable). Send back the FULL policy
+              # Jellyfin just assigned rather than a partial body -- /Users/{id}/Policy
+              # replaces the whole object.
+              created = resp.json() if resp.content else {}
+              uid = created.get("Id")
+              if not uid:
+                  lookup = requests.get(urljoin(jellyfin_url, "/Users"), headers=headers, timeout=10)
+                  match = next((u for u in lookup.json() if u.get("Name") == username), None)
+                  uid = match.get("Id") if match else None
+                  created = match or {}
+              policy = created.get("Policy") or {}
+              policy["AuthenticationProviderId"] = ldap_provider
+              policy["PasswordResetProviderId"] = ldap_provider
               if not want_access:
-                  # Precreate-only: disable the freshly created account. Send back the FULL
-                  # policy Jellyfin just assigned (with IsDisabled flipped) rather than a
-                  # partial body -- /Users/{id}/Policy replaces the whole object.
-                  created = resp.json() if resp.content else {}
-                  uid = created.get("Id")
-                  if not uid:
-                      lookup = requests.get(urljoin(jellyfin_url, "/Users"), headers=headers, timeout=10)
-                      match = next((u for u in lookup.json() if u.get("Name") == username), None)
-                      uid = match.get("Id") if match else None
-                      created = match or {}
-                  policy = created.get("Policy") or {}
                   policy["IsDisabled"] = True
-                  if uid:
-                      pr = requests.post(urljoin(jellyfin_url, f"/Users/{uid}/Policy"),
-                                          json=policy, headers=headers, timeout=10)
-                      if pr.status_code in (200, 204):
-                          ak_logger.info("jellyfin-create: account disabled pending access grant", username=username)
-                      else:
-                          ak_logger.warning("jellyfin-create: failed to disable precreated account",
-                                             username=username, status=pr.status_code, body=pr.text[:200])
+              if uid:
+                  pr = requests.post(urljoin(jellyfin_url, f"/Users/{uid}/Policy"),
+                                      json=policy, headers=headers, timeout=10)
+                  if pr.status_code in (200, 204):
+                      ak_logger.info("jellyfin-create: account set to LDAP", username=username, disabled=not want_access)
                   else:
-                      ak_logger.error("jellyfin-create: could not resolve new user id to disable it", username=username)
+                      ak_logger.warning("jellyfin-create: failed to set account policy",
+                                         username=username, status=pr.status_code, body=pr.text[:200])
+              else:
+                  ak_logger.error("jellyfin-create: could not resolve new user id to set its policy", username=username)
           except Exception as e:
               ak_logger.error("jellyfin-create: request failed", username=username, error=str(e))
               # Don't fail the enrollment flow if Jellyfin is unreachable
