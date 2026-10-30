@@ -27,7 +27,8 @@ password reset (Komga error, or the file cannot be written), Home logs `provisio
 reason `failed_after_reset`, and never retries that member by itself; find them with
 `grep failed_after_reset` in Home's log, and the list is in `state/komga_member_keys.reset_failed`. Repair with
 `python3 tools/komga_member_keys.py --member <email> --keys-file state/komga_member_keys` (a key in the file also
-ends the block; delete the member's line from the `.reset_failed` file to let Home try again).
+ends the block; to let Home try again without a key, delete the member's line from the `.reset_failed` file AND
+restart Home, which also holds the block in memory).
 
 Home re-reads the keys file whenever it changes, so neither Home nor the tool needs Home restarted.
 

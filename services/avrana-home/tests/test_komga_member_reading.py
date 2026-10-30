@@ -340,6 +340,41 @@ class HomeMakesKeys(unittest.TestCase):
         with self.assertRaises(ValueError):
             KomgaKeyCreator(self.sender({}), self.as_member, MemberKeyStore(self.path))
 
+    def test_two_page_loads_of_one_member_make_exactly_one_reset(self):
+        import threading
+        inside, release = threading.Event(), threading.Event()
+        gate = threading.Lock()
+        entered = []
+        real = self.fake.send
+
+        def slow(method, url, headers, body):
+            if method == "PATCH":
+                with gate:
+                    entered.append(1)
+                inside.set()
+                release.wait(5)                              # hold the first attempt inside Komga
+            return real(method, url, headers, body)
+        self.fake.send = slow
+        logs = []
+        start = threading.Barrier(2)
+
+        def clock():
+            start.wait(5)                                    # both loads reach the lock together
+            return 0.0
+        prov = Provisioner({Service.KOMGA: self.creator}, clock=clock, log=lambda **f: logs.append(f))
+        hit = SectionResult(Service.KOMGA, "continue", SectionState.EMPTY, reason="no_member_key")
+        alice = member("alice", "Alice@Example.com")
+        first = threading.Thread(target=prov.provision, args=(alice, [hit]))
+        second = threading.Thread(target=prov.provision, args=(alice, [hit]))
+        first.start()
+        second.start()
+        self.assertTrue(inside.wait(5))
+        release.set()
+        first.join(5)
+        second.join(5)
+        self.assertEqual(len(self.resets()), 1)
+        self.assertEqual([l["state"] for l in logs], ["provisioned"])
+
     # ---- S-02: a failed key step after the password reset is terminal, and a missing keys file stops everything
     def prov(self, log):
         return Provisioner({Service.KOMGA: self.creator}, log=lambda **f: log.append(f))

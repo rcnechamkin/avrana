@@ -310,7 +310,8 @@ class Provisioner:
         now = self._clock()
         preflight = getattr(self._creators[service], "preflight", None)
         refusal = None
-        with self._lock:
+        capped = False
+        with self._lock:                                      # ONE hold: checks and the slot claim cannot interleave
             if key in self._terminal:
                 return False                                  # failed after a destructive step: quiet, owner repairs
             if key in self._busy:
@@ -324,18 +325,17 @@ class Provisioner:
                 except ProvisionFailed as exc:
                     self._last[key] = now
                     refusal = exc.reason
+            if refusal is None:
+                while self._made and now - self._made[0] >= WINDOW:
+                    self._made.popleft()
+                if len(self._made) >= self._cap:
+                    capped = True
+                else:
+                    self._busy.add(key)
+                    self._last[key] = now
+                    self._made.append(now)                    # counts the attempt, so a failing upstream is capped too
         if refusal is not None:
             return self._done(service, "refused", refusal)
-        with self._lock:
-            while self._made and now - self._made[0] >= WINDOW:
-                self._made.popleft()
-            if len(self._made) >= self._cap:
-                capped = True
-            else:
-                capped = False
-                self._busy.add(key)
-                self._last[key] = now
-                self._made.append(now)                        # counts the attempt, so a failing upstream is capped too
         if capped:
             return self._done(service, "refused", "cap")
         try:

@@ -1059,7 +1059,8 @@ Rules, each enforced in code and tested in `tests/test_provision.py` and `webtes
   timeout, malformed answer, or the keys file cannot be written) is terminal for that member: `provision` is logged
   once with `state=failed`, `reason=failed_after_reset`, the member is never retried automatically (in memory, and in
   the sidecar `<keys file>.reset_failed`, so a restart does not retry either), and the owner tool
-  `tools/komga_member_keys.py --member` is the repair. A failure before the reset stays an ordinary hourly retry.
+  `tools/komga_member_keys.py --member` is the repair. A failure before the reset stays an ordinary hourly retry. Known risk, accepted: a PATCH that times out after
+  Komga applied it is not known to have reset anything, so it is retried hourly (and may reset again).
   Komga provisioning also requires the configured keys file to EXIST and parse: otherwise no Komga request is made,
   no cap slot is used, and `provision` logs `state=refused`, `reason=keys_file_unusable` (once per member per hour).
   The read adapters are unchanged: an absent file is still "no member rows".
