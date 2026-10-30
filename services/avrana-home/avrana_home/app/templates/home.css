@@ -449,6 +449,13 @@
   /* Focus: the shell's two-ring mark (an ink gap, then the yellow), the same as every other shell link. */
   .hero-card:focus-visible,.hero-go:focus-visible{outline:2px solid transparent;box-shadow:0 0 0 2px var(--bg),0 0 0 4px var(--focus);}
   @media (min-width:45rem){.hero{--art-h:440px;margin-left:0;margin-right:0;}.hero:first-child{margin-top:0;}}
+  /* RC2 U-06: on a short screen (a phone on its side) the window must not be taller than the room: the header and the tab
+     bar already take most of 390px, so the picture gives up height first (the band and the strip keep their sizes). */
+  @media (max-height:30rem){.hero{--art-h:max(9rem,calc(100svh - 14rem));}}
+  /* RC2 U-05: below 360px the controls wrap to two or three rows (the time, then the button), taller than the one row the
+     band was sized for, and grew up into the facts line. Here they stack, and the stack reserves room for three rows. */
+  @media (max-width:359px){.hero-foot{padding-bottom:calc(3rem + 32px);}
+    .hero-ctl{flex-direction:column;gap:0.5rem;}.hero-time{flex-wrap:wrap;justify-content:center;}}
   /* Scrolled (where the browser has scroll timelines; elsewhere the window simply scrolls away): the window sticks
      under the header and shrinks one pixel per pixel scrolled, so the next section rides up right under it, until it
      is a 140px strip; then it leaves with the page. The stack fades out early, the strip's title, progress and round
@@ -1052,6 +1059,10 @@
   .places.filters{display:flex;flex-wrap:nowrap;gap:1.5rem;overflow-x:auto;scrollbar-width:none;
     border-bottom:1px solid var(--line);}
   .places.filters::-webkit-scrollbar{display:none;}
+  /* RC2 U-08: the glass ceiling is drawn inside this scroller, which clips it to the row anyway, but its 100vmax overhang
+     counted as scrollable overflow (1,190px wide at 390px), so the row could be swiped into empty space. It now fills the
+     row's own box exactly (the row's own hairline stays the only rule under it). */
+  .places.filters::before{left:0;right:0;top:0;bottom:0;border-bottom:0;}
   .places.filters>*{position:relative;flex:none;min-height:2.75rem;padding:0;border:0;border-radius:0;background:none;
     color:var(--stone);font-size:var(--text-body);font-weight:500;}
   .places.filters a:hover{color:var(--cream);background:none;}

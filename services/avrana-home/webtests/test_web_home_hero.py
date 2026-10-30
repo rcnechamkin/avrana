@@ -226,6 +226,21 @@ class Stylesheet(unittest.TestCase):
         for media in ("@media (prefers-contrast:more){", "@media (forced-colors:active){.hero-art"):
             self.assertIn(".hero-mini,.hero-play{display:none;}", self.rules.split(media, 1)[1].split("}}", 1)[0] + "}")
 
+    def test_rc2_phone_layout_pins(self):
+        # RC2 U-05: below 360px the controls stack and the foot reserves room for them (no overlap with the facts).
+        narrow = re.search(r"@media \(max-width:359px\)\{(.*?)\}\}", self.rules, re.S).group(1)
+        self.assertIn(".hero-foot{padding-bottom:calc(3rem + 32px);}", narrow)
+        self.assertIn(".hero-ctl{flex-direction:column;", narrow)
+        self.assertIn(".hero-time{flex-wrap:wrap;", narrow)
+        self.assertIn("padding:1.5rem 1.25rem 3.375rem;", self.rules)         # the at-rest foot (360px and up) is unchanged
+        # RC2 U-06: on a short screen the picture gives up height, after the width rule so it wins.
+        short = "@media (max-height:30rem){.hero{--art-h:max(9rem,calc(100svh - 14rem));}}"
+        self.assertIn(short, self.rules)
+        self.assertGreater(self.rules.index(short), self.rules.index("@media (min-width:45rem){.hero{--art-h:440px;"))
+        # RC2 U-08: Home's filter row is a scroller, so its glass ceiling must stay inside its own box.
+        css = (TEMPLATES / "home.css").read_text(encoding="utf-8")
+        self.assertIn(".places.filters::before{left:0;right:0;top:0;bottom:0;border-bottom:0;}", css)
+
 
     def test_reduced_motion_hides_the_strip_and_contrast_modes_reset_the_sticky_offset(self):
         """Source-level pin only (U-01, U-02): Python cannot see CSS. The behavioural proof is the Playwright script
