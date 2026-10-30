@@ -5,12 +5,14 @@ import datetime as dt
 import json
 import re
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 from urllib.parse import urlencode
 
 from avrana_home.requests.omnibus import ForbiddenCall, OmnibusRequests, Outcome, SeriesState
-from avrana_home.resilience import TransportResponse, UpstreamAuthError, UpstreamHTTPError
+from avrana_home.resilience import TransportResponse, UpstreamAuthError, UpstreamHTTPError, UpstreamTimeout
 from .support import GROUPS, USER, PeerOverride, StubAdapter, make_settings, require_framework
 
 require_framework()
@@ -44,6 +46,9 @@ class FakeOmnibus:
     def __init__(self):
         self.calls = []
         self.post_status, self.post_body, self.raises = 200, {"success": True, "message": "Queued 54 issues."}, None
+        self.stored = []                # rows Omnibus kept from POSTs (listed by GET /api/request after MINE)
+        self.after_send = None          # raised AFTER the request was stored: the answer was lost on the way back
+        self.post_delay = 0.0
 
     def request(self, method, path, query, timeout, max_bytes, *, json_body=None, act_as_name=None):
         self.calls.append((method, path, dict(query or {}), json.loads(json_body) if json_body else None, act_as_name))
@@ -52,7 +57,14 @@ class FakeOmnibus:
         if path == "/api/search":
             return TransportResponse(200, json.dumps(SEARCH).encode())
         if method == "GET":
-            return TransportResponse(200, json.dumps(MINE).encode())
+            return TransportResponse(200, json.dumps(MINE + self.stored).encode())
+        if self.post_delay:
+            time.sleep(self.post_delay)
+        if self.after_send is not None:
+            self.stored.append({"id": "n1", "volumeId": str(self.calls[-1][3]["cvId"]), "metadataSource": "COMICVINE",
+                                "seriesName": self.calls[-1][3]["name"] + " #001", "status": "PENDING_APPROVAL",
+                                "createdAt": "2026-10-29T10:00:00.000Z"})
+            raise self.after_send
         return TransportResponse(self.post_status, json.dumps(self.post_body).encode())
 
 
@@ -159,6 +171,52 @@ class Comics(unittest.TestCase):
         r = self.c.get("/request", headers=READER)
         if r.status_code == 200 and "requestacomic" in r.text:
             self.assertIn('href="/request/comics"', r.text)
+
+    # ---- T-05: one write per signed form (idempotency) ---------------------------------------------
+    def posts(self):
+        return [c for c in self.omnibus.calls if c[0] == "POST"]
+
+    def test_double_tap_sequential_sends_once_and_reads_just_asked(self):
+        fields = forms(self.c.get(PAGE, params={"q": "saga"}, headers=READER).text)[0]
+        first = self.post(fields)
+        second = self.post(dict(fields))                          # the same signed form, the same token
+        self.assertEqual((303, 303), (first.status_code, second.status_code))
+        self.assertEqual(1, len(self.posts()))
+        self.assertIn("You just asked for Synthetic Saga.", self.c.get(PAGE, headers=READER).text)
+
+    def test_double_tap_from_two_threads_sends_once(self):
+        self.omnibus.post_delay = 0.2                             # the first write is still in flight
+        fields = forms(self.c.get(PAGE, params={"q": "saga"}, headers=READER).text)[0]
+        gate, codes = threading.Barrier(2), []
+
+        def tap():
+            gate.wait(5)
+            codes.append(self.post(dict(fields)).status_code)
+        threads = [threading.Thread(target=tap) for _ in range(2)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(15)
+        self.assertEqual([303, 303], codes)
+        self.assertEqual(1, len(self.posts()))
+        text = self.c.get(PAGE, headers=READER).text
+        self.assertTrue("You just asked for Synthetic Saga." in text or "Asked for Synthetic Saga." in text)
+
+    def test_timeout_after_send_is_never_retried_and_lists_once(self):
+        self.omnibus.after_send = UpstreamTimeout()
+        found = forms(self.c.get(PAGE, params={"q": "series"}, headers=READER).text)
+        fields = next(f for f in found if f["cv_id"] == "41002")
+        self.assertEqual(303, self.post(fields).status_code)
+        self.assertEqual(1, len(self.posts()))                    # no automatic retry inside the submit
+        page = self.c.get(PAGE, headers=READER).text
+        self.assertIn("could not be reached right now", page)
+        self.assertNotIn("Asked for Owned Series.", page)         # never claimed as done
+        self.assertEqual(303, self.post(dict(fields)).status_code)    # tapping again is the guard's, not a resend
+        self.assertEqual(1, len(self.posts()))
+        self.assertIn("You just asked for Owned Series.", self.c.get(PAGE, headers=READER).text)
+        mine = self.c.get("/request/mine", headers=READER).text
+        self.assertEqual(1, len(self.omnibus.stored))
+        self.assertEqual(1, mine.count("Owned Series"))           # the stored issue shows once
 
 
 class Units(unittest.TestCase):
