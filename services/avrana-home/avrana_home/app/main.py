@@ -78,7 +78,7 @@ from .settings import Settings, is_sealed_preview
 from .viewmodel import (ACCOUNT_LIBRARY, CONTINUE_PAGE_MOST, CONTINUE_PATH, CONTRIBUTE_PATH, HOME_FETCH,
                         INTERSTITIAL_SHELL, LIBRARY_PLACE, NO_LIBRARY, REQUEST_FOR, SERVICE_LABEL, account_access,
                         build_continue_page, build_home, build_library, build_me, build_search, build_shell,
-                        build_places, build_title, extra_sections_for, has_library, home_start, initial_of,
+                        books_held, build_places, build_title, extra_sections_for, has_library, home_start, initial_of,
                         library_extra_sections, place_link, title_href)
 
 TEMPLATES = Path(__file__).resolve().parent / "templates"
@@ -420,7 +420,8 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
                           section=s.section, state=s.state.value, reason=s.reason or "")
             decision = search_decision(build_search(result.search_view(), term, title_services=title_services,
                                                     request_hosts=request_hosts(viewer),
-                                                    own_pages=own_pages(viewer)))
+                                                    own_pages=own_pages(viewer),
+                                                    books=books_held(tiles_for(viewer))))
             scope["avrana_route"] = decision.label
             # Search's no-results group may offer Contribute (memo section 2), only from the member's own tiles.
             return respond(decision, scope, shell=shell_for(viewer, "search"),
@@ -576,7 +577,8 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
                 section = await run_in_threadpool(lambda: adapter.item(viewer.principal, parsed[1], fresh=True))
                 log_event(app_log, logging.INFO, "section", service=section.service.value,
                           section=section.section, state=section.state.value, reason=section.reason or "")
-                page = build_title(section.to_dict(), parsed[0], parsed[1], search_term_from_scope(scope))
+                page = build_title(section.to_dict(), parsed[0], parsed[1], search_term_from_scope(scope),
+                                   books=books_held(tiles_for(viewer)))
             if page is None:
                 scope["avrana_route"] = "not_found"
                 return respond(not_found())
