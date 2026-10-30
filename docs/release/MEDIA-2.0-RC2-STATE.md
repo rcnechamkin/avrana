@@ -85,7 +85,7 @@ code drift.
   S-17/AVR-348 (known deferred gates). Adjudicated inventory: [MEDIA-2.0-RC2-DEFECT-INVENTORY.md](MEDIA-2.0-RC2-DEFECT-INVENTORY.md).
 - **Fixes:** 13 ledger rows, each implemented in its own worktree and verified by a separate Opus agent that
   reproduced the defect on `2cb228f` first ([MEDIA-2.0-RC2-FIX-LEDGER.md](MEDIA-2.0-RC2-FIX-LEDGER.md)). Draft PRs
-  #168–#178; two more in flight (rail focus X10, phone layout). Two first versions were rejected and reworked
+  #168–#181. Two first versions were rejected and reworked
   (X1 keyed on the wrong tile; X4 took the lock twice); one for line endings (X9).
 - **Five states after the sprint:** every fix is *implemented*; none is *merged*, *deployed* or *enabled*; all
   ACCEPTed rows are *verified* on synthetic stacks. The live beta is still exactly `2cb228f`.

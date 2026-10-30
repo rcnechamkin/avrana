@@ -47,7 +47,7 @@ beta-relevant has a verified fix on a draft branch.
 | B6 | Member rules: support contact, what is collected, welcome text (O5, AVR-458/361/363) | owner | drafts exist in `docs/member/` |
 | B7 | Owner device pass A–F on a real phone / PWA / TV (O4, AVR-585/479) | owner | packet written with expectations per step; Linear shows In Review, no evidence attached |
 | — | U-01/U-02 hero under Reduce Motion / contrast (was beta-blocking) | **eliminated** | #178 verified |
-| — | RC1 A11Y-1 rail focus at 200 % text | **eliminated pending X10 verdict** | CSS-only, implementer 0 clipped stops at every size |
+| — | RC1 A11Y-1 rail focus at 200 % text | **eliminated** | #181 verified (ACCEPT with notes: WebKit and real text scaling unmeasured) |
 | — | Listen/Read 500 class regression coverage | **eliminated** | #177 catches the #146 mutant |
 | — | S-02 destructive-first Komga provisioning, hourly retries, race | **eliminated** | #172 verified (single lock hold, terminal `failed_after_reset`) |
 | — | S-04/S-11 Home state absent from backups | **eliminated** | #171 verified |
@@ -84,14 +84,27 @@ All are off `2cb228f`; the orchestrator checked `git merge-tree` where two branc
 
 1. #175 docs (no code) · 2. #169 tests · 3. #173 tests · 4. #168 Seerr timeout · 5. #170 comics chip ·
 6. #174 Komga e-book library · 7. #172 provisioning hardening · 8. #171 backups + compose ·
-9. #178 hero modes (CRLF-clean) · 10. X10 rail focus (after verification) · 11. #176 headings ·
+9. #178 hero modes (CRLF-clean) · 10. #181 rail focus (ACCEPT with notes) · 11. #176 headings ·
 12. #177 degraded matrix — **when #177 merges after #176, remove its two `@expectedFailure` markers and the
 `DEGRADED_RAILS` excuse; `webtests/plan_adapters.py` is identical on both** · 13. phone layout (U-05/06/08, in progress)
 · 14. the S-01 change.
 
-An integration worktree with all of them, the full offline suite and the web tier (`run_offline.py`,
-`run_web_tests.py` with `AVRANA_REQUIRE_DEPS=1`) is section 5's open item; the per-PR GitHub Actions runs are the
-evidence until then.
+**Integration run (2026-10-30, worktree `avrana.wt-rc2-integration`, branch `integration/rc2-all`, all 13 branches
+merged):** one textual conflict (F-01 and F-02 both edit the New Releases chips list in `viewmodel.py`), resolved by
+combining both conditions; `test_web_comics_week` 13, `test_web_komga_comics_only` 15, `test_web_new_rows` 9 OK. The
+two `@expectedFailure` markers of #177 removed as #176 requires. `python -B tests/run_offline.py`: repository suite
+451 tests (34 skipped) and Home web tier 1,039 tests; four failures, triaged:
+
+| Failure | Cause | Disposition |
+|---|---|---|
+| `test_member_content…cited_lines` `help.md` → `DESIGN.md:651` | X10's DESIGN.md note moved the cited line | **real**, fixed on the X10 branch before its PR |
+| `webtests.test_web_me_profile` import | no Pillow in this Windows venv | environment; CI (Linux, deps installed) passes |
+| `webtests.test_runner` strict-skip regex | 6 Windows-only skips (POSIX modes) | environment; CI passes |
+| `test_web_pilot…invalid_term_not_searched` `0 != 6` | load flake while two verifier dev stacks ran; 28/28 OK alone | rerun policy (known Windows timing flake class) |
+
+**GitHub Actions (Linux) on every draft PR #168–#180: `tests/run_offline.py` pass, `review_git_content.py` pass,
+beta image build + smoke pass** (read 2026-10-30). That is the authoritative suite evidence; the Windows integration
+run adds the cross-branch merge proof.
 
 ## 5. Evidence quality and what was not done
 
@@ -107,7 +120,13 @@ evidence until then.
 - **Linear is tracking, not proof:** AVR-479 and AVR-585 moved Done → In Review during the sprint (not by the
   agent) with no device evidence attached; the critical path §3 lists every mismatch.
 
-## 6. Owner decisions outstanding (one line each)
+## 6. Linear (tracking, not proof)
+
+Created 2026-10-30, no existing status changed: **AVR-784** (S-01 owner decision, High), **AVR-785** (merge train
+#168–#180 with the order above, High), **AVR-786** (phone-layout P3 residuals U-05/U-06/U-10, Low). The
+reconciliation table for stale statuses is in the critical path §3 for the owner to apply.
+
+## 7. Owner decisions outstanding (one line each)
 
 S-01 (a)/(b) · S-03 Komga key by e-mail vs username · S-05 token lifetime vs revocation latency · D-05 request
 timeout copy · U-12/U-13/U-14/U-15 design questions · U-09 chip wrap vs scroll · Q1/F-9 title action wording ·

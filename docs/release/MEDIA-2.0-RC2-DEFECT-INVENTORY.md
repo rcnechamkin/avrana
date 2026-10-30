@@ -47,9 +47,9 @@ S-14 + U-22 + baseline §4 (stale docs); S-11 folded into the S-04 fix; U-20 is 
 | U-07 | Home Listen view | Duplicate `id="h-new"`: screen readers announce New Releases as "New to Avrana" (`viewmodel.py:662` vs `:1178`). | **FIXED, verified**: [#176](https://github.com/rcnechamkin/avrana/pull/176) |
 | D-01 | Home, degraded Continue | Bare "Continue" heading with no card or line when Continue is empty and any library's Continue is degraded (`continue_said` stays None; `viewmodel.py:1057`). Found by the new route matrix (X6). | **FIXED, verified**: [#176](https://github.com/rcnechamkin/avrana/pull/176) |
 | D-02 | Home Listen, ABS not linked | Bare "New to Avrana" heading when Audiobooks recent and shelves are `not_linked`. | **FIXED, verified**: [#176](https://github.com/rcnechamkin/avrana/pull/176) |
-| U-05 | Hero at 320 px / large text | Year/library line and progress row overlap. | IN PROGRESS (phone layout PR, `fix/rc2-phone-layout`) |
-| U-06 | Hero, phone landscape | Hero taller than the screen (844×390, 667×375). | IN PROGRESS (phone layout PR, `fix/rc2-phone-layout`) |
-| U-08 | Home filter row | Swipes sideways into 1,190 px of empty space in a 390 px row. | IN PROGRESS (phone layout PR, `fix/rc2-phone-layout`) |
+| U-05 | Hero at 320 px / large text | Year/library line and progress row overlap. | **FIXED, verified**: [#180](https://github.com/rcnechamkin/avrana/pull/180) (U-06 partial: Resume under the landscape tab bar → P3 follow-up; U-05 12 px at 360 @ 200 % remains on main) |
+| U-06 | Hero, phone landscape | Hero taller than the screen (844×390, 667×375). | **FIXED, verified**: [#180](https://github.com/rcnechamkin/avrana/pull/180) (U-06 partial: Resume under the landscape tab bar → P3 follow-up; U-05 12 px at 360 @ 200 % remains on main) |
+| U-08 | Home filter row | Swipes sideways into 1,190 px of empty space in a 390 px row. | **FIXED, verified**: [#180](https://github.com/rcnechamkin/avrana/pull/180) (U-06 partial: Resume under the landscape tab bar → P3 follow-up; U-05 12 px at 360 @ 200 % remains on main) |
 
 ## 3. P2 not fixed in this sprint (design questions, deferred, needs live evidence)
 
