@@ -311,15 +311,15 @@ class WarmCacheBindingTests(unittest.TestCase):
         for path in routes:
             with self.subTest(path=path):
                 r = self.client.get(path, headers=a2)
+                bodies.append((path, r.content))          # collected first: step 5 stands on its own
                 self.assertEqual((nobody[path].status_code, nobody[path].content), (r.status_code, r.content), path)
-                bodies.append((path, r.content))
         for label, target, body, ref in (("POST /request/watch", "/request/watch", watch_body, nobody_watch),
                                          ("POST /signout", "/signout", "", nobody_signout),
                                          ("POST /me/tv", "/me/tv", "t=x&code=123456", nobody_tv)):
             with self.subTest(label):
                 r = self.client.post(target, content=body, headers=self.FORM + a2)    # /request/watch: A1's own form
-                self.assertEqual((ref.status_code, ref.content), (r.status_code, r.content), label)
                 bodies.append((label, r.content))
+                self.assertEqual((ref.status_code, ref.content), (r.status_code, r.content), label)
 
         # 4. Nothing was asked of any upstream, nothing approved, no request written.
         self.assertEqual([], self.mock.paths())

@@ -255,6 +255,10 @@ SENTENCES = {
     "not_accepted": "That code didn't go through. It may already have been used. Get a new code on the TV and try again.",
     "unknown": "We couldn't tell whether it went through. Look at your TV before trying again.",
     "approved": "Approved. Your TV should sign in within a few seconds",
+    "bad_code": "Enter the 6 numbers shown on your TV.",
+    "not_eligible": "This account can't approve TV codes here. Approve the code in TV and Movies itself instead.",
+    "busy": "Too many tries. Wait 10 minutes, then try again.",
+    "expired": "This page was open too long. Enter the code again.",
 }
 
 
@@ -333,6 +337,17 @@ class Outcomes(unittest.TestCase):
         locations = [client.post("/me/tv", content=body, headers=VIDEO + SAME).headers["location"] for _ in range(2)]
         self.assertEqual(["/me/tv?r=approved"] * 2, locations)
         self.assertEqual(1, len(fake.approvals()))
+
+    def test_the_sixth_try_in_the_window_is_busy_and_asks_nothing(self):
+        client, fake = self.start(authorize=404)
+        found = re.search(r'name="t" value="([^"]+)"', client.get("/me/tv", headers=VIDEO).text).group(1)
+        where = [client.post("/me/tv", content=urlencode({"t": found, "code": f"12345{n}"}),
+                             headers=VIDEO + SAME).headers["location"] for n in range(6)]
+        self.assertEqual(["/me/tv?r=not_found"] * 5 + ["/me/tv?r=busy"], where)
+        self.assertEqual(5, len(fake.approvals()))                        # the sixth reached no upstream
+        calls = len(fake.calls)
+        client.post("/me/tv", content=urlencode({"t": found, "code": "123450"}), headers=VIDEO + SAME)
+        self.assertEqual(calls, len(fake.calls))
 
     def test_a_refused_code_is_not_remembered_so_the_next_try_is_a_new_approval(self):
         client, fake = self.start(authorize=404)
