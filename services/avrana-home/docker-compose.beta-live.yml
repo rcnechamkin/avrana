@@ -93,7 +93,10 @@ services:
     secrets: [home_jwt_secret, jellyfin_api_key, audiobookshelf_token, komga_token, calibre_web_credential]
     # secrets: [home_jwt_secret, jellyfin_api_key, audiobookshelf_token, komga_token, calibre_web_credential, komga_admin_token]
     # MEMBER REQUESTS: add shelfarr_token, seerr_api_key and omnibus_api_key to whichever secrets: line is in use.
-    # volumes: ["./state:/var/lib/avrana-home:rw"]
+    # ./state is the ONLY writable mount (identity bindings; Komga member keys and the member store when switched on).
+    # It stays active whenever HOME_IDENTITY_BINDINGS_FILE is: without it Home refuses every member (S-11). It is
+    # backed up inside stack-config (services/backups/avrana-backup.sh, S-04).
+    volumes: ["./state:/var/lib/avrana-home:rw"]
     read_only: true
     tmpfs: ["/tmp:size=16m,mode=1777"]
     security_opt: [no-new-privileges:true]

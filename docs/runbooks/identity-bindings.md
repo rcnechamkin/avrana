@@ -94,7 +94,9 @@ An upstream that cannot be asked is not a pass: the release refuses and changes 
 
 Everyone is signed out of Home until this is done. Do not hand-write the file.
 
-1. Restore `./state/identity_bindings.json` from the latest backup of `./state` (docs/runbooks/m0-offhost-backup-restore.md).
+1. Restore `./state/identity_bindings.json` from the latest backup of `./state`: the nightly `stack-config` archive
+   holds `services/avrana-home/state/` (the file, its `.lock`, and `komga_member_keys` / `members.sqlite3` when on),
+   and the restore verifier requires the bindings file (docs/runbooks/m0-offhost-backup-restore.md).
 2. Make a fresh seed (section 1, step 1) and merge it: `init --seed ... --reserve-upstream`. Merging only ADDS names;
    if a name in the file is bound to a different Authentik user than the seed says, `init` refuses and writes
    nothing, and lists the names. That means a username was given to a different person since the backup: decide per

@@ -457,6 +457,7 @@ backup_stack_config() {
            "$REPO"/services/olivetin/config "$REPO"/services/olivetin/scripts \
            "$REPO"/services/recyclarr/config/recyclarr.yml \
            "$REPO"/services/recyclarr/config/settings.yml "$REPO"/services/recyclarr/config/state \
+           "$REPO"/services/avrana-home/docker-compose.beta-live.yml "$REPO"/services/avrana-home/state \
            "$REPO"/services/backups \
            "$REPO"/scripts \
            "$REPO"/.env "$REPO"/kern_secrets \

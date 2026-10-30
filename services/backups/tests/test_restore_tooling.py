@@ -1,8 +1,11 @@
 """Offline tests for the backup verification tooling. No production access, no Docker, no zstd."""
+import fnmatch
+import glob
 import importlib.util
 import json
 import os
 import pathlib
+import re
 import sqlite3
 import subprocess
 import sys
@@ -330,6 +333,52 @@ class OffhostMarkerTests(unittest.TestCase):
             report = restore.Report()
             restore.check_restore_map(run, BACKUPS.parents[1], report)
             self.assertTrue([line for line in report.failed if "stray.bin" in line])
+
+
+class StackConfigAllowlistTests(unittest.TestCase):
+    """S-04: Home's deployment record and member state must be in the stack-config allowlist and proven by the
+    restore verifier. The allowlist is read from avrana-backup.sh and matched against a temporary tree."""
+
+    ARCHIVE = "stack-config/stack-config.tar.zst"
+
+    def allowlist(self):
+        text = (BACKUPS / "avrana-backup.sh").read_text(encoding="utf-8")
+        body = text.split("backup_stack_config() {", 1)[1].split(chr(10) + "}", 1)[0]
+        loop = body.split("for p in", 1)[1].split("; do", 1)[0]
+        return [m.group(1) for m in re.finditer(r'"\$REPO"/([^ "]+)', loop)]
+
+    def covered(self, relpath):
+        for root in self.allowlist():
+            if fnmatch.fnmatchcase(relpath, root) or fnmatch.fnmatchcase(relpath, root + "/*"):
+                return True
+        return False
+
+    def test_home_compose_record_and_state_are_collected(self):
+        with tempfile.TemporaryDirectory() as repo:
+            tree = pathlib.Path(repo) / "services/avrana-home"
+            (tree / "state").mkdir(parents=True)
+            for name in ("docker-compose.beta-live.yml", "state/identity_bindings.json", "state/.lock",
+                         "state/komga_member_keys"):
+                (tree / name).write_text("x", encoding="utf-8")
+            matched = set()
+            for pattern in self.allowlist():
+                for hit in glob.glob(os.path.join(repo, pattern)):
+                    matched.add(pathlib.Path(hit).relative_to(repo).as_posix())
+            self.assertIn("services/avrana-home/docker-compose.beta-live.yml", matched)
+            self.assertIn("services/avrana-home/state", matched)
+
+    def test_required_home_members_are_covered_by_the_allowlist(self):
+        members = []
+        for raw in (BACKUPS / "required-artifacts.txt").read_text(encoding="utf-8").splitlines():
+            parts = raw.strip().split("|")
+            if len(parts) == 4 and parts[1] == "member" and parts[2] == self.ARCHIVE:
+                members.append(parts[3])
+        for needed in ("services/avrana-home/docker-compose.beta-live.yml",
+                       "services/avrana-home/state/identity_bindings.json"):
+            self.assertIn(needed, members)
+        for member in members:
+            if member.startswith("services/avrana-home/"):
+                self.assertTrue(self.covered(member), member)
 
 
 if __name__ == "__main__":
