@@ -462,8 +462,9 @@ backup_stack_config() {
            "$REPO"/scripts \
            "$REPO"/.env "$REPO"/kern_secrets \
            "$REPO"/deploy "$REPO"/.gitignore; do
-    # Plain (non-wildcard) entries survive nullglob when absent; tar would then exit 2 and fail the component.
-    [[ -e "$p" || -L "$p" ]] || continue
+    # Home's compose record and state/ are OPTIONAL (plain paths survive nullglob; an absent one would make tar
+    # exit 2 and fail the component). Every other fixed path stays mandatory: if it is missing, tar fails loudly.
+    case "$p" in "$REPO"/services/avrana-home/*) [[ -e "$p" || -L "$p" ]] || continue ;; esac
     paths+=("${p#$REPO/}")            # store repo-relative for a clean archive
   done
   shopt -u nullglob

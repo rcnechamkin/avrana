@@ -390,8 +390,9 @@ class StackConfigAllowlistTests(unittest.TestCase):
             self.assertIn("scripts", paths)
             self.assertNotIn("services/avrana-home/state", paths)
             self.assertNotIn("services/avrana-home/docker-compose.beta-live.yml", paths)
-            for entry in paths:
-                self.assertTrue((root / entry).exists(), entry)
+            # Only the two Home paths are optional: a missing mandatory path stays listed so tar fails loudly.
+            for mandatory in ("kern_secrets", "services/recyclarr/config/state", ".env"):
+                self.assertIn(mandatory, paths)
 
     def test_present_home_paths_are_listed(self):
         with tempfile.TemporaryDirectory() as repo:
