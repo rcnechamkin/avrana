@@ -1,7 +1,8 @@
 # Media 2.0 closed-beta release readiness recommendation
 
-Status: **written 2026-10-30 at the end of the pre-closed-beta quality sprint. Verdict for the build on the live
-beta, `2cb228f`, with the sprint's verified fixes on draft branches, none merged, none deployed.**
+Status: **written 2026-10-30 at the end of the pre-closed-beta quality sprint; updated the same day after the owner
+authorised the merge train: all 13 verified PRs are merged to `main` (`305964a`, merge commits in README order below).
+The live beta is still `2cb228f`: nothing is deployed.**
 Companion documents: [state report](MEDIA-2.0-RC2-STATE.md), [critical path](MEDIA-2.0-CLOSED-BETA-CRITICAL-PATH.md),
 [defect inventory](MEDIA-2.0-RC2-DEFECT-INVENTORY.md), [fix ledger](MEDIA-2.0-RC2-FIX-LEDGER.md),
 [UX/UI quality report](MEDIA-2.0-RC2-UX-QUALITY.md), [acceptance packet](../acceptance/MEDIA-2.0-RC2-ACCEPTANCE.md),
@@ -59,7 +60,7 @@ beta-relevant has a verified fix on a draft branch.
 
 **Before any invitation**
 1. Decide S-01 (a) or (b); the agent implements the chosen one within the hour, verified, as a draft PR.
-2. Merge the verified drafts in the order in section 4 and deploy one image with `scripts/deploy-home-beta.sh`
+2. ~~Merge the verified drafts in the order in section 4~~ (done 2026-10-30, `main` = `305964a`) and deploy one image with `scripts/deploy-home-beta.sh`
    (rollback tag `pre-<sha>` is printed; never roll back past `pre-2cb228f`, see the S-10 caveat in #175).
 3. O1 SMTP2GO: one invitation, one reset, one alert arrive (three timestamps in `docs/findings/`).
 4. O2 akadmin MFA on, recovery code tested.
@@ -78,16 +79,14 @@ beta-relevant has a verified fix on a draft branch.
 **Before production cutover (later, AVR-389)**
 10. O7 Seerr CSRF/proxy trust (AVR-348), O8 timed rollback rehearsal (AVR-388), member results (AVR-387).
 
-## 4. Recommended merge order for the verified drafts
+## 4. Merge order for the verified drafts (executed 2026-10-30 by a Haiku 5.5 operator under the orchestrator; two pre-planned reconciliations, no escalation)
 
 All are off `2cb228f`; the orchestrator checked `git merge-tree` where two branches touch one file.
 
-1. #175 docs (no code) · 2. #169 tests · 3. #173 tests · 4. #168 Seerr timeout · 5. #170 comics chip ·
-6. #174 Komga e-book library · 7. #172 provisioning hardening · 8. #171 backups + compose ·
-9. #178 hero modes (CRLF-clean) · 10. #181 rail focus (ACCEPT with notes) · 11. #176 headings ·
-12. #177 degraded matrix — **when #177 merges after #176, remove its two `@expectedFailure` markers and the
-`DEGRADED_RAILS` excuse; `webtests/plan_adapters.py` is identical on both** · 13. phone layout (U-05/06/08, in progress)
-· 14. the S-01 change.
+1. #175 `d2f5361` · 2. #169 `4575625` · 3. #173 `f58e4c2` · 4. #168 `6f16873` · 5. #170 `877baf9` ·
+6. #174 `cc69fba` (reconciled with #170: combined chips condition, `82cfa6f`) · 7. #172 `c012763` · 8. #171 `a109832` ·
+9. #178 `87f0c92` · 10. #181 `52e949e` · 11. #176 `ffd80f7` · 12. #177 `b57969e` (reconciled: `@expectedFailure`
+markers and `DEGRADED_RAILS` excuse removed, `d326a50`) · 13. #180 `305964a`. Still to come: 14. the S-01 change.
 
 **Integration run (2026-10-30, worktree `avrana.wt-rc2-integration`, branch `integration/rc2-all`, all 13 branches
 merged):** one textual conflict (F-01 and F-02 both edit the New Releases chips list in `viewmodel.py`), resolved by

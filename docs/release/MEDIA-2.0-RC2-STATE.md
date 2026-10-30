@@ -87,8 +87,9 @@ code drift.
   reproduced the defect on `2cb228f` first ([MEDIA-2.0-RC2-FIX-LEDGER.md](MEDIA-2.0-RC2-FIX-LEDGER.md)). Draft PRs
   #168–#181. Two first versions were rejected and reworked
   (X1 keyed on the wrong tile; X4 took the lock twice); one for line endings (X9).
-- **Five states after the sprint:** every fix is *implemented*; none is *merged*, *deployed* or *enabled*; all
-  ACCEPTed rows are *verified* on synthetic stacks. The live beta is still exactly `2cb228f`.
+- **Five states after the sprint:** every fix is *implemented* and *verified* on synthetic stacks; all 13 are *merged*
+  (owner-authorised train 2026-10-30, `main` = `305964a`); none is *deployed* or *enabled*: the live beta is still
+  exactly `2cb228f`.
 - **Verdict:** CONDITIONAL GO, [MEDIA-2.0-RC2-READINESS.md](MEDIA-2.0-RC2-READINESS.md); the conditions are the
   owner's acceptance tasks O1–O5 plus the S-01 decision.
 
