@@ -1,9 +1,9 @@
-"""Create a member's missing Jellyfin or Audiobookshelf account, or (LEGACY) their own Komga key (ACCOUNT-PROVISIONING.md).
+"""Create a member's missing Jellyfin or Audiobookshelf account (ACCOUNT-PROVISIONING.md).
 
-Status: deployed in the live member beta since 2026-10-29 (revision 2cb228f); the Komga branch was switched off live on
-2026-10-30 (S-01 phase 0) and is retired in code: it runs only with HOME_KOMGA_LEGACY_PROVISION=on, kept until the
-owner confirms the enrollment stage works live, then deleted (docs/runbooks/komga-key-lifecycle.md, "Phase 4").
-Members' Komga keys now come from the enrollment stage and Me -> Comics (komga_keys.py), never from an admin key.
+Status: deployed in the live member beta since 2026-10-29 (revision 2cb228f). The Komga branch (Home minting members'
+keys with an admin key, which reset their Komga password) was switched off live on 2026-10-30 (S-01) and deleted the
+same day (AVR-784, docs/runbooks/komga-key-lifecycle.md "Phase 4"). Members' Komga keys come from the enrollment
+stage and Me -> Comics (komga_keys.py), never from an admin key; Home holds none.
 Standard library only. Off unless HOME_PROVISION_ACCOUNTS names a library.
 
 The read adapters stay read-only: their guarded transports keep refusing every non-GET. This module is the only
@@ -20,14 +20,6 @@ brokers in requests/):
     permissions and a random discarded password. ABS's "match existing by e-mail" then links the member's first
     "Sign in with Avrana" to this account.
 
-  * Komga (LEGACY, S-01; owner decision 2026-10-28, "Home does it", superseded 2026-10-30): the member's OWN API key, named `avrana-home`, for their
-    Continue reading row (docs/runbooks/komga-member-keys.md). Komga makes keys only for the signed-in account,
-    so with Home's Komga ADMIN key: find the member's account by e-mail (or create it with the defaults an
-    Authentik first sign-in gives), set a random password that is used once and discarded (Komga signs the member
-    out of its web app once), sign in as them with it, replace any older `avrana-home` key and file the new key in
-    the keys file. The admin key's own account needs no password: its key is made with the admin key itself. Any
-    OTHER administrator is never touched. Triggered by a Continue section EMPTY with reason `no_member_key`.
-
 It acts only when a section came back NOT_LINKED with reason `unmapped` (no account with that name in any letter
 case), the member holds the library's group, and a fresh upstream read confirms the name (and, for ABS, the
 e-mail) is still unused. Never more than one attempt per member and library per hour, one attempt at a time per
@@ -36,14 +28,12 @@ password, token, username, e-mail or upstream id.
 """
 from __future__ import annotations
 
-import base64
 import collections
 import json
 import secrets
 import threading
 import time
 import urllib.error
-import urllib.parse
 import urllib.request
 from typing import Any, Callable, Dict, Iterable, Mapping, Optional, Sequence, Tuple
 
@@ -51,11 +41,8 @@ from .adapters._base import norm_name
 from .contract import REQUIRED_GROUP, SectionResult, SectionState, Service
 from .resilience import _NoRedirect
 
-PROVISIONABLE = (Service.JELLYFIN, Service.AUDIOBOOKSHELF, Service.KOMGA)
+PROVISIONABLE = (Service.JELLYFIN, Service.AUDIOBOOKSHELF)
 TRIGGER_REASON = "unmapped"            # MappingFailed reason: no account with that name, in any letter case
-KOMGA_TRIGGER = "no_member_key"        # KomgaAdapter: the member has no key of their own yet
-KOMGA_KEY_COMMENT = "avrana-home"
-KOMGA_OIDC_ROLES = ["FILE_DOWNLOAD", "PAGE_STREAMING"]   # Komga 1.25 KomgaUser defaults (an Authentik first sign-in)
 RETRY_AFTER = 3600.0                   # one attempt per member and library per hour
 WINDOW = 3600.0
 DEFAULT_CAP = 10
@@ -176,85 +163,6 @@ class AudiobookshelfCreator:
             raise ProvisionFailed("created_unverified")
 
 
-class KomgaKeyCreator:
-    """Makes and files a member's own Komga key. `send` carries the ADMIN key; `as_member(email, password)` returns a
-    Send that signs in as that account with HTTP Basic (both from `http_sender`, so no redirect, no proxy)."""
-    service = Service.KOMGA
-
-    def __init__(self, send: Send, as_member: Callable[[str, str], Send], store: Any):
-        if not getattr(store, "writable", False):
-            raise ValueError("Home must be able to write the keys file")
-        self._send = send
-        self._as_member = as_member
-        self._store = store
-
-    @staticmethod
-    def _new_key(member: Send) -> str:
-        keys = member("GET", "/api/v2/users/me/api-keys", None)
-        for k in keys if isinstance(keys, list) else ():
-            if isinstance(k, dict) and k.get("comment") == KOMGA_KEY_COMMENT and isinstance(k.get("id"), str):
-                member("DELETE", "/api/v2/users/me/api-keys/" + urllib.parse.quote(k["id"], safe=""), None)
-        made = member("POST", "/api/v2/users/me/api-keys", {"comment": KOMGA_KEY_COMMENT})
-        key = made.get("key") if isinstance(made, dict) else None
-        if not isinstance(key, str) or len(key) != 32 or any(c not in "0123456789abcdef" for c in key):
-            raise ProvisionFailed("created_unverified")
-        return key
-
-    def preflight(self) -> None:
-        """Before ANY Komga request: the configured keys file must exist and parse. An absent file reads as "no
-        member has a key" and would make every comics member a candidate for a password reset (S-02)."""
-        if not self._store.usable():
-            raise ProvisionFailed("keys_file_unusable")
-
-    def create(self, username: str, email: Optional[str]) -> None:
-        self.preflight()
-        wanted = (email or "").strip().casefold()
-        if "@" not in wanted:
-            raise ProvisionFailed("no_email")              # keys are filed, and Komga accounts found, by e-mail
-        if self._store.get(wanted) is not None:
-            raise ProvisionFailed("exists")
-        if self._store.reset_failed(wanted):
-            raise ProvisionFailed("failed_after_reset", terminal=True)   # decided without any Komga request
-        me = self._send("GET", "/api/v2/users/me", None)
-        users = self._send("GET", "/api/v2/users", None)
-        if not isinstance(me, dict) or not isinstance(users, list):
-            raise ProvisionFailed("malformed")
-        rows = [u for u in users if isinstance(u, dict) and isinstance(u.get("email"), str)
-                and isinstance(u.get("id"), str)]
-        found = [u for u in rows if u["email"].strip().casefold() == wanted]
-        if len(found) > 1:
-            raise ProvisionFailed("ambiguous")
-        account = found[0] if found else None
-        if account is not None and account["id"] == me.get("id"):
-            key = self._new_key(self._send)                 # the admin key's own account: no password involved
-        elif account is not None and "ADMIN" in (account.get("roles") or ()):
-            raise ProvisionFailed("admin")                  # another administrator: never touched
-        else:
-            password = _discarded_password()
-            if account is None:
-                made = self._send("POST", "/api/v2/users", {
-                    "email": wanted, "password": password, "roles": KOMGA_OIDC_ROLES,
-                    "sharedLibraries": {"all": True, "libraryIds": []}})
-                if not isinstance(made, dict) or str(made.get("email", "")).casefold() != wanted:
-                    raise ProvisionFailed("created_unverified")
-                login = made["email"]
-            else:
-                # Komga makes keys only for the signed-in account, so for any account but the admin key's own this
-                # reset is unavoidable today (owner decision S-01 pending). Everything after it is therefore fenced:
-                # a failure leaves the member without their old password AND without a key, so it is terminal.
-                self._send("PATCH", "/api/v2/users/" + urllib.parse.quote(account["id"], safe="") + "/password",
-                           {"password": password})
-                try:
-                    key = self._new_key(self._as_member(account["email"], password))
-                    self._store.put(wanted, key)
-                except Exception:
-                    self._store.mark_reset_failed(wanted)
-                    raise ProvisionFailed("failed_after_reset", terminal=True) from None
-                return
-            key = self._new_key(self._as_member(login, password))
-        self._store.put(wanted, key)
-
-
 # ---- the policy around them --------------------------------------------------------------------------------
 def _valid_username(name: Any) -> bool:
     return (isinstance(name, str) and 0 < len(name) <= MAX_NAME and name == name.strip()
@@ -268,7 +176,7 @@ class Provisioner:
                  clock: Callable[[], float] = time.monotonic, log: Optional[Callable[..., None]] = None):
         for service in creators:
             if service not in PROVISIONABLE:
-                raise ValueError("Home creates accounts in Jellyfin and Audiobookshelf, and keys in Komga, only")
+                raise ValueError("Home creates accounts in Jellyfin and Audiobookshelf only")
         self._creators = dict(creators)
         self._cap = cap_per_hour
         self._clock = clock
@@ -289,11 +197,7 @@ class Provisioner:
         for s in sections:
             if s.service not in self._creators or s.service in out:
                 continue
-            if s.service is Service.KOMGA:
-                hit = s.section == "continue" and s.state is SectionState.EMPTY and s.reason == KOMGA_TRIGGER
-            else:
-                hit = s.state is SectionState.NOT_LINKED and s.reason == TRIGGER_REASON
-            if hit:
+            if s.state is SectionState.NOT_LINKED and s.reason == TRIGGER_REASON:
                 out.append(s.service)
         return tuple(out)
 
@@ -364,8 +268,7 @@ class Provisioner:
         return False
 
 
-def build_provisioner(settings: Any, log: Optional[Callable[..., None]] = None,
-                      komga_keys: Any = None) -> Optional[Provisioner]:
+def build_provisioner(settings: Any, log: Optional[Callable[..., None]] = None) -> Optional[Provisioner]:
     """None unless settings name at least one library (settings.py allows that only with real upstreams and
     jwt_required identity)."""
     wanted = tuple(getattr(settings, "provision_accounts", ()) or ())
@@ -378,13 +281,4 @@ def build_provisioner(settings: Any, log: Optional[Callable[..., None]] = None,
     if "audiobookshelf" in wanted and settings.audiobookshelf_base_url:
         creators[Service.AUDIOBOOKSHELF] = AudiobookshelfCreator(http_sender(
             settings.audiobookshelf_base_url, {"Authorization": f"Bearer {settings.audiobookshelf_token}"}))
-    if ("komga" in wanted and komga_keys is not None and settings.komga_admin_token
-            and getattr(settings, "komga_legacy_provision", False)):          # S-01: legacy, behind its switch
-        base = settings.komga_base_url
-
-        def as_member(email: str, password: str) -> Send:
-            basic = base64.b64encode(f"{email}:{password}".encode("utf-8")).decode("ascii")
-            return http_sender(base, {"Authorization": "Basic " + basic})
-        creators[Service.KOMGA] = KomgaKeyCreator(
-            http_sender(base, {"X-API-Key": settings.komga_admin_token}), as_member, komga_keys)
     return Provisioner(creators, settings.provision_cap_per_hour, log=log) if creators else None

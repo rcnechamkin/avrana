@@ -121,7 +121,8 @@ import os
 from avrana_home.app.settings import Settings
 s = Settings.from_env(os.environ)
 print("provisioning:", ",".join(s.provision_accounts) or "off",
-      "| Komga member keys:", len(s.komga_member_keys), "| Komga admin key:", "yes" if s.komga_admin_token else "no")
+      "| Komga member keys:", len(s.komga_member_keys), "| key intake:", "on" if s.key_intake_token else "off",
+      "| Connect comics:", "on" if s.komga_connect else "off")
 PY
 now_dir=$(docker inspect -f '{{index .Config.Labels "com.docker.compose.project.working_dir"}}' avrana-home-beta)
 echo "running revision: ${now_dir%/services/avrana-home} (was ${prev_dir%/services/avrana-home})"

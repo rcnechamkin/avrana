@@ -4,9 +4,8 @@ Status: deployed in the live member beta since 2026-10-29 (revision 2cb228f; Kom
 
 Writers, one format: the owner-run `tools/komga_member_keys.py`; Home's key intake (`PUT /internal/komga-key/...`,
 filled by the enrollment stage) and Me -> Comics "Connect comics" / "Disconnect" (komga_keys.py; ADR "Komga member keys
-are minted where the password lives", docs/runbooks/komga-key-lifecycle.md); `scripts/offboard.py`; and, only with
-HOME_KOMGA_LEGACY_PROVISION=on, the old admin-key provisioning (provision.py). Home re-reads the file whenever it
-changes on disk (size or modification time), so no writer needs Home restarted. A file that cannot be read or is
+are minted where the password lives", docs/runbooks/komga-key-lifecycle.md); and `scripts/offboard.py`. (Home's
+admin-key provisioning of keys was deleted 2026-10-30, AVR-784.) Home re-reads the file whenever it changes on disk (size or modification time), so no writer needs Home restarted. A file that cannot be read or is
 malformed is refused WHOLE and the last good keys stay in use; no entry is ever logged or echoed.
 
 Every write takes the exclusive cross-process lock on `<file>.lock` (identity_bindings.file_lock), re-reads the file
@@ -119,7 +118,6 @@ class MemberKeyStore:
         self._path = path
         self._writable = writable
         self._keys: Dict[str, str] = dict(initial)
-        self._failed: set = set()
         self._seen = self._stamp()
         self._lock = threading.Lock()
         self._log = log or (lambda **_kw: None)
@@ -160,49 +158,6 @@ class MemberKeyStore:
         with self._lock:
             self._refresh()
             return len(self._keys)
-
-    def usable(self) -> bool:
-        """True only if the keys file EXISTS and parses. Provisioning (not the read adapters, for which an absent
-        file stays "no keys") requires it: a lost or unmounted state volume must never look like "nobody has a
-        key" and make every comics member a candidate for a Komga password reset (S-02)."""
-        try:
-            if not os.path.isfile(self._path):
-                return False
-            read_keys(self._path)
-        except (KeysFileError, OSError):
-            return False
-        return True
-
-    @property
-    def _marks_path(self) -> str:
-        return self._path + ".reset_failed"
-
-    def reset_failed(self, email: Any) -> bool:
-        """True if provisioning already reset this member's Komga password and then failed to file a key. Kept in a
-        sidecar next to the keys file (one lower-case email per line) so a restart does not retry the reset."""
-        key_id = member_key_id(email)
-        if key_id is None:
-            return False
-        with self._lock:
-            if key_id in self._failed:
-                return True
-            try:
-                with open(self._marks_path, encoding="utf-8") as fh:
-                    return key_id in {line.strip() for line in fh}
-            except OSError:
-                return False
-
-    def mark_reset_failed(self, email: Any) -> None:
-        key_id = member_key_id(email)
-        if key_id is None:
-            return
-        with self._lock:
-            self._failed.add(key_id)                      # in memory at least, if the volume is the problem
-            try:
-                with open(self._marks_path, "a", encoding="utf-8", newline="\n") as fh:
-                    fh.write(key_id + "\n")
-            except OSError:
-                pass
 
     def put(self, email: str, key: str, komga_id: Optional[str] = None) -> bool:
         """File `key` (and Komga's id for it, when known) for `email`. Returns False when exactly that key was already

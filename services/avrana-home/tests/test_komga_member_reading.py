@@ -1,7 +1,7 @@
 """Komga Continue reading with a member's OWN key (owner decision 2026-10-28; docs/runbooks/komga-member-keys.md),
-the live keys file (member_keys.py), Home making a missing key (provision.py, "Home does it") and the owner-run
-tool (tools/komga_member_keys.py). Offline, synthetic data only; the
-Komga routes and fields are from the 1.25.0 source, UNVERIFIED live."""
+the live keys file (member_keys.py) and the owner-run tool (tools/komga_member_keys.py). Home making keys itself
+(the admin-key provisioner) was deleted 2026-10-30 (S-01, AVR-784): keys come from enrollment and Me -> Comics
+(test_komga_key_lifecycle.py). Offline, synthetic data only; the Komga routes and fields are from the 1.25.0 source."""
 import os as _os
 import sys as _sys
 
@@ -17,7 +17,6 @@ import unittest
 from avrana_home.adapters.komga import MEMBER_ROUTES, KomgaAdapter, member_key_id
 from avrana_home.contract import SectionResult, Service
 from avrana_home.member_keys import MemberKeyStore, read_keys, write_keys
-from avrana_home.provision import KomgaKeyCreator, Provisioner, ProvisionFailed
 from avrana_home.app.settings import Settings, SettingsError
 from avrana_home.contract import ForbiddenRequest, SectionState
 from avrana_home.principal import principal_from_headers
@@ -94,9 +93,9 @@ class Reading(unittest.TestCase):
         self.alice = member("alice", "Alice@Example.com")
         self.bob = member("bob", "bob@example.com")
 
-    def build(self, transport, provisioning=False):
+    def build(self, transport):
         return KomgaAdapter(FakeTransport(self.shared), clock=self.clock, owner_confirms_no_member_restrictions=True,
-                            member_keys=self.store, member_transport=transport, provisioning=provisioning)
+                            member_keys=self.store, member_transport=transport)
 
     def test_a_member_with_a_key_gets_in_progress_then_on_deck_with_their_own_progress(self):
         got = self.adapter.continue_items(self.alice)
@@ -141,15 +140,6 @@ class Reading(unittest.TestCase):
         with self.assertRaises(ValueError):
             KomgaAdapter(FakeTransport(self.shared), owner_confirms_no_member_restrictions=True,
                          member_keys=self.store)                              # keys without a transport factory
-
-    def test_with_provisioning_a_keyless_member_gets_the_trigger_and_it_is_never_cached(self):
-        adapter = self.build(lambda key: FakeTransport(self.mine), provisioning=True)
-        for _ in range(2):
-            got = adapter.continue_items(self.bob)
-            self.assertEqual((got.state, got.reason), (SectionState.EMPTY, "no_member_key"))
-        self.assertEqual(adapter.continue_items(member("carol", None)).reason, "not_offered")   # no email
-        write_keys(self.path, {"alice@example.com": KEY_A, "bob@example.com": "f" * 32})
-        self.assertEqual(adapter.continue_items(self.bob).state, SectionState.OK)
 
     def test_a_key_written_to_the_file_is_used_without_a_restart(self):
         self.assertEqual(self.adapter.continue_items(self.bob).reason, "not_offered")
@@ -223,25 +213,22 @@ class SettingsFile(unittest.TestCase):
         env["KOMGA_MEMBER_KEYS_FILE"] = os.path.join(self.dir.name, "missing", "keys")
         self.assertIsInstance(self.from_env(env), SettingsError)
 
-    def test_home_making_keys_needs_the_admin_key_and_the_file_and_the_admin_key_needs_it(self):
+    def test_the_removed_admin_key_settings_are_refused_by_name(self):
+        # S-01 / AVR-784: Home holds no Komga admin key and never makes members' keys itself any more. A stale
+        # compose file naming the old settings fails loudly instead of being ignored.
         admin = os.path.join(self.dir.name, "admin")
         with open(admin, "w", encoding="utf-8") as fh:
             fh.write("a" * 32)
-        on = dict(REAL, KOMGA_MEMBER_KEYS_FILE=self.path, KOMGA_ADMIN_TOKEN_FILE=admin, HOME_ALLOWED_USERS="alice",
-                  HOME_PROVISION_ACCOUNTS="komga", HOME_KOMGA_LEGACY_PROVISION="on")
-        # S-01: retired behind its switch; without it (or the switch without komga) settings refuse.
-        self.assertIsInstance(self.from_env({k: v for k, v in on.items() if k != "HOME_KOMGA_LEGACY_PROVISION"}),
-                              SettingsError)
-        self.assertIsInstance(self.from_env(dict(REAL, HOME_KOMGA_LEGACY_PROVISION="on")), SettingsError)
-        got = self.from_env(on)
-        self.assertIsInstance(got, Settings, got)
-        self.assertEqual(got.provision_accounts, ("komga",))
-        self.assertNotIn("a" * 32, repr(got))
-        for drop in ("KOMGA_ADMIN_TOKEN_FILE", "KOMGA_MEMBER_KEYS_FILE"):
-            with self.subTest(drop=drop):
-                self.assertIsInstance(self.from_env({k: v for k, v in on.items() if k != drop}), SettingsError)
-        self.assertIsInstance(self.from_env(dict(on, HOME_PROVISION_ACCOUNTS="off")), SettingsError)
-        self.assertTrue(got.komga_legacy_provision)
+        base = dict(REAL, KOMGA_MEMBER_KEYS_FILE=self.path, HOME_ALLOWED_USERS="alice")
+        self.assertIsInstance(self.from_env(base), Settings)
+        for stale in (dict(KOMGA_ADMIN_TOKEN_FILE=admin), dict(KOMGA_ADMIN_TOKEN="a" * 32),
+                      dict(HOME_KOMGA_LEGACY_PROVISION="on"), dict(HOME_PROVISION_ACCOUNTS="komga"),
+                      dict(HOME_PROVISION_ACCOUNTS="jellyfin,komga")):
+            with self.subTest(stale=list(stale)):
+                got = self.from_env(dict(base, **stale))
+                self.assertIsInstance(got, SettingsError)
+                self.assertNotIn("a" * 32, str(got))
+        self.assertFalse(hasattr(Settings(), "komga_admin_token"))
 
     def test_a_valid_file_is_read(self):
         got = self.from_env(self.env({"alice@example.com": KEY_A}))
@@ -271,228 +258,6 @@ class SettingsFile(unittest.TestCase):
     def test_the_value_is_never_read_from_the_environment(self):
         env = dict(REAL, KOMGA_MEMBER_KEYS=json.dumps({"alice@example.com": KEY_A}))
         self.assertIsInstance(self.from_env(env), SettingsError)
-
-
-# ---- Home making a member's key (provision.py) ----------------------------------------------
-class HomeMakesKeys(unittest.TestCase):
-    """KomgaKeyCreator against the same fake Komga the tool tests use; the admin key's account is U0."""
-
-    def setUp(self):
-        self.dir = tempfile.TemporaryDirectory()
-        self.addCleanup(self.dir.cleanup)
-        self.path = os.path.join(self.dir.name, "komga_member_keys")
-        write_keys(self.path, {})          # Home refuses to make keys while the configured file is absent (S-02)
-        self.store = MemberKeyStore(self.path, writable=True)
-        self.fake = FakeAdminKomga()
-        self.creator = KomgaKeyCreator(self.sender({"X-API-Key": "ADMIN"}), self.as_member, self.store)
-
-    def sender(self, headers):
-        def send(method, path, body):
-            status, data = self.fake.send(method, "http://komga.test" + path, headers,
-                                          json.dumps(body).encode() if body is not None else None)
-            if status >= 400:
-                raise ProvisionFailed(f"http_{status}")
-            return json.loads(data) if data else None
-        return send
-
-    def as_member(self, email, password):
-        return self.sender(tool.basic_auth(email, password))
-
-    def test_an_existing_member_gets_a_key_filed_and_their_own_keys_are_kept(self):
-        self.creator.create("alice", "Alice@Example.com")
-        self.assertEqual(len(self.store.get("alice@example.com")), 32)
-        self.assertEqual(sorted(k["comment"] for k in self.fake.keys["U1"]), ["avrana-home", "phone"])
-        self.assertEqual(read_keys(self.path)[0][0], "alice@example.com")
-
-    def test_a_member_with_no_komga_account_gets_one_with_sign_in_defaults(self):
-        self.creator.create("newbie", "newbie@example.com")
-        made = [u for u in self.fake.users.values() if u["email"] == "newbie@example.com"][0]
-        self.assertEqual(sorted(made["roles"]), ["FILE_DOWNLOAD", "PAGE_STREAMING", "USER"])
-        self.assertIsNotNone(self.store.get("newbie@example.com"))
-
-    def test_the_admin_keys_own_account_gets_a_key_without_a_password_change(self):
-        self.fake.users["U0"]["email"] = "owner@example.com"
-        self.creator.create("owner", "owner@example.com")
-        self.assertEqual(self.fake.passwords["U0"], "owner")
-        self.assertIsNotNone(self.store.get("owner@example.com"))
-
-    def test_another_admin_is_never_touched(self):
-        self.fake.users["U9"] = {"id": "U9", "email": "boss@example.com", "roles": ["ADMIN", "USER"]}
-        self.fake.passwords["U9"] = "boss"
-        with self.assertRaises(ProvisionFailed) as caught:
-            self.creator.create("boss", "boss@example.com")
-        self.assertEqual(caught.exception.reason, "admin")
-        self.assertEqual(self.fake.passwords["U9"], "boss")
-
-    def test_no_email_or_an_existing_key_is_refused(self):
-        for email in (None, "", "not-an-email"):
-            with self.subTest(email=email), self.assertRaises(ProvisionFailed):
-                self.creator.create("x", email)
-        self.creator.create("alice", "alice@example.com")
-        with self.assertRaises(ProvisionFailed):
-            self.creator.create("alice", "alice@example.com")
-
-    def test_the_provisioner_triggers_only_on_the_komga_continue_reason(self):
-        prov = Provisioner({Service.KOMGA: self.creator})
-        hit = SectionResult(Service.KOMGA, "continue", SectionState.EMPTY, reason="no_member_key")
-        miss = SectionResult(Service.KOMGA, "continue", SectionState.EMPTY, reason="not_offered")
-        self.assertEqual(prov.candidates([miss]), ())
-        self.assertEqual(prov.candidates([hit]), (Service.KOMGA,))
-        self.assertEqual(prov.provision(member("alice", "alice@example.com"), [hit]), (Service.KOMGA,))
-        self.assertEqual(prov.provision(member("alice", "alice@example.com"), [hit]), ())      # once an hour
-
-    def test_a_read_only_store_is_refused(self):
-        with self.assertRaises(ValueError):
-            KomgaKeyCreator(self.sender({}), self.as_member, MemberKeyStore(self.path))
-
-    def test_two_page_loads_of_one_member_make_exactly_one_reset(self):
-        # Deterministic interleaving: thread A pauses after its FIRST release of the provisioner's lock until
-        # thread B has been through the lock once. With the checks and the slot claim in one hold, B finds A busy
-        # and leaves (1 reset); with two separate sections B would pass its checks too (2 resets).
-        import threading
-        logs = []
-        prov = Provisioner({Service.KOMGA: self.creator}, clock=lambda: 0.0, log=lambda **f: logs.append(f))
-        real = prov._lock
-        a_released_first, b_past_first = threading.Event(), threading.Event()
-        seen = {"a_released": 0, "b_acquired": 0}
-
-        class SteppingLock:
-            def __enter__(self):
-                real.acquire()
-                if threading.current_thread().name == "B":
-                    seen["b_acquired"] += 1
-
-            def __exit__(self, *exc):
-                real.release()
-                name = threading.current_thread().name
-                if name == "A":
-                    seen["a_released"] += 1
-                    if seen["a_released"] == 1:
-                        a_released_first.set()
-                        b_past_first.wait(5)
-                if name == "B" and seen["b_acquired"] == 1:
-                    b_past_first.set()
-        prov._lock = SteppingLock()
-        hit = SectionResult(Service.KOMGA, "continue", SectionState.EMPTY, reason="no_member_key")
-        alice = member("alice", "Alice@Example.com")
-        a = threading.Thread(name="A", target=prov.provision, args=(alice, [hit]))
-        b = threading.Thread(name="B", target=lambda: (a_released_first.wait(5), prov.provision(alice, [hit])))
-        a.start()
-        b.start()
-        a.join(10)
-        b.join(10)
-        self.assertEqual(len(self.resets()), 1)
-        self.assertEqual([l["state"] for l in logs], ["provisioned"])
-
-    # ---- S-02: a failed key step after the password reset is terminal, and a missing keys file stops everything
-    def prov(self, log):
-        return Provisioner({Service.KOMGA: self.creator}, log=lambda **f: log.append(f))
-
-    def resets(self):
-        return [c for c in self.fake.calls if c[0] == "PATCH"]
-
-    def test_a_key_step_failing_after_the_reset_is_not_retried_and_logs_its_own_reason(self):
-        logs, clock = [], [0.0]
-        prov = Provisioner({Service.KOMGA: self.creator}, clock=lambda: clock[0], log=lambda **f: logs.append(f))
-        hit = SectionResult(Service.KOMGA, "continue", SectionState.EMPTY, reason="no_member_key")
-        alice = member("alice", "Alice@Example.com")
-        self.fake.fail_keys = 500
-        self.assertEqual(prov.provision(alice, [hit]), ())
-        self.assertEqual(len(self.resets()), 1)
-        self.assertEqual(logs, [{"service": "komga", "state": "failed", "reason": "failed_after_reset"}])
-        self.assertIsNone(self.store.get("alice@example.com"))
-        self.fake.fail_keys = None
-        for _ in range(3):                                   # hourly passes, even after Komga recovers
-            clock[0] += 3601
-            self.assertEqual(prov.provision(alice, [hit]), ())
-        self.assertEqual(len(self.resets()), 1)              # no second password reset
-        self.assertEqual(len(logs), 1)                       # and no log noise after the one line
-
-    def test_the_block_survives_a_restart(self):
-        self.fake.fail_keys = 500
-        with self.assertRaises(ProvisionFailed) as caught:
-            self.creator.create("alice", "Alice@Example.com")
-        self.assertEqual(caught.exception.reason, "failed_after_reset")
-        self.fake.fail_keys = None
-        again = KomgaKeyCreator(self.sender({"X-API-Key": "ADMIN"}), self.as_member,
-                                MemberKeyStore(self.path, writable=True))
-        calls = len(self.fake.calls)
-        with self.assertRaises(ProvisionFailed) as caught:
-            again.create("alice", "Alice@Example.com")
-        self.assertEqual(caught.exception.reason, "failed_after_reset")
-        self.assertEqual(len(self.fake.calls), calls)        # decided before any Komga request
-
-    def test_a_filing_failure_after_the_reset_is_also_terminal(self):
-        def broken(email, key):
-            raise OSError("read-only file system")
-        self.store.put = broken
-        with self.assertRaises(ProvisionFailed) as caught:
-            self.creator.create("alice", "Alice@Example.com")
-        self.assertEqual(caught.exception.reason, "failed_after_reset")
-        with self.assertRaises(ProvisionFailed):
-            self.creator.create("alice", "Alice@Example.com")
-        self.assertEqual(len(self.resets()), 1)
-
-    def test_a_failure_before_any_reset_is_still_an_ordinary_retryable_failure(self):
-        self.fake.users["U9"] = {"id": "U9", "email": "dup@example.com", "roles": ["USER"]}
-        self.fake.users["U8"] = {"id": "U8", "email": "DUP@example.com", "roles": ["USER"]}
-        with self.assertRaises(ProvisionFailed) as caught:
-            self.creator.create("dup", "dup@example.com")
-        self.assertEqual(caught.exception.reason, "ambiguous")
-        self.assertEqual(self.resets(), [])
-
-    def test_the_admin_keys_own_account_failing_is_not_a_reset_failure(self):
-        self.fake.users["U0"]["email"] = "owner@example.com"
-        self.fake.keys["U0"] = []
-        real = self.fake.send
-
-        def flaky(method, url, headers, body):
-            if method == "POST" and url.endswith("/api-keys"):
-                return 500, b""
-            return real(method, url, headers, body)
-        self.fake.send = flaky
-        with self.assertRaises(ProvisionFailed) as caught:
-            self.creator.create("owner", "owner@example.com")
-        self.assertEqual(caught.exception.reason, "http_500")   # no password was changed: retryable
-        self.assertEqual(self.resets(), [])
-
-    def test_a_configured_but_missing_keys_file_refuses_before_any_komga_request(self):
-        logs = []
-        prov = self.prov(logs)
-        os.unlink(self.path)                                  # the state volume went away
-        hit = SectionResult(Service.KOMGA, "continue", SectionState.EMPTY, reason="no_member_key")
-        for name in ("alice", "bob", "carol"):
-            self.assertEqual(prov.provision(member(name, name + "@example.com"), [hit]), ())
-        self.assertEqual(self.fake.calls, [])
-        self.assertEqual([l["reason"] for l in logs], ["keys_file_unusable"] * 3)
-        self.assertEqual({l["state"] for l in logs}, {"refused"})
-
-    def test_a_missing_keys_file_does_not_use_up_the_hourly_cap(self):
-        logs = []
-        prov = Provisioner({Service.KOMGA: self.creator}, cap_per_hour=1, log=lambda **f: logs.append(f))
-        os.unlink(self.path)
-        hit = SectionResult(Service.KOMGA, "continue", SectionState.EMPTY, reason="no_member_key")
-        for name in ("alice", "bob"):
-            prov.provision(member(name, name + "@example.com"), [hit])
-        self.assertEqual({l["reason"] for l in logs}, {"keys_file_unusable"})   # never "cap"
-
-    def test_an_existing_empty_keys_file_is_a_normal_start(self):
-        write_keys(self.path, {})
-        self.creator.create("alice", "Alice@Example.com")
-        self.assertIsNotNone(self.store.get("alice@example.com"))
-
-    def test_an_unreadable_keys_file_refuses_too(self):
-        with open(self.path, "w") as fh:
-            fh.write("not json")
-        with self.assertRaises(ProvisionFailed) as caught:
-            self.creator.create("alice", "Alice@Example.com")
-        self.assertEqual(caught.exception.reason, "keys_file_unusable")
-        self.assertEqual(self.fake.calls, [])
-
-    def test_the_read_adapters_still_treat_an_absent_file_as_no_keys(self):
-        os.unlink(self.path)
-        self.assertEqual(read_keys(self.path), ())
-        self.assertIsNone(self.store.get("alice@example.com"))
 
 
 # ---- the owner-run tool ---------------------------------------------------------------------

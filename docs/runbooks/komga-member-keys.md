@@ -11,47 +11,18 @@ A member without a key sees exactly what they see today: Recently added and New 
 **Superseded 2026-10-30 (S-01).** Keys are now minted where the password lives: by the enrollment stage and by the
 member on Me -> Comics, never with an admin key (docs/runbooks/komga-key-lifecycle.md; docs/DECISIONS.md, "Komga
 member keys are minted where the password lives"). The admin-key paths below reset the member's Komga password, which
-breaks the OPDS password the enrollment set. Home's automatic path is switched off live and runs only with
-`HOME_KOMGA_LEGACY_PROVISION=on`; do not use `--member` / `--all` of the tool for new keys. `--list`, `--remove` and
-the file format below still apply.
+breaks the OPDS password the enrollment set. Home's automatic path was deleted on 2026-10-30 (AVR-784); do not use
+`--member` / `--all` of the tool for new keys. `--list`, `--remove`, `--missing` and the file format below still apply.
 
-## Automatic (LEGACY): Home makes the key (owner decision 2026-10-28, "Home does it")
+## Home no longer makes keys (deleted 2026-10-30, AVR-784)
 
-With `komga` in `HOME_PROVISION_ACCOUNTS`, Home makes a member's key the first time they open a page with their
-Comics rows and have none (a Continue section answers `no_member_key`). The same page then shows their row. Home
-uses its Komga admin key (`secrets/komga_admin_token`) for this and nothing else. The steps are the tool's,
-below: find the account by email (or create it with Authentik sign-in defaults), a one-time random password
-(one Komga sign-out), the `avrana-home` key, filed in `state/komga_member_keys`. Your own account, the admin
-key's, gets its key without a password change; any other admin is never touched. One attempt per member per
-hour, at most `HOME_PROVISION_CAP_PER_HOUR` (with Jellyfin and Audiobookshelf creations) in all; every attempt
-logs one `provision` event with service `komga` and a fixed reason.
-
-Safety stops (S-02). Home refuses to make keys while the keys file is absent or unreadable (log `provision`,
-service `komga`, state `refused`, reason `keys_file_unusable`; no Komga request): an unmounted `state/` would
-otherwise look like "nobody has a key" and reset members' passwords. So create the file once, empty, when turning this
-on: `echo '{}' > state/komga_member_keys && chmod 600 state/komga_member_keys`. If a key step fails AFTER the
-password reset (Komga error, or the file cannot be written), Home logs `provision`, service `komga`, state `failed`,
-reason `failed_after_reset`, and never retries that member by itself; find them with
-`grep failed_after_reset` in Home's log, and the list is in `state/komga_member_keys.reset_failed`. Repair with
-`python3 tools/komga_member_keys.py --member <email> --keys-file state/komga_member_keys` (a key in the file also
-ends the block; to let Home try again without a key, delete the member's line from the `.reset_failed` file AND
-restart Home, which also holds the block in memory).
-
-Home re-reads the keys file whenever it changes, so neither Home nor the tool needs Home restarted.
-
-Turning it on (owner, once):
-
-1. Create a Komga admin API key named `avrana-home-admin` and put it in `secrets/komga_admin_token` (hidden
-   prompt, mode 0600), like the other secrets.
-2. `mkdir -m 700 state` next to the compose file (owned by cody, uid 1000), and move any keys file there:
-   `mv secrets/komga_member_keys state/`.
-3. Add `komga` to `HOME_PROVISION_ACCOUNTS` in `beta-live.env`.
-4. Uncomment the Komga lines in `docker-compose.beta-live.yml` (two environment lines, `volumes:`, the second
-   `secrets:` line, `komga_admin_token`), dry-run and recreate.
-
-Checking coverage: `python3 tools/komga_member_keys.py --missing` lists non-admin Komga accounts Home holds no
-key for (they get one on their next Home visit). Turning it off: drop `komga` from `HOME_PROVISION_ACCOUNTS`;
-existing keys keep working.
+Home's automatic path (`komga` in `HOME_PROVISION_ACCOUNTS`, a Komga admin key in `secrets/komga_admin_token`) made a
+member's key by resetting their Komga password, which broke the OPDS password the enrollment set. It is deleted:
+settings refuse `HOME_PROVISION_ACCOUNTS=...komga`, `KOMGA_ADMIN_TOKEN[_FILE]` and `HOME_KOMGA_LEGACY_PROVISION` by
+name, and Home holds no Komga admin key. Keys arrive from the enrollment stage and from Me -> Comics
+(docs/runbooks/komga-key-lifecycle.md). Members the old path damaged are listed in
+`state/komga_member_keys.reset_failed` and in Home's old logs (`failed_after_reset`); their repair is the owner
+decision in that runbook's section 4.
 
 ## What it costs
 
@@ -64,9 +35,8 @@ existing keys keep working.
 - Komga keys cannot be narrowed: a member's key can do whatever that member can do in Komga. Home's code uses it
   only through the two-route allow-list above (`MEMBER_ROUTES`, GET only), and the file is a secret like the
   others (mode 0600, `secrets/`, never in Git).
-- Every run needs a Komga **admin** API key. With the tool you type it at a hidden prompt and delete it
-  afterwards. With automatic keys on, Home holds one (owner decision 2026-10-28, replacing 2026-10-15's "no
-  admin key"), used only by provision.py, never by the read adapters.
+- Every run of the tool needs a Komga **admin** API key, typed at a hidden prompt and deleted afterwards. Home
+  itself holds none (the 2026-10-28 exception for provision.py ended on 2026-10-30, AVR-784).
 
 ## First run (everyone who already has a Komga account)
 

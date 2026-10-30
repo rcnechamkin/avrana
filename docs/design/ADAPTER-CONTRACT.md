@@ -1054,19 +1054,10 @@ Rules, each enforced in code and tested in `tests/test_provision.py` and `webtes
   real upstreams, `HOME_IDENTITY_MODE=jwt_required` and `HOME_ALLOWED_USERS`, and in the owner preview.
 * One log event per attempt, `provision` with `service`, `state` (`provisioned`, `refused`, `failed`) and a fixed
   `reason`: never a password, token, username, e-mail or upstream id.
-* LEGACY since 2026-10-30 (S-01): the Komga branch below runs only with `HOME_KOMGA_LEGACY_PROVISION=on` (settings
-  refuse `HOME_PROVISION_ACCOUNTS=komga` and `KOMGA_ADMIN_TOKEN` without it) and is deleted once the enrollment stage is
-  confirmed live (section 15.1; docs/runbooks/komga-key-lifecycle.md, "Phase 4").
-* Komga failure semantics (S-02). For any account but the admin key's own, Komga leaves no way to mint a member's key
-  without first resetting their password, so everything after the reset is fenced. A failure there (Komga error or
-  timeout, malformed answer, or the keys file cannot be written) is terminal for that member: `provision` is logged
-  once with `state=failed`, `reason=failed_after_reset`, the member is never retried automatically (in memory, and in
-  the sidecar `<keys file>.reset_failed`, so a restart does not retry either), and the owner tool
-  `tools/komga_member_keys.py --member` is the repair. A failure before the reset stays an ordinary hourly retry. Known risk, accepted: a PATCH that times out after
-  Komga applied it is not known to have reset anything, so it is retried hourly (and may reset again).
-  Komga provisioning also requires the configured keys file to EXIST and parse: otherwise no Komga request is made,
-  no cap slot is used, and `provision` logs `state=refused`, `reason=keys_file_unusable` (once per member per hour).
-  The read adapters are unchanged: an absent file is still "no member rows".
+* Komga is NOT provisioned by Home (since 2026-10-30, S-01 / AVR-784). The former Komga branch (an admin key that made a
+  member's key by resetting their Komga password, with the S-02 "terminal after the reset" semantics) is deleted;
+  settings refuse `HOME_PROVISION_ACCOUNTS=...komga`, `KOMGA_ADMIN_TOKEN[_FILE]` and `HOME_KOMGA_LEGACY_PROVISION` by
+  name. Members' keys: section 15.1.
 
 ### 15.1 Members' own Komga keys (S-01, 2026-10-30)
 

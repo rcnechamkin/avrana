@@ -86,7 +86,6 @@ READ = "READ"
 # that Komga first scanned in the last FOR_YOU_DAYS.
 FOR_YOU_DAYS = 30
 WEEK_DAYS = 7                    # Home's "This week in comics" card: what arrived in the last seven days
-NO_MEMBER_KEY = "no_member_key"               # the provisioning trigger (provision.py)
 # Two or more trailing "(...)" groups: the year, "(Digital)", the scanner's tag. Komga's `metadata.title` falls back to
 # the file name when a book has no metadata, and that is how file names end ("Saga 055 (2021) (Digital) (Group)").
 _FILE_TAGS = re.compile(r"(?:\s*\([^()]{0,60}\)){2,}\s*$")
@@ -235,8 +234,7 @@ class KomgaAdapter(GuardedAdapter):
     def __init__(self, transport: Transport, timeout: float = DEFAULT_TIMEOUT, *,
                  owner_confirms_no_member_restrictions: bool = False,
                  member_keys: Optional[MemberKeyStore] = None,
-                 member_transport: Optional[Callable[[str], Transport]] = None,
-                 provisioning: bool = False, **kw):
+                 member_transport: Optional[Callable[[str], Transport]] = None, **kw):
         # A shared view (contract 12.2, owner decision 2026-10-15): every member sees what the regular
         # account sees, so Komga's own per-member restrictions are NOT applied. The owner must opt in on
         # purpose, and only while no member has a Komga restriction.
@@ -248,7 +246,6 @@ class KomgaAdapter(GuardedAdapter):
         self._keys = member_keys
         self._member_transport = member_transport     # one member's key -> an inner Transport carrying it
         self._guards: Dict[str, MemberGuardedTransport] = {}
-        self._provisioning = bool(provisioning) and member_keys is not None
         if member_keys is not None:                    # Continue and New for You are offered (to the members with a key)
             self.not_offered = frozenset()
             self.extra_sections = self.extra_sections | {"for_you"}
@@ -258,7 +255,7 @@ class KomgaAdapter(GuardedAdapter):
 
     @property
     def member_keys(self) -> Optional[MemberKeyStore]:
-        """The live keys store (provision.py files new keys in it), or None."""
+        """The live keys store (komga_keys.py files new keys in it), or None."""
         return self._keys
 
     # -- what this adapter does not offer: no upstream call, nothing cached ----------------
@@ -268,10 +265,7 @@ class KomgaAdapter(GuardedAdapter):
         self._require_principal(principal)
         guard = self._member_guard(principal.email)
         if guard is None:
-            out = self._not_offered(principal, "continue")
-            if self._provisioning and out.reason == "not_offered" and member_key_id(principal.email):
-                out = SectionResult(self.service, "continue", SectionState.EMPTY, reason=NO_MEMBER_KEY)
-            return out
+            return self._not_offered(principal, "continue")
         limit = _limit(limit)
         return self._section(principal, "continue", f"continue:{limit}",
                              lambda user: self._reading(guard, limit))

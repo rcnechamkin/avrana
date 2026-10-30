@@ -163,20 +163,18 @@ def build_adapters(settings: Settings, cache: MemberCache) -> list:
         komga_confirmed = (settings.upstream_mode == "mock") or settings.komga_owner_confirms
         # Members' OWN keys (owner decisions 2026-10-28), for their Continue reading row only; settings.py accepts
         # them only in real mode with signed identity. The store re-reads the file when it changes; Home writes it
-        # only when HOME_PROVISION_ACCOUNTS names komga (provision.py). No file: Continue is not offered.
+        # only for the S-01 key intake and Me -> Comics (komga_keys.py). No file: Continue is not offered.
         keys = None
         if settings.komga_member_keys_file:
-            # Writable for the S-01 key intake and Me -> Comics (komga_keys.py), and the legacy provisioning.
-            writable = ("komga" in settings.provision_accounts or bool(settings.key_intake_token)
-                        or bool(settings.komga_connect))
+            # Writable for the S-01 key intake and Me -> Comics (komga_keys.py); nothing else in Home writes it.
+            writable = bool(settings.key_intake_token) or bool(settings.komga_connect)
             keys = MemberKeyStore(settings.komga_member_keys_file, writable=writable,
                                   initial=settings.komga_member_keys,
                                   log=lambda **f: log_event(app_log, logging.INFO, "komga_member_keys", **f))
         komga_adapter = KomgaAdapter(
             komga_transport, timeout=settings.timeout, cache=cache,
             owner_confirms_no_member_restrictions=komga_confirmed, member_keys=keys,
-            member_transport=(lambda key: UrllibTransport(settings.komga_base_url, {"X-API-Key": key})) if keys else None,
-            provisioning="komga" in settings.provision_accounts)
+            member_transport=(lambda key: UrllibTransport(settings.komga_base_url, {"X-API-Key": key})) if keys else None)
         komga_adapter.cache = cache
         adapters.append(komga_adapter)
     if settings.calibre_web_base_url:             # off unless configured (settings.py validates)
@@ -305,9 +303,7 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
     notices = notice_mod.NoticeBoard(settings.notice_file)          # AVR-365: read-only; None = no notices
     # Account creation (ACCOUNT-PROVISIONING.md): None unless HOME_PROVISION_ACCOUNTS names a library.
     if provisioner is None and adapters is None:
-        komga_keys = next((a.member_keys for a in adapter_list if isinstance(a, KomgaAdapter)), None)
-        provisioner = build_provisioner(
-            settings, log=lambda **f: log_event(app_log, logging.INFO, "provision", **f), komga_keys=komga_keys)
+        provisioner = build_provisioner(settings, log=lambda **f: log_event(app_log, logging.INFO, "provision", **f))
     # S-01 (komga_keys.py): members' own Komga keys arrive from the enrollment stage (the intake) or from Me -> Comics;
     # Home never holds an admin key or a member's password for them. Both need the Komga adapter's keys file, writable.
     member_keys = next((a.member_keys for a in adapter_list if isinstance(a, KomgaAdapter)), None)

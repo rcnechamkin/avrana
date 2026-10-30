@@ -1,9 +1,11 @@
 # Komga member keys: minted where the password lives (S-01)
 
-Decision: docs/DECISIONS.md, "Komga member keys are minted where the password lives". This replaces Home making
-keys with a Komga admin key (`provision.py`, which reset the member's Komga password and so broke the OPDS password
-the enrollment set on purpose). Enrollment owns the member's Komga credential; Home only consumes keys and never
-holds or changes a member's password.
+Status: **live since 2026-10-30** (AVR-784: steps 1 to 3 below were applied and tested with a throwaway member; the
+admin-key provisioner is deleted from the code, "Phase 4"). Decision: docs/DECISIONS.md, "Komga member keys are
+minted where the password lives". This replaces Home making keys with a Komga admin key (the former Komga branch of
+`provision.py`, which reset the member's Komga password and so broke the OPDS password the enrollment set on
+purpose). Enrollment owns the member's Komga credential; Home only consumes keys and never holds or changes a
+member's password, and holds no Komga admin key at all.
 
 How a member's own Komga key reaches `state/komga_member_keys` now:
 
@@ -11,7 +13,7 @@ How a member's own Komga key reaches `state/komga_member_keys` now:
 |---|---|---|---|
 | Enrollment | Authentik, inside the flow | Policy `avrana-komga-key-mint` (login stage, after `avrana-komga-create`) signs in to Komga AS the new member, makes the key `avrana-home`, PUTs it to Home's intake. Never fails enrollment. | `services/authentik/blueprints/avrana-enrollment.yaml` |
 | Connect comics | The member, once | Me -> Comics -> Connect comics: the member types their Avrana password; Home signs in to Komga as them, makes the key, files it and forgets the password. Five tries per 15 minutes. | `services/avrana-home/avrana_home/komga_keys.py`, `app/comics.py` |
-| Owner tool (legacy) | Temporary admin key | `tools/komga_member_keys.py`: still resets the password. Do not use for new keys; see "Phase 4". | `services/avrana-home/tools/komga_member_keys.py` |
+| Owner tool (repair only) | Temporary admin key, typed at a prompt | `tools/komga_member_keys.py --member` still resets the member's Komga password. Never for new keys; `--list`, `--remove`, `--missing` are safe. | `services/avrana-home/tools/komga_member_keys.py` |
 
 Every key is checked with Komga before it is filed (`GET /api/v2/users/me` with the key) and filed under the email of
 the Komga account it opens. A member removes Home's access on Me -> Comics -> Disconnect (revoked in Komga with the
@@ -61,7 +63,7 @@ lacks). Do NOT copy the repo file over the live one. Import only the new policy 
 
 1. Put the token from step 1 into `/home/cody/avrana/services/authentik/.env` as `AVRANA_HOME_KEY_INTAKE_TOKEN`
    (hidden prompt). That file is the `env_file` of authentik-server AND the worker (`services/authentik/docker-compose.yml`).
-   Do NOT put it in `blueprints.env` (where `AVRANA_KOMGA_ADMIN_PASSWORD` lives): only the worker loads that file,
+   Do NOT put it in `blueprints.env` (where `AVRANA_KOMGA_ADMIN_API_KEY` lives): only the worker loads that file,
    and the policy runs in the server, so it would log `AVRANA_HOME_KEY_INTAKE_TOKEN not set, skipping` on every
    enrollment. Recreating authentik-server (and the worker) needs your approval; sign-in is briefly down. The policy
    reads the variable when it runs; the token is never written into the expression. Location: docs/SECRETS.md.
@@ -76,6 +78,14 @@ lacks). Do NOT copy the repo file over the live one. Import only the new policy 
    `avrana-komga-key-mint`, execution logging on, paste the expression from the repo file. Then Flows ->
    `avrana-invite` -> Stage Bindings -> the login stage (order 40) -> Bind existing policy -> `avrana-komga-key-mint`,
    order 2. Note that a later re-apply of the live blueprint does not remove a UI-made object.
+
+`avrana-komga-create` itself (the stage that creates the member's Komga account with the password they chose) needs
+a working Komga ADMIN credential in `blueprints.env`. Since 2026-10-30 that is an API key, `AVRANA_KOMGA_ADMIN_API_KEY`
+(a key named `authentik-enrollment` made for a Komga admin account; `X-API-Key` header), not an admin e-mail and
+password: the password had gone stale on the live host and the stage had been failing with 401 for every enrollment
+without anyone noticing, so no new member had a Komga account and the key mint could not have worked either. After
+changing `blueprints.env`: `docker compose up -d --force-recreate --no-deps worker`, then change one byte of the
+blueprint (a comment), since the worker re-applies it only on content change; check its status is "successful".
 
 ### 3. Test with ONE throwaway invitation
 
@@ -116,18 +126,40 @@ off, comment the three lines again and redeploy.
   comics will say the password didn't work. Same owner decision as above; after it, they connect themselves.
 - Coverage check without any admin key: `count` above against the number of Comics members in Authentik.
 
-## Phase 4: removing the key factory
+## Phase 4: the key factory is gone (AVR-784, 2026-10-30)
 
-On this branch the old admin-key provisioning is behind `HOME_KOMGA_LEGACY_PROVISION=on` (default off; settings refuse
-`KOMGA_ADMIN_TOKEN` without it). After step 3 has worked live, delete in a follow-up:
+Deleted from the code the same day the stage was confirmed live: `KomgaKeyCreator`, `KOMGA_TRIGGER`,
+`KOMGA_OIDC_ROLES` and the Komga branch of `build_provisioner` (`provision.py`); the `provisioning` flag and
+`NO_MEMBER_KEY` trigger (`adapters/komga.py`); `usable` / `reset_failed` / `mark_reset_failed` (`member_keys.py`);
+`komga_admin_token`, `komga_legacy_provision` and the `komga` choice of `HOME_PROVISION_ACCOUNTS` (`app/settings.py`);
+the `HomeMakesKeys` tests; the `komga_admin_token` secret entry of `docker-compose.beta-live.yml`. Settings now
+**refuse by name** `KOMGA_ADMIN_TOKEN`, `KOMGA_ADMIN_TOKEN_FILE`, `HOME_KOMGA_LEGACY_PROVISION` and
+`HOME_PROVISION_ACCOUNTS=...komga`, so a stale compose file fails at start instead of being ignored.
 
-- `KomgaKeyCreator`, `KOMGA_TRIGGER`, `KOMGA_OIDC_ROLES` and the Komga branch of `build_provisioner` in
-  `services/avrana-home/avrana_home/provision.py`; the `provisioning` flag and `NO_MEMBER_KEY` trigger in
-  `adapters/komga.py`; `reset_failed` / `mark_reset_failed` / `usable` in `member_keys.py` (only the legacy path reads
-  them); `komga_admin_token`, `komga_legacy_provision` and the `komga` choice of `HOME_PROVISION_ACCOUNTS` in
-  `app/settings.py`; the `HomeMakesKeys` tests in `tests/test_komga_member_reading.py`.
-- The `komga_admin_token` secret entry (commented) in `docker-compose.beta-live.yml`, and `secrets/komga_admin_token`
-  on the host; revoke that admin key in Komga (Account settings -> API keys).
-- The password-resetting parts of `tools/komga_member_keys.py` (`--member`, `--all`); keep `--list` and `--remove`,
-  or retire the tool for `member_keys count` and `offboard.py`.
-- The "Automatic: Home makes the key" section of `docs/runbooks/komga-member-keys.md`.
+Still in place, on purpose:
+
+- `tools/komga_member_keys.py --member` / `--all` (owner-run, temporary admin key at a prompt). It is the only
+  instrument that can give a member who has no Komga account or key one by hand, at the price of a password reset,
+  which is also what the §4 repair decision may need. Never for new keys.
+- `state/komga_member_keys.reset_failed` on the host: a record of the members the old path damaged (§4). Nothing
+  reads it any more; keep it until those members are repaired.
+
+### Deployment and migration notes (what the live host looks like after 2026-10-30)
+
+- Home: `secrets/komga_admin_token` is deleted and no longer in the compose file; `HOME_PROVISION_ACCOUNTS` is
+  `jellyfin,audiobookshelf`. Deploying this revision needs nothing else. Deploying it onto a host that still names any
+  of the four removed settings fails at start with a message naming the setting: remove the line, do not add a flag.
+  `scripts/deploy-home-beta.sh` now prints `key intake: on|off | Connect comics: on|off` instead of the admin-key line.
+- The Komga admin key the old path used (`avrana-home-api`) is **not revoked**: it is the same key Home still uses as
+  its shared read key (`secrets/komga_token`). Revoking it is AVR-782 (mint a non-admin viewer key, swap it into
+  `komga_token`, then revoke `avrana-home-api` in Komga).
+- Authentik: `blueprints.env` carries `AVRANA_KOMGA_ADMIN_API_KEY`; `AVRANA_KOMGA_ADMIN_EMAIL` / `_PASSWORD` are no
+  longer referenced by any blueprint and can be deleted from the live file (worker recreate). The repo blueprint now
+  matches the live `avrana-komga-create` (API key); the rest of the known drift (PR #167) is unchanged: still never
+  copy the repo file over the live one.
+- Host `~/avrana` is a synced copy, not a Git checkout, and its `scripts/offboard.py` predates the Komga-key step;
+  sync it from `main` (a current copy was staged under `/home/cody/avrana-deploy/home-<sha>/scripts/`). `offboard.py`
+  revokes the leaver's key with the key itself but cannot delete their Komga account (no admin credential on the host):
+  delete it in Komga's UI, or extend the tool to use the `authentik-enrollment` key.
+- Rollback of this revision alone: the previous image (`avrana-home-live:pre-<sha>`) still accepts the old settings
+  but they are not in the live compose any more, so a rollback changes nothing about keys.

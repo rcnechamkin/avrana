@@ -60,18 +60,15 @@ services:
       - KOMGA_BASE_URL=http://komga:25600
       - KOMGA_TOKEN_FILE=/run/secrets/komga_token
       # Members' own Komga keys, for their Continue reading row (docs/runbooks/komga-member-keys.md). Home writes
-      # the file itself (S-01 intake and Me -> Comics below; LEGACY: HOME_PROVISION_ACCOUNTS=...,komga with
-      # HOME_KOMGA_LEGACY_PROVISION=on and the admin key, both retired), so it lives in ./state (owned by
-      # uid 1000, mode 0700), the ONLY writable mount, and Home reloads it when it changes. Off until the owner sets
-      # up ./state and secrets/komga_admin_token; then uncomment these two lines, the `volumes:` line, the
-      # komga_admin_token entry at the bottom, and use the second `secrets:` line below.
+      # the file itself (S-01 intake and Me -> Comics below), so it lives in ./state (owned by uid 1000, mode 0700),
+      # the ONLY writable mount, and Home reloads it when it changes. Off until the owner sets up ./state; then
+      # uncomment this line and the `volumes:` line. Home holds NO Komga admin key (AVR-784, 2026-10-30): the old
+      # KOMGA_ADMIN_TOKEN_FILE / HOME_KOMGA_LEGACY_PROVISION / HOME_PROVISION_ACCOUNTS=komga are refused.
       # - KOMGA_MEMBER_KEYS_FILE=/var/lib/avrana-home/komga_member_keys
-      # - KOMGA_ADMIN_TOKEN_FILE=/run/secrets/komga_admin_token
       # S-01 (docs/runbooks/komga-key-lifecycle.md): keys are minted where the password lives. The enrollment stage
       # PUTs a new member's key to Home's intake (the token, and the authentik_home_beta subnet from
       # `docker network inspect authentik_home_beta`); members connect or disconnect themselves on Me -> Comics.
-      # Both need KOMGA_MEMBER_KEYS_FILE above; neither needs komga_admin_token. Add home_key_intake_token to the
-      # `secrets:` line in use.
+      # Both need KOMGA_MEMBER_KEYS_FILE above. Add home_key_intake_token to the `secrets:` line in use.
       # - HOME_KEY_INTAKE_TOKEN_FILE=/run/secrets/home_key_intake_token
       # - HOME_INTERNAL_CIDR=<authentik_home_beta subnet, e.g. 172.18.0.0/16>
       # - HOME_KOMGA_CONNECT=on
@@ -100,7 +97,7 @@ services:
       # - HOME_SEERR_PROVISION=on
       # - HOME_LIBRARY_IDS_FILE=/var/lib/avrana-home-index/library_ids.json
     secrets: [home_jwt_secret, jellyfin_api_key, audiobookshelf_token, komga_token, calibre_web_credential]
-    # secrets: [home_jwt_secret, jellyfin_api_key, audiobookshelf_token, komga_token, calibre_web_credential, komga_admin_token]
+    # secrets: [home_jwt_secret, jellyfin_api_key, audiobookshelf_token, komga_token, calibre_web_credential, home_key_intake_token]
     # MEMBER REQUESTS: add shelfarr_token, seerr_api_key and omnibus_api_key to whichever secrets: line is in use.
     # ./state is the ONLY writable mount (identity bindings; Komga member keys and the member store when switched on).
     # It stays active whenever HOME_IDENTITY_BINDINGS_FILE is: without it Home refuses every member (S-11). It is
@@ -154,8 +151,6 @@ secrets:
     file: ./secrets/audiobookshelf_token
   komga_token:
     file: ./secrets/komga_token
-  # komga_admin_token:          # LEGACY (S-01): only with HOME_KOMGA_LEGACY_PROVISION=on; to be deleted
-  #   file: ./secrets/komga_admin_token
   # home_key_intake_token:      # S-01: the shared secret the enrollment stage sends to Home's key intake
   #   file: ./secrets/home_key_intake_token
   calibre_web_credential:

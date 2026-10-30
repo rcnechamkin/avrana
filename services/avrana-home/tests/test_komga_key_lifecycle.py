@@ -282,17 +282,25 @@ class SettingsTests(unittest.TestCase):
                 self.assertNotIn("i" * 40, str(caught.exception))
 
 
-class LegacySwitchTests(Files):
-    def test_build_provisioner_makes_komga_keys_only_with_the_legacy_switch(self):
-        from dataclasses import replace
+class NoAdminKeyTests(SettingsTests):
+    """AVR-784: the admin-key provisioner is gone. Home cannot be configured to make members' Komga keys, and the
+    provisioner knows no Komga creator (the only Komga writes left are komga_keys.py's, with the member's own key)."""
+
+    def test_the_provisioner_has_no_komga_branch(self):
+        import avrana_home.provision as provision
         from avrana_home.contract import Service
-        from avrana_home.provision import build_provisioner
-        store = MemberKeyStore(self.path, writable=True)
-        base = replace(Settings(), upstream_mode="real", provision_accounts=("komga",), komga_admin_token="a" * 32,
-                       komga_base_url="http://komga.test")
-        self.assertIsNone(build_provisioner(base, komga_keys=store))
-        on = build_provisioner(replace(base, komga_legacy_provision=True), komga_keys=store)
-        self.assertEqual(on.services, (Service.KOMGA,))
+        self.assertNotIn(Service.KOMGA, provision.PROVISIONABLE)
+        self.assertFalse(hasattr(provision, "KomgaKeyCreator"))
+        with self.assertRaises(ValueError):
+            provision.Provisioner({Service.KOMGA: object()})
+
+    def test_settings_refuse_komga_provisioning_and_the_old_admin_key(self):
+        for stale in (dict(HOME_PROVISION_ACCOUNTS="komga", HOME_ALLOWED_USERS="alice"),
+                      dict(KOMGA_ADMIN_TOKEN="a" * 32), dict(HOME_KOMGA_LEGACY_PROVISION="on")):
+            with self.subTest(stale=list(stale)):
+                with self.assertRaises(SettingsError) as caught:
+                    Settings.from_mapping(dict(self.on, **stale))
+                self.assertNotIn("a" * 32, str(caught.exception))
 
 
 def load_offboard():

@@ -47,7 +47,7 @@ ak_env=(
   -e AUTHENTIK_BOOTSTRAP_PASSWORD="$admin_pass" -e AUTHENTIK_BOOTSTRAP_EMAIL=akadmin@example.test
   -e AUTHENTIK_DISABLE_UPDATE_CHECK=true -e AUTHENTIK_ERROR_REPORTING__ENABLED=false
   -e AVRANA_JELLYFIN_API_KEY="$jf_key" -e AVRANA_SMTP2GO_PASSWORD="$(rand)"
-  -e AVRANA_KOMGA_ADMIN_EMAIL=komga@example.test -e AVRANA_KOMGA_ADMIN_PASSWORD="$(rand)"
+  -e AVRANA_KOMGA_ADMIN_API_KEY="$(rand)"
 )
 blueprint="$here/services/authentik/blueprints/avrana-enrollment.yaml:/blueprints/avrana/avrana-enrollment.yaml:ro"
 
