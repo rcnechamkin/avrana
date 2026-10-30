@@ -5,11 +5,15 @@ shadowed local in the view model and #148 pinned the template, but nothing reque
 libraries, each section in one of ok / empty / unavailable / not_linked, across every Home, Continue, Library and Search
 route, for a member who holds all four libraries and for a comics-only member. Every response must be a calm 200.
 
+Scenarios (X6 verifier R1): a 9-row pairwise (L9) set over the four libraries, one all-not_linked scenario, a seeded random
+sample, and ONE-SECTION-AT-A-TIME deviations (each library x each section it offers x each non-ok state, everything else
+ok). The one-section set is what reaches #146: Audiobooks or Comics with `recent` empty while `shelves` is ok never occurs
+when a library's sections all share one state.
+
 Jinja runs with StrictUndefined (the app builds its environment in `make_environment`, kept on `app.state.env`; the test
 swaps `env.undefined` on its own app, application code is untouched), so a template that reads a name the view model
 does not give fails loudly instead of rendering as empty.
 """
-import itertools
 import json
 import random
 import re
@@ -36,7 +40,7 @@ BAD_WORDS = ("Traceback", "UndefinedError", "Something went wrong")
 # section heading ("Continue", "New to Avrana") with no card and no line under it; the page banner explains the library,
 # but the heading is still empty. The sweep tolerates that ONLY beside a banner or warning; anywhere else it fails.
 SEED = 20261029
-RANDOM_CASES = 8     # keeps the module well inside its time budget; the 81 uniform combinations are always run
+RANDOM_CASES = 12     # seeded random sample, on top of the 9 pairwise rows and the 54 one-section deviations
 
 
 def routes(n):
@@ -57,15 +61,29 @@ def plans_uniform(combo):
     return {s: {sec: st for sec in OFFERED[s]} for s, st in zip(SERVICES, combo)}
 
 
+# L9 orthogonal array: every pair of libraries meets every pair of (ok, empty, unavailable) at least once.
+L9 = ((0, 0, 0, 0), (0, 1, 1, 1), (0, 2, 2, 2), (1, 0, 1, 2), (1, 1, 2, 0), (1, 2, 0, 1), (2, 0, 2, 1), (2, 1, 0, 2),
+      (2, 2, 1, 0))
+LEVEL = ("ok", "empty", "unavailable")
+
+
 def scenarios():
-    for combo in itertools.product(("ok", "empty", "unavailable"), repeat=4):
-        yield "uniform:" + "/".join(combo), plans_uniform(combo)
-    for st in ("not_linked",):
-        yield f"uniform:{st}", plans_uniform((st,) * 4)
+    """(label, plans, kind): kind 'mix' scenarios ask the rotating route list, 'one' the short Home/Listen/Read list."""
+    for row in L9:
+        combo = tuple(LEVEL[i] for i in row)
+        yield "pairwise:" + "/".join(combo), plans_uniform(combo), "mix"
+    yield "uniform:not_linked", plans_uniform(("not_linked",) * 4), "mix"
     rnd = random.Random(SEED)
     for k in range(RANDOM_CASES):
         plans = {s: {sec: rnd.choice(STATES) for sec in OFFERED[s]} for s in SERVICES}
-        yield f"random#{k}:" + json.dumps({s.value: "".join(p[x][0] for x in OFFERED[s]) for s, p in plans.items()}), plans
+        yield f"random#{k}:" + json.dumps({s.value: "".join(p[x][0] for x in OFFERED[s]) for s, p in plans.items()}), plans, "mix"
+    for svc in SERVICES:
+        for sec in OFFERED[svc]:
+            for state in ("empty", "unavailable", "not_linked"):
+                yield f"one:{svc.value}.{sec}={state}", {svc: {sec: state}}, "one"
+
+
+ONE_ROUTES = ("/", "/?for=listen", "/?for=read")
 
 
 def strict_client(adapters):
@@ -79,9 +97,18 @@ def main_of(text):
     return parts[1].split("</main>")[0] if len(parts) == 2 else ""
 
 
+# The two rails that gather every library's items. When a library is unavailable or not set up (the page SAYS so) they can be
+# bare today: see BareHeadingsUnderABanner. Every other heading (Recently released, Classics, New for You, New Releases,
+# Books, the Library shelves ...) must never stand over nothing, banner or not.
+DEGRADED_RAILS = ("Continue", "New to Avrana")
+DEGRADED_SAID = re.compile(r"are (?:unavailable right now|not set up for your account yet)")
+
+
 def hard_bare(main):
-    """Empty-rail headings on a page that does NOT say a library is degraded (nothing excuses them)."""
-    return [] if ('class="banner"' in main or 'class="k-warn' in main) else empty_headings(main)
+    """Empty-rail headings that nothing excuses: any heading but the aggregate rails, or those on a page that names no
+    degraded library."""
+    excused = DEGRADED_RAILS if DEGRADED_SAID.search(main) else ()
+    return [h for h in empty_headings(main) if h not in excused]
 
 
 def empty_headings(main):
@@ -98,13 +125,17 @@ def empty_headings(main):
 
 
 def tile_problems(text):
-    """A place tile or chip is a link, or struck through and then says why (screen-reader text)."""
+    """A place tile or chip is a link, or struck through and then says why (screen-reader text). Checks the places nav, the
+    Library chips and the New Releases / New to Avrana tabs; nothing in them may sit outside a link."""
     bad = []
-    for nav in re.findall(r'<nav class="(?:places|chips)[^"]*".*?</nav>', text, flags=re.S):
-        for child in re.findall(r"<(a|span|s|div|button)\b", nav):
-            if child == "div" or child == "button":
-                bad.append("tile is not a link: " + child)
-        for anchor in re.findall(r"<a\b[^>]*>.*?</a>", nav, flags=re.S):
+    for nav in re.findall(r'<nav class="(?:places|chips|tabs)[^"]*".*?</nav>', text, flags=re.S):
+        anchors = re.findall(r"<a[^>]*>.*?</a>", nav, flags=re.S)
+        if not anchors:
+            bad.append("nav without a link")
+        loose = re.sub(r"<a[^>]*>.*?</a>", "", nav.split(">", 1)[1], flags=re.S)
+        for tag in re.findall(r"<(span|s|div|button|p|strong|em)", loose.split("</nav>")[0]):
+            bad.append("tile is not a link: " + tag)
+        for anchor in anchors:
             if " href=" not in anchor:
                 bad.append("anchor without href")
             if "<s>" in anchor and not re.search(r'class="sr">[^<]*(unavailable|not set up)', anchor):
@@ -140,25 +171,32 @@ def problems(client, headers, url, cap):
 
 
 class DegradedMatrix(unittest.TestCase):
-    def sweep(self, member, only=None):
-        failures, count = [], 0
-        for n, (label, plans) in enumerate(scenarios()):
-            if only is not None and n % only[0] != only[1]:
-                continue
+    def sweep(self, member, mix_every=1):
+        failures, count, mixes = [], 0, 0
+        for n, (label, plans, kind) in enumerate(scenarios()):
+            if kind == "mix":
+                mixes += 1
+                if (mixes - 1) % mix_every:
+                    continue
+                urls = routes(n)
+            elif member == "comics" and not (Service.KOMGA in plans):
+                continue            # a comics-only member holds no other library
+            else:
+                urls = ONE_ROUTES
             adapters = adapters_for(plans)
             cap = derive_hard_cap(adapters)
             with strict_client(adapters) as client:
-                for url in routes(n):
+                for url in urls:
                     count += 1
                     failures += [f"[{label}] {p}" for p in problems(client, MEMBERS[member], url, cap)]
-        self.assertGreater(count, 100)
+        self.assertGreater(count, 50)
         self.assertEqual([], failures[:15], f"{len(failures)} problems in {count} requests")
 
     def test_a_member_with_every_library(self):
         self.sweep("all")
 
     def test_a_comics_only_member(self):
-        self.sweep("comics", only=(4, 0))      # a quarter of the scenarios: this member has one place, so fewer branches
+        self.sweep("comics", mix_every=2)      # half of the mixed scenarios, plus every Komga one-section deviation
 
 
 def get(adapters_plans, url, member="all", **kw):
@@ -254,15 +292,17 @@ class BareHeadingsUnderABanner(unittest.TestCase):
         # template then prints "Continue" with no card and no line.
         plan = sections(komga={"continue": "empty"}, calibre_web={"continue": "unavailable", "recent": "unavailable"},
                         jellyfin={"continue": "empty"}, audiobookshelf={"continue": "empty"})
-        main = main_of(get(plan, "/?for=read").text)
-        self.assertEqual([], empty_headings(main))
+        r = get(plan, "/?for=read")
+        self.assertEqual(200, r.status_code)          # a crash is not "unexpected success"
+        self.assertEqual([], empty_headings(main_of(r.text)))
 
     @unittest.expectedFailure
     def test_new_to_avrana_has_a_line_when_audiobooks_are_not_set_up(self):
         # DEFECT: Listen with Audiobooks recent/shelves not_linked prints "New to Avrana" with no card and no line.
         plan = sections(audiobookshelf={"continue": "empty", "recent": "not_linked", "shelves": "not_linked"})
-        main = main_of(get(plan, "/?for=listen").text)
-        self.assertEqual([], empty_headings(main))
+        r = get(plan, "/?for=listen")
+        self.assertEqual(200, r.status_code)
+        self.assertEqual([], empty_headings(main_of(r.text)))
 
 
 if __name__ == "__main__":
