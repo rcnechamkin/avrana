@@ -66,6 +66,14 @@ services:
       # komga_admin_token entry at the bottom, and use the second `secrets:` line below.
       # - KOMGA_MEMBER_KEYS_FILE=/var/lib/avrana-home/komga_member_keys
       # - KOMGA_ADMIN_TOKEN_FILE=/run/secrets/komga_admin_token
+      # S-01 (docs/runbooks/komga-key-lifecycle.md): keys are minted where the password lives. The enrollment stage
+      # PUTs a new member's key to Home's intake (the token, and the authentik_home_beta subnet from
+      # `docker network inspect authentik_home_beta`); members connect or disconnect themselves on Me -> Comics.
+      # Both need KOMGA_MEMBER_KEYS_FILE above; neither needs komga_admin_token. Add home_key_intake_token to the
+      # `secrets:` line in use.
+      # - HOME_KEY_INTAKE_TOKEN_FILE=/run/secrets/home_key_intake_token
+      # - HOME_INTERNAL_CIDR=<authentik_home_beta subnet, e.g. 172.18.0.0/16>
+      # - HOME_KOMGA_CONNECT=on
       # Me -> My profile (members' own photo and display name; memberstore.py). One SQLite file in the same ./state
       # mount. Off until the owner sets up ./state; then uncomment this line and the `volumes:` line. Back up
       # ./state/members.sqlite3 with ./state; offboarding a member purges their row (docs/runbooks/offboarding.md).
@@ -147,6 +155,8 @@ secrets:
     file: ./secrets/komga_token
   # komga_admin_token:          # a Komga ADMIN account's API key: Home uses it only to make members' own keys
   #   file: ./secrets/komga_admin_token
+  # home_key_intake_token:      # S-01: the shared secret the enrollment stage sends to Home's key intake
+  #   file: ./secrets/home_key_intake_token
   calibre_web_credential:
     file: ./secrets/calibre_web_credential
   # MEMBER REQUESTS (rollout step 3):

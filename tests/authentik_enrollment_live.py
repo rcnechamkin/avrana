@@ -19,6 +19,7 @@ import urllib.parse
 import urllib.request
 
 POLICY = "avrana-enrollment-username-available"
+MINT_POLICY = "avrana-komga-key-mint"
 FLOW = "avrana-invite"
 BLUEPRINT_PATH = "avrana/avrana-enrollment.yaml"
 GROUPS = ["avrana-users", "avrana-audiobooks", "avrana-comics", "avrana-books", "avrana-videos", "avrana-requests"]
@@ -161,6 +162,16 @@ def checks():
                               passing is want_pass and want_text in messages, f"passing={passing} {messages}"))
 
     flow = api.one("/api/v3/flows/instances/?slug=" + FLOW)
+    # S-01: the Komga key mint policy is applied, bound to the login stage after komga-create, and passes (never
+    # fails enrollment) when it has nothing to do: here no flow plan and no AVRANA_HOME_KEY_INTAKE_TOKEN.
+    mint = api.one("/api/v3/policies/expression/?name=" + MINT_POLICY)
+    login = api.one(f"/api/v3/flows/bindings/?target={flow['pk']}&order=40")
+    bound = api.get("/api/v3/policies/bindings/?policy=" + str(mint["pk"]))["results"]
+    results.append(expect("the Komga key mint policy is bound to the login stage at order 2",
+                          [(str(b.get("target")), b.get("order")) for b in bound] == [(str(login["pk"]), 2)], bound))
+    status, body = api.call("POST", f"/api/v3/policies/all/{mint['pk']}/test/", {"user": me, "context": {}})
+    results.append(expect("the Komga key mint policy passes when it has nothing to do",
+                          status == 200 and body.get("passing") is True, f"HTTP {status} {body}"))
     status, invite = api.call("POST", "/api/v3/stages/invitation/invitations/",
                               {"name": "ci-invite", "single_use": True, "flow": flow["pk"]})
     assert status == 201, (status, invite)
