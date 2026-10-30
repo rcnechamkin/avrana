@@ -222,6 +222,79 @@ class MeComicsDisconnect(Fixture):
         self.assertEqual(r.headers["location"], "/me/comics?r=not_connected")
 
 
+PASSWORD = "alice-synthetic-pw"
+
+
+class MeComicsConnect(MeComicsDisconnect):
+    def connect(self, password=PASSWORD):
+        from urllib.parse import quote
+        return self.post(f"t={self.token()}&do=connect&password={quote(password, safe='')}")
+
+    def everything_said(self, *responses):
+        return "\n".join([self.logs()] + [r.text + repr(dict(r.headers)) for r in responses])
+
+    def test_the_page_offers_connect_only_without_a_key(self):
+        page = self.page()
+        self.assertIn('name="password"', page.text)
+        self.assertIn('autocomplete="current-password"', page.text)
+        self.store.put("alice@example.com", "a" * 32)
+        self.assertNotIn('name="password"', self.page().text)
+
+    def test_connect_mints_files_and_forgets_the_password(self):
+        r = self.connect()
+        self.assertEqual((r.status_code, r.headers["location"]), (303, "/me/comics?r=connected"))
+        key = self.store.get("alice@example.com")
+        self.assertIn({"id": self.store.komga_id("alice@example.com"), "comment": "avrana-home", "key": key},
+                      self.komga.keys["U1"])
+        page = self.page(query="?r=connected")
+        self.assertIn("Comics connected", page.text)
+        said = self.everything_said(r, page)
+        for secret in (PASSWORD, key):
+            self.assertNotIn(secret, said)
+        self.assertIn("connected", self.logs())
+        self.assertEqual(self.connect().headers["location"], "/me/comics?r=already_connected")
+
+    def test_wrong_password_and_komga_down_file_nothing_and_never_echo_the_password(self):
+        responses = [self.connect("not-the-password-xyz")]
+        self.assertEqual(responses[0].headers["location"], "/me/comics?r=wrong_password")
+        self.komga.down = True
+        responses.append(self.connect())
+        self.assertEqual(responses[1].headers["location"], "/me/comics?r=komga_unavailable")
+        self.komga.down = False
+        self.komga.status[("POST", "/api/v2/users/me/api-keys")] = 500
+        responses.append(self.connect())
+        self.assertEqual(responses[2].headers["location"], "/me/comics?r=komga_unavailable")
+        responses.append(self.page(query="?r=wrong_password"))
+        self.assertIn("didn't work", responses[-1].text)
+        self.assertEqual(read_keys(self.path), ())
+        said = self.everything_said(*responses)
+        for secret in (PASSWORD, "not-the-password-xyz"):
+            self.assertNotIn(secret, said)
+
+    def test_an_empty_password_and_the_rate_limit(self):
+        self.assertEqual(self.post(f"t={self.token()}&do=connect&password=").headers["location"],
+                         "/me/comics?r=no_password")
+        for _ in range(5):
+            self.assertEqual(self.connect("wrong-synthetic").headers["location"], "/me/comics?r=wrong_password")
+        self.assertEqual(self.connect().headers["location"], "/me/comics?r=busy")
+        self.assertEqual(read_keys(self.path), ())
+        logins = [c for c in self.komga.calls if c[0] == "GET" and c[1] == "/api/v2/users/me/api-keys"]
+        self.assertEqual(len(logins), 5)                   # the sixth try never reached Komga
+
+    def test_a_filing_failure_revokes_the_new_key(self):
+        with open(self.path, "w", encoding="utf-8") as fh:
+            fh.write("{broken")
+        r = self.connect()
+        self.assertEqual(r.headers["location"], "/me/comics?r=unavailable")
+        self.assertEqual(self.komga.comments("U1"), ["phone"])        # the minted key was deleted again
+
+    def test_connect_is_csrf_locked_too(self):
+        from urllib.parse import quote
+        r = self.post(f"t={self.token()}&do=connect&password={quote(PASSWORD)}", site="cross-site")
+        self.assertEqual(r.status_code, 403)
+        self.assertEqual(self.komga.calls, [])
+
+
 class ConnectOff(Fixture):
     connect = False
 

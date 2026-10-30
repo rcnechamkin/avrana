@@ -37,8 +37,8 @@ from ..contract import REQUIRED_GROUP, MediaAdapter, SectionState, Service, buil
 from ..cache import MemberCache
 from ..member_keys import MemberKeyStore, member_key_id
 from ..identity_bindings import digest as subject_digest
-from ..komga_keys import KeyIntake, KomgaKeyClient
-from ..provision import Provisioner, build_provisioner
+from ..komga_keys import FILED as KEY_FILED, KOMGA_DOWN as KEY_KOMGA_DOWN, SAME as KEY_SAME, KeyIntake, KomgaKeyClient
+from ..provision import ProvisionFailed, Provisioner, build_provisioner
 from ..quickconnect import OUTCOMES as QC_OUTCOMES, QuickConnect
 from ..accountreader import END_OUTCOMES as SESSION_OUTCOMES, AccountReader, said_when
 from ..memberstore import (CONFLICT as STORE_CONFLICT, HOME_PLACES, INVALID as STORE_INVALID, SAVED as STORE_SAVED,
@@ -1484,8 +1484,37 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
                 return "disconnected_here"                # gone from Home; the page says how to remove it in Komga
             return "disconnected"
 
+        connect_limiter = SearchLimiter(window=comics_mod.CONNECT_WINDOW, limit=comics_mod.CONNECT_TRIES)
+
         async def comics_connect(p, form) -> str:
-            return "unavailable"
+            """Connect comics: the member's password, once, from the POST body only. Home signs in to Komga as them,
+            mints the `avrana-home` key, files it through the intake's own code path and forgets the password. The
+            password is never logged, stored, put in a URL or carried in an exception (komga_keys.py)."""
+            if member_keys.get(p.email) is not None:
+                return "already_connected"
+            password = form.pop("password", "")
+            if not password:
+                return "no_password"
+            if not connect_limiter.allow(p.username):
+                return "busy"
+            try:
+                key, komga_id = await run_in_threadpool(key_client.mint, p.email, password)
+            except ProvisionFailed as exc:
+                return {"wrong_password": "wrong_password", "bad_input": "wrong_password", "unreachable":
+                        "komga_unavailable"}.get(exc.reason, "komga_unavailable" if exc.reason.startswith("http_5")
+                                                 else "unavailable")
+            except Exception:
+                return "unavailable"
+            finally:
+                password = None
+            outcome = await run_in_threadpool(key_intake.file, member_ref(p), "connect", key, komga_id, True)
+            if outcome in (KEY_FILED, KEY_SAME):
+                return "connected"
+            try:                                          # not filed: don't leave an unused key behind in Komga
+                await run_in_threadpool(key_client.revoke, key, komga_id)
+            except Exception:
+                pass
+            return "komga_unavailable" if outcome == KEY_KOMGA_DOWN else "unavailable"
 
     if intake_on:
         @app.put(intake_mod.PREFIX + "{subject}", include_in_schema=False, response_model=None)

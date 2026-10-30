@@ -35,6 +35,20 @@
     <h3 class="kgroup-h" id="cx-off">Not connected</h3>
     <p class="note">Comics isn't connected to Home, so Continue reading doesn't show what you're reading in Comics. Comics itself works as usual.</p>
   </section>
+  <section class="kgroup" aria-labelledby="cx-connect">
+    <h3 class="kgroup-h" id="cx-connect">Connect comics</h3>
+    <p class="note">Type your Avrana password once. Home uses it to connect to Comics and doesn't keep it. If you've changed your Avrana password since you joined, use the one you joined with.</p>
+    <form class="srch" method="post" action="/me/comics" data-once>
+      <input type="hidden" name="t" value="{{ cx.token }}"><input type="hidden" name="do" value="connect">
+{#- For password managers only: not named, so it is never posted (the form's fields are allow-listed). #}
+      <input type="email" value="{{ cx.email }}" autocomplete="username" readonly hidden aria-hidden="true" tabindex="-1">
+      <label for="cx-pw">Avrana password</label>
+      <div class="ask">
+        <span class="ask-field"><input id="cx-pw" name="password" type="password" autocomplete="current-password" maxlength="256" required></span>
+        <button type="submit" data-busy="Connecting&hellip;">Connect</button>
+      </div>
+    </form>
+  </section>
 {% endif %}
 {% endblock %}
 {% block footer %}    {% if not shell %}<a class="link" href="/">Back to home</a>{% endif %}{% endblock %}
