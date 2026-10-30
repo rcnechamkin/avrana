@@ -332,7 +332,6 @@ entries:
       execution_logging: true
       expression: !Format
         - |
-          import base64
           from urllib.parse import urljoin
 
           plan = request.context.get("flow_plan")
@@ -365,8 +364,10 @@ entries:
           # authentik_backend/frontend, so the container name does NOT resolve between them.
           # Addressed by host LAN IP for the same reason the Jellyfin policy above is.
           komga_url = "http://10.0.0.218:25600"
-          auth = base64.b64encode(b"%s:%s").decode()
-          headers = {"Authorization": "Basic " + auth}
+          # 2026-10-30 (AVR-784): a dedicated ADMIN API key named authentik-enrollment (Komga allows X-API-Key on
+          # every /api route); the previous Basic email+password matched no Komga account.
+          # Key lives in blueprints.env (worker env at apply time), see docs/SECRETS.md.
+          headers = {"X-API-Key": "%s"}
 
           try:
               # If OIDC already auto-created this account (oauth2-account-creation is on), a
@@ -403,8 +404,7 @@ entries:
 
           return True
 
-        - !Env AVRANA_KOMGA_ADMIN_EMAIL
-        - !Env AVRANA_KOMGA_ADMIN_PASSWORD
+        - !Env AVRANA_KOMGA_ADMIN_API_KEY
   # --- Komga member key: minted while the password is still in the flow (S-01) --------------------------
   # ADDITIVE AND SELF-CONTAINED: this policy and its one binding (bottom of the file, binding-user-login order 2)
   # can be copied into the live blueprint on their own (docs/runbooks/komga-key-lifecycle.md). Home's comics

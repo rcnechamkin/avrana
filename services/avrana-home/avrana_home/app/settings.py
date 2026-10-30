@@ -111,12 +111,8 @@ class Settings:
     # (docs/runbooks/komga-member-keys.md). () = nobody has one: Continue is not offered, as before.
     komga_member_keys: tuple = field(default=(), repr=False)
     komga_member_keys_file: str = ""             # the file itself; Home re-reads it when it changes (member_keys.py)
-    # LEGACY (S-01): a Komga ADMIN account's API key, ONLY for the retired admin-key provisioning of members' keys
-    # (HOME_PROVISION_ACCOUNTS=...komga, which resets the member's Komga password). Accepted only with
-    # HOME_KOMGA_LEGACY_PROVISION=on, until the owner confirms the enrollment stage works live
-    # (docs/runbooks/komga-key-lifecycle.md, "Phase 4"). Never used to read.
-    komga_admin_token: str = field(default="", repr=False)
-    komga_legacy_provision: bool = False         # HOME_KOMGA_LEGACY_PROVISION=on: the switch above (default off)
+    # Home holds NO Komga admin key (S-01, 2026-10-30): members' keys are minted at enrollment and on Me -> Comics
+    # (komga_keys.py); the admin-key provisioner was deleted (docs/runbooks/komga-key-lifecycle.md, Phase 4).
     # S-01 (docs/runbooks/komga-key-lifecycle.md): the enrollment stage PUTs a new member's key to Home's intake,
     # authenticated by this shared secret and allowed only from `internal_cidrs` (app/intake.py). "" = intake off.
     key_intake_token: str = field(default="", repr=False)
@@ -292,11 +288,9 @@ class Settings:
         komga_token = _read_key(env, problems, "KOMGA_TOKEN")
         komga_confirms = boolean("KOMGA_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS", False)
         komga_members_file, komga_members = _read_member_keys(env, problems)
-        komga_admin = _read_key(env, problems, "KOMGA_ADMIN_TOKEN")
         intake_token = _read_key(env, problems, "HOME_KEY_INTAKE_TOKEN")
         internal_cidrs = _internal_cidrs(env, problems)
         komga_connect = boolean("HOME_KOMGA_CONNECT", False)
-        komga_legacy = boolean("HOME_KOMGA_LEGACY_PROVISION", False)
         cw_url = get("CALIBRE_WEB_BASE_URL")
         cw_cred = _read_key(env, problems, "CALIBRE_WEB_CREDENTIAL")
         cw_confirms = boolean("CALIBRE_WEB_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS", False)
@@ -389,10 +383,10 @@ class Settings:
                 problems.append("KOMGA_BASE_URL must be a loopback address in mock mode")
             komga_token = MOCK_API_KEY if komga_url else ""
             komga_confirms = False               # a real-mode statement; mock mode passes its own constant
-            if komga_members_file or komga_admin:
-                problems.append("KOMGA_MEMBER_KEYS_FILE or KOMGA_ADMIN_TOKEN is set but HOME_UPSTREAM_MODE is mock "
+            if komga_members_file:
+                problems.append("KOMGA_MEMBER_KEYS_FILE is set but HOME_UPSTREAM_MODE is mock "
                                 "(mock mode never sends a real key; unset it or choose real)")
-                komga_members_file, komga_members, komga_admin = "", (), ""
+                komga_members_file, komga_members = "", ()
             if cw_cred:
                 problems.append("a Calibre-Web credential is set but HOME_UPSTREAM_MODE is mock "
                                 "(mock mode never sends a real credential; unset it or choose real)")
@@ -569,20 +563,13 @@ class Settings:
                 problems.append("HOME_PROVISION_ACCOUNTS needs HOME_ALLOWED_USERS (beta members first)")
             if "audiobookshelf" in provision and not abs_url:
                 problems.append("HOME_PROVISION_ACCOUNTS names audiobookshelf but AUDIOBOOKSHELF_BASE_URL is not set")
-            if "komga" in provision and not (komga_url and komga_members_file and komga_admin):
-                problems.append("HOME_PROVISION_ACCOUNTS names komga but KOMGA_BASE_URL, KOMGA_MEMBER_KEYS_FILE and "
-                                "KOMGA_ADMIN_TOKEN (or _FILE) are not all set")
-        if komga_admin and "komga" not in provision:
-            problems.append("KOMGA_ADMIN_TOKEN is only for HOME_PROVISION_ACCOUNTS=...komga; unset it")
-        # S-01: Home making members' Komga keys with an admin key resets their Komga password (the OPDS password the
-        # enrollment set). Retired: keys come from the enrollment stage and Connect comics. Kept behind a switch
-        # until the owner confirms the enrollment stage works live; then deleted (komga-key-lifecycle.md, Phase 4).
-        if "komga" in provision and not komga_legacy:
-            problems.append("HOME_PROVISION_ACCOUNTS=komga is retired (S-01: it resets members' Komga passwords); "
-                            "keys come from enrollment and Connect comics. HOME_KOMGA_LEGACY_PROVISION=on keeps it "
-                            "only until the enrollment stage is confirmed live")
-        if komga_legacy and "komga" not in provision:
-            problems.append("HOME_KOMGA_LEGACY_PROVISION is only for HOME_PROVISION_ACCOUNTS=...komga; unset it")
+        # S-01 (2026-10-30): Home no longer makes members' Komga keys with an admin key (it reset their Komga
+        # password, the OPDS password the enrollment set). Keys come from the enrollment stage and Connect comics
+        # (komga_keys.py); the old settings are refused by name so a stale compose file fails loudly.
+        for stale in ("KOMGA_ADMIN_TOKEN", "KOMGA_ADMIN_TOKEN_FILE", "HOME_KOMGA_LEGACY_PROVISION"):
+            if get(stale):
+                problems.append(f"{stale} was removed (S-01, AVR-784): Home holds no Komga admin key; members' keys "
+                                "come from enrollment and Me -> Comics. Unset it")
         # S-01: keys minted where the password lives (komga_keys.py). Both write the keys file, so both need it (and
         # with it real mode and jwt_required, above).
         if intake_token:
@@ -604,9 +591,8 @@ class Settings:
                    jellyfin_api_key=key, audiobookshelf_base_url=abs_url,
                    audiobookshelf_token=abs_token, komga_base_url=komga_url,
                    komga_token=komga_token, komga_owner_confirms=komga_confirms, komga_member_keys=komga_members,
-                   komga_member_keys_file=komga_members_file, komga_admin_token=komga_admin,
+                   komga_member_keys_file=komga_members_file,
                    key_intake_token=intake_token, internal_cidrs=internal_cidrs, komga_connect=komga_connect,
-                   komga_legacy_provision=komga_legacy,
                    calibre_web_base_url=cw_url,
                    calibre_web_credential=cw_cred, calibre_web_owner_confirms=cw_confirms,
                    book_requests=book_requests, shelfarr_base_url=shelfarr_url, shelfarr_token=shelfarr_token,
@@ -652,9 +638,12 @@ def _provision_accounts(env: Mapping[str, str], problems: list) -> tuple:
     if raw == "off":
         return ()
     names = [n.strip() for n in raw.split(",")]
-    if not names or any(n not in ("jellyfin", "audiobookshelf", "komga") for n in names):
-        problems.append("HOME_PROVISION_ACCOUNTS must be off or a comma-separated list of jellyfin, audiobookshelf, "
-                        "komga")
+    if "komga" in names:
+        problems.append("HOME_PROVISION_ACCOUNTS=komga was removed (S-01, AVR-784): members' Komga keys come from "
+                        "enrollment and Me -> Comics; drop komga from the list")
+        return ()
+    if not names or any(n not in ("jellyfin", "audiobookshelf") for n in names):
+        problems.append("HOME_PROVISION_ACCOUNTS must be off or a comma-separated list of jellyfin, audiobookshelf")
         return ()
     return tuple(sorted(set(names)))
 
