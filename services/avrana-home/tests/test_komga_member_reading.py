@@ -276,6 +276,7 @@ class HomeMakesKeys(unittest.TestCase):
         self.dir = tempfile.TemporaryDirectory()
         self.addCleanup(self.dir.cleanup)
         self.path = os.path.join(self.dir.name, "komga_member_keys")
+        write_keys(self.path, {})          # Home refuses to make keys while the configured file is absent (S-02)
         self.store = MemberKeyStore(self.path, writable=True)
         self.fake = FakeAdminKomga()
         self.creator = KomgaKeyCreator(self.sender({"X-API-Key": "ADMIN"}), self.as_member, self.store)
@@ -339,6 +340,116 @@ class HomeMakesKeys(unittest.TestCase):
         with self.assertRaises(ValueError):
             KomgaKeyCreator(self.sender({}), self.as_member, MemberKeyStore(self.path))
 
+    # ---- S-02: a failed key step after the password reset is terminal, and a missing keys file stops everything
+    def prov(self, log):
+        return Provisioner({Service.KOMGA: self.creator}, log=lambda **f: log.append(f))
+
+    def resets(self):
+        return [c for c in self.fake.calls if c[0] == "PATCH"]
+
+    def test_a_key_step_failing_after_the_reset_is_not_retried_and_logs_its_own_reason(self):
+        logs, clock = [], [0.0]
+        prov = Provisioner({Service.KOMGA: self.creator}, clock=lambda: clock[0], log=lambda **f: logs.append(f))
+        hit = SectionResult(Service.KOMGA, "continue", SectionState.EMPTY, reason="no_member_key")
+        alice = member("alice", "Alice@Example.com")
+        self.fake.fail_keys = 500
+        self.assertEqual(prov.provision(alice, [hit]), ())
+        self.assertEqual(len(self.resets()), 1)
+        self.assertEqual(logs, [{"service": "komga", "state": "failed", "reason": "failed_after_reset"}])
+        self.assertIsNone(self.store.get("alice@example.com"))
+        self.fake.fail_keys = None
+        for _ in range(3):                                   # hourly passes, even after Komga recovers
+            clock[0] += 3601
+            self.assertEqual(prov.provision(alice, [hit]), ())
+        self.assertEqual(len(self.resets()), 1)              # no second password reset
+        self.assertEqual(len(logs), 1)                       # and no log noise after the one line
+
+    def test_the_block_survives_a_restart(self):
+        self.fake.fail_keys = 500
+        with self.assertRaises(ProvisionFailed) as caught:
+            self.creator.create("alice", "Alice@Example.com")
+        self.assertEqual(caught.exception.reason, "failed_after_reset")
+        self.fake.fail_keys = None
+        again = KomgaKeyCreator(self.sender({"X-API-Key": "ADMIN"}), self.as_member,
+                                MemberKeyStore(self.path, writable=True))
+        calls = len(self.fake.calls)
+        with self.assertRaises(ProvisionFailed) as caught:
+            again.create("alice", "Alice@Example.com")
+        self.assertEqual(caught.exception.reason, "failed_after_reset")
+        self.assertEqual(len(self.fake.calls), calls)        # decided before any Komga request
+
+    def test_a_filing_failure_after_the_reset_is_also_terminal(self):
+        def broken(email, key):
+            raise OSError("read-only file system")
+        self.store.put = broken
+        with self.assertRaises(ProvisionFailed) as caught:
+            self.creator.create("alice", "Alice@Example.com")
+        self.assertEqual(caught.exception.reason, "failed_after_reset")
+        with self.assertRaises(ProvisionFailed):
+            self.creator.create("alice", "Alice@Example.com")
+        self.assertEqual(len(self.resets()), 1)
+
+    def test_a_failure_before_any_reset_is_still_an_ordinary_retryable_failure(self):
+        self.fake.users["U9"] = {"id": "U9", "email": "dup@example.com", "roles": ["USER"]}
+        self.fake.users["U8"] = {"id": "U8", "email": "DUP@example.com", "roles": ["USER"]}
+        with self.assertRaises(ProvisionFailed) as caught:
+            self.creator.create("dup", "dup@example.com")
+        self.assertEqual(caught.exception.reason, "ambiguous")
+        self.assertEqual(self.resets(), [])
+
+    def test_the_admin_keys_own_account_failing_is_not_a_reset_failure(self):
+        self.fake.users["U0"]["email"] = "owner@example.com"
+        self.fake.keys["U0"] = []
+        real = self.fake.send
+
+        def flaky(method, url, headers, body):
+            if method == "POST" and url.endswith("/api-keys"):
+                return 500, b""
+            return real(method, url, headers, body)
+        self.fake.send = flaky
+        with self.assertRaises(ProvisionFailed) as caught:
+            self.creator.create("owner", "owner@example.com")
+        self.assertEqual(caught.exception.reason, "http_500")   # no password was changed: retryable
+        self.assertEqual(self.resets(), [])
+
+    def test_a_configured_but_missing_keys_file_refuses_before_any_komga_request(self):
+        logs = []
+        prov = self.prov(logs)
+        os.unlink(self.path)                                  # the state volume went away
+        hit = SectionResult(Service.KOMGA, "continue", SectionState.EMPTY, reason="no_member_key")
+        for name in ("alice", "bob", "carol"):
+            self.assertEqual(prov.provision(member(name, name + "@example.com"), [hit]), ())
+        self.assertEqual(self.fake.calls, [])
+        self.assertEqual([l["reason"] for l in logs], ["keys_file_unusable"] * 3)
+        self.assertEqual({l["state"] for l in logs}, {"refused"})
+
+    def test_a_missing_keys_file_does_not_use_up_the_hourly_cap(self):
+        logs = []
+        prov = Provisioner({Service.KOMGA: self.creator}, cap_per_hour=1, log=lambda **f: logs.append(f))
+        os.unlink(self.path)
+        hit = SectionResult(Service.KOMGA, "continue", SectionState.EMPTY, reason="no_member_key")
+        for name in ("alice", "bob"):
+            prov.provision(member(name, name + "@example.com"), [hit])
+        self.assertEqual({l["reason"] for l in logs}, {"keys_file_unusable"})   # never "cap"
+
+    def test_an_existing_empty_keys_file_is_a_normal_start(self):
+        write_keys(self.path, {})
+        self.creator.create("alice", "Alice@Example.com")
+        self.assertIsNotNone(self.store.get("alice@example.com"))
+
+    def test_an_unreadable_keys_file_refuses_too(self):
+        with open(self.path, "w") as fh:
+            fh.write("not json")
+        with self.assertRaises(ProvisionFailed) as caught:
+            self.creator.create("alice", "Alice@Example.com")
+        self.assertEqual(caught.exception.reason, "keys_file_unusable")
+        self.assertEqual(self.fake.calls, [])
+
+    def test_the_read_adapters_still_treat_an_absent_file_as_no_keys(self):
+        os.unlink(self.path)
+        self.assertEqual(read_keys(self.path), ())
+        self.assertIsNone(self.store.get("alice@example.com"))
+
 
 # ---- the owner-run tool ---------------------------------------------------------------------
 class FakeAdminKomga:
@@ -352,6 +463,7 @@ class FakeAdminKomga:
         self.keys = {"U1": [{"id": "K-old", "comment": "avrana-home"}, {"id": "K-own", "comment": "phone"}]}
         self.calls = []
         self.serial = 0
+        self.fail_keys = None          # an HTTP status: the key routes answer it (a failing Komga after the reset)
 
     def _who(self, headers):
         if headers.get("X-API-Key") == "ADMIN":
@@ -385,6 +497,8 @@ class FakeAdminKomga:
         if path.endswith("/password") and method == "PATCH":
             self.passwords[path.split("/")[4]] = data["password"]
             return 204, b""
+        if self.fail_keys and path.startswith("/api/v2/users/me/api-keys") and who != "U0":
+            return self.fail_keys, b""
         if path == "/api/v2/users/me/api-keys" and method == "GET":
             return 200, json.dumps(self.keys.get(who, [])).encode()
         if path == "/api/v2/users/me/api-keys" and method == "POST":
