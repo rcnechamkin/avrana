@@ -31,16 +31,18 @@ One network shared by the beta container and `authentik-server` only (the G1 pat
 attaches a running container **without restarting it**, so sign-in is not interrupted.
 
 ```sh
-docker network create authentik_home_beta
+docker network create --subnet 10.220.32.0/24 authentik_home_beta
 docker network connect authentik_home_beta authentik-server
 docker network inspect authentik_home_beta --format '{{range .Containers}}{{.Name}} {{end}}'   # authentik-server
 ```
 
-To keep it across a recreate of `authentik-server`, add to `services/authentik/docker-compose.yml` (reviewed PR,
-applied at the next planned Authentik restart, not now): under `networks:` `home-beta: {name: authentik_home_beta,
-external: true}`, and `home-beta` in the `server` service's `networks` list.
+`services/authentik/docker-compose.yml` declares this network for the `server` service, so it survives a recreate
+of `authentik-server`, and the network must exist before that project starts. `HOME_INTERNAL_CIDR` depends on this
+subnet. If the link is ever lost, signed-in members get a 502 while a signed-out probe still gets the outpost's 302;
+the connect command above repairs it without a restart.
 
-**Undo:** `docker network disconnect authentik_home_beta authentik-server && docker network rm authentik_home_beta`.
+**Undo:** remove the network from that compose file first, then
+`docker network disconnect authentik_home_beta authentik-server && docker network rm authentik_home_beta`.
 
 ## 3. Authentik: provider, application, group (Authentik UI)
 

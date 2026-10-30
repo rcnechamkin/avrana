@@ -159,6 +159,7 @@ Details, retention and the design are in `services/backups/OFFHOST.md`.
 
 ```bash
 docker network create --subnet 10.220.25.0/24 avrana-ldap      # used by authentik and calibre-web-automated
+docker network create --subnet 10.220.32.0/24 authentik_home_beta   # used by authentik and avrana-home
 ```
 
 `authentik_portal`, `authentik_kindle` and `authentik_olivetin` are also external, for `avrana-portal`,
