@@ -111,9 +111,17 @@ class Settings:
     # (docs/runbooks/komga-member-keys.md). () = nobody has one: Continue is not offered, as before.
     komga_member_keys: tuple = field(default=(), repr=False)
     komga_member_keys_file: str = ""             # the file itself; Home re-reads it when it changes (member_keys.py)
-    # A Komga ADMIN account's API key, ONLY for Home making members' own keys (HOME_PROVISION_ACCOUNTS=...komga;
-    # owner decision 2026-10-28 "Home does it", replacing 2026-10-15's "no admin key"). Never used to read.
+    # LEGACY (S-01): a Komga ADMIN account's API key, ONLY for the retired admin-key provisioning of members' keys
+    # (HOME_PROVISION_ACCOUNTS=...komga, which resets the member's Komga password). Accepted only with
+    # HOME_KOMGA_LEGACY_PROVISION=on, until the owner confirms the enrollment stage works live
+    # (docs/runbooks/komga-key-lifecycle.md, "Phase 4"). Never used to read.
     komga_admin_token: str = field(default="", repr=False)
+    komga_legacy_provision: bool = False         # HOME_KOMGA_LEGACY_PROVISION=on: the switch above (default off)
+    # S-01 (docs/runbooks/komga-key-lifecycle.md): the enrollment stage PUTs a new member's key to Home's intake,
+    # authenticated by this shared secret and allowed only from `internal_cidrs` (app/intake.py). "" = intake off.
+    key_intake_token: str = field(default="", repr=False)
+    internal_cidrs: tuple = ()                   # HOME_INTERNAL_CIDR: ip_network objects the intake accepts peers from
+    komga_connect: bool = False                  # HOME_KOMGA_CONNECT=on: Me -> Comics (Connect comics, Disconnect)
     calibre_web_base_url: str = ""               # "" = the Calibre-Web adapter is not built
     calibre_web_credential: str = field(default="", repr=False)    # "user:password" of the viewer account
     calibre_web_owner_confirms: bool = False     # the owner's statement that no member is restricted
@@ -285,6 +293,10 @@ class Settings:
         komga_confirms = boolean("KOMGA_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS", False)
         komga_members_file, komga_members = _read_member_keys(env, problems)
         komga_admin = _read_key(env, problems, "KOMGA_ADMIN_TOKEN")
+        intake_token = _read_key(env, problems, "HOME_KEY_INTAKE_TOKEN")
+        internal_cidrs = _internal_cidrs(env, problems)
+        komga_connect = boolean("HOME_KOMGA_CONNECT", False)
+        komga_legacy = boolean("HOME_KOMGA_LEGACY_PROVISION", False)
         cw_url = get("CALIBRE_WEB_BASE_URL")
         cw_cred = _read_key(env, problems, "CALIBRE_WEB_CREDENTIAL")
         cw_confirms = boolean("CALIBRE_WEB_OWNER_CONFIRMS_NO_MEMBER_RESTRICTIONS", False)
@@ -562,6 +574,29 @@ class Settings:
                                 "KOMGA_ADMIN_TOKEN (or _FILE) are not all set")
         if komga_admin and "komga" not in provision:
             problems.append("KOMGA_ADMIN_TOKEN is only for HOME_PROVISION_ACCOUNTS=...komga; unset it")
+        # S-01: Home making members' Komga keys with an admin key resets their Komga password (the OPDS password the
+        # enrollment set). Retired: keys come from the enrollment stage and Connect comics. Kept behind a switch
+        # until the owner confirms the enrollment stage works live; then deleted (komga-key-lifecycle.md, Phase 4).
+        if "komga" in provision and not komga_legacy:
+            problems.append("HOME_PROVISION_ACCOUNTS=komga is retired (S-01: it resets members' Komga passwords); "
+                            "keys come from enrollment and Connect comics. HOME_KOMGA_LEGACY_PROVISION=on keeps it "
+                            "only until the enrollment stage is confirmed live")
+        if komga_legacy and "komga" not in provision:
+            problems.append("HOME_KOMGA_LEGACY_PROVISION is only for HOME_PROVISION_ACCOUNTS=...komga; unset it")
+        # S-01: keys minted where the password lives (komga_keys.py). Both write the keys file, so both need it (and
+        # with it real mode and jwt_required, above).
+        if intake_token:
+            if len(intake_token) < MIN_JWT_SECRET_BYTES:
+                problems.append(f"HOME_KEY_INTAKE_TOKEN must be at least {MIN_JWT_SECRET_BYTES} characters")
+            if not internal_cidrs:
+                problems.append("HOME_KEY_INTAKE_TOKEN needs HOME_INTERNAL_CIDR (the Docker network the enrollment "
+                                "stage calls from)")
+            if not (komga_url and komga_members_file):
+                problems.append("HOME_KEY_INTAKE_TOKEN needs KOMGA_BASE_URL and KOMGA_MEMBER_KEYS_FILE")
+        elif internal_cidrs:
+            problems.append("HOME_INTERNAL_CIDR is only for HOME_KEY_INTAKE_TOKEN; unset it")
+        if komga_connect and not (sections and komga_url and komga_members_file):
+            problems.append("HOME_KOMGA_CONNECT needs HOME_SECTIONS=on, KOMGA_BASE_URL and KOMGA_MEMBER_KEYS_FILE")
 
         if problems:
             raise SettingsError("invalid configuration: " + "; ".join(problems))
@@ -570,6 +605,8 @@ class Settings:
                    audiobookshelf_token=abs_token, komga_base_url=komga_url,
                    komga_token=komga_token, komga_owner_confirms=komga_confirms, komga_member_keys=komga_members,
                    komga_member_keys_file=komga_members_file, komga_admin_token=komga_admin,
+                   key_intake_token=intake_token, internal_cidrs=internal_cidrs, komga_connect=komga_connect,
+                   komga_legacy_provision=komga_legacy,
                    calibre_web_base_url=cw_url,
                    calibre_web_credential=cw_cred, calibre_web_owner_confirms=cw_confirms,
                    book_requests=book_requests, shelfarr_base_url=shelfarr_url, shelfarr_token=shelfarr_token,
@@ -620,6 +657,26 @@ def _provision_accounts(env: Mapping[str, str], problems: list) -> tuple:
                         "komga")
         return ()
     return tuple(sorted(set(names)))
+
+
+def _internal_cidrs(env: Mapping[str, str], problems: list) -> tuple:
+    """HOME_INTERNAL_CIDR: a comma-separated list of PRIVATE or loopback networks (e.g. the subnet `docker network
+    inspect authentik_home_beta` prints). Absent -> (). Anything else, or a public or /0 network, is an error."""
+    raw = str(env.get("HOME_INTERNAL_CIDR", "")).strip()
+    if not raw:
+        return ()
+    nets = []
+    for part in raw.split(","):
+        try:
+            net = ipaddress.ip_network(part.strip(), strict=True)
+        except ValueError:
+            problems.append("HOME_INTERNAL_CIDR must be a comma-separated list of networks like 172.18.0.0/16")
+            return ()
+        if net.prefixlen == 0 or not (net.is_private or net.is_loopback):
+            problems.append("HOME_INTERNAL_CIDR may name only private or loopback networks")
+            return ()
+        nets.append(net)
+    return tuple(nets)
 
 
 def _identity_mode(env: Mapping[str, str], problems: list) -> str:

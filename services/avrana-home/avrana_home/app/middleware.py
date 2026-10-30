@@ -14,6 +14,11 @@ carry these headers; they contain no application data (documented in HOME-APP.md
     (Me → My profile's photo, owner 2026-10-28) is the same, with MAX_UPLOAD_BODY as its limit. A page whose form
     posts to ANOTHER of those paths (the Me hub's setup suggestion posts to /me/setup) is named in `form_pages`, so it
     too carries `form-action 'self'`; it takes no POST itself.
+  * PUT is accepted ONLY under `put_prefix` (the Komga key intake, `/internal/komga-key/<subject>`, app/intake.py; set
+    only while HOME_KEY_INTAKE_TOKEN is configured), one path segment after it, and only when `put_guard(scope)` holds
+    (the peer is inside HOME_INTERNAL_CIDR and no outpost or proxy header is present). Only then the Content-Length
+    rules apply (at most MAX_INTAKE_BODY; 411 / 413 as above), so from outside even a size probe gets the generic 501
+    and cannot tell the intake exists. Every other PUT is the 501 every other method gets.
   * A request whose header block exceeds identity.MAX_HEADER_BYTES gets 431 with fixed text before any routing or
     identity work (AVR-732). h11 enforces its own 16 KiB limit only while a request is still incomplete, so
     a request that arrives in one read (Linux asyncio reads up to 256 KiB at once) reached the application
@@ -71,6 +76,7 @@ LENGTH_REQUIRED_BODY = NOT_IMPLEMENTED_BODY.replace(b"501", b"411").replace(b"Un
 TOO_LARGE_BODY = NOT_IMPLEMENTED_BODY.replace(b"501", b"413").replace(b"Unsupported method.", b"Request too large.")
 MAX_FORM_BODY = 4096          # the largest form, the broker's: a work id, a format, a title, an author and a token
 MAX_UPLOAD_BODY = 10 * 1024 * 1024 + 8192   # one photo (avatar.MAX_UPLOAD) plus the multipart framing and fields
+MAX_INTAKE_BODY = 512         # {"key": 32 hex, "key_id": <=64, "source": "enrollment"} with room to spare
 
 HEADERS_TOO_LARGE_BODY = (b"<!DOCTYPE HTML>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n"
                           b"<title>Error response</title>\n</head>\n<body>\n<h1>Error response</h1>\n"
@@ -99,8 +105,11 @@ def with_hygiene(headers, form_self: bool = False, manifest: bool = False, route
 
 class HygieneMiddleware:
     def __init__(self, app, render_error: Callable[[], bytes], post_paths: frozenset = frozenset(),
-                 upload_paths: frozenset = frozenset(), form_pages: frozenset = frozenset()):
+                 upload_paths: frozenset = frozenset(), form_pages: frozenset = frozenset(), put_prefix: str = "",
+                 put_guard=None):
         self.app = app
+        self._put_prefix = put_prefix
+        self._put_guard = put_guard or (lambda _scope: False)
         self._render_error = render_error
         self._upload_paths = frozenset(upload_paths)
         self._post_paths = frozenset(post_paths) | self._upload_paths
@@ -148,6 +157,16 @@ class HygieneMiddleware:
                     await self._plain(wrapped_send, 413, TOO_LARGE_BODY, head=False)
                 else:
                     await self.app(scope, receive, wrapped_send)
+            elif method == "PUT" and self._is_put_path(scope) and self._put_guard(scope):
+                length = content_length_from_scope(scope)
+                if length is None:
+                    scope["avrana_route"] = "length_required"
+                    await self._plain(wrapped_send, 411, LENGTH_REQUIRED_BODY, head=False)
+                elif length > MAX_INTAKE_BODY:
+                    scope["avrana_route"] = "too_large"
+                    await self._plain(wrapped_send, 413, TOO_LARGE_BODY, head=False)
+                else:
+                    await self.app(scope, receive, wrapped_send)
             elif method not in ("GET", "HEAD"):
                 scope["avrana_route"] = "method_not_supported"
                 await self._plain(wrapped_send, 501, NOT_IMPLEMENTED_BODY, head=False)
@@ -177,6 +196,13 @@ class HygieneMiddleware:
             return False
         # The exact path only: no trailing slash, no doubled slash (those stay 501, like every other path).
         return self._exact_path(scope) in self._post_paths
+
+    def _is_put_path(self, scope) -> bool:
+        if not self._put_prefix:
+            return False
+        path = self._exact_path(scope)
+        tail = path[len(self._put_prefix):]
+        return path.startswith(self._put_prefix) and 0 < len(tail) <= 128 and "/" not in tail and "?" not in tail
 
     @staticmethod
     async def _plain(send, status: int, body: bytes, head: bool) -> None:

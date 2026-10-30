@@ -279,6 +279,7 @@ def main():
         print("      " + act_seerr(e, a.purge, a.apply))
     for e in matches["abs"]:
         print("      " + act_abs(e, a.purge, a.apply))
+    print("      " + act_komga_key(ident.get("email") or "", a.apply))     # S-01: Home's copy of their Komga key
     # Authentik LAST: identity resolution above depends on it.
     print("      " + act_authentik(ident, a.purge, a.apply))
 
@@ -356,6 +357,48 @@ RETIRE_NAME_FIRST = (
     "print('RETIRED')\n"
 )
 
+
+# ---------------------------------------------------------------- Home's copy of the member's own Komga key
+# Appended below everything else so the line citations in docs/runbooks/offboarding.md keep holding.
+# Home's file of members' own Komga keys (services/avrana-home/docker-compose.beta-live.yml mounts ./state).
+KOMGA_KEYS_FILE = "/home/cody/avrana/services/avrana-home/state/komga_member_keys"
+
+
+def act_komga_key(email, apply_, keys_file=KOMGA_KEYS_FILE, client=None, home_dir=None):
+    """S-01 (docs/runbooks/komga-key-lifecycle.md): revoke the member's own Komga key that Home holds, in Komga AS the
+    member with the key itself (no admin credential: Komga lets only the key's own account manage its keys), then drop
+    it from Home's keys file. If Komga cannot be reached the entry is KEPT, so re-running this when Komga is back can
+    still revoke it (the member is signed out of Home by Authentik meanwhile). Never prints the key."""
+    import os
+    sys.path.insert(0, home_dir or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                                "services", "avrana-home"))
+    from avrana_home.komga_keys import KomgaKeyClient
+    from avrana_home.member_keys import KeysFileError, MemberKeyStore, member_key_id, read_keys
+    if member_key_id(email) is None:
+        return "komga key: no usable email for this member, nothing to do"
+    if not os.path.isfile(keys_file):
+        return f"komga key: no keys file at {keys_file}, nothing to do"
+    try:
+        store = MemberKeyStore(keys_file, writable=True, initial=read_keys(keys_file))
+        key = store.get(email)
+    except (KeysFileError, OSError) as e:
+        return f"FAILED komga key: Home's keys file could not be used ({type(e).__name__}) - check by hand"
+    if key is None:
+        return "komga key: Home holds none for this member"
+    if not apply_:
+        return "would REVOKE the Komga key Home holds for this member and drop it from Home's keys file"
+    try:
+        outcome = (client or KomgaKeyClient(KOMGA, timeout=15.0)).revoke(key, store.komga_id(email))
+    except Exception as e:
+        return (f"komga key NOT revoked: Komga unreachable ({type(e).__name__}); Home's entry is kept. Re-run "
+                "offboard.py when Komga is back, or the member deletes the avrana-home key under their own Komga "
+                "account (Account settings -> API keys)")
+    try:
+        store.remove(email)
+    except (KeysFileError, OSError) as e:
+        return f"revoked in Komga, but FAILED to drop it from Home's keys file ({type(e).__name__}) - check by hand"
+    return ("revoked the member's Komga key and dropped it from Home's file" if outcome == "revoked"
+            else "dropped the Komga key from Home's file (Komga no longer accepted it)")
 
 if __name__ == "__main__":
     sys.exit(main())

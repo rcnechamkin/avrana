@@ -1054,6 +1054,9 @@ Rules, each enforced in code and tested in `tests/test_provision.py` and `webtes
   real upstreams, `HOME_IDENTITY_MODE=jwt_required` and `HOME_ALLOWED_USERS`, and in the owner preview.
 * One log event per attempt, `provision` with `service`, `state` (`provisioned`, `refused`, `failed`) and a fixed
   `reason`: never a password, token, username, e-mail or upstream id.
+* LEGACY since 2026-10-30 (S-01): the Komga branch below runs only with `HOME_KOMGA_LEGACY_PROVISION=on` (settings
+  refuse `HOME_PROVISION_ACCOUNTS=komga` and `KOMGA_ADMIN_TOKEN` without it) and is deleted once the enrollment stage is
+  confirmed live (section 15.1; docs/runbooks/komga-key-lifecycle.md, "Phase 4").
 * Komga failure semantics (S-02). For any account but the admin key's own, Komga leaves no way to mint a member's key
   without first resetting their password, so everything after the reset is fenced. A failure there (Komga error or
   timeout, malformed answer, or the keys file cannot be written) is terminal for that member: `provision` is logged
@@ -1064,6 +1067,38 @@ Rules, each enforced in code and tested in `tests/test_provision.py` and `webtes
   Komga provisioning also requires the configured keys file to EXIST and parse: otherwise no Komga request is made,
   no cap slot is used, and `provision` logs `state=refused`, `reason=keys_file_unusable` (once per member per hour).
   The read adapters are unchanged: an absent file is still "no member rows".
+
+### 15.1 Members' own Komga keys (S-01, 2026-10-30)
+
+Decision: docs/DECISIONS.md, "Komga member keys are minted where the password lives". Home holds no Komga admin
+credential for keys and never sets or changes a member's Komga password. Keys come from the enrollment stage
+(`avrana-komga-key-mint`, which signs in to Komga as the new member while the password is in the flow) through
+Home's intake `PUT /internal/komga-key/<subject>`, or from the member on Me -> Comics. Code: `avrana_home/komga_keys.py`,
+`app/intake.py`, `app/comics.py`; tests `tests/test_komga_key_lifecycle.py`, `webtests/test_web_komga_keys.py`,
+`tests/test_enrollment_komga_key.py`.
+
+| When | Komga calls, all as the member (never an admin) | Credential |
+|---|---|---|
+| Intake (enrollment) and Connect, before filing | `GET /api/v2/users/me`: the key is filed under the email of the account it opens | the key |
+| Connect comics | `GET /api/v2/users/me/api-keys`, `DELETE .../{id}` for each older `avrana-home` key, `POST /api/v2/users/me/api-keys {"comment": "avrana-home"}` | HTTP Basic: the member's email and the password they typed once (request body only; never logged, stored or kept) |
+| Disconnect, `scripts/offboard.py` | `DELETE /api/v2/users/me/api-keys/{id}` (the id kept at intake in `<keys file>.ids`); without an id, the list and a delete of each `avrana-home` key | the key itself |
+
+Security model: the intake token (with the network rule) is the security control. The subject and `source` rule
+(403) is a consistency check only, catching a misdirected call: `source` is the caller's own claim, so any token
+holder passes it with `enrollment`. Cross-member injection is impossible regardless, because the subject never chooses
+where a key goes: the key is filed under the email of the Komga account it opens (`GET /api/v2/users/me` with the
+key), so a token holder can only file a key under the account that key already opens; proved by
+`services/avrana-home/tests/test_komga_key_lifecycle.py` (`IntakeRuleTests.test_a_key_is_filed_under_its_own_account_whatever_the_subject_says`). The mapping relies on the Komga account email being the Authentik email, which
+`avrana-komga-create` ensures.
+
+Rules: the intake is off unless `HOME_KEY_INTAKE_TOKEN` is set; it needs the bearer token (constant-time compare), a peer
+in `HOME_INTERNAL_CIDR` and no outpost or proxy header (else the plain 501), a JSON body of at most 512 bytes; it never
+echoes the key; the same key again writes nothing (204), a different key replaces the filed one and revokes nothing
+remotely. A subject (sha256 of the Authentik `sub`) not bound in the identity bindings file is accepted only from the
+enrollment stage. Me -> Comics needs `HOME_KOMGA_CONNECT=on` and the Comics group; Connect is limited to five tries
+per member per 15 minutes. One log event per filing (`komga_key_intake`: `state`, `reason` = source, `ref` = 12 hex of
+a domain-separated hash of the subject) and per member action (`comics_key`: `state`). These routes are read from
+Komga's source (UserController, SecurityConfiguration), not from the published-interface gate.
 
 Not covered by the published-interface gate (`tests/test_openapi_subset.py` lists the adapter's GET routes only):
 the two Jellyfin write routes are named from Jellyfin 10.11's `UserController`, and the Audiobookshelf route from

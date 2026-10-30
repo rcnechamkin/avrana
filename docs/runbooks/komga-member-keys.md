@@ -8,7 +8,14 @@ that one row and nothing else (two GET routes: `/api/v1/books?read_status=IN_PRO
 
 A member without a key sees exactly what they see today: Recently added and New releases, no Continue row.
 
-## Automatic: Home makes the key (owner decision 2026-10-28, "Home does it")
+**Superseded 2026-10-30 (S-01).** Keys are now minted where the password lives: by the enrollment stage and by the
+member on Me -> Comics, never with an admin key (docs/runbooks/komga-key-lifecycle.md; docs/DECISIONS.md, "Komga
+member keys are minted where the password lives"). The admin-key paths below reset the member's Komga password, which
+breaks the OPDS password the enrollment set. Home's automatic path is switched off live and runs only with
+`HOME_KOMGA_LEGACY_PROVISION=on`; do not use `--member` / `--all` of the tool for new keys. `--list`, `--remove` and
+the file format below still apply.
+
+## Automatic (LEGACY): Home makes the key (owner decision 2026-10-28, "Home does it")
 
 With `komga` in `HOME_PROVISION_ACCOUNTS`, Home makes a member's key the first time they open a page with their
 Comics rows and have none (a Continue section answers `no_member_key`). The same page then shows their row. Home

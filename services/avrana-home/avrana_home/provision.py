@@ -1,6 +1,10 @@
-"""Create a member's missing Jellyfin or Audiobookshelf account, or their own Komga key (ACCOUNT-PROVISIONING.md).
+"""Create a member's missing Jellyfin or Audiobookshelf account, or (LEGACY) their own Komga key (ACCOUNT-PROVISIONING.md).
 
-Status: deployed in the live member beta since 2026-10-29 (revision 2cb228f; Komga admin provisioning key on). Standard library only. Off unless HOME_PROVISION_ACCOUNTS names a library.
+Status: deployed in the live member beta since 2026-10-29 (revision 2cb228f); the Komga branch was switched off live on
+2026-10-30 (S-01 phase 0) and is retired in code: it runs only with HOME_KOMGA_LEGACY_PROVISION=on, kept until the
+owner confirms the enrollment stage works live, then deleted (docs/runbooks/komga-key-lifecycle.md, "Phase 4").
+Members' Komga keys now come from the enrollment stage and Me -> Comics (komga_keys.py), never from an admin key.
+Standard library only. Off unless HOME_PROVISION_ACCOUNTS names a library.
 
 The read adapters stay read-only: their guarded transports keep refusing every non-GET. This module is the only
 code in Home that creates LIBRARY accounts (the request brokers may create a member's Shelfarr or Seerr account on
@@ -16,7 +20,7 @@ brokers in requests/):
     permissions and a random discarded password. ABS's "match existing by e-mail" then links the member's first
     "Sign in with Avrana" to this account.
 
-  * Komga (owner decision 2026-10-28, "Home does it"): the member's OWN API key, named `avrana-home`, for their
+  * Komga (LEGACY, S-01; owner decision 2026-10-28, "Home does it", superseded 2026-10-30): the member's OWN API key, named `avrana-home`, for their
     Continue reading row (docs/runbooks/komga-member-keys.md). Komga makes keys only for the signed-in account,
     so with Home's Komga ADMIN key: find the member's account by e-mail (or create it with the defaults an
     Authentik first sign-in gives), set a random password that is used once and discarded (Komga signs the member
@@ -374,7 +378,8 @@ def build_provisioner(settings: Any, log: Optional[Callable[..., None]] = None,
     if "audiobookshelf" in wanted and settings.audiobookshelf_base_url:
         creators[Service.AUDIOBOOKSHELF] = AudiobookshelfCreator(http_sender(
             settings.audiobookshelf_base_url, {"Authorization": f"Bearer {settings.audiobookshelf_token}"}))
-    if "komga" in wanted and komga_keys is not None and settings.komga_admin_token:
+    if ("komga" in wanted and komga_keys is not None and settings.komga_admin_token
+            and getattr(settings, "komga_legacy_provision", False)):          # S-01: legacy, behind its switch
         base = settings.komga_base_url
 
         def as_member(email: str, password: str) -> Send:

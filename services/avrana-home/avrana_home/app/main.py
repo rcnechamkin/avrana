@@ -35,8 +35,10 @@ from urllib.parse import urlencode
 
 from ..contract import REQUIRED_GROUP, MediaAdapter, SectionState, Service, build_handoff_url
 from ..cache import MemberCache
-from ..member_keys import MemberKeyStore
-from ..provision import Provisioner, build_provisioner
+from ..member_keys import MemberKeyStore, member_key_id
+from ..identity_bindings import digest as subject_digest
+from ..komga_keys import FILED as KEY_FILED, KOMGA_DOWN as KEY_KOMGA_DOWN, SAME as KEY_SAME, KeyIntake, KomgaKeyClient
+from ..provision import ProvisionFailed, Provisioner, build_provisioner
 from ..quickconnect import OUTCOMES as QC_OUTCOMES, QuickConnect
 from ..accountreader import END_OUTCOMES as SESSION_OUTCOMES, AccountReader, said_when
 from ..memberstore import (CONFLICT as STORE_CONFLICT, HOME_PLACES, INVALID as STORE_INVALID, SAVED as STORE_SAVED,
@@ -63,14 +65,16 @@ from ..requests.shelfarr import FORMAT_GROUP, Provisioned as ShelfarrProvisioned
 from . import forms as forms_mod
 from . import security as security_mod
 from .identity import (IdentityResolver, Viewer, customize_from_scope, get_viewer, has_identity_headers,
-                       home_filter_from_scope,
+                       home_filter_from_scope, intake_bearer_from_scope, intake_is_json, peer_host_from_scope,
                        if_none_match_from_scope, library_chip_from_scope, library_view_from_scope, more_from_scope,
                        new_tab_from_scope, release_chip_from_scope,
                        same_origin_form_post, same_origin_upload_post, search_term_from_scope, security_result_from_scope, show_from_scope,
                        tv_result_from_scope)
 from .logsafe import app_log, log_event, silence_uvicorn_access
-from .middleware import MAX_FORM_BODY, MAX_UPLOAD_BODY, NOT_IMPLEMENTED_BODY, HygieneMiddleware
+from .middleware import MAX_FORM_BODY, MAX_INTAKE_BODY, MAX_UPLOAD_BODY, NOT_IMPLEMENTED_BODY, HygieneMiddleware
 from . import recovery
+from . import comics as comics_mod
+from . import intake as intake_mod
 from .routing import (ME_ROUTE, AccountFacts, Decision, chooser_intro, continue_decision, decide, library_decision,
                       me_decision, normalise_target, not_found, parse_title_route, search_decision, title_decision,
                       trouble_decision)
@@ -162,7 +166,10 @@ def build_adapters(settings: Settings, cache: MemberCache) -> list:
         # only when HOME_PROVISION_ACCOUNTS names komga (provision.py). No file: Continue is not offered.
         keys = None
         if settings.komga_member_keys_file:
-            keys = MemberKeyStore(settings.komga_member_keys_file, writable="komga" in settings.provision_accounts,
+            # Writable for the S-01 key intake and Me -> Comics (komga_keys.py), and the legacy provisioning.
+            writable = ("komga" in settings.provision_accounts or bool(settings.key_intake_token)
+                        or bool(settings.komga_connect))
+            keys = MemberKeyStore(settings.komga_member_keys_file, writable=writable,
                                   initial=settings.komga_member_keys,
                                   log=lambda **f: log_event(app_log, logging.INFO, "komga_member_keys", **f))
         komga_adapter = KomgaAdapter(
@@ -275,7 +282,8 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
                comic_requests: Optional[OmnibusRequests] = None,
                provisioner: Optional[Provisioner] = None,
                account_reader: Optional[AccountReader] = None,
-               member_store: Optional[MemberStore] = None) -> FastAPI:
+               member_store: Optional[MemberStore] = None,
+               komga_key_client: Optional[KomgaKeyClient] = None) -> FastAPI:
     """`adapters`, `quick_connect`, `book_requests`, `watch_requests`, `comic_requests`, `provisioner` and
     `account_reader` let tests inject fakes; otherwise they are built from `settings`. Each broker exists only when its switch is on (an injected
     client is ignored otherwise)."""
@@ -300,6 +308,22 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
         komga_keys = next((a.member_keys for a in adapter_list if isinstance(a, KomgaAdapter)), None)
         provisioner = build_provisioner(
             settings, log=lambda **f: log_event(app_log, logging.INFO, "provision", **f), komga_keys=komga_keys)
+    # S-01 (komga_keys.py): members' own Komga keys arrive from the enrollment stage (the intake) or from Me -> Comics;
+    # Home never holds an admin key or a member's password for them. Both need the Komga adapter's keys file, writable.
+    member_keys = next((a.member_keys for a in adapter_list if isinstance(a, KomgaAdapter)), None)
+    key_client = komga_key_client if komga_key_client is not None else (
+        KomgaKeyClient(settings.komga_base_url, timeout=max(settings.timeout, 5.0))
+        if settings.komga_base_url and adapters is None else None)
+    keys_writable = member_keys is not None and member_keys.writable and key_client is not None
+    intake_on = bool(settings.key_intake_token) and keys_writable
+    comics_on = bool(settings.komga_connect) and settings.home_sections and keys_writable
+
+    def subject_known(subject: str):
+        bindings = getattr(getattr(app.state, "identity", None), "bindings", None)
+        return bindings.knows_digest(subject) if bindings is not None else None
+    key_intake = (KeyIntake(member_keys, key_client, subject_known,
+                            log=lambda **f: log_event(app_log, logging.INFO, "komga_key_intake", **f))
+                  if (intake_on or comics_on) else None)
     broker = None
     if settings.home_sections and settings.book_requests:
         broker = book_requests if book_requests is not None else build_book_requests(settings)
@@ -668,6 +692,15 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
             scope["avrana_route"] = security_mod.DONE_PREFIX + "{action}" if done is not None else route
             return respond(Decision(route, 200, "me_security.html", {"sec": page}), scope,
                            shell=shell_for(viewer, "me"))
+        if route == comics_mod.ROUTE and comics_on and p is not None and comics_member(viewer):
+            # Me -> Comics (comics.py): the member's own Komga key. Only members with Comics; otherwise the 404.
+            result = security_result_from_scope(scope)
+            scope["avrana_route"] = comics_mod.ROUTE
+            return respond(Decision(comics_mod.ROUTE, 200, "me_comics.html", {"cx": {
+                "connected": member_keys.get(p.email) is not None, "email": p.email or "",
+                "token": form_tokens.issue("comics", p.username),
+                "result": result if result in comics_mod.RESULTS else None}}),
+                scope, shell=shell_for(viewer, "me"))
         if route == forms_mod.TV_ROUTE and qc is not None and p is not None and tv_member(viewer):
             # "Sign in on a TV" (quickconnect.py). Only for members with TV and Movies; otherwise the standard 404.
             status = await run_in_threadpool(qc.status, p)
@@ -710,8 +743,10 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
             setup = {"card": hidden_card != customize_mod.SETUP_CARD, "can_hide": hidden_card is not None,
                      "token": form_tokens.issue("setup", p.username) if hidden_card is not None else "",
                      "result": result if result in customize_mod.SETUP_RESULTS else None}
+            comics_row = ({"connected": member_keys.get(p.email) is not None}
+                          if comics_on and comics_member(viewer) else None)
             return respond(decision, scope, shell=shell_for(viewer, "me"), me_tv=qc is not None and tv_member(viewer),
-                           setup=setup, customize=store is not None)
+                           setup=setup, customize=store is not None, comics=comics_row)
         if route == customize_mod.ROUTE and settings.home_sections and p is not None and adapter_list:
             # Customize (HOME-01/02): one editor for the account's one Home, from Home's heading and from Me.
             mine = await run_in_threadpool(store.home, p.username) if store is not None else None
@@ -1400,6 +1435,115 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
             return Response(b"", status_code=303, media_type=HTML,
                             headers=security_mod.sessions_result_headers(outcome, SESSION_OUTCOMES + ("expired",)))
 
+    def comics_member(viewer: Viewer) -> bool:
+        p = viewer.principal
+        return (p is not None and REQUIRED_GROUP[Service.KOMGA] in viewer.groups
+                and member_key_id(p.email) is not None)
+
+    def member_ref(p) -> str:
+        """The subject digest KeyIntake logs a one-way hash of (the token's sub; the username where there is none)."""
+        return subject_digest(p.subject or ("username:" + p.username))
+
+    if comics_on:
+        @app.post(comics_mod.ROUTE, include_in_schema=False, response_model=None)
+        async def comics_post(request: Request, viewer: Viewer = Depends(get_viewer)) -> Response:
+            """Me -> Comics: Disconnect (revoke in Komga, drop here) or Connect comics. Every lock in forms.py first;
+            the answer is a 303 back to the page with a fixed result id."""
+            scope = request.scope
+            p = viewer.principal
+            if p is None or not comics_member(viewer):
+                scope["avrana_route"] = "method_not_supported"
+                return Response(NOT_IMPLEMENTED_BODY, status_code=501, media_type="text/html; charset=utf-8")
+            scope["avrana_route"] = comics_mod.ROUTE
+            if not same_origin_form_post(scope):
+                return render("error.html", 403)
+            form = await forms_mod.read_form(request, comics_mod.FIELDS)
+            if form is None or form.get("do") not in ("connect", "disconnect"):
+                return render("error.html", 400)
+            if not form_tokens.check(form.get("t"), "comics", p.username):
+                outcome = "expired"
+            elif form["do"] == "disconnect":
+                outcome = await run_in_threadpool(comics_disconnect, p)
+            else:
+                outcome = await comics_connect(p, form)
+            form = None                                   # the password, if any, goes no further than this handler
+            log_event(app_log, logging.INFO, "comics_key", state=outcome)      # never the member, key or password
+            return Response(b"", status_code=303, media_type=HTML,
+                            headers=comics_mod.result_headers(outcome, comics_mod.RESULTS))
+
+        def comics_disconnect(p) -> str:
+            try:
+                filed = member_keys.remove(p.email)
+            except Exception:
+                return "unavailable"
+            if filed is None:
+                return "not_connected"
+            try:
+                key_client.revoke(*filed)
+            except Exception:
+                return "disconnected_here"                # gone from Home; the page says how to remove it in Komga
+            return "disconnected"
+
+        connect_limiter = SearchLimiter(window=comics_mod.CONNECT_WINDOW, limit=comics_mod.CONNECT_TRIES)
+
+        async def comics_connect(p, form) -> str:
+            """Connect comics: the member's password, once, from the POST body only. Home signs in to Komga as them,
+            mints the `avrana-home` key, files it through the intake's own code path and forgets the password. The
+            password is never logged, stored, put in a URL or carried in an exception (komga_keys.py)."""
+            if member_keys.get(p.email) is not None:
+                return "already_connected"
+            password = form.pop("password", "")
+            if not password:
+                return "no_password"
+            if not connect_limiter.allow(p.username):
+                return "busy"
+            try:
+                key, komga_id = await run_in_threadpool(key_client.mint, p.email, password)
+            except ProvisionFailed as exc:
+                return {"wrong_password": "wrong_password", "bad_input": "wrong_password", "unreachable":
+                        "komga_unavailable"}.get(exc.reason, "komga_unavailable" if exc.reason.startswith("http_5")
+                                                 else "unavailable")
+            except Exception:
+                return "unavailable"
+            finally:
+                password = None
+            outcome = await run_in_threadpool(key_intake.file, member_ref(p), "connect", key, komga_id, True)
+            if outcome in (KEY_FILED, KEY_SAME):
+                return "connected"
+            try:                                          # not filed: don't leave an unused key behind in Komga
+                await run_in_threadpool(key_client.revoke, key, komga_id)
+            except Exception:
+                pass
+            return "komga_unavailable" if outcome == KEY_KOMGA_DOWN else "unavailable"
+
+    if intake_on:
+        @app.put(intake_mod.PREFIX + "{subject}", include_in_schema=False, response_model=None)
+        async def komga_key_intake(request: Request) -> Response:
+            """The enrollment stage files a new member's key (intake.py has every lock). Never a page, never a body."""
+            scope = request.scope
+            client = request.client
+            if (not intake_mod.peer_allowed(client.host if client is not None else None, settings.internal_cidrs)
+                    or has_identity_headers(scope)):
+                scope["avrana_route"] = "method_not_supported"
+                return Response(NOT_IMPLEMENTED_BODY, status_code=501, media_type="text/html; charset=utf-8")
+            scope["avrana_route"] = intake_mod.ROUTE_LABEL
+            if not intake_mod.token_ok(intake_bearer_from_scope(scope), settings.key_intake_token):
+                log_event(app_log, logging.WARNING, "komga_key_intake", state="refused", reason="token")
+                return Response(b"", status_code=401)
+            raw = request.scope.get("raw_path") or request.scope["path"].encode("latin-1", "replace")
+            subject = intake_mod.subject_from_route(normalise_target(raw.decode("latin-1")))
+            if subject is None:
+                return Response(b"", status_code=404)
+            if not intake_is_json(scope):
+                return Response(b"", status_code=415)
+            body = intake_mod.parse_body(await forms_mod.read_body(request, MAX_INTAKE_BODY))
+            if body is None:
+                log_event(app_log, logging.INFO, "komga_key_intake", state="refused", reason="body")
+                return Response(b"", status_code=400)
+            key, source, key_id = body
+            outcome = await run_in_threadpool(key_intake.file, subject, source, key, key_id)
+            return Response(b"", status_code=intake_mod.STATUS[outcome])
+
     @app.exception_handler(StarletteHTTPException)
     async def _http_error(request: Request, exc: StarletteHTTPException) -> Response:
         request.scope.setdefault("avrana_route", "error")
@@ -1415,11 +1559,16 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
     app.add_middleware(HygieneMiddleware, render_error=lambda: env.get_template("error.html")
                        .render().encode("utf-8"),
                        upload_paths=frozenset({PROFILE_ROUTE}) if store is not None else frozenset(),
+                       put_prefix=intake_mod.PREFIX if intake_on else "",
+                       put_guard=lambda scope: (intake_mod.peer_allowed(peer_host_from_scope(scope),
+                                                                        settings.internal_cidrs)
+                                                and not has_identity_headers(scope)),
                        form_pages=frozenset({ME_ROUTE}) if store is not None else frozenset(),
                        post_paths=frozenset(path for path, on in ((forms_mod.TV_ROUTE, qc is not None),
                                                                    (security_mod.SESSIONS_ROUTE, reader is not None),
                                                                    (customize_mod.ROUTE, store is not None),
                                                                    (customize_mod.SETUP_ROUTE, store is not None),
+                                                                   (comics_mod.ROUTE, comics_on),
                                                                    (bookreq_mod.PATH, broker is not None),
                                                                    (watch_mod.PATH, seerr is not None),
                                                                    (comic_mod.PATH, omnibus is not None),

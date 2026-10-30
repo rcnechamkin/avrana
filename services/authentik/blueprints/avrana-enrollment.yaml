@@ -405,6 +405,110 @@ entries:
 
         - !Env AVRANA_KOMGA_ADMIN_EMAIL
         - !Env AVRANA_KOMGA_ADMIN_PASSWORD
+  # --- Komga member key: minted while the password is still in the flow (S-01) --------------------------
+  # ADDITIVE AND SELF-CONTAINED: this policy and its one binding (bottom of the file, binding-user-login order 2)
+  # can be copied into the live blueprint on their own (docs/runbooks/komga-key-lifecycle.md). Home's comics
+  # Continue reading needs the member's OWN Komga API key, and Komga makes keys only for the signed-in account
+  # (POST /api/v2/users/me/api-keys); an admin cannot mint one for somebody else. Here, right after
+  # avrana-komga-create gave the member's Komga account the password they just chose, we sign in to Komga AS the
+  # member with it, make the key named `avrana-home` and PUT it to Home's key intake. Home checks the key with
+  # Komga and files it under that account's email. Nobody's password is changed, Home never sees the password,
+  # and no admin credential is used.
+  #
+  # It NEVER fails enrollment: every path returns True. Not configured, Komga or Home down, anything unexpected:
+  # one log line and the member uses "Connect comics" on Me -> Comics later. The intake token is read from the
+  # authentik-server environment at run time (AVRANA_HOME_KEY_INTAKE_TOKEN; never written into this expression),
+  # so the same text works applied from this file or pasted into the admin UI. Never logged: the email, the
+  # password, the key, the token.
+  - model: authentik_policies_expression.expressionpolicy
+    id: policy-komga-key-mint
+    identifiers:
+      name: avrana-komga-key-mint
+    attrs:
+      execution_logging: true
+      expression: |
+        import hashlib
+        import os
+        import time
+        from urllib.parse import quote, urljoin
+
+        plan = request.context.get("flow_plan")
+        if not plan:
+            return True
+        groups = plan.context.get("groups", [])
+        if not any(g.name == "avrana-comics" for g in groups):
+            return True
+        token = (os.environ.get("AVRANA_HOME_KEY_INTAKE_TOKEN") or "").strip()
+        if not token:
+            ak_logger.info("komga-key-mint: AVRANA_HOME_KEY_INTAKE_TOKEN not set, skipping")
+            return True
+        prompt = plan.context.get("prompt_data", {})
+        email = prompt.get("email")
+        password = prompt.get("password")
+        uid = getattr(plan.context.get("pending_user"), "uid", None)
+        if not (email and password and uid):
+            ak_logger.warning("komga-key-mint: missing flow data", email=bool(email), password=bool(password),
+                              user=bool(uid))
+            return True
+
+        # Same addresses as the policies above: Komga by host LAN IP (its own compose network), Home by its
+        # container name on authentik_home_beta, the network Home shares with authentik-server alone.
+        komga_url = "http://10.0.0.218:25600"
+        home_url = "http://avrana-home-beta:8096"
+        # Home knows members by sha256 of the token `sub`, which for its providers is the user's uid
+        # (hashed_user_id; identity_bindings.py). The digest, never the email, is what goes in the URL.
+        subject = hashlib.sha256(str(uid).encode("utf-8")).hexdigest()
+        auth = (email, password)
+        keys_url = urljoin(komga_url, "/api/v2/users/me/api-keys")
+        # Every call has a 5 s timeout. Worst case inside the member's submit: 3 sign-in tries (15 s) + 2 s of waits,
+        # the mint (5 s), the PUT to Home (5 s) and one cleanup delete (5 s) = 32 s, plus 5 s per older avrana-home key
+        # (a new account has none).
+        made = None
+        try:
+            # The account may have been created a moment ago by avrana-komga-create: retry a refused sign-in twice.
+            resp = None
+            for attempt in range(3):
+                resp = requests.get(keys_url, auth=auth, timeout=5)
+                if resp.status_code != 401 or attempt == 2:
+                    break
+                time.sleep(1)
+            if resp.status_code != 200:
+                ak_logger.warning("komga-key-mint: Komga sign-in as the member failed", status=resp.status_code)
+                return True
+            for k in resp.json():
+                if k.get("comment") == "avrana-home" and k.get("id"):
+                    requests.delete(keys_url + "/" + quote(str(k["id"]), safe=""), auth=auth, timeout=5)
+            resp = requests.post(keys_url, json={"comment": "avrana-home"}, auth=auth, timeout=5)
+            if resp.status_code != 200:
+                ak_logger.warning("komga-key-mint: Komga did not make the key", status=resp.status_code)
+                return True
+            made = resp.json()
+            try:
+                put = requests.put(urljoin(home_url, "/internal/komga-key/" + subject),
+                                   json={"key": made.get("key"), "key_id": made.get("id"), "source": "enrollment"},
+                                   headers={"Authorization": "Bearer " + token}, timeout=5)
+            except Exception as exc:
+                # No answer: Home may have filed the key. Leave it in Komga (a dead key filed in Home would show
+                # "Connected" with nothing behind it; a stray key is removed by the member's next Connect comics).
+                made = None
+                ak_logger.warning("komga-key-mint: Home's answer was lost, key left in Komga", state="unknown",
+                                  error=type(exc).__name__)
+                return True
+            if 200 <= put.status_code < 300:
+                ak_logger.info("komga-key-mint: key filed in Home")
+                made = None
+            else:
+                ak_logger.warning("komga-key-mint: Home did not file the key", status=put.status_code)
+        except Exception as exc:
+            ak_logger.warning("komga-key-mint: failed", error=type(exc).__name__)
+        finally:
+            # A key Home definitely did not file (a non-2xx answer, or a failure before the PUT) is deleted again.
+            if made and made.get("id"):
+                try:
+                    requests.delete(keys_url + "/" + quote(str(made["id"]), safe=""), auth=auth, timeout=5)
+                except Exception:
+                    pass
+        return True
   # --- email verification -------------------------------------------------------
   # Uses the SAME SMTP as password recovery. Placed AFTER user_write because Authentik's email
   # stage hard-fails with "No pending user" unless PLAN_CONTEXT_PENDING_USER is set, and only
@@ -634,5 +738,13 @@ entries:
       target: !KeyOf binding-user-login
       policy: !KeyOf policy-komga-create
       order: 1
+    attrs:
+      enabled: true
+  # S-01: after avrana-komga-create (order 1), so the member's Komga account exists. Never fails enrollment.
+  - model: authentik_policies.policybinding
+    identifiers:
+      target: !KeyOf binding-user-login
+      policy: !KeyOf policy-komga-key-mint
+      order: 2
     attrs:
       enabled: true

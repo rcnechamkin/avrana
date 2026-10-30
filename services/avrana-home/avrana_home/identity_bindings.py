@@ -316,6 +316,17 @@ class IdentityBindings:
             self._log(state="bound", reason="", count=len(state.bindings))
             return OK
 
+    def knows_digest(self, want: str) -> Optional[bool]:
+        """Whether some username is bound to this subject digest (sha256 of a token `sub`): the Komga key intake's
+        "known member" rule (komga_keys.KeyIntake). None when the file is unavailable. Never binds anything."""
+        if not isinstance(want, str) or _DIGEST.fullmatch(want) is None:
+            return False
+        with self._lock:
+            self._refresh()
+            if self._broken is not None or self._state is None:
+                return None
+            return want in self._state.bindings.values()
+
     def __repr__(self) -> str:
         return "IdentityBindings(<redacted>)"
 

@@ -74,7 +74,8 @@ misconfigured), `bindings_unavailable` (the file is missing, unreadable or shran
 Only with the owner's approval, after offboarding is complete:
 
 1. `scripts/offboard.py <username> --apply --purge` has deleted the Jellyfin and Audiobookshelf accounts (Seerr
-   follows Jellyfin). The release refuses while either still has an account under the name in any letter case.
+   follows Jellyfin), and revoked the member's own Komga key that Home held (S-01, docs/runbooks/komga-key-lifecycle.md).
+   The release refuses while either still has an account under the name in any letter case.
 2. The member store row is purged: `docker exec avrana-home-beta python3 -m avrana_home.memberstore purge <username>`.
    The release refuses while a row remains.
 3. By hand, in each admin UI: the Shelfarr, Omnibus, Calibre-Web and Komga accounts of the former member are deleted
@@ -95,7 +96,7 @@ An upstream that cannot be asked is not a pass: the release refuses and changes 
 Everyone is signed out of Home until this is done. Do not hand-write the file.
 
 1. Restore `./state/identity_bindings.json` from the latest backup of `./state`: the nightly `stack-config` archive
-   holds `services/avrana-home/state/` (the file, its `.lock`, and `komga_member_keys` / `members.sqlite3` when on),
+   holds `services/avrana-home/state/` (the file, its `.lock`, and `komga_member_keys` with its `.ids` / `members.sqlite3` when on),
    and the restore verifier requires the bindings file (docs/runbooks/m0-offhost-backup-restore.md).
    Caveat: only runs made after the live backup script and required list are synced on avrana contain Home state;
    after the sync a host without the bindings file fails the completeness check by design.
