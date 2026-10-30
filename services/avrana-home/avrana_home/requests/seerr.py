@@ -36,6 +36,11 @@ from ..resilience import (MAX_JSON_BYTES, MAX_REQUEST_BODY, CircuitBreaker, Cloc
 
 SERVICE = "seerr"
 SEARCH_LIMIT = 10
+# Seerr's search and its show lookup ask TMDB in-line and can take several seconds, past the 2 s page timeout (F-03;
+# the same fix as Shelfarr's search, PR #144). Only those two calls wait this long; requests, listings, cancels and
+# the user map keep the client's own timeout. A timeout here still counts toward the one per-process breaker, as it
+# does for Shelfarr: waiting 8 s and still failing is service-wide evidence, and the breaker is not split per call.
+SEARCH_TIMEOUT = 8.0
 MIN_TERM, MAX_TERM = 2, 100
 MAX_TITLE = 300
 USER_PAGE, USER_PAGES = 100, 20                 # at most 2,000 Seerr users are read to map members
@@ -287,7 +292,8 @@ class SeerrRequests:
         text = clean_term(term)
         if text is None:
             return "invalid", ()
-        body = self._call("GET", "/api/v1/search", {"query": text, "page": "1"}, act_as=seerr_id)
+        body = self._call("GET", "/api/v1/search", {"query": text, "page": "1"}, act_as=seerr_id,
+                          timeout=max(self._timeout, SEARCH_TIMEOUT))
         if body is None:
             return "unavailable", ()
         results = body.get("results") if isinstance(body, dict) else None
@@ -309,7 +315,8 @@ class SeerrRequests:
         if (not isinstance(seerr_id, int) or isinstance(seerr_id, bool) or seerr_id <= 1
                 or not isinstance(tmdb_id, int) or isinstance(tmdb_id, bool) or not 0 < tmdb_id < 10**9):
             return "unavailable", None
-        body = self._call("GET", f"/api/v1/tv/{tmdb_id}", None, act_as=seerr_id)
+        body = self._call("GET", f"/api/v1/tv/{tmdb_id}", None, act_as=seerr_id,
+                          timeout=max(self._timeout, SEARCH_TIMEOUT))
         if not isinstance(body, dict):
             return "unavailable", None
         title = _text(body.get("name"), MAX_TITLE)
@@ -455,14 +462,16 @@ class SeerrRequests:
         return title, year
 
     # ---- internals -------------------------------------------------------------------------
-    def _call(self, method: str, path: str, query, act_as: Optional[int] = None) -> Optional[Any]:
+    def _call(self, method: str, path: str, query, act_as: Optional[int] = None,
+              timeout: Optional[float] = None) -> Optional[Any]:
         try:
-            self._send(method, path, query, None, act_as)
+            self._send(method, path, query, None, act_as, timeout)
         except _Answered as answer:
             return answer.body if answer.outcome is _Raw.OK else None
         return None
 
-    def _send(self, method, path, query, json_body: Optional[bytes], act_as: Optional[int]) -> None:
+    def _send(self, method, path, query, json_body: Optional[bytes], act_as: Optional[int],
+              timeout: Optional[float] = None) -> None:
         m = ID_PATH.fullmatch(path)
         template = f"/api/v1/{m.group(1)}/<id>" if m else path
         allowed = ROUTES.get((method, template))
@@ -482,7 +491,7 @@ class SeerrRequests:
         if act_as is not None:
             kw["act_as"] = str(act_as)
         try:
-            resp = self._transport.request(method, path, query, self._timeout, MAX_JSON_BYTES, **kw)
+            resp = self._transport.request(method, path, query, timeout or self._timeout, MAX_JSON_BYTES, **kw)
         except UpstreamNotFound as exc:
             if m:                                 # one request or title that is gone: an answer, not route drift
                 self.breaker.neutral(token)
