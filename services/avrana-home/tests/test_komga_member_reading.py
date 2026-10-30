@@ -341,37 +341,41 @@ class HomeMakesKeys(unittest.TestCase):
             KomgaKeyCreator(self.sender({}), self.as_member, MemberKeyStore(self.path))
 
     def test_two_page_loads_of_one_member_make_exactly_one_reset(self):
+        # Deterministic interleaving: thread A pauses after its FIRST release of the provisioner's lock until
+        # thread B has been through the lock once. With the checks and the slot claim in one hold, B finds A busy
+        # and leaves (1 reset); with two separate sections B would pass its checks too (2 resets).
         import threading
-        inside, release = threading.Event(), threading.Event()
-        gate = threading.Lock()
-        entered = []
-        real = self.fake.send
-
-        def slow(method, url, headers, body):
-            if method == "PATCH":
-                with gate:
-                    entered.append(1)
-                inside.set()
-                release.wait(5)                              # hold the first attempt inside Komga
-            return real(method, url, headers, body)
-        self.fake.send = slow
         logs = []
-        start = threading.Barrier(2)
+        prov = Provisioner({Service.KOMGA: self.creator}, clock=lambda: 0.0, log=lambda **f: logs.append(f))
+        real = prov._lock
+        a_released_first, b_past_first = threading.Event(), threading.Event()
+        seen = {"a_released": 0, "b_acquired": 0}
 
-        def clock():
-            start.wait(5)                                    # both loads reach the lock together
-            return 0.0
-        prov = Provisioner({Service.KOMGA: self.creator}, clock=clock, log=lambda **f: logs.append(f))
+        class SteppingLock:
+            def __enter__(self):
+                real.acquire()
+                if threading.current_thread().name == "B":
+                    seen["b_acquired"] += 1
+
+            def __exit__(self, *exc):
+                real.release()
+                name = threading.current_thread().name
+                if name == "A":
+                    seen["a_released"] += 1
+                    if seen["a_released"] == 1:
+                        a_released_first.set()
+                        b_past_first.wait(5)
+                if name == "B" and seen["b_acquired"] == 1:
+                    b_past_first.set()
+        prov._lock = SteppingLock()
         hit = SectionResult(Service.KOMGA, "continue", SectionState.EMPTY, reason="no_member_key")
         alice = member("alice", "Alice@Example.com")
-        first = threading.Thread(target=prov.provision, args=(alice, [hit]))
-        second = threading.Thread(target=prov.provision, args=(alice, [hit]))
-        first.start()
-        second.start()
-        self.assertTrue(inside.wait(5))
-        release.set()
-        first.join(5)
-        second.join(5)
+        a = threading.Thread(name="A", target=prov.provision, args=(alice, [hit]))
+        b = threading.Thread(name="B", target=lambda: (a_released_first.wait(5), prov.provision(alice, [hit])))
+        a.start()
+        b.start()
+        a.join(10)
+        b.join(10)
         self.assertEqual(len(self.resets()), 1)
         self.assertEqual([l["state"] for l in logs], ["provisioned"])
 
