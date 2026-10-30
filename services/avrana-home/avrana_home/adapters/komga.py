@@ -100,7 +100,13 @@ ALLOWED_ROUTES = (
     # One series, for a title page's genres and tags (richer Details, 2026-10-28): only the series of a book the shared
     # account could read a moment before. "latest" and "updated" are Komga list routes that look like ids.
     Route("series", r"/api/v1/series/(?!(?:latest|updated)$)" + _ID, (), user_scoped=False, not_found=ItemGone),
+    # The shared account's own record, read once per process in real mode to refuse an ADMIN key (AVR-782).
+    Route("self", r"/api/v2/users/me", (), user_scoped=False, not_found=RouteMissing),
 )
+
+
+class SharedKeyIsAdmin(UpstreamMisbehaved):
+    """The everyday (shared) Komga key belongs to an ADMIN account (AVR-782). Logged by class name only."""
 
 
 class GuardedTransport(_Guard):
@@ -236,7 +242,7 @@ class KomgaAdapter(GuardedAdapter):
                  owner_confirms_no_member_restrictions: bool = False,
                  member_keys: Optional[MemberKeyStore] = None,
                  member_transport: Optional[Callable[[str], Transport]] = None,
-                 provisioning: bool = False, **kw):
+                 provisioning: bool = False, refuse_admin_key: bool = False, **kw):
         # A shared view (contract 12.2, owner decision 2026-10-15): every member sees what the regular
         # account sees, so Komga's own per-member restrictions are NOT applied. The owner must opt in on
         # purpose, and only while no member has a Komga restriction.
@@ -249,6 +255,9 @@ class KomgaAdapter(GuardedAdapter):
         self._member_transport = member_transport     # one member's key -> an inner Transport carrying it
         self._guards: Dict[str, MemberGuardedTransport] = {}
         self._provisioning = bool(provisioning) and member_keys is not None
+        # AVR-782: in real mode the shared key must be a regular account's. None = not yet checked; True = checked
+        # and refused for the life of the process (a new key needs a restart anyway); False = checked and fine.
+        self._admin_key: Optional[bool] = None if refuse_admin_key else False
         if member_keys is not None:                    # Continue and New for You are offered (to the members with a key)
             self.not_offered = frozenset()
             self.extra_sections = self.extra_sections | {"for_you"}
@@ -287,7 +296,22 @@ class KomgaAdapter(GuardedAdapter):
 
     # -- mapping: none. A shared view (OWNER DECISION, contract 12.2) ------------------------
     def _resolve_user(self, principal) -> UpstreamUser:
+        if self._admin_key is not False:
+            self._check_shared_key()
         return UpstreamUser(Service.KOMGA, SHARED_VIEWER)
+
+    def _check_shared_key(self) -> None:
+        """Refuse every shared-account call while the everyday key is an ADMIN's (AVR-782): Comics then show as
+        unavailable instead of running on admin rights. Runs at the first mapping, before any shared read; a failed
+        or malformed answer refuses this call and is asked again next time."""
+        if self._admin_key is None:
+            me = self._get_json(self._guard.bind(SHARED_VIEWER), self._budget(), "/api/v2/users/me", None)
+            roles = me.get("roles") if isinstance(me, dict) else None
+            if not isinstance(roles, list):
+                raise UpstreamMalformed()
+            self._admin_key = "ADMIN" in roles
+        if self._admin_key:
+            raise SharedKeyIsAdmin()
 
     # -- books -----------------------------------------------------------------------------
     @staticmethod
