@@ -1,8 +1,10 @@
 # Avrana home
 
-Status: **not built into an image, not deployed, synthetic data only.** No production Dockerfile, no
-production compose file, no hostname; nothing here is wired into `services/avrana-portal`, which stays
-deployed and untouched. The one exception is the LAN-only OWNER PREVIEW (owner decision 2026-10-15:
+Status: **deployed as the live member beta since 2026-10-29** (container `avrana-home-beta` on host `avrana`,
+image `avrana-home-live:local`, revision 2cb228f, real mode with live libraries; `scripts/deploy-home-beta.sh`,
+`docker-compose.beta-live.yml`; see `docs/release/MEDIA-2.0-RC2-STATE.md`). Nothing here is wired into
+`services/avrana-portal`, which stays deployed and untouched. The statements below that say "synthetic" or "not
+deployed" describe the code's earlier state and the offline tests, which still use synthetic data. The one exception is the LAN-only OWNER PREVIEW (owner decision 2026-10-15:
 `Dockerfile.preview`, `docker-compose.preview.yml`, `preview/`), which the owner runs by hand on `avrana`
 for his own libraries behind one password; see
 [`docs/runbooks/home-owner-preview.md`](../../docs/runbooks/home-owner-preview.md). It is not a member path. Gates G1 (network isolation) and G2 (authorization suites) have not passed in

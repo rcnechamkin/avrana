@@ -8,6 +8,7 @@ import threading
 import time
 import unittest
 
+from avrana_home import aggregate
 from avrana_home.aggregate import gather
 from avrana_home.contract import SectionState, Service
 from avrana_home.resilience import FakeClock
@@ -17,6 +18,17 @@ GROUPS = ("avrana-users", "avrana-videos")
 
 
 class HungTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        # S-12 / T-20: the process-wide _DaemonPool starts one thread per submit until it reaches
+        # POOL_WORKERS, then never grows. Unwarmed, a first-in-process run counts the pool's own
+        # start-up (12 > 4, 32 > 8) as a "leak"; after another module warmed it, it does not. Fill the
+        # pool to its bound here, so every thread-count delta below is a leak beyond the pool and the
+        # result no longer depends on test order.
+        pool = aggregate._shared_pool()
+        for fut in [pool.submit(lambda: None) for _ in range(aggregate.POOL_WORKERS)]:
+            fut.result(timeout=5)
+
     def setUp(self):
         self.clock = FakeClock()
         self.adapter = FakeAdapter(Service.JELLYFIN, {"member-a": "1"}, self.clock, mode="block",

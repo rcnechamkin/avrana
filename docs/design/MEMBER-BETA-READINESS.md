@@ -1,7 +1,7 @@
 # Member beta readiness (Home 2.0, AVR-364, AVR-375, AVR-386, AVR-387)
 
 Status: a checklist written 2026-10-16 on `feat/h2-security` (Home 2.0 sprint, Lane D). It records evidence, not
-approval. **Avrana Home is not ready for a member beta.** The LAN owner preview (`docs/runbooks/home-owner-preview.md`)
+approval. **Avrana Home was not ready for a member beta when this was written; it has been the live member beta since 2026-10-29 (revision 2cb228f; see docs/release/MEDIA-2.0-RC2-STATE.md).** The LAN owner preview (`docs/runbooks/home-owner-preview.md`)
 shows the owner's own data behind one password; it does **not** prove Authentik integration, multi-member
 isolation with real accounts, or production readiness, and nothing in this document treats it as if it did.
 
@@ -26,7 +26,7 @@ Test names are in `services/avrana-home` unless they start with `tests/` at the 
 |---|---|---|---|
 | A member's identity comes only from the outpost, and forged headers cannot reach the app (G1) | - | `docs/runbooks/g1-network-isolation.md` (plan) | G1 applied and verified in production (owner) |
 | Authorization and isolation suites pass in production (G2) | - | | Owner-run G2 evidence |
-| Verified-JWT identity (AVR-498, PR #52) | 1 on its own branch, not on `feat/home-2.0` | PR #52, `docs/design/BETA-CHECKLIST.md` on that branch | Review, merge, Authentik provider (AVR-373), log-only week |
+| Verified-JWT identity (AVR-498, PR #52) | Merged and deployed in the live beta (2026-10-29) | PR #52, `docs/design/BETA-CHECKLIST.md` on that branch | Review, merge, Authentik provider (AVR-373), log-only week |
 | Group gates every library before any cache read or upstream call | 2 | `tests/test_h2_security.py::MappingLifetime::test_a_revoked_group_is_immediate_whatever_is_cached`, `SharedViewCovers::test_losing_the_group_gates_sections_item_and_artwork_with_a_warm_cache`; reviews of #50, #53 | Real Authentik groups for real members |
 | Upstream account mapping: exact, case-sensitive, ambiguous refused, confusables never linked | 1 | `docs/design/IDENTITY-MAPPING.md` section 2; `tests/test_h2_security.py::MatchExactlyOne` | Each real member's account names checked against Authentik (owner) |
 | The preview owner override cannot be enabled outside the sealed path | 1 | `tests/test_h2_security.py::SealedOverride`, `tests/test_preview_gate.py::SealedSettings` | Review |

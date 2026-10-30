@@ -8,8 +8,8 @@ from urllib.parse import urlencode
 
 from avrana_home.app.settings import Settings, SettingsError
 from avrana_home.contract import Kind, MediaItem, SectionResult, UpstreamUser, build_handoff_url
-from avrana_home.requests.seerr import SeerrRequests
-from avrana_home.resilience import ItemGone, TransportResponse, UpstreamAuthError, UpstreamHTTPError
+from avrana_home.requests.seerr import SEARCH_TIMEOUT, Outcome, SeerrRequests
+from avrana_home.resilience import ItemGone, TransportResponse, UpstreamAuthError, UpstreamHTTPError, UpstreamTimeout
 from .support import GROUPS, USER, PeerOverride, StubAdapter, make_settings, require_framework
 
 require_framework()
@@ -237,6 +237,66 @@ class BrokerIdentityRule(unittest.TestCase):
             Settings.from_mapping(dict(watch, **JWT, SEERR_API_KEY=""))
         with self.assertRaises(SettingsError):
             Settings.from_mapping({"SEERR_BASE_URL": "http://127.0.0.1:5055"})
+
+
+class SeerrSearchTimeout(unittest.TestCase):
+    """F-03: Seerr's search and show lookup ask TMDB in-line (seconds, not milliseconds); only those two calls wait
+    SEARCH_TIMEOUT. Requests and everything else keep the client's own timeout (mirrors Shelfarr, PR #144)."""
+
+    def _client(self, slow_for=2.5):
+        seen = []
+
+        class Slow:
+            def request(self_, method, path, query, timeout, max_bytes, *, json_body=None, act_as=None):
+                seen.append((method, path, timeout))
+                if path.startswith(("/api/v1/search", "/api/v1/tv/")) and timeout < slow_for:
+                    raise UpstreamTimeout()                  # the 2.5 s answer arrives after a short deadline
+                if method == "POST":
+                    return TransportResponse(201, b'{"id": 9, "status": 2}')
+                return TransportResponse(200, json.dumps(SEARCH).encode())
+
+        return SeerrRequests(Slow(), timeout=2.0), seen
+
+    def test_a_slow_search_still_returns_results(self):
+        client, seen = self._client()
+        status, offers = client.search(5, "synthetic")
+        self.assertEqual("ok", status)
+        self.assertTrue(offers)
+        self.assertEqual([("GET", "/api/v1/search", SEARCH_TIMEOUT)], seen)
+        self.assertGreaterEqual(SEARCH_TIMEOUT, 8.0)
+
+    def test_the_show_lookup_uses_the_search_timeout(self):
+        client, seen = self._client()
+        client.show(5, 102)
+        self.assertEqual([("GET", "/api/v1/tv/102", SEARCH_TIMEOUT)], seen)
+
+    def test_create_keeps_the_short_timeout(self):
+        client, seen = self._client()
+        client.create(5, "movie", 101)
+        self.assertEqual([("POST", "/api/v1/request", 2.0)], seen)
+
+    def test_a_longer_client_timeout_is_not_shortened(self):
+        seen = []
+
+        class Rec:
+            def request(self_, method, path, query, timeout, max_bytes, **kw):
+                seen.append(timeout)
+                return TransportResponse(200, json.dumps(SEARCH).encode())
+
+        SeerrRequests(Rec(), timeout=12.0).search(5, "synthetic")
+        self.assertEqual([12.0], seen)
+
+    def test_a_search_timeout_still_counts_toward_the_breaker(self):
+        # Same as Shelfarr: one breaker per process; a genuinely dead search (beyond 8 s) is service-wide evidence.
+        class Dead:
+            def request(self_, *a, **kw):
+                raise UpstreamTimeout()
+
+        client = SeerrRequests(Dead(), timeout=2.0)
+        for _ in range(10):
+            self.assertEqual("unavailable", client.search(5, "synthetic")[0])
+        self.assertEqual("unavailable", client.search(5, "synthetic")[0])
+        self.assertEqual(Outcome.UNAVAILABLE, client.create(5, "movie", 101))
 
 
 if __name__ == "__main__":
