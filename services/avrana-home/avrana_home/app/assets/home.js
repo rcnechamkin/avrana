@@ -27,8 +27,10 @@
         the whole camera file. The server still decodes and re-encodes whatever arrives (avatar.py).
      15. Customize's section order (HOME-01): Move up / Move down buttons reorder the list in place and renumber its
         hidden fields, so Save sends the new order. Without this, the buttons stay hidden and the saved order stands.
+     16. a strip of filters too long for the screen brings its chosen word to the middle, and Home's shelf filters change
+        their shelf in place (owner 2026-10-30): a reload jumped the phone to the top of the page and back.
    It uses no browser storage, writes no HTML from text and does nothing when its elements are absent; only the
-   title sheet (8) reads member data, and only the title page the member asked for. Inline preview behaviour (MK-4) is not here yet. */
+   title sheet (8) and the shelf filters (16) read member data, and only the page the member asked for. Inline preview behaviour (MK-4) is not here yet. */
 (function () {
   'use strict';
 
@@ -260,6 +262,14 @@
     return svg;
   }
 
+  /* Fetched markup comes in without any script, frame, object or form it might contain (the sheet, and part 16). */
+  function clean(section) {
+    Array.prototype.forEach.call(section.querySelectorAll('script, iframe, object, embed, form'), function (bad) {
+      bad.parentNode.removeChild(bad);
+    });
+    return section;
+  }
+
   function sheet() {
     if (!document.querySelector('nav.tabbar') || document.querySelector('.title-page, .title-down')) return;
     if (typeof window.HTMLDialogElement !== 'function' || typeof window.fetch !== 'function' ||
@@ -333,13 +343,6 @@
       return holder;
     }
 
-    function clean(section) {
-      Array.prototype.forEach.call(section.querySelectorAll('script, iframe, object, embed, form'), function (bad) {
-        bad.parentNode.removeChild(bad);
-      });
-      return section;
-    }
-
     function load(href, mine) {
       return window.fetch(href, { credentials: 'same-origin', redirect: 'manual', cache: 'no-store' })
         .then(function (response) {
@@ -379,7 +382,9 @@
 
       var moving = Promise.resolve();
       if (!still()) {
-        var from = origin ? onto(origin.getBoundingClientRect()) : { transform: 'translateY(100%)', clipPath: full() };
+        /* The sheet rises full width (owner 2026-10-30): growing out of the art showed a part-size box over the page
+           for its first frames. It still goes back into the art when it closes. */
+        var from = { transform: 'translateY(100%)', clipPath: full() };
         var grow = card.animate([from, { transform: 'none', clipPath: full() }], { duration: OPEN_MS, easing: EASE_SHEET });
         /* A hidden page may hold animations still: the title shows when the growth ends, or shortly after it should
            have, whichever comes first. */
@@ -739,9 +744,9 @@
      shelf; a press scrolls by most of the rail's width (smoothly unless motion is reduced) and a button that has
      nowhere to go is disabled. They are decoration for the pointer: tabindex -1 and aria-hidden, because every card
      is a link that Tab already brings into view. */
-  function railButtons() {
+  function railButtons(root) {
     if (!window.matchMedia || !window.matchMedia('(hover: hover) and (pointer: fine) and (min-width: 45rem)').matches) return;
-    var rails = document.querySelectorAll('.shelf > ul.rail');
+    var rails = (root || document).querySelectorAll('.shelf > ul.rail');
     var smooth = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     function arrow(cls) {
       var button = document.createElement('button');
@@ -906,6 +911,81 @@
     });
   }
 
+  /* 16. Filter strips. Contract: nav.tabs or nav.chips, a sideways strip of links, the chosen one aria-current.
+     centre() puts the chosen word in the middle of its strip, so the words after it show. A strip is otherwise a row of
+     plain links; on Home's shelves (section.shelf > nav.tabs) a plain click fetches the same-origin page the link names,
+     with the member's own cookies, and swaps in that shelf, so the page stays where it is. The underline moves at once;
+     the other strips' links take their new addresses, since each carries the other's choice. Anything unexpected and
+     the link simply navigates, as it does with the script off. */
+  function centre(strip, smooth) {
+    var chosen = strip.querySelector('[aria-current]');
+    if (!chosen || strip.scrollWidth <= strip.clientWidth) return;
+    var box = strip.getBoundingClientRect(), at = chosen.getBoundingClientRect();
+    strip.scrollTo({ left: strip.scrollLeft + at.left + at.width / 2 - box.left - box.width / 2,
+                     behavior: smooth && !still() ? 'smooth' : 'auto' });
+  }
+
+  function strips() {
+    Array.prototype.forEach.call(document.querySelectorAll('nav.tabs, nav.chips'), function (strip) { centre(strip, false); });
+    if (typeof window.fetch !== 'function' || typeof window.DOMParser !== 'function' ||
+        !window.history || !window.history.replaceState) return;
+    var latest = 0;
+
+    function swap(section, doc, href, focused) {
+      var name = section.getAttribute('aria-labelledby');
+      var fresh = name ? doc.querySelector('main section[aria-labelledby="' + name + '"]') : null;
+      if (!fresh) throw new Error('not this shelf');
+      var y = window.scrollY, was = section.querySelector('nav.tabs');
+      var shelf = document.importNode(clean(fresh), true);
+      var left = was ? was.scrollLeft : 0;
+      section.parentNode.replaceChild(shelf, section);
+      ['nav.tabs a', '.places.filters a'].forEach(function (links) {
+        var now = document.querySelectorAll(links), then = doc.querySelectorAll(links);
+        if (now.length !== then.length) return;
+        Array.prototype.forEach.call(now, function (a, i) { a.setAttribute('href', then[i].getAttribute('href')); });
+      });
+      window.history.replaceState(window.history.state, '', href);
+      var strip = shelf.querySelector('nav.tabs');
+      if (strip) {
+        strip.scrollLeft = left;
+        centre(strip, true);
+        if (focused) strip.querySelector('[aria-current]').focus({ preventScroll: true });
+      }
+      arrive(shelf);
+      railButtons(shelf);
+      if (window.scrollY !== y) window.scrollTo(0, y);
+    }
+
+    document.addEventListener('click', function (event) {
+      if (event.defaultPrevented || event.button !== 0 ||
+          event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      var from = event.target;
+      var link = from && typeof from.closest === 'function' ? from.closest('section.shelf > nav.tabs a[href]') : null;
+      if (!link || link.origin !== window.location.origin) return;
+      event.preventDefault();
+      if (link.hasAttribute('aria-current')) return;
+      var section = link.closest('section.shelf'), href = link.href, focused = document.activeElement === link;
+      var mine = ++latest, chosen = link.parentNode.querySelector('[aria-current]');
+      if (chosen) {
+        var rule = chosen.querySelector('.ul');
+        chosen.removeAttribute('aria-current');
+        if (rule) link.appendChild(rule);
+      }
+      link.setAttribute('aria-current', 'true');
+      section.setAttribute('aria-busy', 'true');
+      window.fetch(href, { credentials: 'same-origin', redirect: 'manual', cache: 'no-store' })
+        .then(function (response) {
+          if (!response.ok || response.type !== 'basic' || response.redirected) throw new Error('not a page');
+          return response.text();
+        })
+        .then(function (text) {
+          if (mine !== latest) return;
+          swap(section, new window.DOMParser().parseFromString(text, 'text/html'), href, focused);
+        })
+        .catch(function () { if (mine === latest) window.location.assign(href); });
+    });
+  }
+
   lens();
   bfcache();
   worker();
@@ -921,4 +1001,5 @@
   railButtons();
   crop();
   order();
+  strips();
 })();

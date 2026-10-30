@@ -78,13 +78,16 @@ class PageScript(Base):
             self.assertEqual((404, nf), (r.status_code, r.text), path)
 
     def test_the_script_source_has_no_dangerous_api_and_reads_no_member_data(self):
-        """Threat 1 and 12: no HTML written from text, no eval, no storage, no cookies. One request only: the title
-        sheet's fetch of the same-origin title page a member opened (owner decision 2026-10-27, replacing D13's "no
-        requests"), with the member's own cookies, no redirect followed, parsed inert and stripped of anything active."""
+        """Threat 1 and 12: no HTML written from text, no eval, no storage, no cookies. Two requests only, made the same
+        way: the title sheet's fetch of the same-origin title page a member opened (owner decision 2026-10-27, replacing
+        D13's "no requests") and a Home shelf filter's fetch of the same-origin page its link names (owner 2026-10-30),
+        with the member's own cookies, no redirect followed, parsed inert and stripped of anything active."""
         source = pwa.script_bytes().decode("utf-8")
         self.assertIsNone(JS_FORBIDDEN.search(source), JS_FORBIDDEN.search(source))
-        self.assertEqual(1, source.count("fetch("))
-        self.assertIn("window.fetch(href, { credentials: 'same-origin', redirect: 'manual', cache: 'no-store' })", source)
+        self.assertEqual(2, source.count("fetch("))
+        self.assertEqual(2, source.count("window.fetch(href, { credentials: 'same-origin', redirect: 'manual', cache: 'no-store' })"))
+        self.assertIn("clean(section), true)", source)
+        self.assertIn("clean(fresh), true)", source)
         self.assertIn("link.origin !== window.location.origin || link.pathname.indexOf('/title/') !== 0", source)
         self.assertIn("querySelectorAll('script, iframe, object, embed, form')", source)
         self.assertIn("window.location.assign(href)", source)                      # anything unexpected: navigate
@@ -98,8 +101,9 @@ class PageScript(Base):
             self.assertIn(needle, source)
         # the browser always navigates, except a title link the sheet takes (and the sheet's own Escape and pull), a
         # layout the Library's menu rearranges in place (owner decision 2026-10-27), and Home's "Show more", which
-        # reveals the rail's own hidden cards (owner request 2026-10-28)
-        self.assertEqual(5, source.count("preventDefault"))
+        # reveals the rail's own hidden cards (owner request 2026-10-28), and a Home shelf filter, which changes its shelf
+        # in place and navigates if anything is unexpected (owner 2026-10-30)
+        self.assertEqual(6, source.count("preventDefault"))
         self.assertNotIn("preventDefault", source.split("function sheet()", 1)[0])
         # a tab whose URL differs from this page's only by the hash is a same-document jump: the lens is left alone
         self.assertIn("tab.origin + tab.pathname + tab.search === window.location.origin + window.location.pathname"
