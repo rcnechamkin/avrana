@@ -125,6 +125,19 @@ class IntakeTests(Fixture):
                 self.assertNotIn(b"komga", r.content.lower())
         self.assertEqual(read_keys(self.path), ())
 
+    def test_a_size_probe_from_outside_cannot_tell_the_intake_exists(self):
+        big = b"x" * 600
+        cases = ({"peer": "outside", "headers": {"X-authentik-username": "alice"}}, {"peer": "outside"},
+                 {"headers": {"X-Forwarded-For": "203.0.113.7"}})
+        for kw in cases:
+            with self.subTest(kw=kw):
+                r = self.put(None, raw=big, **kw)
+                self.assertEqual(r.status_code, 501)
+                other = self.clients[kw.get("peer", "inside")].put(
+                    "/internal/other/" + SUBJECT, content=big, headers=kw.get("headers", {}))
+                self.assertEqual((r.status_code, r.content), (other.status_code, other.content))
+        self.assertEqual(self.put(None, raw=big).status_code, 413)         # inside, no proxy header: the size rule
+
     def test_body_rules(self):
         key, _ = self.komga.mint_for("U2")
         too_big = json.dumps({"key": key, "source": "enrollment", "key_id": "k" * 600}).encode()

@@ -15,8 +15,10 @@ carry these headers; they contain no application data (documented in HOME-APP.md
     posts to ANOTHER of those paths (the Me hub's setup suggestion posts to /me/setup) is named in `form_pages`, so it
     too carries `form-action 'self'`; it takes no POST itself.
   * PUT is accepted ONLY under `put_prefix` (the Komga key intake, `/internal/komga-key/<subject>`, app/intake.py; set
-    only while HOME_KEY_INTAKE_TOKEN is configured), one path segment after it, with a Content-Length of at most
-    MAX_INTAKE_BODY (411 / 413 as above). Every other PUT is the 501 every other method gets.
+    only while HOME_KEY_INTAKE_TOKEN is configured), one path segment after it, and only when `put_guard(scope)` holds
+    (the peer is inside HOME_INTERNAL_CIDR and no outpost or proxy header is present). Only then the Content-Length
+    rules apply (at most MAX_INTAKE_BODY; 411 / 413 as above), so from outside even a size probe gets the generic 501
+    and cannot tell the intake exists. Every other PUT is the 501 every other method gets.
   * A request whose header block exceeds identity.MAX_HEADER_BYTES gets 431 with fixed text before any routing or
     identity work (AVR-732). h11 enforces its own 16 KiB limit only while a request is still incomplete, so
     a request that arrives in one read (Linux asyncio reads up to 256 KiB at once) reached the application
@@ -103,9 +105,11 @@ def with_hygiene(headers, form_self: bool = False, manifest: bool = False, route
 
 class HygieneMiddleware:
     def __init__(self, app, render_error: Callable[[], bytes], post_paths: frozenset = frozenset(),
-                 upload_paths: frozenset = frozenset(), form_pages: frozenset = frozenset(), put_prefix: str = ""):
+                 upload_paths: frozenset = frozenset(), form_pages: frozenset = frozenset(), put_prefix: str = "",
+                 put_guard=None):
         self.app = app
         self._put_prefix = put_prefix
+        self._put_guard = put_guard or (lambda _scope: False)
         self._render_error = render_error
         self._upload_paths = frozenset(upload_paths)
         self._post_paths = frozenset(post_paths) | self._upload_paths
@@ -153,7 +157,7 @@ class HygieneMiddleware:
                     await self._plain(wrapped_send, 413, TOO_LARGE_BODY, head=False)
                 else:
                     await self.app(scope, receive, wrapped_send)
-            elif method == "PUT" and self._is_put_path(scope):
+            elif method == "PUT" and self._is_put_path(scope) and self._put_guard(scope):
                 length = content_length_from_scope(scope)
                 if length is None:
                     scope["avrana_route"] = "length_required"

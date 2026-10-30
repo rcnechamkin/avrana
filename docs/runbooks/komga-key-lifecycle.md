@@ -59,10 +59,12 @@ On avrana, in `/home/cody/avrana/services/avrana-home`:
 The repo blueprint is not what runs (drift in PR #167: live has an LDAP switch and admin memberships the repo
 lacks). Do NOT copy the repo file over the live one. Import only the new policy and its one binding:
 
-1. Put the token from step 1 into authentik-server's environment as `AVRANA_HOME_KEY_INTAKE_TOKEN` (and the
-   worker's, so a blueprint re-apply sees the same environment), in the `.env` the Authentik compose already reads
-   for `AVRANA_KOMGA_ADMIN_PASSWORD`. Recreating authentik-server needs your approval; sign-in is briefly down.
-   The policy reads the variable when it runs; the token is never written into the expression.
+1. Put the token from step 1 into `/home/cody/avrana/services/authentik/.env` as `AVRANA_HOME_KEY_INTAKE_TOKEN`
+   (hidden prompt). That file is the `env_file` of authentik-server AND the worker (`services/authentik/docker-compose.yml`).
+   Do NOT put it in `blueprints.env` (where `AVRANA_KOMGA_ADMIN_PASSWORD` lives): only the worker loads that file,
+   and the policy runs in the server, so it would log `AVRANA_HOME_KEY_INTAKE_TOKEN not set, skipping` on every
+   enrollment. Recreating authentik-server (and the worker) needs your approval; sign-in is briefly down. The policy
+   reads the variable when it runs; the token is never written into the expression. Location: docs/SECRETS.md.
 2. In the LIVE `avrana-enrollment.yaml`, confirm the login stage binding has `id: binding-user-login` and that
    `avrana-komga-create` is bound to it (`grep -n "binding-user-login\|policy-komga-create" <live file>`). If the
    ids differ, use the admin-UI route in step 4 instead.
@@ -88,9 +90,13 @@ lacks). Do NOT copy the repo file over the live one. Import only the new policy 
 5. Offboard the throwaway member (`docs/runbooks/offboarding.md`): the dry run says it would revoke the Komga key;
    `--apply` revokes it and the count drops back.
 
-If the count did not move: the policy log says why (`not set`, `sign-in ... failed`, `Home did not file the key` with a
+If the count did not move: the policy log says why (`not set` = the token is not in `services/authentik/.env` or the
+server was not recreated, `sign-in ... failed`, `Home did not file the key` with a
 status: 401 = token mismatch, 501 = wrong network or the request went through the outpost, 422 = Komga refused the
-key, 503 = Komga or the keys file unavailable). Enrollment itself has succeeded either way.
+key, 503 = Komga or the keys file unavailable; the new key is then deleted in Komga again). `Home's answer was lost`
+with `state=unknown` means no answer came back from Home: the key is left in Komga (Home may have filed it); check
+`count`, and if it did not move the member uses Connect comics, which removes the stray key. Enrollment itself has
+succeeded either way.
 
 Rollback: delete the policy binding (Flows -> `avrana-invite` -> login stage -> the `avrana-komga-key-mint` binding)
 and the policy, and remove the two entries from the live file. Removing them from the file alone does not delete

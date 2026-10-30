@@ -47,8 +47,9 @@ class Resp:
 class FakeRequests:
     """Komga at 10.0.0.218:25600 (the member's own key routes) and Home's intake."""
 
-    def __init__(self, sign_in=(200,), post=200, put=204, raises=None):
+    def __init__(self, sign_in=(200,), post=200, put=204, raises=None, put_raises=None):
         self.calls, self.sign_in, self.post_status, self.put_status, self.raises = [], list(sign_in), post, put, raises
+        self.put_raises = put_raises
         self.keys = [{"id": "K-old", "comment": "avrana-home"}, {"id": "K-own", "comment": "phone"}]
 
     def _record(self, method, url, **kw):
@@ -71,6 +72,8 @@ class FakeRequests:
 
     def put(self, url, **kw):
         self._record("PUT", url, **kw)
+        if self.put_raises:
+            raise self.put_raises
         return Resp(self.put_status)
 
 
@@ -132,6 +135,12 @@ class KomgaKeyMint(unittest.TestCase):
         self.assertEqual(put["headers"], {"Authorization": "Bearer " + TOKEN})
         self.assertNotIn("auth", put)
         self.assertEqual(log.lines[-1][1], ("komga-key-mint: key filed in Home",))
+        self.assertEqual({kw["timeout"] for _m, _u, kw in fake.calls}, {5})   # worst case stays near 32 s
+
+    def test_any_2xx_from_home_counts_as_filed(self):
+        ok, fake, _log, _ = self.run_policy(FakeRequests(put=200))
+        self.assertIs(ok, True)
+        self.assertEqual(fake.calls[-1][0], "PUT")
 
     def test_skips_quietly_without_comics_token_flow_or_data(self):
         for kw in ({"groups": ("avrana-videos",)}, {"token": None}, {"token": "  "}, {"plan": False},
@@ -157,6 +166,14 @@ class KomgaKeyMint(unittest.TestCase):
                 self.assertEqual(fake.calls[-1][:2],
                                  ("DELETE", "http://10.0.0.218:25600/api/v2/users/me/api-keys/K-new"))
 
+    def test_a_lost_answer_from_home_leaves_the_key_in_komga_and_logs_unknown(self):
+        for exc in (TimeoutError("synthetic read timeout"), ConnectionError("synthetic reset")):
+            with self.subTest(exc=type(exc).__name__):
+                ok, fake, log, _ = self.run_policy(FakeRequests(put_raises=exc))
+                self.assertIs(ok, True)
+                self.assertEqual(fake.calls[-1][0], "PUT")                 # no cleanup DELETE after the PUT
+                self.assertEqual(log.lines[-1][2], {"state": "unknown", "error": type(exc).__name__})
+
     def test_komga_refusing_the_key_or_anything_raising_never_fails_enrollment(self):
         ok, fake, _log, _ = self.run_policy(FakeRequests(post=500))
         self.assertIs(ok, True)
@@ -167,7 +184,7 @@ class KomgaKeyMint(unittest.TestCase):
 
     def test_no_secret_or_email_in_any_log_line(self):
         for fake in (FakeRequests(), FakeRequests(put=503), FakeRequests(sign_in=(401,)),
-                     FakeRequests(raises=RuntimeError(PASSWORD))):
+                     FakeRequests(raises=RuntimeError(PASSWORD)), FakeRequests(put_raises=RuntimeError(KEY))):
             _ok, _fake, log, _ = self.run_policy(fake)
             text = repr(log.lines)
             for secret in (PASSWORD, KEY, TOKEN, EMAIL, UID):

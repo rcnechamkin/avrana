@@ -1083,6 +1083,14 @@ Home's intake `PUT /internal/komga-key/<subject>`, or from the member on Me -> C
 | Connect comics | `GET /api/v2/users/me/api-keys`, `DELETE .../{id}` for each older `avrana-home` key, `POST /api/v2/users/me/api-keys {"comment": "avrana-home"}` | HTTP Basic: the member's email and the password they typed once (request body only; never logged, stored or kept) |
 | Disconnect, `scripts/offboard.py` | `DELETE /api/v2/users/me/api-keys/{id}` (the id kept at intake in `<keys file>.ids`); without an id, the list and a delete of each `avrana-home` key | the key itself |
 
+Security model: the intake token (with the network rule) is the security control. The subject and `source` rule
+(403) is a consistency check only, catching a misdirected call: `source` is the caller's own claim, so any token
+holder passes it with `enrollment`. Cross-member injection is impossible regardless, because the subject never chooses
+where a key goes: the key is filed under the email of the Komga account it opens (`GET /api/v2/users/me` with the
+key), so a token holder can only file a key under the account that key already opens; proved by
+`services/avrana-home/tests/test_komga_key_lifecycle.py` (`IntakeRuleTests.test_a_key_is_filed_under_its_own_account_whatever_the_subject_says`). The mapping relies on the Komga account email being the Authentik email, which
+`avrana-komga-create` ensures.
+
 Rules: the intake is off unless `HOME_KEY_INTAKE_TOKEN` is set; it needs the bearer token (constant-time compare), a peer
 in `HOME_INTERNAL_CIDR` and no outpost or proxy header (else the plain 501), a JSON body of at most 512 bytes; it never
 echoes the key; the same key again writes nothing (204), a different key replaces the filed one and revokes nothing

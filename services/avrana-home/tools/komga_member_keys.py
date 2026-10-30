@@ -30,6 +30,10 @@ lower-case email -> key, mode 0600, replaced atomically. Home reads it as KOMGA_
 It never prints a key, a password or the admin key. The admin key is typed at a hidden prompt; revoke it in
 Komga afterwards (Account settings -> API keys).
 
+LOCKING (S-01). Home writes the same file (key intake, Me -> Comics). Every write here goes through
+member_keys.MemberKeyStore, so it takes the same cross-process lock (`<file>.lock`, identity_bindings.file_lock),
+re-reads the file under it and changes only the one member's entry (and its `.ids` sidecar).
+
 EXIT. 0 done; 1 at least one member failed (the others are kept); 2 refused (nothing changed).
 """
 from __future__ import annotations
@@ -46,6 +50,9 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from typing import Callable, Dict, List, Optional, Sequence
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))     # services/avrana-home
+from avrana_home.member_keys import MemberKeyStore  # noqa: E402  (standard library only, like this tool)
 
 KEY_COMMENT = "avrana-home"
 DEFAULT_URL = "http://127.0.0.1:25600"          # Komga's loopback port on avrana (docs/SERVICES.md)
@@ -163,6 +170,16 @@ def load_keys(path: str) -> Dict[str, str]:
     return dict(data)
 
 
+def file_key(path: str, email: str, key: str) -> None:
+    """Add or replace one member's key under the shared lock (never a whole-file rewrite from a stale copy)."""
+    MemberKeyStore(path, writable=True).put(email, key)
+
+
+def drop_key(path: str, email: str) -> bool:
+    """Remove one member's key under the shared lock. True if there was one."""
+    return MemberKeyStore(path, writable=True).remove(email) is not None
+
+
 def save_keys(path: str, keys: Dict[str, str]) -> None:
     folder = os.path.dirname(os.path.abspath(path))
     fd, tmp = tempfile.mkstemp(prefix=".komga_member_keys.", dir=folder)
@@ -239,7 +256,8 @@ def run(args, komga: Komga, admin_key: str, ask: Callable[[str], bool], out=prin
                     out(f"{email}: FAILED: {exc}")
                     failed += 1
                     continue
-            if keys.pop(email, None) is not None:
+            keys.pop(email, None)
+            if drop_key(args.keys_file, email):
                 changed += 1
             out(f"{email}: Home no longer holds a key")
     else:
@@ -267,10 +285,9 @@ def run(args, komga: Komga, admin_key: str, ask: Callable[[str], bool], out=prin
                 failed += 1
                 continue
             changed += 1
-            save_keys(args.keys_file, keys)       # after every member: a later failure loses nothing
+            file_key(args.keys_file, email, keys[email])     # after every member, under the lock: nothing lost
             out(f"{email}: key filed")
     if changed:
-        save_keys(args.keys_file, keys)
         out(f"{changed} change(s) written to {args.keys_file}. Recreate Home to load them "
             "(docs/runbooks/komga-member-keys.md), then revoke the temporary admin key in Komga.")
     else:

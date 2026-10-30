@@ -185,6 +185,16 @@ class IntakeRuleTests(Files):
         self.assertEqual(self.logs, [{"service": "komga", "state": "filed", "reason": "enrollment",
                                       "ref": subject_ref(NEW_SUBJECT)}])
 
+    def test_a_key_is_filed_under_its_own_account_whatever_the_subject_says(self):
+        """No cross-member injection: the subject (bound to alice here) never chooses the slot; the key's own Komga
+        account does. A token holder can only file a key under the account that key already opens."""
+        alice_key, _ = self.komga.mint_for("U1")
+        self.store.put("alice@example.com", alice_key)
+        bob_key, _ = self.komga.mint_for("U2")
+        self.assertEqual(self.intake.file(SUBJECT, "connect", bob_key), FILED)
+        self.assertEqual(self.intake.file(NEW_SUBJECT, "enrollment", bob_key), SAME)
+        self.assertEqual(dict(read_keys(self.path)), {"alice@example.com": alice_key, "bob@example.com": bob_key})
+
     def test_the_same_key_twice_is_unchanged_and_a_new_key_replaces(self):
         key, kid = self.komga.mint_for("U1")
         self.assertEqual(self.intake.file(SUBJECT, "connect", key, kid), FILED)
@@ -319,11 +329,18 @@ class OffboardTests(Files):
         self.assertNotIn(self.key, said)
         self.assertIn("none", self.act(True))
 
-    def test_komga_down_still_drops_and_says_what_to_do(self):
+    def test_komga_down_keeps_the_entry_so_a_rerun_can_revoke_it(self):
         self.komga.down = True
         said = self.act(True)
-        self.assertIn("by hand", said)
+        self.assertIn("Re-run offboard.py when Komga is back", said)
+        self.assertIn("under their own Komga account", said)
+        self.assertNotIn("Users", said)                     # an admin cannot manage another user's keys in Komga
+        self.assertNotIn(self.key, said)
+        self.assertEqual(len(read_keys(self.path)), 1)
+        self.komga.down = False
+        self.assertIn("revoked", self.act(True))
         self.assertEqual(read_keys(self.path), ())
+        self.assertEqual(self.komga.comments("U1"), ["phone"])
 
     def test_no_file_or_no_email_is_a_no_op(self):
         self.assertIn("nothing to do", self.offboard.act_komga_key("a@example.com", True,

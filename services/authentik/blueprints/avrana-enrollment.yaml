@@ -460,12 +460,15 @@ entries:
         subject = hashlib.sha256(str(uid).encode("utf-8")).hexdigest()
         auth = (email, password)
         keys_url = urljoin(komga_url, "/api/v2/users/me/api-keys")
+        # Every call has a 5 s timeout. Worst case inside the member's submit: 3 sign-in tries (15 s) + 2 s of waits,
+        # the mint (5 s), the PUT to Home (5 s) and one cleanup delete (5 s) = 32 s, plus 5 s per older avrana-home key
+        # (a new account has none).
         made = None
         try:
             # The account may have been created a moment ago by avrana-komga-create: retry a refused sign-in twice.
             resp = None
             for attempt in range(3):
-                resp = requests.get(keys_url, auth=auth, timeout=10)
+                resp = requests.get(keys_url, auth=auth, timeout=5)
                 if resp.status_code != 401 or attempt == 2:
                     break
                 time.sleep(1)
@@ -474,16 +477,24 @@ entries:
                 return True
             for k in resp.json():
                 if k.get("comment") == "avrana-home" and k.get("id"):
-                    requests.delete(keys_url + "/" + quote(str(k["id"]), safe=""), auth=auth, timeout=10)
-            resp = requests.post(keys_url, json={"comment": "avrana-home"}, auth=auth, timeout=10)
+                    requests.delete(keys_url + "/" + quote(str(k["id"]), safe=""), auth=auth, timeout=5)
+            resp = requests.post(keys_url, json={"comment": "avrana-home"}, auth=auth, timeout=5)
             if resp.status_code != 200:
                 ak_logger.warning("komga-key-mint: Komga did not make the key", status=resp.status_code)
                 return True
             made = resp.json()
-            put = requests.put(urljoin(home_url, "/internal/komga-key/" + subject),
-                               json={"key": made.get("key"), "key_id": made.get("id"), "source": "enrollment"},
-                               headers={"Authorization": "Bearer " + token}, timeout=10)
-            if put.status_code == 204:
+            try:
+                put = requests.put(urljoin(home_url, "/internal/komga-key/" + subject),
+                                   json={"key": made.get("key"), "key_id": made.get("id"), "source": "enrollment"},
+                                   headers={"Authorization": "Bearer " + token}, timeout=5)
+            except Exception as exc:
+                # No answer: Home may have filed the key. Leave it in Komga (a dead key filed in Home would show
+                # "Connected" with nothing behind it; a stray key is removed by the member's next Connect comics).
+                made = None
+                ak_logger.warning("komga-key-mint: Home's answer was lost, key left in Komga", state="unknown",
+                                  error=type(exc).__name__)
+                return True
+            if 200 <= put.status_code < 300:
                 ak_logger.info("komga-key-mint: key filed in Home")
                 made = None
             else:
@@ -491,10 +502,10 @@ entries:
         except Exception as exc:
             ak_logger.warning("komga-key-mint: failed", error=type(exc).__name__)
         finally:
-            # A key Home did not file is deleted again, so no unused key is left in the member's Komga account.
+            # A key Home definitely did not file (a non-2xx answer, or a failure before the PUT) is deleted again.
             if made and made.get("id"):
                 try:
-                    requests.delete(keys_url + "/" + quote(str(made["id"]), safe=""), auth=auth, timeout=10)
+                    requests.delete(keys_url + "/" + quote(str(made["id"]), safe=""), auth=auth, timeout=5)
                 except Exception:
                     pass
         return True

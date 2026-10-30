@@ -373,6 +373,14 @@ def intake_bearer_from_scope(scope) -> Optional[str]:
     return token or None
 
 
+def peer_host_from_scope(scope) -> Optional[str]:
+    """The TCP peer's address (uvicorn runs with proxy_headers off, so never a forwarded one), or None. Used only by
+    the Komga key intake's network rule (app/intake.py); it confers no identity."""
+    client = scope.get("client")
+    host = client[0] if isinstance(client, (tuple, list)) and client else None
+    return host if isinstance(host, str) else None
+
+
 def intake_is_json(scope) -> bool:
     """The intake's body type: exactly one Content-Type whose bare type is application/json."""
     value = _single_header(scope, b"content-type", 100)

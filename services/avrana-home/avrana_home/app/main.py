@@ -65,7 +65,7 @@ from ..requests.shelfarr import FORMAT_GROUP, Provisioned as ShelfarrProvisioned
 from . import forms as forms_mod
 from . import security as security_mod
 from .identity import (IdentityResolver, Viewer, customize_from_scope, get_viewer, has_identity_headers,
-                       home_filter_from_scope, intake_bearer_from_scope, intake_is_json,
+                       home_filter_from_scope, intake_bearer_from_scope, intake_is_json, peer_host_from_scope,
                        if_none_match_from_scope, library_chip_from_scope, library_view_from_scope, more_from_scope,
                        new_tab_from_scope, release_chip_from_scope,
                        same_origin_form_post, same_origin_upload_post, search_term_from_scope, security_result_from_scope, show_from_scope,
@@ -1560,6 +1560,9 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
                        .render().encode("utf-8"),
                        upload_paths=frozenset({PROFILE_ROUTE}) if store is not None else frozenset(),
                        put_prefix=intake_mod.PREFIX if intake_on else "",
+                       put_guard=lambda scope: (intake_mod.peer_allowed(peer_host_from_scope(scope),
+                                                                        settings.internal_cidrs)
+                                                and not has_identity_headers(scope)),
                        form_pages=frozenset({ME_ROUTE}) if store is not None else frozenset(),
                        post_paths=frozenset(path for path, on in ((forms_mod.TV_ROUTE, qc is not None),
                                                                    (security_mod.SESSIONS_ROUTE, reader is not None),
