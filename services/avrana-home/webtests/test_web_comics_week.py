@@ -106,6 +106,34 @@ class Card(unittest.TestCase):
         self.assertEqual(("komga", "week"), ALL_EXTRAS[-1])
 
 
+class CardLinkGoesSomewhere(unittest.TestCase):
+    """F-02: the card's link must land on a Comics chip that lists the week's issues, whatever New Releases holds."""
+
+    def follow(self, view):
+        home = build_home(view, TILES, today=TODAY)
+        self.assertIsNotNone(home.released_stack, "precondition: the card is drawn")
+        self.assertEqual("/?rel=comics#h-released", home.released_stack.href)
+        followed = build_home(view, TILES, today=TODAY, rel_tab="comics")
+        self.assertEqual(["comics"], [k for k, _l, cur, _h in followed.released_tabs if cur])
+        return followed
+
+    def test_normal_case_is_unchanged(self):
+        followed = self.follow(page())
+        self.assertEqual({"Issue 1", "Issue 2", "Issue 3"}, {c.title for c in followed.released_items})
+
+    def test_komga_released_unavailable_still_lists_the_week(self):
+        view = page()
+        view["sections"][1] = {"service": "komga", "section": "released", "state": "unavailable", "items": []}
+        followed = self.follow(view)
+        self.assertEqual({f"Issue {10 + n}" for n in range(6)}, {c.title for c in followed.released_items})
+
+    def test_a_caught_up_reader_whose_released_comics_are_all_in_for_you_still_lists_the_week(self):
+        view = page()
+        view["sections"].append(sec("komga", "for_you", [issue(1), issue(2), issue(3)]))
+        followed = self.follow(view)
+        self.assertEqual({f"Issue {10 + n}" for n in range(6)}, {c.title for c in followed.released_items})
+
+
 class Rendered(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
