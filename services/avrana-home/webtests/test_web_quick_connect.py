@@ -16,7 +16,7 @@ from urllib.parse import urlencode
 
 from avrana_home.app.middleware import CSP
 from avrana_home.quickconnect import QuickConnect
-from avrana_home.resilience import TransportResponse
+from avrana_home.resilience import TransportResponse, UpstreamTimeout, classify_status
 from .support import GROUPS, USER, StubAdapter, make_client, make_settings, require_framework
 
 require_framework()
@@ -210,6 +210,138 @@ class Post(TvBase):
         self.assertIn("quick_connect", text)
         self.assertNotIn("987654", text)
         self.assertNotIn("member-a", text)
+
+
+class ScriptedJellyfin(FakeJellyfin):
+    """A Jellyfin that fails on cue. `authorize` is an HTTP status (raised the way the real transport raises it), the
+    string "false"/"true" (a 200 body), or an exception; `users` likewise an exception."""
+
+    def __init__(self, enabled=b"true", authorize="true", users=None):
+        super().__init__()
+        self.enabled, self.authorize, self.users = enabled, authorize, users
+
+    def request(self, method, path, query, timeout, max_bytes):
+        if path == "/QuickConnect/Enabled":
+            self.calls.append((method, path, dict(query or {})))
+            return TransportResponse(200, self.enabled, "application/json")
+        if path == "/Users" and self.users is not None:
+            self.calls.append((method, path, dict(query or {})))
+            raise self.users
+        if path == "/QuickConnect/Authorize":
+            self.calls.append((method, path, dict(query or {})))
+            if isinstance(self.authorize, int):
+                raise classify_status(self.authorize)
+            if isinstance(self.authorize, BaseException):
+                raise self.authorize
+            return TransportResponse(200, self.authorize.encode(), "application/json")
+        return super().request(method, path, query, timeout, max_bytes)
+
+
+# (label, how the fake Jellyfin misbehaves, redirect id, whether Authorize is reached)
+SCRIPTS = (
+    ("enabled false", dict(enabled=b"false"), "off", False),
+    ("authorize 404", dict(authorize=404), "not_found", True),
+    ("authorize 401", dict(authorize=401), "off", True),
+    ("authorize 403", dict(authorize=403), "unavailable", True),
+    ("authorize 500", dict(authorize=500), "not_accepted", True),
+    ("authorize false", dict(authorize="false"), "not_accepted", True),
+    ("authorize timeout", dict(authorize=UpstreamTimeout()), "unknown", True),
+    ("users timeout", dict(users=UpstreamTimeout()), "unavailable", False),
+)
+SENTENCES = {
+    "off": "Quick Connect is switched off for TV and Movies right now.",
+    "not_found": "That code didn't work. Check the numbers on your TV; codes last 10 minutes.",
+    "unavailable": "TV and Movies couldn't be reached. Try again in a moment, or approve the code in TV and Movies itself.",
+    "not_accepted": "That code didn't go through. It may already have been used. Get a new code on the TV and try again.",
+    "unknown": "We couldn't tell whether it went through. Look at your TV before trying again.",
+    "approved": "Approved. Your TV should sign in within a few seconds",
+}
+
+
+def status_text(page):
+    return re.search(r'<p class="note msg" role="status">(.*?)</p>', main_of(page), re.S).group(1).strip()
+
+
+class Outcomes(unittest.TestCase):
+    """T-07: every documented Quick Connect outcome, from the upstream failure to the sentence on /me/tv."""
+
+    def start(self, **script):
+        fake = ScriptedJellyfin(**script)
+        client = make_client(make_settings(home_sections=True), adapters=[StubAdapter({})],
+                             quick_connect=QuickConnect(fake))
+        client.__enter__()
+        self.addCleanup(client.__exit__, None, None, None)
+        return client, fake
+
+    def submit(self, client, code="123456"):
+        found = re.search(r'name="t" value="([^"]+)"', client.get("/me/tv", headers=VIDEO).text)
+        if found is None:               # the status is already off/unavailable: no form to read a token from
+            token = client.fastapi_app.state.form_tokens.issue("tv", "member-a")
+        else:
+            token = found.group(1)
+        return client.post("/me/tv", content=urlencode({"t": token, "code": code}), headers=VIDEO + SAME)
+
+    def test_each_upstream_failure_maps_to_its_documented_redirect(self):
+        for label, script, expected, reaches_authorize in SCRIPTS:
+            with self.subTest(label):
+                client, fake = self.start(**script)
+                r = self.submit(client)
+                self.assertEqual((303, f"/me/tv?r={expected}"), (r.status_code, r.headers["location"]))
+                self.assertEqual(1 if reaches_authorize else 0, len(fake.approvals()))     # counted once, never retried
+                self.assertNotIn("123456", r.headers["location"])
+
+    def test_each_outcome_renders_one_fixed_sentence_in_the_status_region(self):
+        seen = {}
+        client, fake = self.start()
+        for outcome, words in SENTENCES.items():
+            with self.subTest(outcome):
+                page = client.get(f"/me/tv?r={outcome}", headers=VIDEO)
+                text = status_text(page.text)
+                self.assertIn(words, text)
+                self.assertEqual(1, main_of(page.text).count('role="status"'))
+                seen[outcome] = text
+        self.assertEqual([], fake.approvals())                            # a GET approves nothing
+        self.assertEqual(len(SENTENCES), len(set(seen.values())))         # no two outcomes share a sentence
+
+    def test_unknown_says_it_may_have_worked_and_to_look_at_the_tv_first(self):
+        client, fake = self.start(authorize=UpstreamTimeout())
+        r = self.submit(client)
+        self.assertEqual("/me/tv?r=unknown", r.headers["location"])
+        text = status_text(client.get(r.headers["location"], headers=VIDEO).text)
+        self.assertIn("couldn't tell whether it went through", text)
+        self.assertIn("Look at your TV before trying again", text)
+        self.assertNotIn("Approved", text)
+        self.assertEqual(1, len(fake.approvals()))                        # never retried automatically
+
+    def test_no_upstream_text_or_status_code_reaches_the_page(self):
+        for label, script, _expected, _reach in SCRIPTS:
+            with self.subTest(label):
+                client, _fake = self.start(**script)
+                r = self.submit(client)
+                page = client.get(r.headers["location"], headers=VIDEO)
+                text = status_text(page.text)
+                for leak in ("401", "403", "404", "500", "HTTP", "Upstream", "Traceback", "timed out", "Timeout",
+                             "false", "Exception"):
+                    self.assertNotIn(leak, text, leak)
+                for leak in ("HTTP", "Upstream", "Traceback", "Timeout"):
+                    self.assertNotIn(leak, page.text, leak)
+
+    def test_a_double_submit_of_one_approval_is_counted_once(self):
+        client, fake = self.start()
+        found = re.search(r'name="t" value="([^"]+)"', client.get("/me/tv", headers=VIDEO).text).group(1)
+        body = urlencode({"t": found, "code": "123456"})
+        locations = [client.post("/me/tv", content=body, headers=VIDEO + SAME).headers["location"] for _ in range(2)]
+        self.assertEqual(["/me/tv?r=approved"] * 2, locations)
+        self.assertEqual(1, len(fake.approvals()))
+
+    def test_a_refused_code_is_not_remembered_so_the_next_try_is_a_new_approval(self):
+        client, fake = self.start(authorize=404)
+        found = re.search(r'name="t" value="([^"]+)"', client.get("/me/tv", headers=VIDEO).text).group(1)
+        body = urlencode({"t": found, "code": "123456"})
+        for _ in range(2):
+            self.assertEqual("/me/tv?r=not_found",
+                             client.post("/me/tv", content=body, headers=VIDEO + SAME).headers["location"])
+        self.assertEqual(2, len(fake.approvals()))
 
 
 class ReplayTests(unittest.TestCase):
