@@ -332,6 +332,14 @@ class LibraryPresentationTests(unittest.TestCase):
         # keyboard focus: the right scroll-padding leaves an optimal region one card wide, so a peeking card is
         # wholly outside it and Tab scrolls it fully into view (browser-checked by tests/ui/check_home_export.mjs)
         self.assertIn("scroll-padding-inline:var(--pad) max(var(--pad),calc(100% - var(--pad) - max(var(--cw),var(--wide-max)) - 0.5rem))", css)
+        # RC2 U-03 (RC1 A11Y-1): on phones the region is one --cw wide (never negative, so 200 % text keeps it) and a
+        # card wider than --cw gives the difference back with a negative end scroll-margin; the start edge, and so the
+        # snap, is untouched (browser-checked by tests/ui/harness/rail_focus_check.mjs)
+        phone = css.split("@media (max-width:44.99rem){\n    .rail{scroll-padding-inline:", 1)[1].split("}}", 1)[0]
+        self.assertTrue(phone.startswith("var(--pad) max(var(--pad),calc(100% - var(--pad) - var(--cw) - 0.5rem));}"))
+        self.assertIn(".rail>li{scroll-margin-inline-end:calc(var(--cw) - min(max(var(--cw),var(--fw)),80vw));", phone)
+        for start in ("scroll-margin-inline-start:", "scroll-margin-inline:", "scroll-margin:", "scroll-margin-left:"):
+            self.assertNotIn(start, css)
         self.assertRegex(css, r"\.rail\{[^}]*scroll-snap-type:x mandatory;")      # cards rest card-aligned
         self.assertIn('.rail::after{content:"";flex:none;width:calc(100% - var(--cw) - 0.875rem);}', css)
 
