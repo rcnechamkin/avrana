@@ -284,25 +284,35 @@ class AdjacentStates(unittest.TestCase):
 
 class BareHeadingsUnderABanner(unittest.TestCase):
     """Two real defects the matrix found (reported, not fixed here: this task changes no application code). A library that
-    is unavailable or not set up leaves its section heading standing over nothing, even though the banner explains."""
+    is unavailable or not set up leaves its section heading standing over nothing, even though the banner explains.
+    The status check is an ORDINARY test; only the heading assertion is an expected failure, so a crash on either shape
+    fails the run instead of counting as the expected failure."""
+
+    CONTINUE = ("/?for=read", sections(komga={"continue": "empty"},
+                                       calibre_web={"continue": "unavailable", "recent": "unavailable"},
+                                       jellyfin={"continue": "empty"}, audiobookshelf={"continue": "empty"}))
+    NEW_TO_AVRANA = ("/?for=listen", sections(audiobookshelf={"continue": "empty", "recent": "not_linked",
+                                                              "shelves": "not_linked"}))
+
+    def test_both_shapes_answer_200_with_a_main(self):
+        for name, (url, plan) in (("continue", self.CONTINUE), ("new to avrana", self.NEW_TO_AVRANA)):
+            with self.subTest(shape=name):
+                r = get(plan, url)
+                self.assertEqual(200, r.status_code)
+                self.assertTrue(main_of(r.text))
 
     @unittest.expectedFailure
     def test_continue_has_a_line_when_komga_has_nothing_in_progress_and_books_are_down(self):
         # DEFECT: viewmodel build_home sets continue_said = None whenever any Continue section is degraded, and the
         # template then prints "Continue" with no card and no line.
-        plan = sections(komga={"continue": "empty"}, calibre_web={"continue": "unavailable", "recent": "unavailable"},
-                        jellyfin={"continue": "empty"}, audiobookshelf={"continue": "empty"})
-        r = get(plan, "/?for=read")
-        self.assertEqual(200, r.status_code)          # a crash is not "unexpected success"
-        self.assertEqual([], empty_headings(main_of(r.text)))
+        url, plan = self.CONTINUE
+        self.assertEqual([], empty_headings(main_of(get(plan, url).text)))
 
     @unittest.expectedFailure
     def test_new_to_avrana_has_a_line_when_audiobooks_are_not_set_up(self):
         # DEFECT: Listen with Audiobooks recent/shelves not_linked prints "New to Avrana" with no card and no line.
-        plan = sections(audiobookshelf={"continue": "empty", "recent": "not_linked", "shelves": "not_linked"})
-        r = get(plan, "/?for=listen")
-        self.assertEqual(200, r.status_code)
-        self.assertEqual([], empty_headings(main_of(r.text)))
+        url, plan = self.NEW_TO_AVRANA
+        self.assertEqual([], empty_headings(main_of(get(plan, url).text)))
 
 
 if __name__ == "__main__":
