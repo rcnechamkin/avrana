@@ -64,9 +64,10 @@ LDAP_PROVIDER = "Jellyfin.Plugin.LDAP_Auth.LdapAuthenticationProviderPlugin"
 class ProvisionFailed(Exception):
     """`reason` is a fixed identifier (logsafe), never upstream text."""
 
-    def __init__(self, reason: str):
+    def __init__(self, reason: str, terminal: bool = False):
         super().__init__(reason)
         self.reason = reason
+        self.terminal = terminal      # True: never retry this member automatically (the owner tool is the repair)
 
 
 # ---- the one write-capable HTTP helper ---------------------------------------------------------------------
@@ -195,12 +196,21 @@ class KomgaKeyCreator:
             raise ProvisionFailed("created_unverified")
         return key
 
+    def preflight(self) -> None:
+        """Before ANY Komga request: the configured keys file must exist and parse. An absent file reads as "no
+        member has a key" and would make every comics member a candidate for a password reset (S-02)."""
+        if not self._store.usable():
+            raise ProvisionFailed("keys_file_unusable")
+
     def create(self, username: str, email: Optional[str]) -> None:
+        self.preflight()
         wanted = (email or "").strip().casefold()
         if "@" not in wanted:
             raise ProvisionFailed("no_email")              # keys are filed, and Komga accounts found, by e-mail
         if self._store.get(wanted) is not None:
             raise ProvisionFailed("exists")
+        if self._store.reset_failed(wanted):
+            raise ProvisionFailed("failed_after_reset", terminal=True)   # decided without any Komga request
         me = self._send("GET", "/api/v2/users/me", None)
         users = self._send("GET", "/api/v2/users", None)
         if not isinstance(me, dict) or not isinstance(users, list):
@@ -225,9 +235,18 @@ class KomgaKeyCreator:
                     raise ProvisionFailed("created_unverified")
                 login = made["email"]
             else:
+                # Komga makes keys only for the signed-in account, so for any account but the admin key's own this
+                # reset is unavoidable today (owner decision S-01 pending). Everything after it is therefore fenced:
+                # a failure leaves the member without their old password AND without a key, so it is terminal.
                 self._send("PATCH", "/api/v2/users/" + urllib.parse.quote(account["id"], safe="") + "/password",
                            {"password": password})
-                login = account["email"]
+                try:
+                    key = self._new_key(self._as_member(account["email"], password))
+                    self._store.put(wanted, key)
+                except Exception:
+                    self._store.mark_reset_failed(wanted)
+                    raise ProvisionFailed("failed_after_reset", terminal=True) from None
+                return
             key = self._new_key(self._as_member(login, password))
         self._store.put(wanted, key)
 
@@ -252,6 +271,7 @@ class Provisioner:
         self._log = log or (lambda **_kw: None)
         self._lock = threading.Lock()
         self._busy: set = set()
+        self._terminal: set = set()                           # (username, service): never retried until a restart
         self._last: Dict[Tuple[str, Service], float] = {}
         self._made: collections.deque = collections.deque()
 
@@ -288,27 +308,44 @@ class Provisioner:
             return self._done(service, "refused", "bad_username")
         key = (principal.username, service)
         now = self._clock()
-        with self._lock:
+        preflight = getattr(self._creators[service], "preflight", None)
+        refusal = None
+        capped = False
+        with self._lock:                                      # ONE hold: checks and the slot claim cannot interleave
+            if key in self._terminal:
+                return False                                  # failed after a destructive step: quiet, owner repairs
             if key in self._busy:
                 return False                                  # another tab is creating it: nothing to log
             last = self._last.get(key)
             if last is not None and now - last < RETRY_AFTER:
                 return False                                  # tried within the hour: quiet
-            while self._made and now - self._made[0] >= WINDOW:
-                self._made.popleft()
-            if len(self._made) >= self._cap:
-                capped = True
-            else:
-                capped = False
-                self._busy.add(key)
-                self._last[key] = now
-                self._made.append(now)                        # counts the attempt, so a failing upstream is capped too
+            if preflight is not None:
+                try:
+                    preflight()                               # refused here costs no cap slot and no upstream call
+                except ProvisionFailed as exc:
+                    self._last[key] = now
+                    refusal = exc.reason
+            if refusal is None:
+                while self._made and now - self._made[0] >= WINDOW:
+                    self._made.popleft()
+                if len(self._made) >= self._cap:
+                    capped = True
+                else:
+                    self._busy.add(key)
+                    self._last[key] = now
+                    self._made.append(now)                    # counts the attempt, so a failing upstream is capped too
+        if refusal is not None:
+            return self._done(service, "refused", refusal)
         if capped:
             return self._done(service, "refused", "cap")
         try:
             self._creators[service].create(principal.username, principal.email)
         except ProvisionFailed as exc:
-            return self._done(service, "refused" if exc.reason in ("exists", "email_in_use", "no_email", "admin")
+            if exc.terminal:
+                with self._lock:
+                    self._terminal.add(key)
+            return self._done(service, "refused" if exc.reason in ("exists", "email_in_use", "no_email", "admin",
+                                                                  "keys_file_unusable")
                               else "failed", exc.reason)
         except Exception as exc:                              # never escapes into the page
             return self._done(service, "failed", type(exc).__name__)
