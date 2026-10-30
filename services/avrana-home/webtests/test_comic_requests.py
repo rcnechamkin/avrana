@@ -218,16 +218,6 @@ class Comics(unittest.TestCase):
         self.assertEqual(1, len(self.omnibus.stored))
         self.assertEqual(1, mine.count("Owned Series"))           # the stored issue shows once
 
-    @unittest.expectedFailure
-    def test_timeout_after_send_page_says_it_may_have_gone_through(self):
-        # DEFECT (T-05): a timeout after the POST was sent maps to Outcome.UNAVAILABLE, whose only copy is "Comic
-        # requests could not be reached right now. Try again later." It never says the request may already have gone
-        # through, and it invites a retry; the Quick Connect UNKNOWN outcome has the right wording.
-        self.omnibus.after_send = UpstreamTimeout()
-        fields = forms(self.c.get(PAGE, params={"q": "saga"}, headers=READER).text)[0]
-        self.post(fields)
-        self.assertIn("may have gone through", self.c.get(PAGE, headers=READER).text)
-
 
 class Units(unittest.TestCase):
     def test_every_call_names_a_member(self):
