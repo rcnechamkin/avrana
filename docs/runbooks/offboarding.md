@@ -149,7 +149,7 @@ then Authentik last, because identity resolution depends on it (`scripts/offboar
 | Jellyfin | Sets `IsDisabled` on the user's policy | Yes: clear the flag in the Jellyfin dashboard | `scripts/offboard.py:159-162`; `docs/onboarding/admin-onboarding.md:100-103` |
 | Seerr | Nothing. Seerr has no disable; the tool prints "left" | n/a | `scripts/offboard.py:177-183` |
 | Audiobookshelf | Sets `isActive` to false. Refuses the root user | Yes | `scripts/offboard.py:165-174` |
-| Home (comics key) | Revokes the member's own Komga key that Home holds (in Komga, as the member, with that key; no admin credential) and drops it from `state/komga_member_keys`. The dry run only says whether one is held. Komga unreachable: dropped from Home, and the line says to delete the member's `avrana-home` key in Komga by hand | No (a new one needs Connect comics or a new enrollment) | `scripts/offboard.py:367-396`; `services/avrana-home/avrana_home/komga_keys.py` |
+| Home (comics key) | Revokes the member's own Komga key that Home holds (in Komga, as the member, with that key; no admin credential) and drops it from `state/komga_member_keys`. The dry run only says whether one is held. Komga unreachable: dropped from Home, and the line says to delete the member's `avrana-home` key in Komga by hand | No (a new one needs Connect comics or a new enrollment) | `scripts/offboard.py:367-396`; `docs/runbooks/komga-key-lifecycle.md` |
 | Authentik | Sets `is_active` to false through SQL | Yes | `scripts/offboard.py:203-205` |
 
 The tool then verifies (section "Verify").

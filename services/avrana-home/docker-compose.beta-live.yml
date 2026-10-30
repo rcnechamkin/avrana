@@ -60,7 +60,8 @@ services:
       - KOMGA_BASE_URL=http://komga:25600
       - KOMGA_TOKEN_FILE=/run/secrets/komga_token
       # Members' own Komga keys, for their Continue reading row (docs/runbooks/komga-member-keys.md). Home writes
-      # the file itself (HOME_PROVISION_ACCOUNTS=...,komga in beta-live.env), so it lives in ./state (owned by
+      # the file itself (S-01 intake and Me -> Comics below; LEGACY: HOME_PROVISION_ACCOUNTS=...,komga with
+      # HOME_KOMGA_LEGACY_PROVISION=on and the admin key, both retired), so it lives in ./state (owned by
       # uid 1000, mode 0700), the ONLY writable mount, and Home reloads it when it changes. Off until the owner sets
       # up ./state and secrets/komga_admin_token; then uncomment these two lines, the `volumes:` line, the
       # komga_admin_token entry at the bottom, and use the second `secrets:` line below.
@@ -153,7 +154,7 @@ secrets:
     file: ./secrets/audiobookshelf_token
   komga_token:
     file: ./secrets/komga_token
-  # komga_admin_token:          # a Komga ADMIN account's API key: Home uses it only to make members' own keys
+  # komga_admin_token:          # LEGACY (S-01): only with HOME_KOMGA_LEGACY_PROVISION=on; to be deleted
   #   file: ./secrets/komga_admin_token
   # home_key_intake_token:      # S-01: the shared secret the enrollment stage sends to Home's key intake
   #   file: ./secrets/home_key_intake_token

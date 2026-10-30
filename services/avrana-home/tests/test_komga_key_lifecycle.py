@@ -272,6 +272,19 @@ class SettingsTests(unittest.TestCase):
                 self.assertNotIn("i" * 40, str(caught.exception))
 
 
+class LegacySwitchTests(Files):
+    def test_build_provisioner_makes_komga_keys_only_with_the_legacy_switch(self):
+        from dataclasses import replace
+        from avrana_home.contract import Service
+        from avrana_home.provision import build_provisioner
+        store = MemberKeyStore(self.path, writable=True)
+        base = replace(Settings(), upstream_mode="real", provision_accounts=("komga",), komga_admin_token="a" * 32,
+                       komga_base_url="http://komga.test")
+        self.assertIsNone(build_provisioner(base, komga_keys=store))
+        on = build_provisioner(replace(base, komga_legacy_provision=True), komga_keys=store)
+        self.assertEqual(on.services, (Service.KOMGA,))
+
+
 def load_offboard():
     spec = importlib.util.spec_from_file_location("offboard_komga_under_test", REPO / "scripts" / "offboard.py")
     module = importlib.util.module_from_spec(spec)

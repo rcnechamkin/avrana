@@ -228,7 +228,11 @@ class SettingsFile(unittest.TestCase):
         with open(admin, "w", encoding="utf-8") as fh:
             fh.write("a" * 32)
         on = dict(REAL, KOMGA_MEMBER_KEYS_FILE=self.path, KOMGA_ADMIN_TOKEN_FILE=admin, HOME_ALLOWED_USERS="alice",
-                  HOME_PROVISION_ACCOUNTS="komga")
+                  HOME_PROVISION_ACCOUNTS="komga", HOME_KOMGA_LEGACY_PROVISION="on")
+        # S-01: retired behind its switch; without it (or the switch without komga) settings refuse.
+        self.assertIsInstance(self.from_env({k: v for k, v in on.items() if k != "HOME_KOMGA_LEGACY_PROVISION"}),
+                              SettingsError)
+        self.assertIsInstance(self.from_env(dict(REAL, HOME_KOMGA_LEGACY_PROVISION="on")), SettingsError)
         got = self.from_env(on)
         self.assertIsInstance(got, Settings, got)
         self.assertEqual(got.provision_accounts, ("komga",))
@@ -237,6 +241,7 @@ class SettingsFile(unittest.TestCase):
             with self.subTest(drop=drop):
                 self.assertIsInstance(self.from_env({k: v for k, v in on.items() if k != drop}), SettingsError)
         self.assertIsInstance(self.from_env(dict(on, HOME_PROVISION_ACCOUNTS="off")), SettingsError)
+        self.assertTrue(got.komga_legacy_provision)
 
     def test_a_valid_file_is_read(self):
         got = self.from_env(self.env({"alice@example.com": KEY_A}))
