@@ -21,7 +21,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 TODAY = "2026-10-29"
 TILES = [("watch", Trusted("Watch"), Trusted("")), ("comics", Trusted("Comics"), Trusted("")),
          ("help", Trusted("Help"), Trusted(""))]
-HANDOFF = {"jellyfin": "https://watch.avrana.net/web/#/details?id=", "komga": "https://read.avrana.net/book/"}
+HANDOFF = {"jellyfin": "https://watch.avrana.net/web/#/details?id=", "komga": "https://read.avrana.net/book/",
+           "audiobookshelf": "https://listen.avrana.net/item/"}
 
 
 def item(service, uid, title, kind, **extra):
@@ -130,6 +131,31 @@ class CardLinkGoesSomewhere(unittest.TestCase):
     def test_a_caught_up_reader_whose_released_comics_are_all_in_for_you_still_lists_the_week(self):
         view = page()
         view["sections"].append(sec("komga", "for_you", [issue(1), issue(2), issue(3)]))
+        followed = self.follow(view)
+        self.assertEqual({f"Issue {10 + n}" for n in range(6)}, {c.title for c in followed.released_items})
+
+
+    def three_kinds(self, view):
+        """The reported case: Movies and TV + Audiobooks + Comics, so the card is drawn on All."""
+        book = item("audiobookshelf", "li_syn000001", "Audio 1", "audiobook", released="2026-10-26")
+        view["sections"].append(sec("audiobookshelf", "released", [book]))
+        return view
+
+    def test_reported_case_released_unavailable_with_movies_audiobooks_and_comics(self):
+        view = self.three_kinds(page())
+        view["sections"][1] = {"service": "komga", "section": "released", "state": "unavailable", "items": []}
+        home = build_home(view, TILES, today=TODAY)
+        self.assertIsNotNone(home.released_stack, "on baseline the card is drawn here and its link reloads All")
+        self.assertEqual({"watch", "listen", "comics"}, {k for k, _l, _c, _h in home.released_tabs} - {"all"})
+        followed = self.follow(view)
+        self.assertEqual({f"Issue {10 + n}" for n in range(6)}, {c.title for c in followed.released_items})
+
+    def test_reported_case_every_released_comic_is_also_in_for_you(self):
+        view = self.three_kinds(page())
+        view["sections"].append(sec("komga", "for_you", [issue(1), issue(2), issue(3)]))
+        home = build_home(view, TILES, today=TODAY)
+        self.assertIsNotNone(home.released_stack)
+        self.assertEqual({"watch", "listen", "comics"}, {k for k, _l, _c, _h in home.released_tabs} - {"all"})
         followed = self.follow(view)
         self.assertEqual({f"Issue {10 + n}" for n in range(6)}, {c.title for c in followed.released_items})
 
