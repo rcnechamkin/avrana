@@ -2,10 +2,19 @@
 
 Status: deployed in the live member beta since 2026-10-29 (revision 2cb228f; Komga member keys on). Standard library only.
 
-Two writers, one format: the owner-run `tools/komga_member_keys.py` and, when HOME_PROVISION_ACCOUNTS names komga,
-Home itself (provision.py, owner decision 2026-10-28 "Home does it"). Home re-reads the file whenever it changes
-on disk (size or modification time), so neither writer needs Home restarted. A file that cannot be read or is
+Writers, one format: the owner-run `tools/komga_member_keys.py`; Home's key intake (`PUT /internal/komga-key/...`,
+filled by the enrollment stage) and Me -> Comics "Connect comics" / "Disconnect" (komga_keys.py; ADR "Komga member keys
+are minted where the password lives", docs/runbooks/komga-key-lifecycle.md); `scripts/offboard.py`; and, only with
+HOME_KOMGA_LEGACY_PROVISION=on, the old admin-key provisioning (provision.py). Home re-reads the file whenever it
+changes on disk (size or modification time), so no writer needs Home restarted. A file that cannot be read or is
 malformed is refused WHOLE and the last good keys stay in use; no entry is ever logged or echoed.
+
+Every write takes the exclusive cross-process lock on `<file>.lock` (identity_bindings.file_lock), re-reads the file
+under it and replaces it atomically, so two writers never lose each other's entry. Komga's id for each key Home filed
+(needed to revoke it: Komga's key list masks the key itself) is kept in a sidecar, `<file>.ids` (lower-case email ->
+key id), so the keys file keeps the one format the owner tool and older Home revisions read.
+
+    python3 -m avrana_home.member_keys count [--file PATH]     # how many members have a key: a number, nothing else
 """
 from __future__ import annotations
 
@@ -16,8 +25,12 @@ import tempfile
 import threading
 from typing import Any, Callable, Dict, Optional, Tuple
 
+from .identity_bindings import file_lock
+
 MAX_MEMBER_KEYS = 500
 KOMGA_KEY = re.compile(r"[0-9a-f]{32}")              # Komga 1.25 ApiKeyGenerator: a UUID v4 without dashes
+KOMGA_KEY_ID = re.compile(r"[A-Za-z0-9_-]{1,64}")    # Komga's ApiKey.id (a TSID string); only ever a path segment
+DEFAULT_PATH = "/var/lib/avrana-home/komga_member_keys"     # docker-compose.beta-live.yml
 _EMAIL = re.compile(r"[^@\s]{1,64}@[^@\s]{1,190}")
 
 
@@ -58,10 +71,31 @@ def read_keys(path: str) -> Tuple[Tuple[str, str], ...]:
         raise KeysFileError("cannot be read") from None
 
 
-def write_keys(path: str, keys: Dict[str, str]) -> None:
+def parse_ids(text: str) -> Dict[str, str]:
+    """The `.ids` sidecar: lower-case email -> Komga key id. Malformed entries are dropped, never fatal: an id only
+    makes a revoke more precise (komga_keys.KomgaKeyClient.revoke falls back to Komga's own list)."""
+    try:
+        data = json.loads(text)
+    except ValueError:
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {e: i for e, i in data.items()
+            if member_key_id(e) == e and isinstance(i, str) and KOMGA_KEY_ID.fullmatch(i)}
+
+
+def read_ids(path: str) -> Dict[str, str]:
+    try:
+        with open(path + ".ids", encoding="utf-8") as fh:
+            return parse_ids(fh.read())
+    except OSError:
+        return {}
+
+
+def write_keys(path: str, keys: Dict[str, str], prefix: str = ".komga_member_keys.") -> None:
     """Atomically replace `path` (mode 0600) with `keys`."""
     folder = os.path.dirname(os.path.abspath(path))
-    fd, tmp = tempfile.mkstemp(prefix=".komga_member_keys.", dir=folder)
+    fd, tmp = tempfile.mkstemp(prefix=prefix, dir=folder)
     try:
         os.chmod(tmp, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as fh:
@@ -170,17 +204,80 @@ class MemberKeyStore:
             except OSError:
                 pass
 
-    def put(self, email: str, key: str) -> None:
+    def put(self, email: str, key: str, komga_id: Optional[str] = None) -> bool:
+        """File `key` (and Komga's id for it, when known) for `email`. Returns False when exactly that key was already
+        filed (nothing written), True when it was added or replaced an older one. An older key is NOT revoked in Komga
+        here: Connect and the enrollment stage remove their own older `avrana-home` key before they mint."""
         key_id = member_key_id(email)
         if not self._writable:
             raise PermissionError("the keys file is read-only for Home")
-        if key_id is None or KOMGA_KEY.fullmatch(key or "") is None:
+        if key_id is None or not isinstance(key, str) or KOMGA_KEY.fullmatch(key) is None:
             raise ValueError("not an email and a Komga API key")
-        with self._lock:
-            self._refresh()
-            keys = dict(self._keys, **{key_id: key})
-            write_keys(self._path, keys)
+        if komga_id is not None and (not isinstance(komga_id, str) or KOMGA_KEY_ID.fullmatch(komga_id) is None):
+            raise ValueError("not a Komga key id")
+        with self._lock, file_lock(self._path):
+            keys = dict(read_keys(self._path))          # under the lock: another writer may have written since
+            ids = read_ids(self._path)
+            same = keys.get(key_id) == key and (komga_id is None or ids.get(key_id) == komga_id)
+            if not same:
+                if key_id not in keys and len(keys) >= MAX_MEMBER_KEYS:
+                    raise ValueError("the keys file is full")
+                if keys.get(key_id) != key:
+                    ids.pop(key_id, None)               # an id belongs to the key it came with
+                keys[key_id] = key
+                if komga_id is not None:
+                    ids[key_id] = komga_id
+                write_keys(self._path, keys)
+                write_keys(self._path + ".ids", ids, prefix=".komga_member_keys_ids.")
             self._keys, self._seen = keys, self._stamp()
+            return not same
+
+    def komga_id(self, email: Any) -> Optional[str]:
+        """Komga's id for the key Home filed for `email`, when Home was told it (intake, Connect); else None."""
+        key_id = member_key_id(email)
+        if key_id is None:
+            return None
+        with self._lock:
+            return read_ids(self._path).get(key_id)
+
+    def remove(self, email: Any) -> Optional[Tuple[str, Optional[str]]]:
+        """Drop `email`'s entry. Returns the (key, Komga key id or None) that was filed, or None when there was none.
+        The key is returned only so the caller can revoke it in Komga; it is never logged."""
+        key_id = member_key_id(email)
+        if not self._writable:
+            raise PermissionError("the keys file is read-only for Home")
+        if key_id is None:
+            return None
+        with self._lock, file_lock(self._path):
+            keys = dict(read_keys(self._path))
+            ids = read_ids(self._path)
+            key = keys.pop(key_id, None)
+            komga_id = ids.pop(key_id, None)
+            if key is not None:
+                write_keys(self._path, keys)
+                write_keys(self._path + ".ids", ids, prefix=".komga_member_keys_ids.")
+            self._keys, self._seen = keys, self._stamp()
+        return None if key is None else (key, komga_id)
 
     def __repr__(self) -> str:
         return "MemberKeyStore(<redacted>)"
+
+
+def main(argv=None) -> int:
+    """`count`: how many members have a key, read from the file (the owner's check after an enrollment). Prints one
+    number; never an email or a key. Exit 2 when the file cannot be read."""
+    import argparse
+    ap = argparse.ArgumentParser(prog="python3 -m avrana_home.member_keys")
+    ap.add_argument("command", choices=("count",))
+    ap.add_argument("--file", default=DEFAULT_PATH)
+    args = ap.parse_args(argv)
+    try:
+        print(len(read_keys(args.file)))
+    except KeysFileError as exc:
+        print(f"refused: {exc}")
+        return 2
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

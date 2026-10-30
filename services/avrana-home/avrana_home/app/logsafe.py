@@ -20,7 +20,8 @@ import time
 from typing import Any
 
 ALLOWED_FIELDS = frozenset({"route", "method", "status", "duration_ms", "service", "section",
-                            "state", "reason", "error_class", "count"})
+                            "state", "reason", "error_class", "count",
+                            "ref"})       # ref: a short one-way hash (komga_keys.subject_ref), never an identity
 _IDENT = re.compile(r"[A-Za-z0-9_./{}:\-]{0,64}\Z")
 _METHOD = re.compile(r"[A-Z]{1,12}\Z")
 ATTR = "avrana_fields"

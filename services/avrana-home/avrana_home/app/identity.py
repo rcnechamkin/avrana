@@ -351,6 +351,34 @@ def header_block_too_large(scope) -> bool:
     return header_bytes(scope.get("headers", ())) > MAX_HEADER_BYTES
 
 
+def _single_header(scope, wanted: bytes, limit: int) -> Optional[str]:
+    """The one ASCII value of header `wanted` (lower case), or None when it is absent, repeated, non-ASCII or longer
+    than `limit`."""
+    found = [bytes(v) for k, v in scope.get("headers", ()) if bytes(k).lower() == wanted]
+    if len(found) != 1 or len(found[0]) > limit:
+        return None
+    try:
+        return found[0].decode("ascii").strip()
+    except UnicodeDecodeError:
+        return None
+
+
+def intake_bearer_from_scope(scope) -> Optional[str]:
+    """The Komga key intake's credential (app/intake.py): the token of a single `Authorization: Bearer <token>`
+    header, or None. It identifies the enrollment stage as a caller, never a member, and confers no identity."""
+    value = _single_header(scope, b"authorization", 600)
+    if value is None or not value.startswith("Bearer "):
+        return None
+    token = value[len("Bearer "):].strip()
+    return token or None
+
+
+def intake_is_json(scope) -> bool:
+    """The intake's body type: exactly one Content-Type whose bare type is application/json."""
+    value = _single_header(scope, b"content-type", 100)
+    return value is not None and value.split(";", 1)[0].strip().lower() == "application/json"
+
+
 def has_identity_headers(scope) -> bool:
     """True when ANY header looks like an outpost identity header (used only to refuse the
     operator detail view; it grants nothing)."""

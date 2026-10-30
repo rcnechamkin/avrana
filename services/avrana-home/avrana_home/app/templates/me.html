@@ -72,7 +72,9 @@
     <ul class="krows">
       {{ row("/me/security", "Account & Security", "Sign-in, recovery, and sessions", "key") }}
       {{ row("/account", "Your access", "Your libraries and requests", "person") }}
-    </ul>
+{#- Me -> Comics (S-01, comics.py): whether Home holds this member's own Komga key, for their Continue reading row. #}
+{% if comics %}      {{ row("/me/comics", "Comics", "Connected" if comics.connected else "Not connected", "comic") }}
+{% endif %}    </ul>
   </section>
   <section class="kgroup" aria-labelledby="me-help">
     <h3 class="kgroup-h" id="me-help">Help</h3>

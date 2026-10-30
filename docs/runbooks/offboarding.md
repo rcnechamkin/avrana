@@ -111,7 +111,7 @@ python3 /home/cody/avrana/scripts/offboard.py --audit
 ```
 
 Lists accounts in Authentik, Jellyfin, Audiobookshelf and Seerr and flags names with no Authentik match
-(`scripts/offboard.py:294-339`). It reads live services with credentials it loads itself from host
+(`scripts/offboard.py:295-340`). It reads live services with credentials it loads itself from host
 files (`scripts/offboard.py:38-40`), so it runs on the host, not on a laptop. An unmatched name is not
 proof of an orphan: Jellyfin stores no e-mail, and the admin has different usernames in different systems.
 It does not list Komga, Calibre-Web, Shelfarr, Omnibus or the Audible connector.
@@ -149,6 +149,7 @@ then Authentik last, because identity resolution depends on it (`scripts/offboar
 | Jellyfin | Sets `IsDisabled` on the user's policy | Yes: clear the flag in the Jellyfin dashboard | `scripts/offboard.py:159-162`; `docs/onboarding/admin-onboarding.md:100-103` |
 | Seerr | Nothing. Seerr has no disable; the tool prints "left" | n/a | `scripts/offboard.py:177-183` |
 | Audiobookshelf | Sets `isActive` to false. Refuses the root user | Yes | `scripts/offboard.py:165-174` |
+| Home (comics key) | Revokes the member's own Komga key that Home holds (in Komga, as the member, with that key; no admin credential) and drops it from `state/komga_member_keys`. The dry run only says whether one is held. Komga unreachable: dropped from Home, and the line says to delete the member's `avrana-home` key in Komga by hand | No (a new one needs Connect comics or a new enrollment) | `scripts/offboard.py:367-396`; `services/avrana-home/avrana_home/komga_keys.py` |
 | Authentik | Sets `is_active` to false through SQL | Yes | `scripts/offboard.py:203-205` |
 
 The tool then verifies (section "Verify").
@@ -276,7 +277,7 @@ What the tool does **not** check, although its header says it "verifies that the
 authenticate" (`scripts/offboard.py:26`): it does not try to sign in, it does not look at Audiobookshelf or
 Seerr, and it does not look at any manual-step service.
 
-What `--audit` shows (`scripts/offboard.py:294-339`), so that the checks below use it correctly:
+What `--audit` shows (`scripts/offboard.py:295-340`), so that the checks below use it correctly:
 
 - Authentik: each user with `active=True` or `active=False`. This is the only place the audit prints an
   active flag.
