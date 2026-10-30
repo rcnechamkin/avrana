@@ -1066,13 +1066,19 @@ def build_home(view: dict, tiles, *, new_tab: Optional[str] = None, limit: int =
             seen.add(it.item_id)
             picked.append(it)
     has_books = any(p.href in BOOK_PLACES for p in places)
+    week = items_of("week", "komga")
+    # The "This week in comics" card links to the Comics chip (F-02): the chip is offered whenever the card can be drawn,
+    # even if New Releases' own list holds no comic (Komga's `released` failed, or Continue / New for You hold them all).
     chips = [(k, label, kinds) for k, label, kinds in RELEASE_CHIPS
-             if any(it.kind in kinds for it in picked) or (k == "books" and has_books)]
+             if any(it.kind in kinds for it in picked) or (k == "books" and has_books)
+             or (k == "comics" and focus is None and len(week) >= WEEK_MIN)]
     rel = rel_tab if focus is None and len(chips) > 1 and rel_tab in {k for k, _l, _k in chips} else None
     released_said = None
     if rel is not None:
         kinds = next(k for key, _l, k in chips if key == rel)
         picked = [it for it in picked if it.kind in kinds]
+        if not picked and rel == "comics" and len(week) >= WEEK_MIN:     # the chip the card links to lists the week's issues
+            picked = list(week)
         if not picked:     # a chip the member has a library for but nothing is dated yet: the chips stay, with a line
             released_said = NO_RELEASES_IN.format(next(label for key, label, _k in chips if key == rel))
 
@@ -1101,7 +1107,6 @@ def build_home(view: dict, tiles, *, new_tab: Optional[str] = None, limit: int =
     stack, stack_at = None, 0
     if focus is None:
         rail_picked = picked
-        week = items_of("week", "komga")
         comics = [it for it in picked if it.kind == "comic"]
         if rel is None and len(chips) > 1 and (len(week) >= WEEK_MIN or len(comics) >= WEEK_MIN):
             stack_at = next((i for i, it in enumerate(picked) if it.kind == "comic"), 0)
