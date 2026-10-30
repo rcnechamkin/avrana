@@ -1,6 +1,6 @@
 # Run the Avrana Media beta on live data (AVR-771)
 
-Status: prepared 2026-10-27, **nothing applied**. Owner decision 2026-10-27: the personal beta uses live data
+Status: prepared 2026-10-27; **applied 2026-10-29: the live member beta runs this way (revision 2cb228f; see docs/release/MEDIA-2.0-RC2-STATE.md)**. Owner decision 2026-10-27: the personal beta uses live data
 instead of synthetic. Every step on host `avrana` needs the owner's yes at the time (`AGENTS.md`).
 
 What you get: `https://media-beta.avrana.net` behind Authentik, open to one tester, showing that tester's own

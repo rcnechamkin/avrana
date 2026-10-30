@@ -1,6 +1,6 @@
 """Create a member's missing Jellyfin or Audiobookshelf account, or their own Komga key (ACCOUNT-PROVISIONING.md).
 
-Status: proposed, not deployed. Standard library only. Off unless HOME_PROVISION_ACCOUNTS names a library.
+Status: deployed in the live member beta since 2026-10-29 (revision 2cb228f; Komga admin provisioning key on). Standard library only. Off unless HOME_PROVISION_ACCOUNTS names a library.
 
 The read adapters stay read-only: their guarded transports keep refusing every non-GET. This module is the only
 code in Home that creates LIBRARY accounts (the request brokers may create a member's Shelfarr or Seerr account on

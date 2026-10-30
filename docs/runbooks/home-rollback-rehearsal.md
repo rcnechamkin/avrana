@@ -1,9 +1,14 @@
 # Home rollback and degraded-library rehearsal (AVR-388)
 
-Status: prepared 2026-10-27, **nothing in it has been run on the host**. Part A runs in CI on every change; parts B
+Status: prepared 2026-10-27; **parts B to D have not been run on the host** (Home itself has been live since 2026-10-29). Part A runs in CI on every change; parts B
 to D are the owner's, each needs its own yes at the time, and an agent never runs them (`AGENTS.md`). The design
 is MEDIA-2.0.md section 5 ("Recovery and rollback"): Home is stateless, cut-over and rollback are one upstream
 switch on an Authentik proxy provider, and the previous portal container stays deployed for two weeks.
+
+**Rollback caveat (RC2 audit S-10, 2026-10-29).** Home is live (revision 2cb228f). Rolling it back to an image older
+than 2cb228f removes the #166 seeded identity-binding protection (S1): a username reused after a member is deleted
+could again see the former member's data. Roll back only to `pre-2cb228f` or newer, or re-apply the bindings check
+first.
 
 Order: A (proof without the host) → B (beta container on the host) → C (one real library degraded, off-peak) →
 D (provider round-trip on the **beta** hostname). The production round-trip itself belongs to AVR-389's cut-over

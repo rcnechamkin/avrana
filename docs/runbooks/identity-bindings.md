@@ -1,6 +1,6 @@
 # Media Home identity bindings (RC1 finding S1)
 
-Status: **proposed, not deployed.** Code: `services/avrana-home/avrana_home/identity_bindings.py`. Owner-run only;
+Status: **deployed (seeded bindings file on in the live member beta since 2026-10-29, #166, revision 2cb228f).** Code: `services/avrana-home/avrana_home/identity_bindings.py`. Owner-run only;
 the agent never runs these against production.
 
 ## Why

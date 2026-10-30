@@ -1,6 +1,6 @@
 # Avrana home web application
 
-Status: **proposed, not built into an image, not deployed, 2026-10-12.** Slice M3.1 of
+Status: **written 2026-10-12; deployed as the live member beta since 2026-10-29 (revision 2cb228f; see docs/release/MEDIA-2.0-RC2-STATE.md).** Slice M3.1 of
 [Avrana Media 2.0](MEDIA-2.0.md) (Linear AVR-374, with the application half of AVR-375 and the
 degradation half of AVR-385). The code is [`services/avrana-home/`](../../services/avrana-home/);
 the adapter layer it sits on is described in [`ADAPTER-CONTRACT.md`](ADAPTER-CONTRACT.md).
@@ -452,7 +452,7 @@ research findings, not tests. The device review (AVR-585, D17) runs on the Conce
 
 ## 5b. Asking for a book (request broker, Shelfarr)
 
-Status: proposed, not deployed; off unless `HOME_BOOK_REQUESTS=on` (section 7). Design and the owner decisions:
+Status: deployed 2026-10-29; ON in the live beta (`HOME_BOOK_REQUESTS=on`) (section 7). Design and the owner decisions:
 `docs/design/UNIVERSAL-SEARCH-AND-REQUESTS.md`.
 
 `GET /request/books` (a shell page) searches Shelfarr (2026.10.19.1, `/api/v1/search`, `content_kind=book`) as Home's
@@ -517,7 +517,7 @@ edition ISBNs) and the ids CWA and Shelfarr's Audiobookshelf mirror stamped on t
 
 ## 5c. Asking for a film or show (request broker, Seerr)
 
-Status: proposed, not deployed; off unless `HOME_WATCH_REQUESTS=on`. Same shape and gates as section 5b, with these
+Status: deployed 2026-10-29; ON in the live beta (`HOME_WATCH_REQUESTS=on`). Same shape and gates as section 5b, with these
 differences:
 
 - **Who Home acts as.** Seerr has one global key (full admin). Every search and request is sent with `X-API-User` set
@@ -551,7 +551,7 @@ directory and the Jellyfin import. Home needs no change to use it: it goes in `S
 
 ## 5d. My requests
 
-Status: proposed, not deployed; there whenever either broker is on (sections 5b, 5c). `GET /request/mine` (a shell
+Status: deployed 2026-10-29; there whenever either broker is on (sections 5b, 5c). `GET /request/mine` (a shell
 page) lists the member's own requests from Shelfarr and Seerr, newest first, in two groups: **On the way** and
 **Done**. A member who may use neither broker gets the standard 404. The ask pages and the Request menu link here.
 
@@ -601,7 +601,7 @@ Each view reads the lists fresh and counts against the member's search allowance
 
 ## 5e. Asking for a comic series (request broker, the Omnibus fork)
 
-Status: proposed, not deployed; off unless `HOME_COMIC_REQUESTS=on`. Needs the Avrana fork of Omnibus
+Status: deployed 2026-10-29; ON in the live beta (`HOME_COMIC_REQUESTS=on`). Needs the Avrana fork of Omnibus
 (`rcnechamkin/omnibus`, `avrana/v1.4.4`): an administrator mints an API key and switches on "on behalf". With that key
 and `X-Omnibus-User: <member>`, the fork accepts exactly `GET /api/search` and `GET`/`POST /api/request`, never as an
 administrator, with the member's own Request permission and auto-approve; every use is in Omnibus's audit log.

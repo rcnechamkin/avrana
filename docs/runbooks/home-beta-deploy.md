@@ -1,6 +1,6 @@
 # Deploy the Avrana Media beta (AVR-373 phase 1): real sign-in, synthetic data
 
-Status: prepared 2026-10-27, **nothing applied**. The owner runs each step on host `avrana` with an explicit yes
+Status: prepared 2026-10-27; **superseded by `home-beta-live.md`: the beta has run on live data since 2026-10-29 (revision 2cb228f)**. The owner runs each step on host `avrana` with an explicit yes
 at the time (`AGENTS.md`); an agent never does. About 30 to 45 minutes. `docs/design/BETA-CHECKLIST.md` is the
 "why" behind each step; this page is the "how", in order, with the check and the undo for each.
 

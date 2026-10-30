@@ -1,6 +1,6 @@
 """Members' own Komga API keys, as one JSON file: lower-case email -> key (docs/runbooks/komga-member-keys.md).
 
-Status: proposed, not deployed. Standard library only.
+Status: deployed in the live member beta since 2026-10-29 (revision 2cb228f; Komga member keys on). Standard library only.
 
 Two writers, one format: the owner-run `tools/komga_member_keys.py` and, when HOME_PROVISION_ACCOUNTS names komga,
 Home itself (provision.py, owner decision 2026-10-28 "Home does it"). Home re-reads the file whenever it changes
