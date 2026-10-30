@@ -3,7 +3,7 @@
 | File | Purpose |
 |---|---|
 | `avrana-backup.sh` | Nightly local backup, 23 components. Timer `avrana-backup.timer`, 02:30. |
-| `required-artifacts.txt`, `verify-required.py` | The completeness gate: 180 files and archive members every run must contain. |
+| `required-artifacts.txt`, `verify-required.py` | The completeness gate: 182 files and archive members every run must contain. |
 | `restore-map.txt` | Where each artifact goes on a rebuilt host. |
 | `restore-test.py` (`restore-test.sh` is a wrapper) | Proves a run can rebuild the server without touching the run or production. Timer `avrana-restore-test.timer`, Sundays 04:30. |
 | `offhost-backup.py`, `offhost-setup.sh`, `offhost-verify-secrets.sh`, `OFFHOST.md` | Encrypted, add-only copy to Backblaze B2. Timer `avrana-offhost.timer`, 03:30. |

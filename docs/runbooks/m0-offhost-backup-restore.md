@@ -127,6 +127,19 @@ after the nightly job and before 00:00 UTC.
    Expect no output and `rc=0` (and at least one file checked: `ls $RUN/seerr`). Any `FAILED` line means a
    file differs from its manifest entry: stop and escalate.
 
+   Also prove the Home member state (S-04), from the same run (`stack-config` holds decrypted secrets; same
+   directory rules as the rest):
+   ```sh
+   docker run --rm --pull never --user 1000:1000 -e RCLONE_CONFIG=/c/rclone.conf \
+     -v /home/cody/avrana/services/backups/rclone.conf:/c/rclone.conf:ro -v "$PWD:/out" \
+     rclone/rclone@sha256:b06aed988cf5967de7c25be5925240983981c757f4ed1ac9d2fa659d51d60548 \
+     copy avrana-offsite-daily:$RUN /out/$RUN --include "stack-config/**"
+   zstd -dc $RUN/stack-config/stack-config.tar.zst | tar -tf - | grep -E '^services/avrana-home/(docker-compose.beta-live.yml|state/identity_bindings.json)$'
+   ```
+   Expect both lines. `identity_bindings.json` is what docs/runbooks/identity-bindings.md section 4 restores.
+   Caveat: only runs made after the live script and required list are synced on avrana contain Home state; after
+   the sync a host without the bindings file fails the completeness check by design.
+
 7. **Full drill (once; the part that takes the cap).** Only after step 1, after the nightly job has finished,
    and before 00:00 UTC. Use a fresh directory and the OFFHOST.md recipe:
    ```sh

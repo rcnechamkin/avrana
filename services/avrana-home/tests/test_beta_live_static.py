@@ -41,6 +41,14 @@ class Compose(unittest.TestCase):
             self.assertRegex(c, rf"{net}:\s*\n\s*external: true")
         self.assertNotRegex(c, r"authentik_(frontend|backend|portal|kindle|olivetin)\b")
 
+    def test_state_volume_is_active_whenever_the_bindings_file_is(self):
+        # S-11: the repo file alone must be a usable rebuild record. Bindings point into /var/lib/avrana-home, so
+        # ./state must be mounted there (the only writable mount); otherwise Home refuses every member.
+        c = code(COMPOSE)
+        if "HOME_IDENTITY_BINDINGS_FILE=/var/lib/avrana-home/" in c:
+            self.assertIn('volumes: ["./state:/var/lib/avrana-home:rw"]', c)
+        self.assertEqual(len(re.findall(r"(?m)^\s*volumes\s*:", c)), 1)
+
     def test_same_container_as_the_provider_expects(self):
         self.assertIn("container_name: avrana-home-beta", code(COMPOSE))
         self.assertIn("internal_host: http://avrana-home-beta:8096", BLUEPRINT)

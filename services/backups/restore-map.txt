@@ -60,7 +60,7 @@ shelfarr|shelfarr/.secret_key_base|REPO/services/shelfarr/data/.secret_key_base|
 shelfmark|shelfmark/users.db|REPO/services/shelfmark/config/users.db|copy
 shelfmark|shelfmark/settings.json|REPO/services/shelfmark/config/settings.json|copy
 shelfmark|shelfmark/.flask_secret|REPO/services/shelfmark/config/.flask_secret|copy
-stack-config|stack-config/stack-config.tar.zst|REPO (secrets only: .env files, secrets/, the seven secret-bearing blueprints; everything else comes from Git)|reference
+stack-config|stack-config/stack-config.tar.zst|REPO (deployment record: .env files, secrets/, the secret-bearing blueprints, compose files, and Home's live compose and state/ with identity_bindings.json; restore only what is missing, the rest comes from Git)|reference
 systemd|systemd/fstab|/etc/fstab (array and mergerfs lines only; never the root, boot or swap lines)|reference
 systemd|systemd/docker-data-root.txt|/etc/docker/daemon.json|reference
 systemd|systemd/enabled-system.txt|systemctl enable ...|reference
