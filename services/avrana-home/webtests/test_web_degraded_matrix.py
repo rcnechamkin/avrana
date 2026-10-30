@@ -107,8 +107,8 @@ DEGRADED_SAID = re.compile(r"are (?:unavailable right now|not set up for your ac
 def hard_bare(main):
     """Empty-rail headings that nothing excuses: any heading but the aggregate rails, or those on a page that names no
     degraded library."""
-    excused = DEGRADED_RAILS if DEGRADED_SAID.search(main) else ()
-    return [h for h in empty_headings(main) if h not in excused]
+    # No excuse since the headings fix (#176): a section with nothing to show renders no heading at all.
+    return list(empty_headings(main))
 
 
 def empty_headings(main):
@@ -301,14 +301,12 @@ class BareHeadingsUnderABanner(unittest.TestCase):
                 self.assertEqual(200, r.status_code)
                 self.assertTrue(main_of(r.text))
 
-    @unittest.expectedFailure
     def test_continue_has_a_line_when_komga_has_nothing_in_progress_and_books_are_down(self):
         # DEFECT: viewmodel build_home sets continue_said = None whenever any Continue section is degraded, and the
         # template then prints "Continue" with no card and no line.
         url, plan = self.CONTINUE
         self.assertEqual([], empty_headings(main_of(get(plan, url).text)))
 
-    @unittest.expectedFailure
     def test_new_to_avrana_has_a_line_when_audiobooks_are_not_set_up(self):
         # DEFECT: Listen with Audiobooks recent/shelves not_linked prints "New to Avrana" with no card and no line.
         url, plan = self.NEW_TO_AVRANA
