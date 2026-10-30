@@ -156,7 +156,7 @@ to check your account. Use the contact route below.
 
 This is the same for everyone. A missing tile does not mean anything is broken, and the answer will only
 describe your own account.
-<!-- src: services/avrana-portal/portal.py:10-27 (404 not 403 rule), :851-860 (404 copy); docs/design/DESIGN.md:337, :651 (the 404-not-403 doctrine, both standards) -->
+<!-- src: services/avrana-portal/portal.py:10-27 (404 not 403 rule), :851-860 (404 copy); docs/design/DESIGN.md:337, :679 (the 404-not-403 doctrine, both standards) -->
 
 ## Asking for something that is missing
 

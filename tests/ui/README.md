@@ -86,6 +86,24 @@ flies back to Home, a search result's art flies into its title page, a touch tap
 new page at once where the browser exposes the active transition (Chromium does), and a key still navigates; with `reduce` no transition runs and nothing is named; `HOME_MOTION_PROPOSAL=on` gives
 600 ms. Not part of `run_offline.py`. Chromium only.
 
+### Rail focus check (RC2 U-03, RC1 A11Y-1)
+
+```sh
+python -B services/avrana-home/dev/run_dev.py --dev-identity --port 8796 --mock-port 18796 \
+    --abs-mock-port 18797 --komga-mock-port 18798 --calibre-mock-port 18799      # in another terminal
+PLAYWRIGHT_FROM=<tooling folder> node tests/ui/harness/rail_focus_check.mjs --base http://127.0.0.1:8796 \
+    [--out result.json] [--shots DIR] [--quick] [--no-axe] [--css EXTRA.css]
+```
+
+Checks DESIGN.md's Rail Focus Rule on the running dev stack (it does not start one): for member-a and member-b, on
+`/`, `/?for=watch`, `/?for=listen` and `/library`, at 320, 360, 390 and 430 px with 100 % and 200 % text, real Tab and
+Shift+Tab presses through every rail card, counting each focused card that is not wholly inside its rail with room for
+the focus ring. Also: no sideways page scroll, a pointer click on a peeking card does not move the rail, a wheel turn
+and an arrow key leave a card start-aligned (the snap holds), and axe shows no serious or critical violation on Home at
+390 and 1280. `--css` injects a stylesheet after load, for trying a change without editing the tree. Exit 1 on a
+finding. Not part of `run_offline.py`. Chromium only. Known, not a rail finding: `/library` at 320 with 200 % text
+scrolls the page 8px sideways (its layout button and chips), on `main` too.
+
 ### Browser tooling (kept outside the repository)
 
 Playwright and axe-core are **not vendored**. `run_ui.py` looks at `$PLAYWRIGHT_FROM`, then at

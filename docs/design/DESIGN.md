@@ -511,7 +511,13 @@ words stay whole; a single word wider than the column may still break rather tha
   rail's right `scroll-padding` leaves a region one widest card (plus focus ring) wide: a peeking card counts as outside,
   Tab and Shift+Tab bring it fully into view, and the rail's padding keeps the ring unclipped. This relies on cards
   resting card-aligned, which is why phone rails snap mandatorily and carry the trailing spacer. No script.
-  `tests/ui/check_home_export.mjs` checks it in Chromium with real key presses at 360, 390 and 390 at 200 % text;
+  *RC2 change (U-03, RC1 A11Y-1), pending owner acknowledgement:* with 200 % text a phone could not hold that region
+  (the widest card plus padding exceeded the rail, the region collapsed to the whole rail and the peeking second card
+  stayed 162px clipped), so on phones the region is one `--cw` wide and a card wider than `--cw` carries a negative
+  `scroll-margin-inline-end` of the difference: for focus every card measures one `--cw` from its start. The start
+  edge, and so the snap and the resting alignment, is unchanged; from 45rem nothing changed. Still no script.
+  `tests/ui/check_home_export.mjs` checks it in Chromium with real key presses at 360, 390 and 390 at 200 % text, and
+  `tests/ui/harness/rail_focus_check.mjs` against the dev stack at 320, 360, 390 and 430 at 100 % and 200 %;
   Safari and VoiceOver are part of the device review (AVR-585).
 - **Residual:** from 45rem a still may be wider than the other cards; if the four cards ever overflow the column there
   (large text on a desktop), a still that straddles the column edge can stay partly clipped when focused.

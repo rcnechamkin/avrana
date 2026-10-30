@@ -507,6 +507,16 @@
      max(--cw, --wide-max): the widest card, so a focused card always fits it. */
   .rail,.rail.tall{--card-min:7.5rem;--wide-max:11.25rem;}
   @media (min-width:45rem){.rail,.rail.tall{--card-min:7.5rem;--wide-max:12.5rem;}}
+  /* RC2 U-03 (RC1 A11Y-1): with 200 % text on a phone the widest card (--wide-max, 360px) no longer fits beside the
+     padding, so the region above went negative, collapsed to the whole rail and the peeking card (at 308px of 390)
+     counted as visible: Tab left 162px of it clipped. On phones the region is now one --cw wide, which never goes
+     negative, and a card wider than --cw (a square or a still) gives back the difference with a negative
+     scroll-margin at its end, so for focus every card measures one --cw from its start: it fits the region when it
+     rests at the start and lies wholly outside it when it peeks. scroll-margin-inline-start is untouched, so the
+     snap to card starts is exactly as before. */
+  @media (max-width:44.99rem){
+    .rail{scroll-padding-inline:var(--pad) max(var(--pad),calc(100% - var(--pad) - var(--cw) - 0.5rem));}
+    .rail>li{scroll-margin-inline-end:calc(var(--cw) - min(max(var(--cw),var(--fw)),80vw));}}
   .rail .frame{border-radius:var(--radius-preview);border-color:var(--line);background:var(--raised);}
   .card{gap:0.1875rem;}
   .card .frame{margin-bottom:0.625rem;}
