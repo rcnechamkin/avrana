@@ -57,7 +57,9 @@ services:
     # frontend/backend as before, plus one private network per proxied backend (forensic audit
     # D4): the embedded outpost in this container is the only thing that can reach the portal,
     # the Kindle connector and OliveTin, so no sibling can forge X-authentik-* headers at them.
-    networks: [frontend, backend, portal, kindle, olivetin]
+    # authentik_home_beta is the same idea for Media Home; a recreate without it is a 502 for every
+    # signed-in member while the public 302 still looks healthy (2026-10-30).
+    networks: [frontend, backend, portal, kindle, olivetin, authentik_home_beta]
     healthcheck:
       test: ["CMD", "ak", "healthcheck"]
       interval: 30s
@@ -147,3 +149,5 @@ networks:
   portal: {name: authentik_portal, ipam: {config: [{subnet: 10.220.29.0/24}]}}
   kindle: {name: authentik_kindle, ipam: {config: [{subnet: 10.220.30.0/24}]}}
   olivetin: {name: authentik_olivetin, ipam: {config: [{subnet: 10.220.31.0/24}]}}
+  # Created by hand before this project starts (docs/runbooks/home-beta-deploy.md, step 2).
+  authentik_home_beta: {external: true}

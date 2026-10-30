@@ -396,8 +396,15 @@ class ComposeDeclarationTests(unittest.TestCase):
 
     def test_authentik_server_networks_are_exactly_the_expected_set(self):
         networks = self.compose("authentik")["services"]["server"]["networks"]
-        self.assertEqual(sorted(networks), sorted(["frontend", "backend", "portal", "kindle", "olivetin"]))
+        self.assertEqual(sorted(networks), sorted(["frontend", "backend", "portal", "kindle", "olivetin",
+                                                   "authentik_home_beta"]))
         self.assertEqual(len(networks), len(set(networks)))
+
+    def test_only_the_server_joins_the_home_network(self):
+        compose = self.compose("authentik")
+        self.assertTrue(compose["networks"]["authentik_home_beta"].get("external"))
+        joined = [n for n, s in compose["services"].items() if "authentik_home_beta" in s.get("networks", [])]
+        self.assertEqual(joined, ["server"])
 
     def test_worker_ldap_and_postgresql_networks_are_unchanged(self):
         services = self.compose("authentik")["services"]
