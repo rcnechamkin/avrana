@@ -470,14 +470,17 @@
     @keyframes hero-unband{to{bottom:0;}}
     @keyframes hero-out{to{opacity:0;visibility:hidden;}}
     @keyframes hero-in{from{opacity:0;visibility:hidden;}to{opacity:1;visibility:visible;}}}
+  /* Reduce motion: the global rule removes the scroll animations, so hero-in never holds the strip and the play button
+     at opacity 0. With no animation there is no strip state: the resting hero is the full hero only. */
+  @media (prefers-reduced-motion:reduce){.hero-mini,.hero-play{display:none;}}
   /* More contrast: the picture and the strip go; the title sits on the raised surface. Forced colours: the same, with
      a border. */
   @media (prefers-contrast:more){.hero-art,.hero-light,.hero-card::after{display:none;}
-    .hero,.hero-stick,.hero-card{height:auto;min-height:0;}.hero-stick{position:relative;animation:none;}
+    .hero,.hero-stick,.hero-card{height:auto;min-height:0;}.hero-stick{position:relative;top:auto;animation:none;}
     .hero-foot,.hero-ctl,.hero-cover{animation:none;}.hero-mini,.hero-play{display:none;}.hero-card{background:var(--raised);}
     .hero-plate,.hero-facts{text-shadow:none;}}
   @media (forced-colors:active){.hero-art,.hero-light,.hero-card::after{display:none;}
-    .hero,.hero-stick,.hero-card{height:auto;min-height:0;}.hero-stick{position:relative;animation:none;}
+    .hero,.hero-stick,.hero-card{height:auto;min-height:0;}.hero-stick{position:relative;top:auto;animation:none;}
     .hero-foot,.hero-ctl,.hero-cover{animation:none;}.hero-mini,.hero-play{display:none;}.hero-card{border:1px solid CanvasText;}
     .hero-plate,.hero-facts{text-shadow:none;}.hero-bar{forced-color-adjust:none;background:Canvas;box-shadow:0 0 0 1px CanvasText;}
     .hero-bar .fill{background:CanvasText;}.hero-go{border-color:ButtonText;}}

@@ -227,6 +227,21 @@ class Stylesheet(unittest.TestCase):
             self.assertIn(".hero-mini,.hero-play{display:none;}", self.rules.split(media, 1)[1].split("}}", 1)[0] + "}")
 
 
+    def test_reduced_motion_hides_the_strip_and_contrast_modes_reset_the_sticky_offset(self):
+        """Source-level pin only (U-01, U-02): Python cannot see CSS. The behavioural proof is the Playwright script
+        scratchpad/u01/u01.mjs (reduced motion: no strip or play button at rest; contrast/forced: hero clear of the
+        section heading)."""
+        timed_at = self.rules.index("@supports (animation-timeline:view()){")
+        after = self.rules[timed_at:]
+        self.assertIn("@media (prefers-reduced-motion:reduce){.hero-mini,.hero-play{display:none;}}", after)
+        # it must come after the rule that would show them, so it wins at equal specificity
+        self.assertGreater(after.index("@media (prefers-reduced-motion:reduce){.hero-mini"),
+                           after.index(".hero-mini,.hero-play{display:flex;"))
+        for media in ("@media (prefers-contrast:more){.hero-art", "@media (forced-colors:active){.hero-art"):
+            block = self.rules.split(media, 1)[1].split("}}", 1)[0]
+            self.assertIn(".hero-stick{position:relative;top:auto;animation:none;}", block)
+
+
 class Markup(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
