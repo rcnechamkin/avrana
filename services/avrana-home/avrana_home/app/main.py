@@ -420,7 +420,8 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
                           section=s.section, state=s.state.value, reason=s.reason or "")
             decision = search_decision(build_search(result.search_view(), term, title_services=title_services,
                                                     request_hosts=request_hosts(viewer),
-                                                    own_pages=own_pages(viewer)))
+                                                    own_pages=own_pages(viewer),
+                                                    books=holds_books(viewer)))
             scope["avrana_route"] = decision.label
             # Search's no-results group may offer Contribute (memo section 2), only from the member's own tiles.
             return respond(decision, scope, shell=shell_for(viewer, "search"),
@@ -543,7 +544,7 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
                     else {"sections": []})
             page = build_library(view, tiles, chip=chip, limit=settings.section_limit,
                                  open_paths=place_paths(viewer), title_services=title_services,
-                                 view_mode=library_view_from_scope(scope))
+                                 view_mode=library_view_from_scope(scope), books=holds_books(viewer))
             decision = library_decision(page)
             scope["avrana_route"] = decision.label
             return respond(decision, scope, shell=shell_for(viewer, "library"))
@@ -558,7 +559,7 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
             focus = home_filter_from_scope(scope)
             view = await _gather(viewer, sections=("continue",), limit=CONTINUE_PAGE_MOST,
                                  extras=(("jellyfin", "next_up"),) if focus is None else ())   # All: with Up next
-            decision = continue_decision(build_continue_page(view, tiles, focus=focus))
+            decision = continue_decision(build_continue_page(view, tiles, focus=focus, books=holds_books(viewer)))
             scope["avrana_route"] = decision.label
             return respond(decision, scope, shell=shell_for(viewer, "continue"))
 
@@ -576,7 +577,8 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
                 section = await run_in_threadpool(lambda: adapter.item(viewer.principal, parsed[1], fresh=True))
                 log_event(app_log, logging.INFO, "section", service=section.service.value,
                           section=section.section, state=section.state.value, reason=section.reason or "")
-                page = build_title(section.to_dict(), parsed[0], parsed[1], search_term_from_scope(scope))
+                page = build_title(section.to_dict(), parsed[0], parsed[1], search_term_from_scope(scope),
+                                   books=holds_books(viewer))
             if page is None:
                 scope["avrana_route"] = "not_found"
                 return respond(not_found())
@@ -734,7 +736,7 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
                               new_tab=new_tab_from_scope(scope), limit=settings.section_limit,
                               member_name=(facts.name or facts.username), title_services=title_services,
                               focus=focus, rel_tab=release_chip_from_scope(scope), more=more_from_scope(scope),
-                              prefs=prefs, customize=store is not None)
+                              prefs=prefs, customize=store is not None, books=holds_books(viewer))
             extra["home"] = home
             shell = shell_for(viewer, "home", places=home.places)
             extra["shell"] = (dataclasses.replace(shell, filters=home.filters, customize=home.customize)
@@ -1155,6 +1157,11 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
             if svc is not None and svc.allows(viewer.groups):
                 out[service] = "/" + path
         return out
+    def holds_books(viewer: Viewer) -> bool:
+        """Whether this member may use Books (Calibre-Web), from their groups: the Read tile is every Comics member's,
+        so Home's tiles cannot say (F-01)."""
+        return REQUIRED_GROUP[Service.CALIBRE_WEB] in viewer.groups
+
     def tiles_for(viewer: Viewer):
         """The member's own catalogue tiles (group-filtered, static data; no upstream call)."""
         return decide("/", viewer.groups, cat).context["tiles"]

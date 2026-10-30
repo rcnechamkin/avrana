@@ -152,6 +152,8 @@ stack-config|member|stack-config/stack-config.tar.zst|services/avrana-imax-verif
 stack-config|member|stack-config/stack-config.tar.zst|services/avrana-kindle-connector/docker-compose.yml
 stack-config|member|stack-config/stack-config.tar.zst|services/avrana-kindle-connector/.env
 stack-config|member|stack-config/stack-config.tar.zst|services/avrana-portal/docker-compose.yml
+stack-config|member|stack-config/stack-config.tar.zst|services/avrana-home/docker-compose.beta-live.yml
+stack-config|member|stack-config/stack-config.tar.zst|services/avrana-home/state/identity_bindings.json
 stack-config|member|stack-config/stack-config.tar.zst|services/backups/avrana-backup.sh
 stack-config|member|stack-config/stack-config.tar.zst|services/backups/offhost-backup.py
 stack-config|member|stack-config/stack-config.tar.zst|services/backups/offhost-setup.sh

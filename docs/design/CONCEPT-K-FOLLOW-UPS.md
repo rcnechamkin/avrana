@@ -2,7 +2,7 @@
 
 > **Status: written 2026-10-26 for MK-7 (AVR-721), against the integration branch
 > `feat/avr-713-concept-k-integration` (MK-1, MK-2, MK-3, MK-4, MK-5a, MK-5b merged; MK-6 motion in progress).**
-> Nothing here is merged to `main`, deployed, or tested on a phone. The standard itself is in
+> Update 2026-10-29: Concept K is merged to `main` and deployed in the live member beta (revision 2cb228f); the phone check is still open. (Original note: nothing here was merged, deployed, or tested on a phone.) The standard itself is in
 > [DESIGN.md](DESIGN.md), section "Concept K · Avrana Console"; the owner decisions are in
 > [DECISIONS.md](../DECISIONS.md) (2026-10-25 and 2026-10-26). The follow-ups below are drafts for Linear issues;
 > none has been filed yet.

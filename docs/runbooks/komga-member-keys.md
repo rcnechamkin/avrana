@@ -19,6 +19,17 @@ key's, gets its key without a password change; any other admin is never touched.
 hour, at most `HOME_PROVISION_CAP_PER_HOUR` (with Jellyfin and Audiobookshelf creations) in all; every attempt
 logs one `provision` event with service `komga` and a fixed reason.
 
+Safety stops (S-02). Home refuses to make keys while the keys file is absent or unreadable (log `provision`,
+service `komga`, state `refused`, reason `keys_file_unusable`; no Komga request): an unmounted `state/` would
+otherwise look like "nobody has a key" and reset members' passwords. So create the file once, empty, when turning this
+on: `echo '{}' > state/komga_member_keys && chmod 600 state/komga_member_keys`. If a key step fails AFTER the
+password reset (Komga error, or the file cannot be written), Home logs `provision`, service `komga`, state `failed`,
+reason `failed_after_reset`, and never retries that member by itself; find them with
+`grep failed_after_reset` in Home's log, and the list is in `state/komga_member_keys.reset_failed`. Repair with
+`python3 tools/komga_member_keys.py --member <email> --keys-file state/komga_member_keys` (a key in the file also
+ends the block; to let Home try again without a key, delete the member's line from the `.reset_failed` file AND
+restart Home, which also holds the block in memory).
+
 Home re-reads the keys file whenever it changes, so neither Home nor the tool needs Home restarted.
 
 Turning it on (owner, once):

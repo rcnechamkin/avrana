@@ -424,7 +424,7 @@ words stay whole; a single word wider than the column may still break rather tha
 - **The Three Glass Rule.** One `.glass` class (liquid, not frosted: a thin tint, 16px blur with 1.9 saturation, a two-corner masked
   `::before` rim, inner caustics and an `::after` sheen, CSS only, never
   `border-image`; the element clips itself with its radius, `overflow: hidden` and `isolation`) is worn by exactly
-  three controls: the tab bar, the top-left Home button, and the top-right utility on Library. Everything else is
+  three controls: the tab bar, the top-left Home button, and the top-right layout button on Library. Everything else is
   opaque: cards, chips, panels, banners, the search field, the update prompt. Fallbacks: no `backdrop-filter`,
   reduced transparency and more contrast get the solid `--raised` ground; forced colours get a system edge. The blur
   is never animated.
@@ -458,8 +458,8 @@ words stay whole; a single word wider than the column may still break rather tha
   show their own title in the page role, top left. Pages that are not tabs (a place, a help topic, a title,
   "If something doesn't open") add the **glass Home button**: a 44px circle holding the brand's Spire-A micro cut at
   the 24px it is drawn for (`/brand/spire-a-24.svg`, SHA-pinned, never redrawn), the word "Home" in forced colours.
-- **Top-right utility** (Library only): one 44px Search link, a magnifier named "Search", shown only to a member who
-  can search.
+- **Top-right layout button** (Library only; owner review 2026-10-27, Search is already a tab): one small control that
+  opens a menu of four layout links.
 - **Safe areas and scroll end.** `viewport-fit=cover` on shell pages only; gutters are
   `max(1.25rem, env(safe-area-inset-*))`. The page scrolls clear of the bar by 1rem, and `scroll-padding-bottom`
   keeps a focused control above it (WCAG 2.4.11). `apple-mobile-web-app-status-bar-style` stays `black` (D7).
@@ -476,9 +476,9 @@ words stay whole; a single word wider than the column may still break rather tha
   that is down never supplies it, and a member with no library, resting libraries or nothing set up gets no hero.
   The eyebrow is part of its `h2` ("Continue: <title>"), yellow with the 3px signal bar only for Continue, Stone for
   Recently added. The title is the display role.
-- **Hero art.** The item's own `/art` image twice: crisp at its natural shape (contained, never cropped) over a
-  blurred, dimmed copy that fades out before the text, blur in CSS only. With no art, the letter frame and no
-  backdrop; below 360px no poster; no backdrop in more contrast or forced colours. No backdrop image type is used
+- **Hero art.** The item's own `/art` image twice: crisp at its natural shape (Round 10, 2026-10-29: `object-fit:cover`, cropped to fill the
+  framed window) over a blurred, dimmed copy, blur in CSS only. With no art, the letter frame and no
+  backdrop; the poster shows at every width down to 320px; no backdrop in more contrast or forced colours. No backdrop image type is used
   (that is follow-up F-1).
 - **One hand-off.** One Cream action names the app that opens: "Resume in Jellyfin" only for a saved position,
   otherwise "Open in Jellyfin", "Listen in Audiobookshelf", "Read in Komga", "Open in Calibre-Web". It never claims
@@ -511,7 +511,13 @@ words stay whole; a single word wider than the column may still break rather tha
   rail's right `scroll-padding` leaves a region one widest card (plus focus ring) wide: a peeking card counts as outside,
   Tab and Shift+Tab bring it fully into view, and the rail's padding keeps the ring unclipped. This relies on cards
   resting card-aligned, which is why phone rails snap mandatorily and carry the trailing spacer. No script.
-  `tests/ui/check_home_export.mjs` checks it in Chromium with real key presses at 360, 390 and 390 at 200 % text;
+  *RC2 change (U-03, RC1 A11Y-1), pending owner acknowledgement:* with 200 % text a phone could not hold that region
+  (the widest card plus padding exceeded the rail, the region collapsed to the whole rail and the peeking second card
+  stayed 162px clipped), so on phones the region is one `--cw` wide and a card wider than `--cw` carries a negative
+  `scroll-margin-inline-end` of the difference: for focus every card measures one `--cw` from its start. The start
+  edge, and so the snap and the resting alignment, is unchanged; from 45rem nothing changed. Still no script.
+  `tests/ui/check_home_export.mjs` checks it in Chromium with real key presses at 360, 390 and 390 at 200 % text, and
+  `tests/ui/harness/rail_focus_check.mjs` against the dev stack at 320, 360, 390 and 430 at 100 % and 200 %;
   Safari and VoiceOver are part of the device review (AVR-585).
 - **Residual:** from 45rem a still may be wider than the other cards; if the four cards ever overflow the column there
   (large text on a desktop), a still that straddles the column edge can stay partly clipped when focused.
@@ -523,7 +529,7 @@ words stay whole; a single word wider than the column may still break rather tha
 
 ### Library
 
-`/library` (MK-5a) is a tab page: "Library" in the page role, the Search utility top right. Opaque filter chips are
+`/library` (MK-5a) is a tab page: "Library" in the page role, the layout button top right. Opaque filter chips are
 plain links: All, then one per library this member's sections hold, in Home's order and member language.
 `?lib=<library>` picks one, checked against the member's own libraries (bounded, never echoed; anything else is
 All); the chosen chip has the yellow tint, rim, check glyph and `aria-current="true"`. Chips wrap as whole chips.

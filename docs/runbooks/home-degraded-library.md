@@ -1,7 +1,7 @@
 # Home: a library is unavailable (operator escalation, AVR-385)
 
-Status: written 2026-10-27 from the code and the offline tests. Home 2.0 is **not deployed**; nothing here
-has been run on host `avrana`. Every step that touches the host is the owner's (`AGENTS.md`): observe first,
+Status: written 2026-10-27 from the code and the offline tests. Home is **deployed as the live member beta since 2026-10-29** (revision 2cb228f); the
+steps here have not been run on host `avrana`. Every step that touches the host is the owner's (`AGENTS.md`): observe first,
 change one thing, verify.
 
 ## What members see, and what keeps working

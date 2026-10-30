@@ -474,16 +474,37 @@ class N5StoredAccounting(CacheBase):
 
 
 class N6EvictionIsNotQuadratic(CacheBase):
+    """N6 as an operation count, not a stopwatch (T-22).
+
+    The old tests bounded wall-clock time (10 s / 5 s) and flaked under load (13.3 s once in RC1).
+    Eviction cost is dominated by the SQL statements `_exec` issues, so each test counts them through
+    the cache's single `_exec` choke point. A quadratic eviction (a statement per victim, or a rescan
+    per victim) multiplies the count by the number of victims; a one-pass eviction keeps it flat.
+    The counts are deterministic and independent of machine load."""
+
+    @staticmethod
+    def count_statements(c):
+        calls = []
+        real = c._exec
+
+        def counting(sql, params=()):
+            calls.append(sql)
+            return real(sql, params)
+        c._exec = counting
+        return calls
+
     def test_a_set_near_quota_into_a_full_cache_is_bounded_in_time(self):
         c = self.make(max_entries=2048, member_max_entries=2048)
         scopes = [c.for_member(make_principal(f"member-{n}")) for n in range(16)]
         for i in range(2048):
             scopes[i % 16].set("jellyfin", f"k{i}", "z" * 50, 1000 + i)
         self.assertEqual(len(c), 2048)
-        t0 = time.monotonic()
+        calls = self.count_statements(c)
         for i in range(300):
+            before = len(calls)
             scopes[i % 16].set("jellyfin", f"new{i}", "w" * 50, 5000 + i)     # each must evict
-        self.assertLess(time.monotonic() - t0, 10.0)
+            self.assertLessEqual(len(calls) - before, 16)    # constant per set, however full the cache is
+        self.assertLessEqual(len(calls), 300 * 16)
         self.assertLessEqual(len(c), 2048)
 
     def test_a_large_entry_evicting_many_small_ones_is_one_pass(self):
@@ -491,9 +512,10 @@ class N6EvictionIsNotQuadratic(CacheBase):
         s = c.for_member(make_principal("member-a"))
         for i in range(500):
             s.set("jellyfin", f"k{i}", "q" * 100, 1000 + i)
-        t0 = time.monotonic()
+        calls = self.count_statements(c)
         s.set("jellyfin", "big", "B" * 90_000, 100)
-        self.assertLess(time.monotonic() - t0, 5.0)
+        # ~450 victims; one candidate scan plus chunked deletes, so the count does not grow with victims
+        self.assertLessEqual(len(calls), 16)
         self.assertEqual(s.get("jellyfin", "big"), "B" * 90_000)
 
 

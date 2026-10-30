@@ -158,6 +158,7 @@ class ItemVM:
     active: Optional[str] = None   # when this member last touched it (contract MediaItem.active, UTC), for ordering only
     added: Optional[str] = None    # the day it reached the library (contract MediaItem.added), for New Releases only
     series: Optional[str] = None   # the series name (display text), for "from your series" counts only
+    home: str = ""                 # the library it is filed under when that is not `home_library`'s answer (F-01)
     mark: Optional[str] = None     # what tells this one from its neighbours in a series: "S3 E10", "#12" (glance)
 
     @property
@@ -168,12 +169,15 @@ class ItemVM:
     def library(self) -> str:
         """The library a member would say it is in: a Komga e-book is a book (`home_library`). `service` still
         decides which app it opens in."""
-        return home_library(self.service, self.kind)
+        return self.home or home_library(self.service, self.kind)
 
 
-def home_library(service, kind) -> str:
-    """Komga holds books as well as comics (owner decision 2026-10-29): an e-book from it belongs with Books."""
-    return "calibre-web" if service == "komga" and kind == "ebook" else service
+def home_library(service, kind, books: bool = True) -> str:
+    """Komga holds books as well as comics (owner decision 2026-10-29): an e-book from it belongs with Books WHEN the
+    member has Books (`books`: the caller's check of the avrana-books group, never the Home tiles, because the Read
+    tile is every Comics member's). A member with Comics alone has no Books library to file it under (F-01), so it
+    stays with Komga's Comics."""
+    return "calibre-web" if books and service == "komga" and kind == "ebook" else service
 
 
 @dataclass(frozen=True)
@@ -229,6 +233,7 @@ def _item_vm(it: dict) -> Optional[ItemVM]:
     finished, resumable = continue_state(it.get("progress"))
     service = it.get("service") if it.get("service") in SERVICE_LABEL else ""
     item_id = it.get("id") if isinstance(it.get("id"), str) else None
+    home = it.get("_home") if it.get("_home") in SERVICE_LABEL else ""
     mark = _plain(it.get("subtitle") or "") or None if it.get("kind") in ("episode", "comic") else None
     if mark and title.endswith(mark):
         mark = None                                  # "Saga #12" already says "#12"
@@ -247,7 +252,7 @@ def _item_vm(it: dict) -> Optional[ItemVM]:
                   active=it.get("active") if isinstance(it.get("active"), str)
                   and _INSTANT.fullmatch(it["active"]) else None,
                   added=it.get("added") if isinstance(it.get("added"), str) and _DAY.fullmatch(it["added"]) else None,
-                  series=_plain(it["series"]) or None if isinstance(it.get("series"), str) else None)
+                  series=_plain(it["series"]) or None if isinstance(it.get("series"), str) else None, home=home)
 
 
 def build_sections(view: dict) -> Tuple[SectionVM, ...]:
@@ -597,21 +602,25 @@ def initial_of(name: str) -> str:
     return "A"
 
 
-def _sections_by_service(view: dict) -> dict:
+def _sections_by_service(view: dict, books: bool = True) -> dict:
     """Sections by the library they belong to. A Komga section that answered with e-books gives them to Books: the
     e-books move to a Books section of the same name (state "ok"), and the Komga section keeps the comics, so every
-    row, tab and heading built from this dict files them under Books (`home_library`)."""
+    row, tab and heading built from this dict files them under Books (`home_library`). `books` is whether the member
+    holds the Books library (the avrana-books group): without one the e-books stay in the Komga section (marked, so a card still
+    says Comics), because a library the member does not have is never named (F-01)."""
     out: dict = {}
     for raw in view.get("sections", ()):
         if raw.get("service") not in SERVICE_LABEL or raw.get("state") in (None, "not_permitted"):
             continue
         items = raw.get("items") or ()
-        books = [it for it in items if isinstance(it, dict)
+        moved = [it for it in items if isinstance(it, dict)
                  and home_library(raw["service"], it.get("kind")) != raw["service"]]
-        if books and raw.get("state") == "ok":
-            comics = [it for it in items if it not in books]
+        if moved and not books:
+            raw = dict(raw, items=[dict(it, _home=raw["service"]) if it in moved else it for it in items])
+        elif moved and raw.get("state") == "ok":
+            comics = [it for it in items if it not in moved]
             raw = dict(raw, items=comics, state="ok" if comics else "empty")
-            out.setdefault("calibre-web", []).append(dict(raw, service="calibre-web", items=books, state="ok"))
+            out.setdefault("calibre-web", []).append(dict(raw, service="calibre-web", items=moved, state="ok"))
         out.setdefault(raw["service"], []).append(raw)
     return out
 
@@ -640,11 +649,11 @@ def library_down(secs) -> bool:
     return any(sec["state"] == "unavailable" for sec in secs if sec.get("section") not in ("next_up", "shelves"))
 
 
-def build_places(tiles, view: dict) -> Tuple[PlaceVM, ...]:
+def build_places(tiles, view: dict, books: bool = True) -> Tuple[PlaceVM, ...]:
     """The member's own places, in the catalogue's order. A place whose libraries are all down (`library_down`)
     stays, marked not up (Read stays up while one of its two libraries answers); a library the member cannot use
     is not in `tiles`, so it is absent."""
-    held = _sections_by_service(view)
+    held = _sections_by_service(view, books)
     out = []
     for path, label, _desc in tiles:
         services = [s for s in _PLACE_SERVICES.get(path, ()) if s in held]
@@ -700,7 +709,8 @@ def shelf_rows(shelved, limit: int, title_services, rows_of=SHELF_ROWS) -> list:
         cards = _cards([it for it in shelved if it.shelf == key][:limit],
                        lambda it: it.detail or KIND_LABEL.get(it.kind), title_services=title_services)
         if cards:
-            out.append(RowVM(key, heading, cards))
+            # New Releases is `h-released` here as on All and Watch; `new` stays New to Avrana's (U-07).
+            out.append(RowVM("released" if heading == NEW_RELEASES else key, heading, cards))
     return out
 
 
@@ -976,15 +986,15 @@ def _split(cards, limit: int, expanded: bool):
 def build_home(view: dict, tiles, *, new_tab: Optional[str] = None, limit: int = 12,
                member_name: str = "", title_services=frozenset(), focus: Optional[str] = None,
                today: Optional[str] = None, rel_tab: Optional[str] = None, more: Optional[str] = None,
-               prefs=None, customize: bool = False) -> HomeVM:
+               prefs=None, customize: bool = False, books: bool = True) -> HomeVM:
     """Home as display data. Retry links point at `/` (the new tab is kept), the same page again.
     `title_services`: libraries with a title page (main.py's set), for the hero's Details link and the Recently added
     cards (which open the title page; Continue cards open the item where it plays). `limit` is how many cards a rail
     shows (settings.section_limit); `rel_tab` and `more` are the bounded `?rel=` and `?more=` texts, checked here."""
     limit = max(1, min(int(limit), SHELF_MOST))
     more = more if isinstance(more, str) and more in MORE_KEYS else None
-    held = _sections_by_service(view)
-    places = build_places(tiles, view)
+    held = _sections_by_service(view, books)
+    places = build_places(tiles, view, books)
     # Customize (HOME-02): an explicit `?for=` wins for this view and never rewrites the saved start; hidden places
     # leave the filters and All. With a saved start, Home's own links say `for=all` so All stays All.
     start, hidden, order = effective_home(prefs, [p.href[1:] for p in places])
@@ -1065,14 +1075,23 @@ def build_home(view: dict, tiles, *, new_tab: Optional[str] = None, limit: int =
         if it.item_id not in seen:
             seen.add(it.item_id)
             picked.append(it)
-    has_books = any(p.href in BOOK_PLACES for p in places)
-    chips = [(k, label, kinds) for k, label, kinds in RELEASE_CHIPS
-             if any(it.kind in kinds for it in picked) or (k == "books" and has_books)]
+    has_books = books and any(p.href in BOOK_PLACES for p in places)
+    week = items_of("week", "komga")
+    # Without Books, an e-book from Komga is a Comics item (F-01): the Comics chip holds it, and there is no Books chip.
+    # The "This week in comics" card links to the Comics chip (F-02): the chip is offered whenever the card can be drawn,
+    # even if New Releases' own list holds no comic (Komga's `released` failed, or Continue / New for You hold them all).
+    chips = [(k, label, kinds + (("ebook",) if k == "comics" and not books else ()))
+             for k, label, kinds in RELEASE_CHIPS
+             if (k != "books" or has_books)
+             and (any(it.kind in kinds for it in picked) or k == "books"
+                  or (k == "comics" and focus is None and len(week) >= WEEK_MIN))]
     rel = rel_tab if focus is None and len(chips) > 1 and rel_tab in {k for k, _l, _k in chips} else None
     released_said = None
     if rel is not None:
         kinds = next(k for key, _l, k in chips if key == rel)
         picked = [it for it in picked if it.kind in kinds]
+        if not picked and rel == "comics" and len(week) >= WEEK_MIN:     # the chip the card links to lists the week's issues
+            picked = list(week)
         if not picked:     # a chip the member has a library for but nothing is dated yet: the chips stay, with a line
             released_said = NO_RELEASES_IN.format(next(label for key, label, _k in chips if key == rel))
 
@@ -1101,7 +1120,6 @@ def build_home(view: dict, tiles, *, new_tab: Optional[str] = None, limit: int =
     stack, stack_at = None, 0
     if focus is None:
         rail_picked = picked
-        week = items_of("week", "komga")
         comics = [it for it in picked if it.kind == "comic"]
         if rel is None and len(chips) > 1 and (len(week) >= WEEK_MIN or len(comics) >= WEEK_MIN):
             stack_at = next((i for i, it in enumerate(picked) if it.kind == "comic"), 0)
@@ -1235,13 +1253,13 @@ class ContinuePageVM:
     rail: str = ""                       # the cards' shape class, as Home's Continue rail (rail_shape)
 
 
-def build_continue_page(view: dict, tiles, *, focus: Optional[str] = None) -> ContinuePageVM:
+def build_continue_page(view: dict, tiles, *, focus: Optional[str] = None, books: bool = True) -> ContinuePageVM:
     """The Continue page as display data: Home's Continue, uncut. `focus` is the bounded `?for=` text: matched against
     the member's own places (build_filters) and never echoed; anything else is All."""
-    places = build_places(tiles, view)
+    places = build_places(tiles, view, books)
     pinned_all = focus == HOME_ALL       # came from a Home that starts on a place: its back link stays on All
     _filters, focus = build_filters(places, focus)
-    held = _sections_by_service(view)
+    held = _sections_by_service(view, books)
     label = None
     if focus is not None:
         held = {s: v for s, v in held.items() if s in _PLACE_SERVICES[focus]}
@@ -1340,7 +1358,8 @@ def library_href(key: str, view: str = LIBRARY_VIEW_DEFAULT) -> str:
 
 
 def build_library(view: dict, tiles, *, chip: Optional[str] = None, limit: int = RAIL_MOST,
-                  open_paths=None, title_services=frozenset(), view_mode: Optional[str] = None) -> LibraryVM:
+                  open_paths=None, title_services=frozenset(), view_mode: Optional[str] = None,
+                  books: bool = True) -> LibraryVM:
     """The Library page as display data. `chip` is the bounded `?lib=` text (identity.library_chip_from_scope): it is
     matched against THIS member's own libraries only and is never echoed; anything else is All. `open_paths`:
     service -> the member's own place route (already group-filtered by the caller). A library is named only when
@@ -1351,7 +1370,7 @@ def build_library(view: dict, tiles, *, chip: Optional[str] = None, limit: int =
     asks = tuple(("/" + path, label, desc) for path, label, desc in tiles if path in LIBRARY_ASKS)
     if not has_library(tiles):
         return LibraryVM(no_library=True, asks=asks, asks_heading=asks_heading_of(asks))
-    held = _sections_by_service(view)
+    held = _sections_by_service(view, books)
     mine = [s for s in SERVICE_ORDER if s in held]
     down = {s for s in mine if library_down(held[s])}
     chosen = chip if isinstance(chip, str) and chip in mine else LIBRARY_ALL
@@ -1534,6 +1553,8 @@ class SearchVM:
 
 
 def _result_vm(it: dict, service: str, label: str, term: Optional[str], title_services) -> Optional[ResultVM]:
+    if it.get("service") in SERVICE_LABEL:
+        service = it["service"]          # the app it opens in; `label` is the library it is filed under (F-01)
     handoff = it.get("handoff_url")
     if not handoff_ok(handoff, service):
         return None
@@ -1584,7 +1605,7 @@ def _names(labels) -> str:
 
 
 def build_search(view: dict, raw_term: Optional[str], *, title_services=frozenset(),
-                 request_hosts=None, own_pages=None) -> SearchVM:
+                 request_hosts=None, own_pages=None, books: bool = True) -> SearchVM:
     """`view` is `SearchResults.search_view()`; `raw_term` the bounded text from the address (or None).
     Libraries the member cannot use are not in `view`, and nothing here can name them.
 
@@ -1600,7 +1621,27 @@ def build_search(view: dict, raw_term: Optional[str], *, title_services=frozense
         return SearchVM("invalid", term=term, message="That search term cannot be used.", hint=SEARCH_MIN_HINT)
     clean = clean_query(raw_term)
     groups, found, empty = [], 0, []
-    for raw in view.get("groups", ()):
+    raws = list(view.get("groups", ()))
+    if books:        # a Komga e-book is a Book here as on Home and Library (`home_library`), only for a member with Books
+        extra = []
+        for i, raw in enumerate(raws):
+            if isinstance(raw, dict) and raw.get("service") == "komga" and raw.get("state") == "ok":
+                its = raw.get("items") or ()
+                moved = [it for it in its if isinstance(it, dict) and home_library("komga", it.get("kind")) != "komga"]
+                if moved:
+                    raws[i] = dict(raw, items=[it for it in its if it not in moved])
+                    extra.append(dict(raw, service="calibre-web", items=moved))
+        for ex in extra:
+            mate = next((i for i, g in enumerate(raws) if isinstance(g, dict) and g.get("service") == "calibre-web"),
+                        None)
+            if mate is None:
+                raws.append(ex)
+            elif raws[mate].get("state") in ("ok", "empty"):      # one Books group, whatever it found
+                raws[mate] = dict(raws[mate], state="ok", items=list(raws[mate].get("items") or ()) + ex["items"])
+            else:       # Books could not answer (unavailable, not set up): its notice stands; the e-book stays in Komga's
+                undo = raws[next(i for i, g in enumerate(raws) if g.get("service") == "komga")]
+                undo["items"] = list(undo.get("items") or ()) + ex["items"]
+    for raw in raws:
         service, state = raw.get("service"), raw.get("state")
         if service not in SERVICE_LABEL or state in (None, "not_permitted"):
             continue
@@ -1656,6 +1697,7 @@ def build_search(view: dict, raw_term: Optional[str], *, title_services=frozense
 class TitleVM:
     state: str                         # ok | unavailable | not_linked
     library: str
+    opens: Optional[str] = None        # the app's library name when it differs from `library` (a Komga e-book: Comics)
     title: str = ""
     medium: str = ""
     line: Optional[str] = None         # creator · year
@@ -1713,7 +1755,8 @@ def kicker_of(medium: str, library: str) -> str:
     return f"{medium} · {library}"
 
 
-def build_title(section: dict, service: str, upstream_id: str, raw_term: Optional[str]) -> Optional[TitleVM]:
+def build_title(section: dict, service: str, upstream_id: str, raw_term: Optional[str],
+                books: bool = True) -> Optional[TitleVM]:
     """`section` is the adapter's `item(...)` result as `SectionResult.to_dict()`. None means the standard 404
     (not permitted, unknown, hidden, malformed, or anything this function does not recognise): the caller cannot
     tell those apart and neither can the member. Unavailable and not-set-up say nothing about the title."""
@@ -1739,6 +1782,7 @@ def build_title(section: dict, service: str, upstream_id: str, raw_term: Optiona
     if not handoff_ok(href, service):
         return None
     kind = str(it.get("kind", ""))
+    label = SERVICE_LABEL[home_library(service, kind, books)]       # the library the member files it under (F-01)
     title = _plain(it.get("title") or "") or "Untitled"
     creator = _plain(it.get("creator") or "") or None
     year = _year_of(it.get("year"))
@@ -1756,7 +1800,7 @@ def build_title(section: dict, service: str, upstream_id: str, raw_term: Optiona
         action = "Open"
     else:
         action = ACTION.get(kind, "Open")
-    return TitleVM("ok", label, title=title, medium=medium, kicker=kicker_of(medium, label),
+    return TitleVM("ok", label, opens=SERVICE_LABEL[service], title=title, medium=medium, kicker=kicker_of(medium, label),
                    line=" · ".join(x for x in (creator, str(year) if year else None) if x) or None,
                    detail=_detail_of(it, creator, year), shape=SHAPE.get(kind, "poster"),
                    image=_image(it.get("artwork")), backdrop=_image(it.get("backdrop")), progress=progress, bar=bar,

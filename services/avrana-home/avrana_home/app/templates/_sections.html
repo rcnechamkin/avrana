@@ -74,7 +74,8 @@
    Home's order when they never chose. A place's own rows stand where New to Avrana would, as they replace it. #}
 {% for key in home.order %}
 {% if key == "continue" %}
-{% if home.show_continue %}
+{#- No card and no line (a library's Continue is down; the banner says so): no heading either. #}
+{% if home.show_continue and (home.continue_items or home.continue_said) %}
   <section class="shelf" aria-labelledby="h-continue">
     <h2 id="h-continue">Continue</h2>
 {% if home.continue_items %}
@@ -148,7 +149,7 @@
 {% endif %}
   </section>
 {% endfor %}
-{% if home.show_new %}
+{% if home.show_new and (home.new_items or home.new_said) %}
   <section class="shelf shelf-new" aria-labelledby="h-new">
     <h2 id="h-new">New to Avrana</h2>
 {% if home.new_tabs|length > 1 %}

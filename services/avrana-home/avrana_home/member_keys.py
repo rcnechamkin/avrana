@@ -1,6 +1,6 @@
 """Members' own Komga API keys, as one JSON file: lower-case email -> key (docs/runbooks/komga-member-keys.md).
 
-Status: proposed, not deployed. Standard library only.
+Status: deployed in the live member beta since 2026-10-29 (revision 2cb228f; Komga member keys on). Standard library only.
 
 Two writers, one format: the owner-run `tools/komga_member_keys.py` and, when HOME_PROVISION_ACCOUNTS names komga,
 Home itself (provision.py, owner decision 2026-10-28 "Home does it"). Home re-reads the file whenever it changes
@@ -85,6 +85,7 @@ class MemberKeyStore:
         self._path = path
         self._writable = writable
         self._keys: Dict[str, str] = dict(initial)
+        self._failed: set = set()
         self._seen = self._stamp()
         self._lock = threading.Lock()
         self._log = log or (lambda **_kw: None)
@@ -125,6 +126,49 @@ class MemberKeyStore:
         with self._lock:
             self._refresh()
             return len(self._keys)
+
+    def usable(self) -> bool:
+        """True only if the keys file EXISTS and parses. Provisioning (not the read adapters, for which an absent
+        file stays "no keys") requires it: a lost or unmounted state volume must never look like "nobody has a
+        key" and make every comics member a candidate for a Komga password reset (S-02)."""
+        try:
+            if not os.path.isfile(self._path):
+                return False
+            read_keys(self._path)
+        except (KeysFileError, OSError):
+            return False
+        return True
+
+    @property
+    def _marks_path(self) -> str:
+        return self._path + ".reset_failed"
+
+    def reset_failed(self, email: Any) -> bool:
+        """True if provisioning already reset this member's Komga password and then failed to file a key. Kept in a
+        sidecar next to the keys file (one lower-case email per line) so a restart does not retry the reset."""
+        key_id = member_key_id(email)
+        if key_id is None:
+            return False
+        with self._lock:
+            if key_id in self._failed:
+                return True
+            try:
+                with open(self._marks_path, encoding="utf-8") as fh:
+                    return key_id in {line.strip() for line in fh}
+            except OSError:
+                return False
+
+    def mark_reset_failed(self, email: Any) -> None:
+        key_id = member_key_id(email)
+        if key_id is None:
+            return
+        with self._lock:
+            self._failed.add(key_id)                      # in memory at least, if the volume is the problem
+            try:
+                with open(self._marks_path, "a", encoding="utf-8", newline="\n") as fh:
+                    fh.write(key_id + "\n")
+            except OSError:
+                pass
 
     def put(self, email: str, key: str) -> None:
         key_id = member_key_id(email)
