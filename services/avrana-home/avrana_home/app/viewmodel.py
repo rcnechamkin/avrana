@@ -700,7 +700,8 @@ def shelf_rows(shelved, limit: int, title_services, rows_of=SHELF_ROWS) -> list:
         cards = _cards([it for it in shelved if it.shelf == key][:limit],
                        lambda it: it.detail or KIND_LABEL.get(it.kind), title_services=title_services)
         if cards:
-            out.append(RowVM(key, heading, cards))
+            # New Releases is `h-released` here as on All and Watch; `new` stays New to Avrana's (U-07).
+            out.append(RowVM("released" if heading == NEW_RELEASES else key, heading, cards))
     return out
 
 
