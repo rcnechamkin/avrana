@@ -73,6 +73,12 @@ def library_decision(page) -> Decision:
     return Decision("/library", 200, "library.html", {"page": page})
 
 
+def library_catalog_decision(page) -> Decision:
+    """GET /library with HOME_LIBRARY_CATALOG on, under the same conditions as `library_decision`. Always 200: a library
+    that is down is said on the page."""
+    return Decision("/library", 200, "library_catalog.html", {"page": page})
+
+
 def continue_decision(page) -> Decision:
     """The decision for GET /continue (owner request 2026-10-28: Home's "See all") once the route layer has a verified
     member with a library and the shell is on (main.py); otherwise the path is unknown and `decide` answers 404. Always

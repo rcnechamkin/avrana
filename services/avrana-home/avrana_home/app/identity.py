@@ -209,6 +209,18 @@ def library_view_from_scope(scope) -> Optional[str]:
     return _choice_from_scope(scope, "view")
 
 
+def library_group_from_scope(scope) -> Optional[str]:
+    """The catalogue's grouping, `?group=`. Bounded text only, checked against what the chosen library really offers,
+    never echoed. It confers no identity and no access."""
+    return _choice_from_scope(scope, "group")
+
+
+def library_page_from_scope(scope) -> Optional[str]:
+    """The catalogue's page, `?page=`. Bounded text only; catalogvm.clean_page reads it. Every page is authorized and
+    scoped to the member afresh, so a page number copied from another member's address carries nothing."""
+    return _choice_from_scope(scope, "page")
+
+
 def show_from_scope(scope) -> Optional[int]:
     """`?show=<TMDB id>` on /request/watch: which show's seasons to list (the season picker). Digits only, at most
     nine; anything else is None (the page then shows the search). It confers no identity and no access: the seasons

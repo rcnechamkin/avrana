@@ -1,8 +1,5 @@
 {% extends "base.html" %}
-{% from "_parts.html" import card %}
-{% macro layout_icon(key) -%}
-<svg class="ic" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">{% if key == "shelves" %}<rect x="3.5" y="4.5" width="5" height="6.5" rx="1"/><rect x="10" y="4.5" width="5" height="6.5" rx="1"/><path d="M16.5 4.5h4M16.5 11h4"/><rect x="3.5" y="13.5" width="5" height="6.5" rx="1"/><rect x="10" y="13.5" width="5" height="6.5" rx="1"/><path d="M16.5 13.5h4M16.5 20h4"/>{% elif key == "grid" %}<rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/>{% elif key == "compact" %}<rect x="4" y="4" width="4" height="4" rx="1"/><rect x="10" y="4" width="4" height="4" rx="1"/><rect x="16" y="4" width="4" height="4" rx="1"/><rect x="4" y="10" width="4" height="4" rx="1"/><rect x="10" y="10" width="4" height="4" rx="1"/><rect x="16" y="10" width="4" height="4" rx="1"/><rect x="4" y="16" width="4" height="4" rx="1"/><rect x="10" y="16" width="4" height="4" rx="1"/><rect x="16" y="16" width="4" height="4" rx="1"/>{% else %}<rect x="4" y="4.5" width="4" height="5" rx="1"/><rect x="4" y="14.5" width="4" height="5" rx="1"/><path d="M11 6h9M11 8.5h6M11 16h9M11 18.5h6"/>{% endif %}</svg>
-{%- endmacro %}
+{% from "_parts.html" import card, layout_icon %}
 {% block title %}{% if page.chosen_label %}{{ page.chosen_label }} · {% endif %}Library · Avrana{% endblock %}
 {% block body %}
 {# The Library page (Concept K MK-5a, AVR-719; memo sections 2, 3 and 6). Server-rendered, no script, no form (the

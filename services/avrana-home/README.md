@@ -84,7 +84,7 @@ very high count means another process is running socket-heavy suites; wait and r
 ## Configuration (summary)
 
 Environment variables, read once at start; an invalid or incomplete value stops the process.
-`HOME_SECTIONS` (default `off`), `HOME_UPSTREAM_MODE` (`mock` default, loopback only), the real-mode
+`HOME_LIBRARY_CATALOG` (default `off`: `/library` as a complete catalogue, docs/design/LIBRARY-CATALOG.md), `HOME_KOMGA_BOOK_LIBRARIES` (Komga library ids left out of Comics), `HOME_SECTIONS` (default `off`), `HOME_UPSTREAM_MODE` (`mock` default, loopback only), the real-mode
 group `HOME_GATES_VERIFIED=yes` + `JELLYFIN_BASE_URL` + `JELLYFIN_API_KEY_FILE`, `HOME_TIMEOUT`,
 `HOME_SECTION_LIMIT`, `HOME_HEALTH_DETAIL` (`loopback` or `off`), `HOME_HOST`/`HOME_PORT`, the request broker
 (`HOME_BOOK_REQUESTS` + `SHELFARR_*`, `HOME_WATCH_REQUESTS` + `SEERR_*`, `HOME_LIBRARY_IDS_FILE`; off by default),

@@ -141,6 +141,8 @@ class Settings:
     health_detail: str = "loopback"              # "loopback" | "off"
     pwa_sw: bool = True                          # HOME_PWA_SW=off: kill switch, /sw.js serves a self-destruct worker
     motion_proposal: bool = False                # HOME_MOTION_PROPOSAL=on: the 600 ms Proposal for page transitions (MK-6)
+    library_catalog: bool = False                # HOME_LIBRARY_CATALOG=on: /library is the complete catalogue; off: the shelves
+    komga_book_libraries: tuple = ()             # HOME_KOMGA_BOOK_LIBRARIES: Komga library ids left out of the Comics catalogue
     catalogue_path: Path = DEFAULT_CATALOGUE
     notice_file: Optional[Path] = None           # HOME_NOTICE_FILE: the operator notice OliveTin writes (AVR-365)
     library_ids_file: Optional[Path] = None      # HOME_LIBRARY_IDS_FILE: the catalogue-id index (requests/owned.py)
@@ -227,6 +229,10 @@ class Settings:
         sections = boolean("HOME_SECTIONS", False)
         pwa_sw = boolean("HOME_PWA_SW", True)
         motion_proposal = boolean("HOME_MOTION_PROPOSAL", False)
+        library_catalog = boolean("HOME_LIBRARY_CATALOG", False)
+        komga_book_libraries = tuple(x.strip() for x in get("HOME_KOMGA_BOOK_LIBRARIES").split(",") if x.strip())
+        if any(not re.fullmatch(r"[A-Za-z0-9]{6,32}", x) for x in komga_book_libraries):
+            problems.append("HOME_KOMGA_BOOK_LIBRARIES must be comma-separated Komga library ids")
         mode = get("HOME_UPSTREAM_MODE", "mock").lower()
         if mode not in ("mock", "real"):
             problems.append("HOME_UPSTREAM_MODE must be mock or real")
@@ -614,7 +620,7 @@ class Settings:
                    shelfarr_provision=shelfarr_provision, seerr_provision=seerr_provision,
                    comic_requests=comic_requests, omnibus_base_url=omnibus_url, omnibus_api_key=omnibus_key,
                    timeout=timeout, section_limit=limit,
-                   health_detail=detail, pwa_sw=pwa_sw, motion_proposal=motion_proposal, catalogue_path=catalogue, notice_file=notice_file, library_ids_file=library_ids_file, log_level=level,
+                   health_detail=detail, pwa_sw=pwa_sw, motion_proposal=motion_proposal, library_catalog=library_catalog, komga_book_libraries=komga_book_libraries, catalogue_path=catalogue, notice_file=notice_file, library_ids_file=library_ids_file, log_level=level,
                    security_flows=security_flows, account_reader_url=reader_url, account_reader_token=reader_token,
                    member_store=member_store,
                    host=host, port=port, owner_preview=owner_preview, owner_preview_username=owner_name,
