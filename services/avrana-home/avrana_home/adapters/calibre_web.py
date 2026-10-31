@@ -43,7 +43,7 @@ from ..contract import (ArtworkRef, ArtworkResult, DEFAULT_LIMIT, Kind, MediaIte
                         SectionState, Service, UpstreamUser, build_handoff_url, clean_text,
                         valid_upstream_id)
 from ..principal import MemberPrincipal
-from ..resilience import DEFAULT_TIMEOUT, ItemGone, RouteMissing, Transport, UpstreamMalformed
+from ..resilience import DEFAULT_TIMEOUT, ItemGone, RouteMissing, Transport, UpstreamMalformed, UpstreamMisbehaved
 from ._base import GuardedAdapter, Route, iso_day, year_from
 from ._base import GuardedTransport as _Guard
 
@@ -54,12 +54,16 @@ _ARTWORK_REF = re.compile(r"calibre-web/cover/([0-9]{1,9})")
 _COVER_HREF = re.compile(r"/opds/(?:cover|cover_240_240|cover_90_90|thumb_240_240)/([0-9]{1,9})")
 _DOWNLOAD_HREF = re.compile(r"/opds/download/([0-9]{1,9})/[a-z0-9]{1,10}/?")
 MAX_ENTRIES = 100                             # a feed with more entries than this is not a "new" feed
+ALL_BOOKS = "/opds/books/letter/00"           # every book by sort title ("00" is the index's All; cps/opds.py)
+_NEXT_HREF = re.compile(re.escape(ALL_BOOKS) + r"\?offset=([0-9]{1,7})")
+MAX_WINDOW = 250                              # entries in one upstream catalogue page (config_books_per_page)
 MAX_ELEMENTS = 5000                           # every element in the document, so deep or wide nesting is bounded
 _FORBIDDEN_XML = re.compile(rb"<!\s*(DOCTYPE|ENTITY|ELEMENT|ATTLIST)", re.IGNORECASE)
 
 ALLOWED_ROUTES = (
     Route("new", r"/opds/new", (), user_scoped=False, not_found=RouteMissing),
     Route("search", r"/opds/search", ("query",), user_scoped=False, not_found=RouteMissing),
+    Route("all_books", ALL_BOOKS, ("offset",), user_scoped=False, not_found=RouteMissing),
     Route("cover", r"/opds/cover_240_240/[0-9]{1,9}", (), user_scoped=False, not_found=ItemGone),
 )
 
@@ -105,6 +109,7 @@ class CalibreWebAdapter(GuardedAdapter):
     service = Service.CALIBRE_WEB
     not_offered = frozenset({"continue", "item"})
     extra_sections = frozenset({"released"})
+    catalog_groups = ("titles",)
 
     def __init__(self, transport: Transport, timeout: float = DEFAULT_TIMEOUT, *,
                  owner_confirms_no_member_restrictions: bool = False, **kw):
@@ -165,6 +170,49 @@ class CalibreWebAdapter(GuardedAdapter):
         entries: List[Any] = parse_feed(resp.body).findall(_ATOM + "entry")
         items = self._parse_many(entries, MAX_ENTRIES, self._book)
         return SectionResult.of(Service.CALIBRE_WEB, "recent", items[:limit])
+
+    def _window(self, guard, budget, offset: int) -> Tuple[List[Any], Optional[int]]:
+        """The raw entries of one upstream page of every book and the offset of the next, or None at the end. The next
+        offset comes only from the feed's own rel="next" link, matched whole against the one route it can be, and must
+        move forward, so a hostile or circular feed cannot steer or trap the walk."""
+        resp = self._get(guard, budget, ALL_BOOKS, {"offset": str(offset)} if offset else None)
+        root = parse_feed(resp.body)
+        following = None
+        for link in root.findall(_ATOM + "link"):
+            if link.get("rel") == "next":
+                m = _NEXT_HREF.fullmatch(_relative(link.get("href")) or "")
+                if m is None:
+                    raise UpstreamMalformed()
+                following = int(m.group(1))
+        if following is not None and following <= offset:
+            raise UpstreamMisbehaved()
+        entries = root.findall(_ATOM + "entry")
+        if len(entries) > MAX_WINDOW:
+            raise UpstreamMisbehaved()
+        return entries, following
+
+    def _catalog(self, user: UpstreamUser, group: str, page: int, size: int) -> SectionResult:
+        """One page of every book by Calibre's sort title, under the shared-view invariant (contract 13.2). The upstream
+        pages by its own `config_books_per_page`, learned from page one's next link: a CWA 4.0.6 offset that is not a
+        multiple of it can land one entry off (`int(pagesize * (off / pagesize + 1 - 1))` in floats), so only multiples are
+        ever asked for, and our page is cut from one or two of those windows. No count: the feed has none and 4.0.6 has no
+        `/opds/stats`, so `total` is known only for a catalogue that fits one window."""
+        guard, budget = self._guard.bind(user.upstream_id), self._budget()
+        start = (page - 1) * size
+        first, following = self._window(guard, budget, 0)
+        if following is None:
+            items = self._parse_many(first[start:start + size], size, self._book)
+            return SectionResult.catalog_of(Service.CALIBRE_WEB, items, len(first), len(first) > start + size)
+        per_page = following
+        at = start % per_page
+        entries, following = (first, following) if start < per_page else self._window(guard, budget, start - at)
+        chunk, more = entries[at:at + size], len(entries) > at + size
+        if len(chunk) < size and following is not None:
+            entries, following = self._window(guard, budget, following)
+            short = size - len(chunk)
+            chunk, more = chunk + entries[:short], len(entries) > short
+        items = self._parse_many(chunk, size, self._book)
+        return SectionResult.catalog_of(Service.CALIBRE_WEB, items, None, more or following is not None)
 
     def _released_items(self, user: UpstreamUser, limit: int) -> SectionResult:
         """Books by publication date, newest first, none later than today: the newest-added page (the only list OPDS
