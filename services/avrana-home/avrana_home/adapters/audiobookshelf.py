@@ -79,6 +79,7 @@ from __future__ import annotations
 
 import base64
 import dataclasses
+import math
 import re
 import time
 from typing import Any, Dict, List, Mapping, Optional, Tuple
@@ -148,7 +149,7 @@ ALLOWED_ROUTES = (
     # through `_visible`). `filter` only ever carries `genres.<base64 of a genre the library itself listed>` or
     # `series.<base64 of a series id the member's candidate item itself named>` (New for You).
     Route("library_items", r"/api/libraries/" + _LIBRARY_PATH + r"/items",
-          ("sort", "desc", "limit", "minified", "filter"), user_scoped=False, not_found=ItemGone),
+          ("sort", "desc", "limit", "minified", "filter", "page"), user_scoped=False, not_found=ItemGone),
     Route("filterdata", r"/api/libraries/" + _LIBRARY_PATH + r"/filterdata", (), user_scoped=False,
           not_found=ItemGone),
 )
@@ -197,6 +198,11 @@ class _Access:
             tags = (deny, frozenset(selected))
         return cls(libraries, tags, perms["accessExplicitContent"])
 
+    @property
+    def sees_all_of_a_library(self) -> bool:
+        """Nothing in a library this member may use is hidden from them: only then is the upstream's count theirs."""
+        return self.tags is None and self.explicit
+
     def allows(self, library_id: str, item_tags: List[str], explicit: bool) -> bool:
         if self.libraries is not None and library_id not in self.libraries:
             return False
@@ -229,6 +235,7 @@ def _left(budget) -> float:
 
 class AudiobookshelfAdapter(GuardedAdapter):
     service = Service.AUDIOBOOKSHELF
+    catalog_groups = ("titles",)
     artwork_rechecks_visibility = True     # visibility is per member: re-checked before any cached cover
     extra_sections = frozenset({"shelves", "released", "for_you"})
 
@@ -405,10 +412,12 @@ class AudiobookshelfAdapter(GuardedAdapter):
 
     # -- Recently added and the shelves --------------------------------------------------------
     def _list(self, guard, budget, access: _Access, library_id: str, query: Dict[str, str],
-              counts: List[int], keep: Optional[Dict[str, Any]] = None) -> List[Tuple[int, int, MediaItem]]:
+              counts: List[int], keep: Optional[Dict[str, Any]] = None,
+              totals: Optional[Dict[str, int]] = None) -> List[Tuple[int, int, MediaItem]]:
         """One library list, every entry checked with THIS member's permissions. (added at, published year, item)
         for each entry the member may see. `counts` gathers [answered, unusable] across calls. `keep`, when given,
-        receives {item id: the raw minified entry} for those entries (New for You reads the series from it)."""
+        receives {item id: the raw minified entry} for those entries (New for You reads the series from it). `totals`,
+        when given, receives {library id: the upstream's `total`} (the library's own count, not yet this member's)."""
         try:
             body = self._get_json(guard, budget, f"/api/libraries/{library_id}/items", dict(query, minified="1"))
         except ItemGone:
@@ -419,6 +428,11 @@ class AudiobookshelfAdapter(GuardedAdapter):
             raise UpstreamMalformed()
         if len(raws) > int(query["limit"]):
             raise UpstreamMisbehaved()                    # the limit was ignored
+        if totals is not None:
+            total = bounded_int(body.get("total"))
+            if total is None or total < 0:
+                raise UpstreamMalformed()
+            totals[library_id] = total
         out = []
         for raw in raws:
             item_id = raw.get("id") if isinstance(raw, dict) else None
@@ -454,6 +468,41 @@ class AudiobookshelfAdapter(GuardedAdapter):
             raise UpstreamMalformed()
         found = sorted(found, key=lambda t: t[0], reverse=True)   # no date window (owner request 2026-10-28)
         return SectionResult.of(Service.AUDIOBOOKSHELF, "recent", tuple(_unique(m for _a, _y, m in found)[:limit]))
+
+    def _catalog(self, user: UpstreamUser, group: str, page: int, size: int) -> SectionResult:
+        """One page of the member's audiobooks by title. The token cannot be scoped upstream, so as everywhere here the
+        member's own libraries are asked and every entry goes through `_visible`. The library lists come one after the
+        other, each in pages of `size` (the route pages by page * limit, 2.36.0 source: LibraryController.getLibraryItems):
+        a page here is one upstream page of one library, plus one single-entry call per other library for its total.
+        `total` is the member's only when no tag or explicit rule hides anything from them; else it is unknown, and a
+        page may hold fewer entries than `size` while `has_next` says where the catalogue really ends."""
+        uid = user.upstream_id
+        guard, budget = self._guard.bind(uid), self._budget()
+        _record, access = self._member_access(guard, budget, uid)   # BEFORE any library is listed
+        counts, totals = [0, 0], {}
+        found: List[Tuple[int, int, MediaItem]] = []
+        libraries = self._libraries(guard, budget, access)[:MAX_LIBRARIES]
+        title = {"sort": "media.metadata.title", "desc": "0"}
+        left, landed = page - 1, False
+        for library_id in libraries:
+            if landed:
+                self._list(guard, budget, access, library_id, dict(title, limit="1", page="0"), counts, totals=totals)
+                continue
+            found = self._list(guard, budget, access, library_id, dict(title, limit=str(size), page=str(left)), counts,
+                               totals=totals)
+            pages = math.ceil(totals.get(library_id, 0) / size)
+            landed = left < pages
+            if not landed:
+                left -= pages
+                found = []
+        if libraries and not counts[0]:
+            raise RouteMissing(404)                       # every library answered 404: the route itself drifted
+        if not found and counts[1]:
+            raise UpstreamMalformed()
+        pages = sum(math.ceil(n / size) for n in totals.values())
+        total = sum(totals.values()) if access.sees_all_of_a_library else None
+        items = tuple(_unique(m for _a, _y, m in found))
+        return SectionResult.catalog_of(Service.AUDIOBOOKSHELF, items, total, page < pages)
 
     def _released_items(self, user: UpstreamUser, limit: int) -> SectionResult:
         """New releases on Home (owner decision 2026-10-28): the New releases shelf's listing, newest publication first

@@ -61,9 +61,10 @@ import re
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Callable, Dict, Optional, Tuple
 
-from ..contract import (ArtworkRef, ArtworkResult, DEFAULT_LIMIT, Kind, MediaItem, SectionResult,
-                        SectionState, Service, UpstreamUser, _limit, build_handoff_url, clean_names, clean_summary,
-                        clean_text, credits_of, valid_upstream_id)
+from ..contract import (ARTWORK_TTL, ArtworkRef, ArtworkResult, CATALOG_PAGE, DEFAULT_LIMIT, Kind, MappingFailed,
+                        MediaItem, SectionResult, SectionState, Service, UpstreamUser, _limit, build_handoff_url,
+                        build_series_handoff_url, clean_names, clean_summary, clean_text, credits_of,
+                        valid_upstream_id)
 from .. import media_ids
 from ..principal import MemberPrincipal
 from ..resilience import (DEFAULT_TIMEOUT, ItemGone, RouteMissing, Transport, UpstreamAuthError, UpstreamError,
@@ -76,12 +77,14 @@ SHARED_VIEWER = "shared"                      # the fixed, non-member upstream "
 _BOUND_ID = re.compile(SHARED_VIEWER)
 _ID = r"[A-Za-z0-9]{6,32}"
 _ARTWORK_REF = re.compile(r"komga/book/(" + _ID + r")")
+_SERIES_ARTWORK_REF = re.compile(r"komga/series/(" + _ID + r")")
 MAX_PAGE = 100                   # books asked for in one page, whatever the limit
 # Comics carry cover dates about two months ahead of sale; a release date further out than this is not "new".
 RELEASE_AHEAD_DAYS = 92
 ADDED_SORT, RELEASED_SORT = "created,desc", "metadata.releaseDate,desc"     # fixed values, never member input
 READING_SORT, IN_PROGRESS = "readProgress.readDate,desc", "IN_PROGRESS"      # likewise
 READ = "READ"
+SERIES_SORT = "metadata.titleSort,asc"       # SeriesDtoDao's own key, with Komga's Unicode collation
 # New for You (owner request 2026-10-28): an On Deck book (the next unread book of a series the member is caught up on)
 # that Komga first scanned in the last FOR_YOU_DAYS.
 FOR_YOU_DAYS = 30
@@ -118,6 +121,15 @@ MEMBER_ROUTES = (
     Route("reading", r"/api/v1/books", ("read_status", "sort", "page", "size"), user_scoped=False,
           not_found=RouteMissing),
     Route("ondeck", r"/api/v1/books/ondeck", ("page", "size"), user_scoped=False, not_found=RouteMissing),
+    # The Library's catalogue: every series THIS key opens, so Komga itself scopes it to the member's account. The GET
+    # listing is deprecated since 1.19 but is in 1.25.0 (SeriesController); its POST successor is outside this GET-only
+    # guard. Removed upstream it is `RouteMissing`, an honest outage, never an empty library.
+    Route("series_list", r"/api/v1/series", ("sort", "page", "size", "deleted", "library_id"), user_scoped=False,
+          not_found=RouteMissing),
+    Route("series_cover", r"/api/v1/series/(?!(?:latest|updated|new)/)" + _ID + r"/thumbnail", (), user_scoped=False,
+          not_found=ItemGone),
+    # The libraries this key opens, read only to leave the owner's book libraries out of Comics (`book_libraries`).
+    Route("libraries", r"/api/v1/libraries", (), user_scoped=False, not_found=RouteMissing),
 )
 
 
@@ -229,6 +241,7 @@ def _released(raw: dict) -> Optional[date]:
 
 class KomgaAdapter(GuardedAdapter):
     service = Service.KOMGA
+    catalog_groups = ("series",)
     not_offered = frozenset({"continue"})
     extra_sections = frozenset({"shelves", "released", "week"})
 
@@ -236,7 +249,7 @@ class KomgaAdapter(GuardedAdapter):
                  owner_confirms_no_member_restrictions: bool = False,
                  member_keys: Optional[MemberKeyStore] = None,
                  member_transport: Optional[Callable[[str], Transport]] = None,
-                 provisioning: bool = False, **kw):
+                 provisioning: bool = False, book_libraries: frozenset = frozenset(), **kw):
         # A shared view (contract 12.2, owner decision 2026-10-15): every member sees what the regular
         # account sees, so Komga's own per-member restrictions are NOT applied. The owner must opt in on
         # purpose, and only while no member has a Komga restriction.
@@ -248,6 +261,7 @@ class KomgaAdapter(GuardedAdapter):
         self._keys = member_keys
         self._member_transport = member_transport     # one member's key -> an inner Transport carrying it
         self._guards: Dict[str, MemberGuardedTransport] = {}
+        self._book_libraries = frozenset(book_libraries)   # Komga library ids that are Books, never Comics series
         self._provisioning = bool(provisioning) and member_keys is not None
         if member_keys is not None:                    # Continue and New for You are offered (to the members with a key)
             self.not_offered = frozenset()
@@ -284,6 +298,48 @@ class KomgaAdapter(GuardedAdapter):
             return self._not_offered(principal, "for_you")
         limit = _limit(limit)
         return self._section(principal, "for_you", f"for_you:{limit}", lambda user: self._for_you(guard, limit))
+
+    def catalog(self, principal: MemberPrincipal, group: str, page: int = 1, size: int = CATALOG_PAGE) -> SectionResult:
+        """The Comics catalogue, ONLY with the member's own key: never the shared account (a catalogue would be a whole
+        library read on its credential, handoff 05). Without a key the member is `NOT_LINKED`: told how to connect, not
+        shown an empty library. The group is checked first, before the key and before any cache read."""
+        self._require_principal(principal)
+        if not principal.has_group(self.required_group):
+            return self._not_permitted("catalog")
+        guard = self._member_guard(principal.email)
+        if guard is None:
+            return SectionResult(self.service, "catalog", SectionState.NOT_LINKED, reason=NO_MEMBER_KEY)
+        return self._catalog_section(principal, group, page, size, lambda _u, _g, n, s: self._series_page(guard, n, s))
+
+    def fetch_artwork(self, principal: MemberPrincipal, ref: str) -> ArtworkResult:
+        """A series cover exists only for the catalogue, so it is read the same way: this member's own key, whose 404 or
+        403 is the visibility check. Book covers stay as they are."""
+        m = _SERIES_ARTWORK_REF.fullmatch(ref) if isinstance(ref, str) else None
+        if m is None:
+            return super().fetch_artwork(principal, ref)
+        self._require_principal(principal)
+        if not principal.has_group(self.required_group):
+            return ArtworkResult(SectionState.NOT_PERMITTED)
+        guard = self._member_guard(principal.email)
+        if guard is None or m.group(1) in _RESERVED:
+            return ArtworkResult(SectionState.EMPTY)
+        scope, key = self.cache.for_member(principal), "art:" + ref
+        hit = scope.get(self.service.value, key)
+        if hit is not None:
+            return hit
+
+        def cover(_user):
+            try:
+                return self._fetch_image(guard.bind(SHARED_VIEWER), self._budget(),
+                                         f"/api/v1/series/{m.group(1)}/thumbnail", None)
+            except UpstreamAuthError:
+                return ArtworkResult(SectionState.EMPTY)    # hidden or a refused key: no cover, the circuit untouched
+        out = self._call(principal, cover, artwork=True)
+        if out.kind != "ok":
+            return ArtworkResult(SectionState.UNAVAILABLE if out.kind == "unavailable" else SectionState.EMPTY)
+        if out.value.state is SectionState.OK and out.fresh:
+            scope.set(self.service.value, key, out.value, ttl=ARTWORK_TTL, data_class="artwork")
+        return out.value
 
     # -- mapping: none. A shared view (OWNER DECISION, contract 12.2) ------------------------
     def _resolve_user(self, principal) -> UpstreamUser:
@@ -583,6 +639,62 @@ class KomgaAdapter(GuardedAdapter):
         if not shown and bad:
             raise UpstreamMalformed()                          # nothing usable and some drift: never "empty"
         return SectionResult.of(Service.KOMGA, section, tuple(shown))
+
+    def _comic_libraries(self, guard, budget) -> Tuple[Optional[str], frozenset]:
+        """(`library_id` value, the ids it names) for a Comics listing, or (None, empty) when no library is set aside as
+        Books. Komga's listing can only name the libraries to include, so one call lists those this key opens."""
+        if not self._book_libraries:
+            return None, frozenset()
+        raws = self._get_json(guard, budget, "/api/v1/libraries", None)
+        if not isinstance(raws, list):
+            raise UpstreamMalformed()
+        ids = [raw["id"] for raw in raws[:MAX_PAGE] if isinstance(raw, dict) and _item_id(raw.get("id"))]
+        if raws and not ids:
+            raise UpstreamMalformed()
+        keep = sorted(set(ids) - self._book_libraries)
+        return ",".join(keep), frozenset(keep)
+
+    def _series_page(self, member_guard: MemberGuardedTransport, page: int, size: int) -> SectionResult:
+        """One page of the series this member's key opens, by sort title. `totalElements` is Komga's count under that same
+        key, so it is theirs (SeriesController, 1.25.0 source; shape UNVERIFIED live). No per-card call: the issue count
+        and title are in the listing, a cover is fetched lazily by the browser."""
+        guard, budget = member_guard.bind(SHARED_VIEWER), self._budget()
+        try:
+            libraries, allowed = self._comic_libraries(guard, budget)
+            if libraries == "":
+                return SectionResult.catalog_of(Service.KOMGA, (), 0, False)     # every library this key opens is Books
+            query = {"sort": SERIES_SORT, "deleted": "false", "page": str(page - 1), "size": str(size)}
+            if libraries is not None:
+                query["library_id"] = libraries
+            body = self._get_json(guard, budget, "/api/v1/series", query)
+        except UpstreamAuthError:
+            raise MappingFailed("member_key_refused") from None    # that member's own problem, not the shared circuit's
+        raws, total = (body.get("content"), body.get("totalElements")) if isinstance(body, dict) else (None, None)
+        total = bounded_int(total)
+        if not isinstance(raws, list) or total is None or total < 0:
+            raise UpstreamMalformed()
+        if len(raws) > size:
+            raise UpstreamMisbehaved()                             # the page size was ignored
+        if allowed and any(isinstance(r, dict) and r.get("libraryId") not in allowed for r in raws):
+            raise UpstreamMisbehaved()                             # a series from a library that was not asked for
+        items = self._parse_many(raws, size, self._series)
+        return SectionResult.catalog_of(Service.KOMGA, items, total, (page - 1) * size + len(raws) < total)
+
+    @staticmethod
+    def _series(raw: Any) -> Tuple[Optional[MediaItem], str]:
+        """(item, status). A catalogue card for a series: never a book id, and read progress is not touched."""
+        series_id = raw.get("id") if isinstance(raw, dict) else None
+        if not _item_id(series_id) or not valid_upstream_id(Service.KOMGA, series_id):
+            return None, "bad"
+        if raw.get("deleted") is True:
+            return None, "filtered"
+        info = raw.get("metadata") if isinstance(raw.get("metadata"), dict) else {}
+        title = clean_text(info.get("title")) or clean_text(raw.get("name")) or "Untitled"
+        books = bounded_int(raw.get("booksCount"))
+        subtitle = None if books is None else ("1 issue" if books == 1 else f"{books} issues")
+        return MediaItem(id=f"komga:series:{series_id}", service=Service.KOMGA, kind=Kind.COMIC_SERIES, title=title,
+                         handoff_url=build_series_handoff_url(Service.KOMGA, series_id), subtitle=subtitle,
+                         artwork=ArtworkRef(f"komga/series/{series_id}", f"Cover of {title}")), "ok"
 
     def _item(self, user: UpstreamUser, item_id: str) -> SectionResult:
         found = self._visible_book(self._guard.bind(user.upstream_id), self._budget(), item_id, summary=True)
