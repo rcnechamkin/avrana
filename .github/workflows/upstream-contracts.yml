@@ -1,0 +1,41 @@
+# RC3 Gate C (AVR-772, AVR-386): Home's real adapters against REAL, throwaway Jellyfin, Audiobookshelf and Komga at
+# production's image digests (services/media, services/audiobookshelf, services/komga) and the versions in
+# services/avrana-home/contracts/upstream-pins.json. Runs when an adapter, a pin or this check changes, so a changed
+# digest cannot pass without this contract running against it. No secrets: every credential is generated per run, and
+# every container sits on an --internal Docker network (no internet, no LAN). Never touches production. The checks:
+# tests/media_upstream_live.sh and tests/media_upstream_live.py.
+name: upstream-contracts
+
+on:
+  pull_request:
+    paths:
+      - services/avrana-home/avrana_home/adapters/**
+      - services/avrana-home/avrana_home/contract.py
+      - services/avrana-home/avrana_home/resilience.py
+      - services/avrana-home/avrana_home/member_keys.py
+      - services/avrana-home/contracts/**
+      - services/avrana-home/Dockerfile.live
+      - services/media/docker-compose.yml
+      - services/audiobookshelf/docker-compose.yml
+      - services/komga/docker-compose.yml
+      - tests/media_upstream_live.sh
+      - tests/media_upstream_live.py
+      - .github/workflows/upstream-contracts.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: upstream-contracts-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  real-upstreams:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Home adapters against throwaway upstreams
+        run: bash tests/media_upstream_live.sh
