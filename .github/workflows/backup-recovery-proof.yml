@@ -1,0 +1,37 @@
+# AVR-792: the backup and alert failure paths on a disposable fixture host, with real zstd, real openssl and a real
+# SMTP conversation on loopback (STARTTLS, login, delivery). No secrets, no Docker, no rclone, no cloud: every credential
+# and certificate is generated per run. Never touches production. The checks: services/backups/tests/test_recovery_proof.py.
+name: backup-recovery-proof
+
+on:
+  pull_request:
+    paths:
+      - services/backups/**
+      - scripts/avrana-alert.py
+      - scripts/deploy-home-beta.sh
+      - deploy/host/owner-scripts/1*-rc3-backup-*.sh
+      - deploy/host/systemd/avrana-backup-watchdog.*
+      - docs/runbooks/rc3-backup-restore-proof.md
+      - .github/workflows/backup-recovery-proof.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backup-recovery-proof-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fixture-host:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Tools under test
+        run: zstd --version && openssl version && tar --version | head -1 && bash --version | head -1
+      - name: Failure paths and encrypted restore
+        env:
+          AVRANA_REQUIRE_REAL_TOOLS: "1"
+        run: python3 -B -m unittest discover -v -s services/backups/tests -p 'test_recovery_proof.py'
