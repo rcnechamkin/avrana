@@ -22,6 +22,9 @@ POLICY = "avrana-enrollment-username-available"
 MINT_POLICY = "avrana-komga-key-mint"
 FLOW = "avrana-invite"
 BLUEPRINT_PATH = "avrana/avrana-enrollment.yaml"
+SYNC_POLICY = "avrana-komga-password-sync"
+RECOVERY_FLOW = "avrana-recovery"
+RECOVERY_PATH = "avrana/avrana-recovery.yaml"
 GROUPS = ["avrana-users", "avrana-audiobooks", "avrana-comics", "avrana-books", "avrana-videos", "avrana-requests"]
 TAKEN = "That username is taken"
 UNAVAILABLE = "briefly unavailable"
@@ -96,22 +99,22 @@ def wait(what, probe, seconds=600):
         time.sleep(3)
 
 
-def apply_blueprint(api):
+def apply_blueprint(api, path=BLUEPRINT_PATH, name="ci-enrollment"):
     wait("api and bootstrap token", lambda: api.call("GET", "/api/v3/core/users/me/")[0] == 200)
     wait("default webauthn setup flow",
          lambda: api.get("/api/v3/flows/instances/?slug=default-authenticator-webauthn-setup")["results"])
-    for name in GROUPS:
-        if not api.get("/api/v3/core/groups/?name=" + urllib.parse.quote(name))["results"]:
-            status, body = api.call("POST", "/api/v3/core/groups/", {"name": name})
-            assert status == 201, (name, status, body)
+    for group in GROUPS:
+        if not api.get("/api/v3/core/groups/?name=" + urllib.parse.quote(group))["results"]:
+            status, body = api.call("POST", "/api/v3/core/groups/", {"name": group})
+            assert status == 201, (group, status, body)
     wait("blueprint discovered",
-         lambda: any(b.get("path") == BLUEPRINT_PATH for b in api.get("/api/v3/managed/blueprints/available/")))
-    found = api.get("/api/v3/managed/blueprints/?path=" + urllib.parse.quote(BLUEPRINT_PATH))["results"]
+         lambda: any(b.get("path") == path for b in api.get("/api/v3/managed/blueprints/available/")))
+    found = api.get("/api/v3/managed/blueprints/?path=" + urllib.parse.quote(path))["results"]
     if found:
         instance = found[0]
     else:
         status, instance = api.call("POST", "/api/v3/managed/blueprints/",
-                                    {"name": "ci-enrollment", "path": BLUEPRINT_PATH, "enabled": True, "context": {}})
+                                    {"name": name, "path": path, "enabled": True, "context": {}})
         assert status == 201, (status, instance)
 
     def applied():
@@ -171,6 +174,21 @@ def checks():
                           [(str(b.get("target")), b.get("order")) for b in bound] == [(str(login["pk"]), 2)], bound))
     status, body = api.call("POST", f"/api/v3/policies/all/{mint['pk']}/test/", {"user": me, "context": {}})
     results.append(expect("the Komga key mint policy passes when it has nothing to do",
+                          status == 200 and body.get("passing") is True, f"HTTP {status} {body}"))
+    # The password-reset sync policy (avrana-recovery.yaml): applied, bound at order 0 to the recovery flow's write
+    # stage, whose binding re-evaluates its policies (else the new password is never in reach), and passes when it has
+    # nothing to do (no flow plan, no secrets in this environment).
+    apply_blueprint(api, RECOVERY_PATH, "ci-recovery")
+    recovery = api.one("/api/v3/flows/instances/?slug=" + RECOVERY_FLOW)
+    write = api.one(f"/api/v3/flows/bindings/?target={recovery['pk']}&order=40")
+    results.append(expect("the recovery write binding re-evaluates its policies",
+                          write.get("re_evaluate_policies") is True, write))
+    sync = api.one("/api/v3/policies/expression/?name=" + SYNC_POLICY)
+    bound = api.get("/api/v3/policies/bindings/?policy=" + str(sync["pk"]))["results"]
+    results.append(expect("the Komga password sync policy is bound to the recovery write stage at order 0",
+                          [(str(b.get("target")), b.get("order")) for b in bound] == [(str(write["pk"]), 0)], bound))
+    status, body = api.call("POST", f"/api/v3/policies/all/{sync['pk']}/test/", {"user": me, "context": {}})
+    results.append(expect("the Komga password sync policy passes when it has nothing to do",
                           status == 200 and body.get("passing") is True, f"HTTP {status} {body}"))
     status, invite = api.call("POST", "/api/v3/stages/invitation/invitations/",
                               {"name": "ci-invite", "single_use": True, "flow": flow["pk"]})

@@ -6,7 +6,8 @@
 # created with --internal: no container can reach the internet or the LAN, so the email stage's SMTP host and every
 # other real address are unreachable by construction. A stub Jellyfin answers at 10.0.0.218:8096, the address the
 # policy calls. Every credential here is random and generated for this run. The checks themselves:
-# tests/authentik_enrollment_live.py.
+# tests/authentik_enrollment_live.py. The recovery blueprint (avrana-recovery.yaml) is applied too, for its Komga
+# password-sync policy.
 set -euo pipefail
 
 here=$(cd "$(dirname "$0")/.." && pwd)
@@ -50,12 +51,13 @@ ak_env=(
   -e AVRANA_KOMGA_ADMIN_EMAIL=komga@example.test -e AVRANA_KOMGA_ADMIN_PASSWORD="$(rand)"
 )
 blueprint="$here/services/authentik/blueprints/avrana-enrollment.yaml:/blueprints/avrana/avrana-enrollment.yaml:ro"
+recovery="$here/services/authentik/blueprints/avrana-recovery.yaml:/blueprints/avrana/avrana-recovery.yaml:ro"
 
 docker run -d --name stub-jellyfin --network "$net" --ip 10.0.0.218 -e JF_KEY="$jf_key" \
   -e JF_USERS=member-a,Orphan -v "$here/tests:/t:ro" --entrypoint python "$ak_image" \
   /t/authentik_enrollment_live.py stub >/dev/null
-docker run -d --name ak-server --network "$net" --ip 10.0.0.11 "${ak_env[@]}" -v "$blueprint" "$ak_image" server >/dev/null
-docker run -d --name ak-worker --network "$net" --ip 10.0.0.12 "${ak_env[@]}" -v "$blueprint" "$ak_image" worker >/dev/null
+docker run -d --name ak-server --network "$net" --ip 10.0.0.11 "${ak_env[@]}" -v "$blueprint" -v "$recovery" "$ak_image" server >/dev/null
+docker run -d --name ak-worker --network "$net" --ip 10.0.0.12 "${ak_env[@]}" -v "$blueprint" -v "$recovery" "$ak_image" worker >/dev/null
 
 drive() {
   docker run --rm --network "$net" --ip 10.0.0.20 -e AK_URL=http://10.0.0.11:9000 -e AK_TOKEN="$token" \

@@ -1,7 +1,8 @@
 """Home's Komga key intake (S-01; docs/runbooks/komga-key-lifecycle.md): `PUT /internal/komga-key/<subject>`. Pure
 functions; main.py reads the headers (identity.py) and the body (forms.py) and calls komga_keys.KeyIntake.
 
-Who may call it: only the Authentik enrollment stage `avrana-komga-key-mint`. Every lock must hold, in this order:
+Who may call it: only Authentik's own stages, the enrollment mint `avrana-komga-key-mint` (source `enrollment`) and the
+password-reset sync `avrana-komga-password-sync` (source `recovery`). Every lock must hold, in this order:
 
   1. HOME_KEY_INTAKE_TOKEN is configured (settings.py). Without it the middleware has no PUT path at all: 501.
   2. The peer address is inside HOME_INTERNAL_CIDR (the Docker network Home shares with authentik-server alone,

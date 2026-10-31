@@ -1094,8 +1094,10 @@ key), so a token holder can only file a key under the account that key already o
 Rules: the intake is off unless `HOME_KEY_INTAKE_TOKEN` is set; it needs the bearer token (constant-time compare), a peer
 in `HOME_INTERNAL_CIDR` and no outpost or proxy header (else the plain 501), a JSON body of at most 512 bytes; it never
 echoes the key; the same key again writes nothing (204), a different key replaces the filed one and revokes nothing
-remotely. A subject (sha256 of the Authentik `sub`) not bound in the identity bindings file is accepted only from the
-enrollment stage. Me -> Comics needs `HOME_KOMGA_CONNECT=on` and the Comics group; Connect is limited to five tries
+remotely. A subject (sha256 of the Authentik `sub`) not bound in the identity bindings file is accepted only from
+Authentik's own stages: `source` `enrollment` (`avrana-komga-key-mint`) or `recovery` (`avrana-komga-password-sync`,
+the password-reset policy that first sets the member's Komga password to the new Avrana one and then mints the key the
+same way; docs/runbooks/komga-password-sync.md). Me -> Comics needs `HOME_KOMGA_CONNECT=on` and the Comics group; Connect is limited to five tries
 per member per 15 minutes. One log event per filing (`komga_key_intake`: `state`, `reason` = source, `ref` = 12 hex of
 a domain-separated hash of the subject) and per member action (`comics_key`: `state`). These routes are read from
 Komga's source (UserController, SecurityConfiguration), not from the published-interface gate.
