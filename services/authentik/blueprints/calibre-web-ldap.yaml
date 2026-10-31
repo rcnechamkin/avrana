@@ -4,6 +4,12 @@ metadata:
   labels:
     blueprints.goauthentik.io/instantiate: "true"
 entries:
+  - model: authentik_blueprints.metaapplyblueprint
+    attrs:
+      identifiers:
+        name: Avrana - LDAP bind flow
+      required: true
+
   # Bind/search service account CWA authenticates as to look up users. It needs the
   # search_full_directory permission (granted out-of-band via ak shell, since object
   # permissions aren't clean to express in a blueprint). Its bind password is an
@@ -27,19 +33,21 @@ entries:
       # be an AUTHENTICATING flow (identification+password+user_login). The usual
       # default-provider-authorization-implicit-consent assumes a pre-existing browser
       # session and fails every bind with "Flow does not apply to current user". Use
-      # default-authentication-flow for both. App gating stays enforced by the avrana-books
+      # avrana-ldap-bind for both, not default-authentication-flow: that one's MFA stage
+      # refuses every passkey holder (AVR-790). App gating stays enforced by the avrana-books
       # policy binding on the application (checked on bind access), not by this flow.
-      authentication_flow: !Find [authentik_flows.flow, [slug, default-authentication-flow]]
-      authorization_flow: !Find [authentik_flows.flow, [slug, default-authentication-flow]]
+      authentication_flow: !Find [authentik_flows.flow, [slug, avrana-ldap-bind]]
+      authorization_flow: !Find [authentik_flows.flow, [slug, avrana-ldap-bind]]
       invalidation_flow: !Find [authentik_flows.flow, [slug, default-provider-invalidation-flow]]
       # CACHED, not direct (changed 2026-08-15). In `direct` mode every bind runs the full
       # authentication flow server-side — measured ~3s PER BIND. That's invisible in the web
       # UI (auth once, ride a session cookie) but brutal over OPDS, where reader apps send
       # HTTP Basic auth on EVERY request (feed + each cover + download), each triggering the
       # ldap-cwa service bind + user search + user bind = 3s+ apiece → "sluggish". Cached mode
-      # caches successful binds and syncs the directory locally, so repeats skip the flow.
+      # caches bind results and syncs the directory locally, so repeats skip the flow.
       # Trade-off (acceptable for a media library): a password change or avrana-books removal
-      # can lag by the cache window rather than applying instantly.
+      # lags by the login stage's session_duration in avrana-ldap-bind.yaml, and a refusal can
+      # stay cached until the outpost restarts (docs/runbooks/rc3-ldap-bind-flow.md).
       bind_mode: cached
       search_mode: cached
       mfa_support: false
