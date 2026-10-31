@@ -103,6 +103,7 @@ Each public method runs these steps, in this order, in the shared base class
 | `released_items(principal, limit)` | `SectionResult` | New releases (`"released"`, owner decision 2026-10-28): the newest release dates first, nothing later than today (Komga allows a cover date up to 92 days ahead). Offered by Jellyfin (films and episodes by `PremiereDate`, `maxPremiereDate` today, `isMissing=false`, one episode per series), Audiobookshelf (the New releases shelf alone), Komga (the New releases listing, up to `limit` issues and up to `limit` novels, the novels topped up from the newest additions when the newest releases hold too few) and Calibre-Web (owner request 2026-10-28: the newest-added OPDS page in `<published>` order, books without a real publication date left out; UNVERIFIED like the rest of that feed). Jellyfin episodes carry their series' poster. Items carry `released` ("YYYY-MM-DD") when the upstream gives a full date. |
 | `item(principal, item_id)` | `SectionResult` | Metadata for one id the member can see (`"item"`); an invalid id is `EMPTY`, never interpolated. |
 | `search(principal, query, limit)` | `SectionResult` | Matching items for this member (`"search"`), see section 14. |
+| `catalog(principal, group, page, size)` | `SectionResult` | One bounded page of everything in a grouping this member can see (`"catalog"`, with `total` and `has_next`), section 16. |
 | `fetch_artwork(principal, ref)` | `ArtworkResult` | Server-side image fetch for an opaque ref, after a member-scoped visibility check. |
 | `health()` | `AdapterHealth` | Circuit state only; no member data; no upstream call. |
 
@@ -1103,3 +1104,10 @@ Komga's source (UserController, SecurityConfiguration), not from the published-i
 Not covered by the published-interface gate (`tests/test_openapi_subset.py` lists the adapter's GET routes only):
 the two Jellyfin write routes are named from Jellyfin 10.11's `UserController`, and the Audiobookshelf route from
 its `UserController.create`. The first real creation (ACCOUNT-PROVISIONING section 5) is their live check.
+
+## 16. The Library catalogue
+
+Design, upstream evidence and the owner's checks: [`LIBRARY-CATALOG.md`](LIBRARY-CATALOG.md). Same order of checks as every section;
+a page number, never a cursor; `total` only when exact for this member, else None; `has_next` only from the upstream's own
+answer. Komga is read with the member's own key alone (a missing or refused key is `NOT_LINKED`), widening its member route
+table by the series list, series covers and the library list. Calibre-Web gains `/opds/books/letter/00`. All UNVERIFIED live.

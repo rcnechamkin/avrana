@@ -44,6 +44,11 @@ from .resilience import (REQUEST_BUDGET, CallBudget, CircuitBreaker, ItemGone, S
 
 DEFAULT_LIMIT = 12
 MAX_LIMIT = 50
+# The Library's catalogue (handoff 03): bounded server-rendered pages. A page number, never an opaque cursor: every page
+# is authorized and member-scoped afresh, so there is no token to bind, sign, expire or replay across members.
+CATALOG_PAGE = 24
+CATALOG_MAX_SIZE = 48
+CATALOG_MAX_PAGE = 99999
 MAX_TITLE_LEN = 200
 ARTWORK_TTL = 300.0   # longest an item hidden from a member can still be served from cache
 DEFAULT_MAX_IN_FLIGHT = 8             # upstream calls running at once, per adapter
@@ -98,6 +103,7 @@ class Kind(str, enum.Enum):
     AUDIOBOOK = "audiobook"
     COMIC = "comic"
     EBOOK = "ebook"
+    COMIC_SERIES = "comic_series"    # a Komga series as a catalogue card: its id is a series id, never a book's
 
 
 class SectionState(str, enum.Enum):
@@ -141,6 +147,10 @@ _HANDOFF_PATH = {
 }
 
 
+# A Komga series opens its own page (komga-webui router, 1.25.0 source; UNVERIFIED live). Only Komga has one here.
+_SERIES_HANDOFF_PATH = {Service.KOMGA: "/series/{id}"}
+
+
 class HandoffError(ValueError):
     pass
 
@@ -153,6 +163,12 @@ def build_handoff_url(service: Service, upstream_id: str) -> str:
     if not valid_upstream_id(service, upstream_id):
         raise HandoffError("invalid upstream id")
     return HANDOFF_BASE[service] + _HANDOFF_PATH[service].format(id=upstream_id)
+
+
+def build_series_handoff_url(service: Service, upstream_id: str) -> str:
+    if service not in _SERIES_HANDOFF_PATH or not valid_upstream_id(service, upstream_id):
+        raise HandoffError("invalid upstream id")
+    return HANDOFF_BASE[service] + _SERIES_HANDOFF_PATH[service].format(id=upstream_id)
 
 
 MAX_QUERY_RAW = 256        # longer input is refused, not truncated
@@ -389,6 +405,10 @@ class SectionResult:
     state: SectionState
     items: Tuple[MediaItem, ...] = ()
     reason: Optional[str] = None  # fixed diagnostic code for operators; NOT for display
+    # "catalog" only. `total`: how many entities THIS member can page through, or None when that is not known exactly
+    # for them (never a global count, never a guess). `has_next`: a later page exists; never inferred from a full page.
+    total: Optional[int] = None
+    has_next: bool = False
 
     def to_dict(self) -> dict:
         return {"service": self.service.value, "section": self.section,
@@ -398,6 +418,12 @@ class SectionResult:
     def of(service: Service, section: str, items: Tuple[MediaItem, ...]) -> "SectionResult":
         state = SectionState.OK if items else SectionState.EMPTY
         return SectionResult(service, section, state, tuple(items))
+
+    @staticmethod
+    def catalog_of(service: Service, items, total: Optional[int], has_next: bool) -> "SectionResult":
+        """One catalogue page. Filtered by a member's own restrictions a page can be empty with more after it: still OK."""
+        state = SectionState.OK if items or has_next else SectionState.EMPTY
+        return SectionResult(service, "catalog", state, tuple(items), total=total, has_next=has_next)
 
 
 @dataclass(frozen=True)
@@ -518,6 +544,9 @@ class MediaAdapter:
     # artwork hook then takes `cached=` and re-checks visibility before it may return cached bytes. False for
     # a shared view (Komga, Calibre-Web), where the group is the whole permission. See `fetch_artwork`.
     artwork_rechecks_visibility: bool = False
+    # The catalogue's groupings this adapter can really page, default first (handoff 04). A grouping it cannot page
+    # completely is left out, so no control is ever inert. Empty: no catalogue, the category is not offered.
+    catalog_groups: Tuple[str, ...] = ()
 
     def __init__(self, breaker: Optional[CircuitBreaker] = None,
                  cache: Optional[MemberCache] = None, clock=None,
@@ -595,6 +624,11 @@ class MediaAdapter:
     def _fetch_artwork(self, user: UpstreamUser, ref: str, cached=None) -> ArtworkResult:
         """`cached` is passed only when `artwork_rechecks_visibility` is True: a callable returning this
         member's cached OK result or None. Call it ONLY after the member-scoped visibility check passed."""
+        raise NotImplementedError
+
+    def _catalog(self, user: UpstreamUser, group: str, page: int, size: int) -> SectionResult:
+        """One page (from 1, title order) of everything in `group` this member can see: `SectionResult.catalog_of`.
+        Independent of the recent feeds, and one bounded page: never a walk of the catalogue, never a call per card."""
         raise NotImplementedError
 
     def _search(self, user: UpstreamUser, query: str, limit: int) -> SectionResult:
@@ -681,6 +715,21 @@ class MediaAdapter:
             return SectionResult(self.service, "search", SectionState.EMPTY, reason="invalid_query")
         limit = _limit(limit)
         return self._section(principal, "search", None, lambda user: self._search(user, term, limit))
+
+    def catalog(self, principal: MemberPrincipal, group: str, page: int = 1, size: int = CATALOG_PAGE) -> SectionResult:
+        """One catalogue page for this member, through the same order of checks as every section: group first (no
+        upstream call, no cache read), then the member-partitioned cache, caps, circuit, mapping and the hook."""
+        return self._catalog_section(principal, group, page, size, self._catalog)
+
+    def _catalog_section(self, principal: MemberPrincipal, group: str, page: int, size: int, hook) -> SectionResult:
+        self._require_principal(principal)
+        if not principal.has_group(self.required_group):
+            return self._not_permitted("catalog")
+        if (group not in self.catalog_groups or not _page_number(page) or not isinstance(size, int)
+                or isinstance(size, bool) or not 1 <= size <= CATALOG_MAX_SIZE):
+            return SectionResult(self.service, "catalog", SectionState.EMPTY, reason="invalid")
+        return self._section(principal, "catalog", f"catalog:{group}:{page}:{size}",
+                             lambda user: hook(user, group, page, size))
 
     def fetch_artwork(self, principal: MemberPrincipal, ref: str) -> ArtworkResult:
         """Order: principal, GROUP (no cache read, no upstream call without it), ref shape, then:
@@ -1050,7 +1099,11 @@ class MediaAdapter:
 
     def cache_ttl(self, section: str) -> float:
         return {"continue": 30.0, "recent": 120.0, "next_up": 30.0, "shelves": 300.0, "released": 300.0,
-                "for_you": 120.0, "week": 300.0, "item": 120.0}.get(section, 30.0)
+                "for_you": 120.0, "week": 300.0, "item": 120.0, "catalog": 120.0}.get(section, 30.0)
+
+
+def _page_number(page: Any) -> bool:
+    return isinstance(page, int) and not isinstance(page, bool) and 1 <= page <= CATALOG_MAX_PAGE
 
 
 def _limit(limit: Any) -> int:

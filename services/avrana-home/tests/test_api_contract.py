@@ -106,7 +106,7 @@ class ContractTests(unittest.TestCase):
         declared = set()
         for fields in CONTRACT["entities"].values():
             declared |= set(fields)
-        declared.add("Items")  # envelope
+        declared |= {"Items", "TotalRecordCount"}  # envelope
         self.assertTrue(read, "field scan found nothing: the scan itself is broken")
         self.assertEqual(sorted(read - declared), [], "adapter reads undeclared fields: update the contract")
 

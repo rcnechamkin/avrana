@@ -41,6 +41,8 @@ _IMAGE_TYPES = "Primary,Backdrop,Logo"
 _ITEM_FIELDS = "PrimaryImageAspectRatio,ProviderIds"   # ProviderIds: media_ids.from_jellyfin
 _TITLE_FIELDS = _ITEM_FIELDS + ",Overview,People,Genres,Tags"   # the title page alone asks for the synopsis (R2-C)
                                                               # and who made it (richer Details, 2026-10-28)
+# The catalogue's groupings -> Jellyfin's item type: whole films and whole shows, never seasons or episodes.
+_CATALOG_TYPE = {"movies": "Movie", "series": "Series"}
 # BaseItemPerson.Type (PersonKind) -> MediaItem.credits role. Every other kind (producer, composer, guest star) is left out.
 _PERSON_ROLE = {"Actor": "cast", "Director": "directors", "Writer": "writers"}
 # New for You (owner request 2026-10-28): what arrived in the last FOR_YOU_DAYS that is the next thing for this member.
@@ -87,7 +89,7 @@ ALLOWED_ROUTES = (
     # films (New for You's collections).
     Route("items", r"/Items", ("userId", "ids", "fields", "enableUserData", "enableImageTypes",
                                "searchTerm", "includeItemTypes", "recursive", "limit", "sortBy", "sortOrder",
-                               "maxPremiereDate", "isMissing", "isPlayed"),
+                               "maxPremiereDate", "isMissing", "isPlayed", "startIndex", "enableTotalRecordCount"),
           user_scoped=True, not_found=UserGone),
     # The image route cannot carry a userId, so ITS member scoping is not enforced here: it rests on
     # the adapter calling `_visible_item` (a userId-scoped lookup) for the same item first.
@@ -142,6 +144,7 @@ class JellyfinAdapter(GuardedAdapter):
     service = Service.JELLYFIN
     artwork_rechecks_visibility = True     # visibility is per member: re-checked before any cached cover
     extra_sections = frozenset({"next_up", "released", "for_you"})
+    catalog_groups = ("movies", "series")
     RELEASED_ASK = 4          # episodes ask for more, because only the newest of each series is kept
 
     def __init__(self, transport: Transport, timeout: float = DEFAULT_TIMEOUT, *,
@@ -438,6 +441,23 @@ class JellyfinAdapter(GuardedAdapter):
         items = self._parse_list(body.get("Items"), user.upstream_id, limit, ("Movie", "Series", "Episode"),
                                  want_progress=False, require_progress=False, want_backdrop=False)
         return SectionResult.of(Service.JELLYFIN, "search", items)
+
+    def _catalog(self, user: UpstreamUser, group: str, page: int, size: int) -> SectionResult:
+        """One page of the member's films or shows by sort name: `/Items`, scoped by `userId` like every list here, with
+        `startIndex` and Jellyfin's own `TotalRecordCount` (10.11.11 source: ItemsController; scope UNVERIFIED live, as
+        section 7). A page without a count is malformed: the next link is never guessed from a full page."""
+        kind, start = _CATALOG_TYPE[group], (page - 1) * size
+        body = self._get_json(self._guard.bind(user.upstream_id), self._budget(), "/Items", {
+            "userId": user.upstream_id, "includeItemTypes": kind, "recursive": "true", "sortBy": "SortName",
+            "sortOrder": "Ascending", "startIndex": str(start), "limit": str(size), "fields": _ITEM_FIELDS,
+            "enableUserData": "true", "enableImageTypes": "Primary", "enableTotalRecordCount": "true"})
+        total = bounded_int(body.get("TotalRecordCount")) if isinstance(body, dict) else None
+        if total is None or total < 0:
+            raise UpstreamMalformed()
+        raws = body.get("Items")
+        items = self._parse_list(raws, user.upstream_id, size, (kind,), want_progress=False, require_progress=False,
+                                 want_backdrop=False)
+        return SectionResult.catalog_of(Service.JELLYFIN, items, total, start + len(raws) < total)
 
     def _visible_item(self, guard, budget, user: UpstreamUser, item_id: str,
                       fields: str = _ITEM_FIELDS) -> Optional[MediaItem]:

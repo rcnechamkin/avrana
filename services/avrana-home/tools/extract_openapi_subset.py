@@ -36,7 +36,8 @@ PATHS = {
                       "enableUserData"),
     "/Shows/NextUp": ("userId", "limit", "fields", "enableUserData", "enableImageTypes", "enableTotalRecordCount"),
     "/Items": ("userId", "ids", "fields", "enableUserData", "enableImageTypes", "searchTerm", "includeItemTypes",
-               "recursive", "limit", "sortBy", "sortOrder", "maxPremiereDate", "isMissing", "isPlayed"),
+               "recursive", "limit", "sortBy", "sortOrder", "maxPremiereDate", "isMissing", "isPlayed", "startIndex",
+               "enableTotalRecordCount"),
     "/Items/{itemId}/Images/{imageType}": ("maxWidth", "quality"),
 }
 # schema -> the properties the adapter reads
