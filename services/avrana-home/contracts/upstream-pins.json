@@ -1,0 +1,18 @@
+{
+  "_status": "RC3 (AVR-386): the upstream versions Home's adapters are contract-tested against. Each digest must equal the one in its compose file (tests/test_compose_image_pins.py); tests/media_upstream_live.py reads the version here and fails when the running image reports another. Changing a digest therefore means changing this file and re-running upstream-contracts.yml. A digest here proves what CI ran, not what the host runs: live state is E1, 2026-10-30.",
+  "jellyfin": {
+    "version": "10.11.11",
+    "compose": "services/media/docker-compose.yml",
+    "image": "jellyfin/jellyfin@sha256:aefb67e6a7ff1debdd154a78a7bbb780fd0c873d8639210a7f6a2016ad2b35db"
+  },
+  "audiobookshelf": {
+    "version": "2.36.0",
+    "compose": "services/audiobookshelf/docker-compose.yml",
+    "image": "ghcr.io/advplyr/audiobookshelf@sha256:180acad33d69c99ed208676465d8edcb268fa46967735579a7810859885b1a8e"
+  },
+  "komga": {
+    "version": "1.25.0",
+    "compose": "services/komga/docker-compose.yml",
+    "image": "gotson/komga@sha256:c4f9885fc077e2e9cd684dc95e8f6cfa5e33b100b46712b2de7f5cc2ff59e6fb"
+  }
+}
