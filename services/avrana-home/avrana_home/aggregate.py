@@ -16,6 +16,7 @@ not started when the cap hits is cancelled and touches no circuit.
 from __future__ import annotations
 
 import concurrent.futures as cf
+import functools
 import queue
 import threading
 from dataclasses import dataclass
@@ -146,6 +147,17 @@ def gather_pairs(principal: MemberPrincipal, adapters: Sequence[MediaAdapter], p
     if not jobs:
         return HomeSections(())
     return HomeSections(_run(jobs, (principal, limit), adapters, hard_cap))
+
+
+def gather_catalog(principal: MemberPrincipal, adapters: Sequence[MediaAdapter],
+                   asks: Sequence[Tuple[MediaAdapter, str, int, int]], hard_cap: Optional[float] = None):
+    """One SectionResult per (adapter, group, page, size), in order, all at once under one hard cap: a down library
+    costs its own entry, never its neighbours'."""
+    if not is_minted_principal(principal):
+        raise TypeError("gather_catalog takes a parser-minted MemberPrincipal")
+    jobs = [(a, "catalog", functools.partial(a.catalog, group=group, page=page, size=size))
+            for a, group, page, size in asks]
+    return _run(jobs, (principal,), adapters, hard_cap) if jobs else ()
 
 
 def _run(jobs, args: tuple, adapters: Sequence[MediaAdapter], hard_cap: Optional[float]):
