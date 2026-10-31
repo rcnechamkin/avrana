@@ -1,8 +1,8 @@
 # Library catalogue (Media 2.0 Library)
 
 Status: **code only, 2026-10-30.** Branch stack `feat/library-catalog-*` from `main` 1da4e86, draft PRs, not merged, not deployed.
-Behind `HOME_LIBRARY_CATALOG` (default off; the name awaits review). Proven against synthetic fixtures and each
-upstream's published source at the version below. **Nothing here was checked against a running service.**
+Behind `HOME_LIBRARY_CATALOG` (default off; the name awaits review). Proven against synthetic fixtures, upstream source, and a bounded read-only live check (below). Real devices are still
+open.
 
 `/library` stops being recent shelves and becomes everything a member can open, in bounded server-rendered pages. Home
 stays personal and Search stays lookup and requests. No new service, database, framework or offline promise.
@@ -73,22 +73,48 @@ Komga differs in one way: `catalog` requires the member's key before the shared 
 ## Owner decisions and checks
 
 1. **Flag name and default**: `HOME_LIBRARY_CATALOG`, off.
-2. **`HOME_KOMGA_BOOK_LIBRARIES`**: list the Komga Books library ids, or their one-shots appear as Comics series. Komga's
-   listing has no media-profile filter, so this is a setting rather than a guess.
+2. **`HOME_KOMGA_BOOK_LIBRARIES`** (owner decision 2026-10-30): exclude verified ebook libraries only. Komga's listing has
+   no media-profile filter, so this is a setting rather than a guess. The verified id is below; applying it is a deploy step.
 3. **Members without a working Komga key** (owner decision 2026-10-30): no key says "Connect comics", a refused key says "Reconnect comics", both linking to Me -> Comics (`/me/comics`) when that page is open to the member. Otherwise the neutral "Not set up yet" and Help. Comics never falls back to the shared account.
-4. **Read-only live check, owner-approved, separately for each service**, with two members of different access:
-   - Versions: Jellyfin, ABS, Komga, CWA, and that CWA is the build running.
-   - Jellyfin: `TotalRecordCount` differs by `userId` under the API key.
-   - ABS: `page` works on `/items` under the deployed token, and `minified=1` carries `tags` and `explicit`.
-   - Komga: a member key reads `/api/v1/series` and `/api/v1/libraries`; a comma `library_id` is honoured; series thumbnails.
-   - CWA: `/opds/books/letter/00` with the viewer account, `rel="next"` href shape, `config_books_per_page`, body under
-     1 MiB for one window. A reverse-proxy prefix or an absolute link would make Books unavailable, not wrong.
-5. **Phone acceptance**: the eight scripts of the packet on real devices. Fixture checks cover 320 px and 200% root text;
-   iPhone Safari, the PWA, Dynamic Type and safe areas are not checked.
+4. **Read-only live check**: done, see the evidence below.
+5. **Phone acceptance**: the eight scripts of the packet on real devices.
+
+## Evidence recorded 2026-10-30
+
+**Live, read-only, host `avrana`, branch adapters in memory beside the running Home.** GET requests only, private cache,
+no container, config or file change; output was counts and salted digests. Group gating was not under test here: every
+probe held all four groups, so these rows show what each upstream returns for that member.
+
+| Service | Result |
+|---|---|
+| Jellyfin | 8 linked members, each 69 movies (3 pages) and 15 shows, no repeats; identical sets; page 1 about 170 ms |
+| Audiobookshelf | 8 linked members, each 288 titles (12 pages), identical sets; 1 member gets the count, 7 do not, because their account cannot see explicit titles; page 1 about 75 to 100 ms |
+| Komga | 2 keyed members, each 118 series; last page exact; a page past the end is empty; a member with no key is `not_linked`; series covers load; a comma `library_id` is honoured |
+| CWA | 91 books over 4 pages, no repeats, Next ended; 67 are outside `/opds/new`, so older books are reachable; one shared viewer account, so no per-member view exists |
+
+Of 23 bound usernames, Jellyfin returned nothing for 10 unmapped and 5 disabled, Audiobookshelf nothing for 15 unmapped.
+**No linked member is restricted today**, so a hidden title could not be probed live. That negative case stays proven
+offline only, and needs a restricted test member to prove live. Service versions were not read by this check.
+
+**Komga exclusion verified:** `HOME_KOMGA_BOOK_LIBRARIES=0S2D6Q6RKFBV1` ("Books (Trial)": 12 EPUB one-shots; the other five
+libraries sampled as comics). With it, 118 series become 106. Not applied. It names a trial library: recheck the id if
+that library is replaced.
+
+**Fixture, Chromium, 320 px:** axe WCAG A and AA 0 violations on 6 pages; 34 keyboard stops, each with a visible ring and
+none covered by the tab bar; no-JS Overview, category, Next, menu and Back work; at 200% root text overflow 0 and Next
+clears the tab bar by 188 px; reduced motion gives no transition or animation.
+
+**Not done:** real iPhone and Android, VoiceOver and TalkBack, Dynamic Type, safe areas, the installed PWA, WebKit. These
+are the owner's device checks and the packet's eight scripts.
+
+**Windows suite:** the one web failure was a local venv without the pinned PyYAML, which adds 5 skips; with it the test
+passes. Not a code defect. **#186:** resolved in a local trial merge; `book_libraries` stays and `provisioning` goes, and
+the catalog's reason no longer depends on a constant #186 deletes.
 
 ## Known limits
 
 - A member with tag or explicit rules on Audiobookshelf gets no count, and a page can be short or empty with Next.
+  Live, that is most members today: they see every title but get no number, because the rule alone decides.
 - Sort is title only and unstable on equal sort keys upstream (Jellyfin and CWA offer no id tie-break), so a catalogue
   changing mid-walk can repeat or skip an entry. Accepted at this size; the page is complete again on reload.
 - The tab bar's own labels collide at 200% root text at 320 px: existing shell, not changed here.
