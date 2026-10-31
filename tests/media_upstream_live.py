@@ -232,7 +232,11 @@ class Jellyfin:
                                  ("OpenTV", "tvshows", "/media/tv"), ("ClosedTV", "tvshows", "/media/tvclosed")):
             query = urllib.parse.urlencode({"name": name, "collectionType": kind, "paths": path,
                                             "refreshLibrary": "false"})
-            expect("library", self.call("POST", "/Library/VirtualFolders?" + query, {"LibraryOptions": {}}))
+            # No fetchers: the network is --internal, and only the local files and .nfo matter here.
+            options = {"EnableRealtimeMonitor": False, "EnableInternetProviders": False,
+                       "TypeOptions": [{"Type": t, "MetadataFetchers": [], "ImageFetchers": []}
+                                       for t in ("Movie", "Series", "Season", "Episode")]}
+            expect("library", self.call("POST", "/Library/VirtualFolders?" + query, {"LibraryOptions": options}))
         expect("refresh", self.call("POST", "/Library/Refresh"))
         wanted = {"Open Alpha", "Open Tagged", "Closed Bravo", "Open Show", "Closed Show"}
 
@@ -240,8 +244,13 @@ class Jellyfin:
             items = self.items(self.admin_id)
             names = {i["Name"] for i in items}
             eps = sum(i["Type"] == "Episode" for i in items)
+            self.seen = (sorted(names), eps)
             return items if wanted <= names and eps == 4 else None
-        self.all_items = wait("jellyfin scan", listed, seconds=300, every=3)
+        try:
+            self.all_items = wait("jellyfin scan", listed, seconds=300, every=3)
+        except SystemExit:
+            Report.fact("jellyfin scan saw", self.seen)
+            raise
         self.id_of = {i["Name"]: i["Id"].replace("-", "") for i in self.all_items if i["Type"] != "Episode"}
         self.eps = {(i.get("SeriesName"), i.get("IndexNumber")): i["Id"].replace("-", "")
                     for i in self.all_items if i["Type"] == "Episode"}
@@ -675,7 +684,10 @@ def main():
     for name, run in (("jellyfin", jellyfin_checks), ("audiobookshelf", audiobookshelf_checks), ("komga", komga_checks)):
         if only in ("all", name):
             print(f"== {name}", flush=True)
-            run()
+            try:
+                run()
+            except SystemExit as exc:                    # one upstream's setup failing must not hide the others
+                report.check(f"{name} setup", False, str(exc))
     print(f"{report.passed} passed, {len(report.failed)} failed")
     for name in report.failed:
         print("FAILED:", name)

@@ -93,8 +93,10 @@ try {
   d = await dump();
   ok('browsing member pages (with their artwork) stores nothing new; no artwork or page is in the store', artSeen.length > 0 && Object.keys(d).length === 1 && d[names[0]].length === allow.length && Object.values(d).flat().every((p) => !p.startsWith('/art')), `art requests: ${artSeen.length} ${JSON.stringify(d)}`);
   const offlineCached = await page.evaluate(async () => (await (await caches.open((await caches.keys())[0])).match('/offline')).text());
+  // The markup, not the stylesheet: a CSS comment in home.css names <details>, which no member sees.
+  const offlineMarkup = offlineCached.replace(/<style[\s\S]*?<\/style>/g, '');
   ok('stored offline page has the approved words and no member places or account menu',
-    offlineCached.includes('This phone has no connection. Avrana Media needs one to show your libraries.') && !offlineCached.includes('class="places"') && !offlineCached.includes('<details') && !offlineCached.includes('DEVELOPMENT IDENTITY'));
+    offlineCached.includes('This phone has no connection. Avrana Media needs one to show your libraries.') && !offlineMarkup.includes('class="places"') && !offlineMarkup.includes('<details') && !offlineCached.includes('DEVELOPMENT IDENTITY'));
 
   // ---- sign-out hop headers -----------------------------------------------------------------------------------
   const api = await pwRequest.newContext({ baseURL: BASE, extraHTTPHeaders: HEADERS });
