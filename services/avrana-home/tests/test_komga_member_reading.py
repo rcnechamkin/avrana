@@ -177,7 +177,7 @@ class Reading(unittest.TestCase):
         self.assertEqual(len(self.mine.requests), 3)                  # one fetch (three calls), then the cache
 
     def test_the_member_allow_list_has_only_the_two_reading_routes(self):
-        self.assertEqual([r.name for r in MEMBER_ROUTES], ["reading", "ondeck"])
+        self.assertEqual([r.name for r in MEMBER_ROUTES], ["reading", "ondeck", "series_list", "series_cover", "libraries"])
         guard = self.adapter._member_guard("alice@example.com").bind("shared")
         for path, query in (("/api/v2/users/me/api-keys", {}), ("/api/v1/books/READ00000001", {}),
                             ("/api/v1/books", {"search": "x"})):
