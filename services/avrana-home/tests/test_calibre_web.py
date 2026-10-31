@@ -317,7 +317,7 @@ class GuardAndSecrets(Base):
             GuardedTransport(self.transport).bind(None).request("GET", "/opds/new", None, 1.0, 1000)
         with self.assertRaises(ForbiddenRequest):
             GuardedTransport(self.transport).bind("member-a")      # only the fixed shared viewer can be bound
-        self.assertEqual([r.name for r in ALLOWED_ROUTES], ["new", "search", "cover"])
+        self.assertEqual([r.name for r in ALLOWED_ROUTES], ["new", "search", "all_books", "cover"])
         self.assertEqual(self.fake.requests, [])
 
     def test_the_credential_is_never_in_a_repr_a_result_a_health_report_or_a_log_line(self):
