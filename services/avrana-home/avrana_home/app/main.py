@@ -581,14 +581,15 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
                     number = catalogvm.clean_page(library_page_from_scope(scope))
                     asked = [(chosen, group, number, CATALOG_PAGE)]
                 got = await run_in_threadpool(gather_catalog, viewer.principal, adapter_list, asked)
-                pages = {a.service.value: dict(r.to_dict(), total=r.total, has_next=r.has_next)
+                pages = {a.service.value: dict(r.to_dict(), total=r.total, has_next=r.has_next, reason=r.reason)
                          for (a, _g, _n, _s), r in zip(asked, got)}
+                connect = comics_mod.ROUTE if comics_on and comics_member(viewer) else None
                 if chosen is None:
-                    page = catalogvm.build_overview(mine, pages, asks=asks)
+                    page = catalogvm.build_overview(mine, pages, asks=asks, connect_href=connect)
                 else:
                     page = catalogvm.build_catalog(mine, chosen.service.value, group, pages[chosen.service.value],
                                                    page=number, view=catalogvm.clean_view(library_view_from_scope(scope)),
-                                                   title_services=title_services)
+                                                   title_services=title_services, connect_href=connect)
                 decision = library_catalog_decision(page)
             scope["avrana_route"] = decision.label
             return respond(decision, scope, shell=shell_for(viewer, "library"))

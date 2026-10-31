@@ -55,7 +55,7 @@ class Wire:
 
 
 class Stack:
-    def __init__(self, keyed_d=True, films=60, shows=30, books=130, audiobooks=50, series=50):
+    def __init__(self, keyed_d=True, writable_keys=False, films=60, shows=30, books=130, audiobooks=50, series=50):
         self.films = {u: [] for u in UIDS.values()}
         for who, uid in UIDS.items():
             mark = "Alpha" if who == "member-a" else "Bravo" if who == "member-b" else "Delta"
@@ -81,7 +81,7 @@ class Stack:
         if keyed_d:
             filed["member-d@example.org"] = KEY_D
         write_keys(path, filed)
-        self.store = MemberKeyStore(path, initial=read_keys(path))
+        self.store = MemberKeyStore(path, initial=read_keys(path), writable=writable_keys)
 
     @staticmethod
     def one(n, mark):

@@ -66,7 +66,7 @@
     <p class="lib-count">{{ page.count }}</p>
 {% endif %}
 {% if page.message %}
-    <p class="said">{{ page.message }}{% if page.setup_href %} <a class="link" href="{{ page.setup_href }}">What to do next<span class="sr"> about {{ page.chosen_label }}</span></a>{% endif %}{% if page.retry_href %} <a class="link" href="{{ page.retry_href }}">Try again<span class="sr"> to load {{ page.chosen_label }}</span></a>{% endif %}</p>
+    <p class="said">{{ page.message }}{% if page.setup_href %} <a class="link" href="{{ page.setup_href }}">{% if page.setup_label %}{{ page.setup_label }}{% else %}What to do next<span class="sr"> about {{ page.chosen_label }}</span>{% endif %}</a>{% endif %}{% if page.retry_href %} <a class="link" href="{{ page.retry_href }}">Try again<span class="sr"> to load {{ page.chosen_label }}</span></a>{% endif %}</p>
 {% endif %}
 {% if page.items %}
     <ul class="{{ page.list_class }}" data-lib-list>

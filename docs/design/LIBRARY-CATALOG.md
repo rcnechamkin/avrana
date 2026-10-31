@@ -1,6 +1,6 @@
 # Library catalogue (Media 2.0 Library)
 
-Status: **code only, 2026-10-30.** Branch stack `feat/library-catalog-*` from `main` 1da4e86, not pushed, not deployed.
+Status: **code only, 2026-10-30.** Branch stack `feat/library-catalog-*` from `main` 1da4e86, draft PRs, not merged, not deployed.
 Behind `HOME_LIBRARY_CATALOG` (default off; the name awaits review). Proven against synthetic fixtures and each
 upstream's published source at the version below. **Nothing here was checked against a running service.**
 
@@ -75,7 +75,7 @@ Komga differs in one way: `catalog` requires the member's key before the shared 
 1. **Flag name and default**: `HOME_LIBRARY_CATALOG`, off.
 2. **`HOME_KOMGA_BOOK_LIBRARIES`**: list the Komga Books library ids, or their one-shots appear as Comics series. Komga's
    listing has no media-profile filter, so this is a setting rather than a guess.
-3. **Members without a Komga key** see Comics as "Not set up yet" until they connect. Accept, or decide otherwise.
+3. **Members without a working Komga key** (owner decision 2026-10-30): no key says "Connect comics", a refused key says "Reconnect comics", both linking to Me -> Comics (`/me/comics`) when that page is open to the member. Otherwise the neutral "Not set up yet" and Help. Comics never falls back to the shared account.
 4. **Read-only live check, owner-approved, separately for each service**, with two members of different access:
    - Versions: Jellyfin, ABS, Komga, CWA, and that CWA is the build running.
    - Jellyfin: `TotalRecordCount` differs by `userId` under the API key.

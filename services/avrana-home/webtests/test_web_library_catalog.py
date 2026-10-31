@@ -5,7 +5,7 @@ import re
 import unittest
 
 from avrana_home.app import catalogvm
-from .catalog_stack import Stack, headers
+from .catalog_stack import KEY_D, Stack, headers
 from .support import make_client, make_settings, require_framework
 
 A, B, C, D = headers("member-a"), headers("member-b"), headers("member-c"), headers("member-d")
@@ -184,6 +184,44 @@ class Catalog(Base):
         self.assertNotRegex(page.text, r"<script(?![^>]*src=)")
         self.assertNotRegex(page.text, r"<[^>]+ on[a-z]+=")
         self.assertIn("no-store", page.headers["cache-control"])
+
+
+class ConnectComics(unittest.TestCase):
+    """Me -> Comics open to the member: the state says what to do and links there; a refused key says reconnect."""
+
+    def stack_for(self, **kwargs):
+        require_framework()
+        self.stack = Stack(writable_keys=True, **kwargs)
+        self.client = make_client(make_settings(home_sections=True, library_catalog=True, komga_connect=True,
+                                                komga_base_url="http://komga.test"),
+                                  adapters=self.stack.adapters(), komga_key_client=object())
+        self.client.__enter__()
+        self.addCleanup(self.client.__exit__, None, None, None)
+        self.addCleanup(self.stack.dir.cleanup)
+
+    def get(self, url):
+        return self.client.get(url, headers=D).text
+
+    def test_without_a_key_it_says_connect_and_links_to_me_comics(self):
+        self.stack_for(keyed_d=False)
+        card = self.get("/library").split('href="/me/comics"')[1].split("</a>")[0]
+        self.assertIn("Connect comics", card)
+        page = self.get("/library?lib=komga")
+        self.assertIn('<a class="link" href="/me/comics">Connect comics</a>', page)
+        self.assertNotIn("Reconnect", page)
+        self.assertEqual([], self.stack.shared_komga.calls)
+
+    def test_a_refused_key_says_reconnect(self):
+        self.stack_for()
+        self.stack.transport(KEY_D).status = 401
+        page = self.get("/library?lib=komga")
+        self.assertIn('<a class="link" href="/me/comics">Reconnect comics</a>', page)
+        self.assertNotIn(catalogvm.NOTHING_YET, page)
+        self.assertIn("Reconnect comics", self.get("/library").split('href="/me/comics"')[1].split("</a>")[0])
+
+    def test_no_link_for_a_member_without_comics(self):
+        self.stack_for(keyed_d=False)
+        self.assertNotIn("/me/comics\"", self.client.get("/library", headers=A).text.split("lib-cats")[1])
 
 
 class NoKey(Base):
