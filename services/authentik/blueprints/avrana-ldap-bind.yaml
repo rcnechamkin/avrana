@@ -1,0 +1,135 @@
+version: 1
+metadata:
+  name: Avrana - LDAP bind flow
+  labels:
+    blueprints.goauthentik.io/instantiate: "true"
+    blueprints.goauthentik.io/description: |
+      The flow the LDAP outpost runs for a bind (AVR-790). It exists because
+      default-authentication-flow also serves browsers: its MFA stage presents WebAuthn to
+      anyone holding a passkey, and the outpost cannot answer WebAuthn (solvers.go,
+      "no compatible authenticator class found"), so a passkey holder's Jellyfin, Seerr and
+      Calibre-Web binds failed with the right password.
+
+      Identification, password, a refusal for privileged accounts, login. Bound to LDAP
+      providers only; nothing here touches the browser flow or the brand. Runbook, measured
+      proof and cached-bind implications: docs/runbooks/rc3-ldap-bind-flow.md.
+entries:
+  # Accounts that must keep a second factor. Empty on purpose: nobody is MFA-required today
+  # (default-authentication-mfa-validation is not_configured_action=skip). Adding someone here
+  # refuses their LDAP binds, the same refusal administrators get.
+  - model: authentik_core.group
+    id: mfa-required
+    identifiers:
+      name: avrana-mfa-required
+
+  - model: authentik_flows.flow
+    id: flow
+    identifiers:
+      slug: avrana-ldap-bind
+    attrs:
+      name: Avrana LDAP bind
+      title: Avrana LDAP bind
+      designation: authentication
+      # LOAD-BEARING. This flow is password-only and ends in a real login, so if a browser could
+      # run it, a passkey holder's second factor would be optional at the public executor URL.
+      # require_outpost makes the planner refuse any request without a token of an internal
+      # service account (planner.py _check_authentication, middleware _get_outpost_override_ip).
+      # Do not relax it: tests/authentik_ldap_bind_live.py shows that bypass with `none`.
+      authentication: require_outpost
+      # `message`, not the default message_continue: the outpost counts a redirect as a passed
+      # flow (executor.go solveFlowChallenge), so a refusal must never become one.
+      denied_action: message
+
+  - model: authentik_stages_identification.identificationstage
+    id: identification
+    identifiers:
+      name: avrana-ldap-bind-identification
+    attrs:
+      user_fields:
+        - username
+
+  # TokenBackend is needed: ldap-cwa and ldap-jellyfin bind with app passwords, and members'
+  # binds keep their existing behaviour. The failed-attempt count is the upstream default.
+  - model: authentik_stages_password.passwordstage
+    id: password
+    identifiers:
+      name: avrana-ldap-bind-password
+    attrs:
+      backends:
+        - authentik.core.auth.InbuiltBackend
+        - authentik.core.auth.TokenBackend
+      failed_attempts_before_cancel: 5
+
+  - model: authentik_stages_deny.denystage
+    id: deny
+    identifiers:
+      name: avrana-ldap-bind-deny-privileged
+    attrs:
+      deny_message: LDAP sign-in is not available for this account.
+
+  # session_duration IS THE CACHED-BIND LIFETIME. In `cached` mode the outpost keeps a bind result
+  # until this session's cookie expires (bind/memory/memory.go), so this one value is how long a
+  # revoked member keeps Calibre-Web. default-authentication-login gives 180 days (30 plus the
+  # 150 remember-me offset, which the outpost always accepts). Never set it to 0: a cookie without
+  # an expiry makes ttlcache keep the entry until the outpost restarts.
+  - model: authentik_stages_user_login.userloginstage
+    id: login
+    identifiers:
+      name: avrana-ldap-bind-login
+    attrs:
+      session_duration: minutes=5
+      remember_me_offset: seconds=0
+      remember_device: seconds=0
+      terminate_other_sessions: false
+
+  - model: authentik_flows.flowstagebinding
+    identifiers:
+      target: !KeyOf flow
+      stage: !KeyOf identification
+      order: 10
+  - model: authentik_flows.flowstagebinding
+    identifiers:
+      target: !KeyOf flow
+      stage: !KeyOf password
+      order: 20
+  # After the password, so a refusal reveals nothing about an account to someone without its
+  # password, and app passwords are refused too. Evaluated at run time: the user is unknown when
+  # the flow is planned.
+  - model: authentik_flows.flowstagebinding
+    id: deny-binding
+    identifiers:
+      target: !KeyOf flow
+      stage: !KeyOf deny
+      order: 30
+    attrs:
+      evaluate_on_plan: false
+      re_evaluate_policies: true
+  - model: authentik_flows.flowstagebinding
+    identifiers:
+      target: !KeyOf flow
+      stage: !KeyOf login
+      order: 100
+
+  # True runs the deny stage. Administrators are refused because no LDAP client here needs one:
+  # Jellyfin, Seerr and Calibre-Web keep local admin accounts (docs/services/sso-architecture.md).
+  - model: authentik_policies_expression.expressionpolicy
+    id: privileged
+    identifiers:
+      name: avrana-ldap-bind-privileged
+    attrs:
+      expression: |
+        user = request.user
+        if user.is_anonymous or user.pk is None:
+            return True
+        if user.is_superuser:
+            return True
+        return ak_is_group_member(user, name="avrana-mfa-required")
+
+  # failure_result true: a policy that errors refuses the bind.
+  - model: authentik_policies.policybinding
+    identifiers:
+      target: !KeyOf deny-binding
+      policy: !KeyOf privileged
+      order: 10
+    attrs:
+      failure_result: true

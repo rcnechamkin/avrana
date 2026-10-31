@@ -1,0 +1,34 @@
+# AVR-790: the LDAP bind flow inside a REAL, throwaway Authentik with the REAL LDAP outpost (production's image digests
+# from services/authentik/docker-compose.yml). Runs only when the flow or this check changes. No secrets: every credential
+# is generated per run, and every container sits on an --internal Docker network (no internet, no LAN). Never touches
+# production. The checks: tests/authentik_ldap_bind_live.sh and tests/authentik_ldap_bind_live.py.
+name: ldap-bind-flow
+
+on:
+  pull_request:
+    paths:
+      - services/authentik/blueprints/avrana-ldap-bind.yaml
+      - services/authentik/blueprints/calibre-web-ldap.yaml
+      - services/authentik/blueprints/avrana-session-tuning.yaml
+      - services/authentik/docker-compose.yml
+      - tests/authentik_ldap_bind_live.sh
+      - tests/authentik_ldap_bind_live.py
+      - .github/workflows/ldap-bind-flow.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ldap-bind-flow-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  real-outpost:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: LDAP bind flow against a throwaway Authentik and outpost
+        run: bash tests/authentik_ldap_bind_live.sh
