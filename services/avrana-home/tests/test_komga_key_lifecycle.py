@@ -204,6 +204,12 @@ class IntakeRuleTests(Files):
         self.assertEqual(self.store.get("alice@example.com"), key2)
         self.assertIn(key, [k["key"] for k in self.komga.keys["U1"]])        # nothing revoked remotely
 
+    def test_recovery_files_an_unknown_subject_too(self):
+        key, kid = self.komga.mint_for("U2")
+        self.assertEqual(self.intake.file(NEW_SUBJECT, "recovery", key, kid), FILED)
+        self.assertEqual(self.store.get("bob@example.com"), key)
+        self.assertEqual(self.logs[-1]["reason"], "recovery")
+
     def test_connect_from_outside_needs_a_bound_subject(self):
         key, _ = self.komga.mint_for("U2")
         self.assertEqual(self.intake.file(NEW_SUBJECT, "connect", key), UNKNOWN_SUBJECT)

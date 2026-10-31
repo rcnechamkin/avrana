@@ -118,14 +118,17 @@ entries:
       evaluate_on_plan: true
       re_evaluate_policies: false
 
+  # re_evaluate_policies: the Komga sync policy below hangs off this binding and needs the new password, which exists
+  # only once the prompt stage has run; at plan time it has nothing to do and passes.
   - model: authentik_flows.flowstagebinding
+    id: recovery-binding-write
     identifiers:
       target: !KeyOf flow-recovery
       order: 40
     attrs:
       stage: !KeyOf recovery-write
       evaluate_on_plan: true
-      re_evaluate_policies: false
+      re_evaluate_policies: true
 
   - model: authentik_flows.flowstagebinding
     identifiers:
@@ -135,6 +138,159 @@ entries:
       stage: !KeyOf recovery-back
       evaluate_on_plan: true
       re_evaluate_policies: false
+
+  # --- Komga: a reset here also resets the member's Komga copy, and renews Home's key ----------------------------
+  # ADDITIVE AND SELF-CONTAINED (docs/runbooks/komga-password-sync.md): this policy and its one binding (above the
+  # brand entry, on recovery-binding-write) can be copied into the live blueprint on their own; the only other change
+  # is re_evaluate_policies: true on that binding. Why: Komga keeps its own copy of the member's password
+  # (avrana-komga-create at enrollment, for OPDS apps and for "Connect comics"), and a reset here used to leave that
+  # copy obsolete, so a member could be asked for a password they no longer have. Now, with the new password still in
+  # the flow: (1) the member's Komga account gets the same password (created if missing, same roles as enrollment),
+  # with the Komga admin API key read from the authentik-server environment at run time; (2) exactly like
+  # avrana-komga-key-mint, Authentik signs in to Komga AS the member, makes the `avrana-home` key and PUTs it to Home's
+  # intake with source `recovery`, so Me -> Comics is Connected after every reset. Komga API keys survive a password
+  # change (KomgaUserLifecycle.updatePassword re-encodes the password and expires web sessions only), so a member's
+  # other keys and reading progress are untouched.
+  #
+  # It NEVER fails the reset: every path returns True. Not configured, Komga or Home down, anything unexpected: one
+  # log line, the Avrana password is still written, and the member uses "Connect comics" later. Never logged: the
+  # email, the password, the key, either secret. Runs before the user_write stage (policies on a binding run before
+  # its stage); if that write then failed, the member simply resets again, which syncs again.
+  - model: authentik_policies_expression.expressionpolicy
+    id: policy-komga-password-sync
+    identifiers:
+      name: avrana-komga-password-sync
+    attrs:
+      execution_logging: true
+      expression: |
+        import hashlib
+        import os
+        import time
+        from urllib.parse import quote, urljoin
+
+        plan = request.context.get("flow_plan")
+        if not plan:
+            return True
+        user = plan.context.get("pending_user")
+        prompt = plan.context.get("prompt_data") or {}
+        password = prompt.get("password")
+        if not (user and password):
+            return True
+        email = getattr(user, "email", None)
+        uid = getattr(user, "uid", None)
+        if not (email and uid):
+            ak_logger.warning("komga-password-sync: missing user data", email=bool(email), user=bool(uid))
+            return True
+        try:
+            in_comics = bool(user.ak_groups.filter(name="avrana-comics").exists())
+        except Exception as exc:
+            ak_logger.warning("komga-password-sync: could not read groups", error=type(exc).__name__)
+            return True
+        if not in_comics:
+            return True
+        admin_key = (os.environ.get("AVRANA_KOMGA_ADMIN_API_KEY") or "").strip()
+        if not admin_key:
+            ak_logger.info("komga-password-sync: AVRANA_KOMGA_ADMIN_API_KEY not set, skipping")
+            return True
+
+        # Same addresses as the enrollment policies: Komga by host LAN IP (its own compose network), Home by its
+        # container name on authentik_home_beta. Every call has a 5 s timeout.
+        komga_url = "http://10.0.0.218:25600"
+        home_url = "http://avrana-home-beta:8096"
+        admin = {"X-API-Key": admin_key}
+        del admin_key
+        try:
+            resp = requests.get(urljoin(komga_url, "/api/v2/users"), headers=admin, timeout=5)
+            if resp.status_code != 200:
+                ak_logger.warning("komga-password-sync: could not list Komga accounts", status=resp.status_code)
+                return True
+            account = None
+            for u in resp.json():
+                if (u.get("email") or "").lower() == email.lower():
+                    account = u.get("id")
+                    break
+            if account:
+                resp = requests.patch(urljoin(komga_url, "/api/v2/users/" + quote(str(account), safe="") + "/password"),
+                                      json={"password": password}, headers=admin, timeout=5)
+                if resp.status_code not in (200, 204):
+                    ak_logger.warning("komga-password-sync: Komga did not take the new password", status=resp.status_code)
+                    return True
+                ak_logger.info("komga-password-sync: Komga password now matches Avrana")
+            else:
+                resp = requests.post(urljoin(komga_url, "/api/v2/users"),
+                                     json={"email": email, "password": password,
+                                           "roles": ["FILE_DOWNLOAD", "PAGE_STREAMING"]},
+                                     headers=admin, timeout=5)
+                if resp.status_code not in (200, 201):
+                    ak_logger.warning("komga-password-sync: Komga did not create the account", status=resp.status_code)
+                    return True
+                ak_logger.info("komga-password-sync: Komga account created")
+        except Exception as exc:
+            ak_logger.warning("komga-password-sync: failed", error=type(exc).__name__)
+            return True
+        finally:
+            admin = None
+
+        # Then Home's key, as the member, exactly like avrana-komga-key-mint (source `recovery`).
+        token = (os.environ.get("AVRANA_HOME_KEY_INTAKE_TOKEN") or "").strip()
+        if not token:
+            ak_logger.info("komga-password-sync: AVRANA_HOME_KEY_INTAKE_TOKEN not set, key not renewed")
+            return True
+        subject = hashlib.sha256(str(uid).encode("utf-8")).hexdigest()
+        auth = (email, password)
+        keys_url = urljoin(komga_url, "/api/v2/users/me/api-keys")
+        made = None
+        try:
+            resp = None
+            for attempt in range(3):
+                resp = requests.get(keys_url, auth=auth, timeout=5)
+                if resp.status_code != 401 or attempt == 2:
+                    break
+                time.sleep(1)
+            if resp.status_code != 200:
+                ak_logger.warning("komga-password-sync: Komga sign-in as the member failed", status=resp.status_code)
+                return True
+            for k in resp.json():
+                if k.get("comment") == "avrana-home" and k.get("id"):
+                    requests.delete(keys_url + "/" + quote(str(k["id"]), safe=""), auth=auth, timeout=5)
+            resp = requests.post(keys_url, json={"comment": "avrana-home"}, auth=auth, timeout=5)
+            if resp.status_code != 200:
+                ak_logger.warning("komga-password-sync: Komga did not make the key", status=resp.status_code)
+                return True
+            made = resp.json()
+            try:
+                put = requests.put(urljoin(home_url, "/internal/komga-key/" + subject),
+                                   json={"key": made.get("key"), "key_id": made.get("id"), "source": "recovery"},
+                                   headers={"Authorization": "Bearer " + token}, timeout=5)
+            except Exception as exc:
+                made = None
+                ak_logger.warning("komga-password-sync: Home's answer was lost, key left in Komga", state="unknown",
+                                  error=type(exc).__name__)
+                return True
+            if 200 <= put.status_code < 300:
+                ak_logger.info("komga-password-sync: key filed in Home")
+                made = None
+            else:
+                ak_logger.warning("komga-password-sync: Home did not file the key", status=put.status_code)
+        except Exception as exc:
+            ak_logger.warning("komga-password-sync: failed", error=type(exc).__name__)
+        finally:
+            if made and made.get("id"):
+                try:
+                    requests.delete(keys_url + "/" + quote(str(made["id"]), safe=""), auth=auth, timeout=5)
+                except Exception:
+                    pass
+        return True
+
+  - model: authentik_policies.policybinding
+    identifiers:
+      target: !KeyOf recovery-binding-write
+      policy: !KeyOf policy-komga-password-sync
+      order: 0
+    attrs:
+      enabled: true
+      # The reset must never wait on Komga for longer than the policy's own timeouts allow (about 50 s worst case).
+      timeout: 60
 
   # --- surface it -----------------------------------------------------------------------------
   # Setting the brand's recovery flow is what puts "Forgot password?" on the sign-in page.

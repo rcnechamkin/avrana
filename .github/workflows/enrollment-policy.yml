@@ -8,6 +8,7 @@ on:
   pull_request:
     paths:
       - services/authentik/blueprints/avrana-enrollment.yaml
+      - services/authentik/blueprints/avrana-recovery.yaml
       - services/authentik/docker-compose.yml
       - tests/authentik_enrollment_live.sh
       - tests/authentik_enrollment_live.py

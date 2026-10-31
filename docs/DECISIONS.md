@@ -419,3 +419,18 @@ keys". Runbook: docs/runbooks/komga-key-lifecycle.md; contract: ADAPTER-CONTRACT
 | **Phase 2: enrollment mints the key** | Additive policy `avrana-komga-key-mint` on the enrollment login stage, after `avrana-komga-create`: while the password is in the flow it signs in to Komga as the new member, makes the key and PUTs it to the intake with `AVRANA_HOME_KEY_INTAKE_TOKEN` (authentik-server environment, read at run time). It never fails enrollment. Applied by the owner by hand into the LIVE blueprint (repo and live blueprints differ, PR #167). |
 | **Phase 4: the key factory is retired** | The admin-key branch of provision.py runs only with `HOME_KOMGA_LEGACY_PROVISION=on` (default off; settings refuse `HOME_PROVISION_ACCOUNTS=komga` and `KOMGA_ADMIN_TOKEN` without it). Deleted, with the admin-token setting, the `komga_admin_token` secret and the tool's password-resetting modes, once the owner confirms the enrollment stage works live. |
 | **Open: members whose password the old path reset** | Their key works but their OPDS apps no longer sign in; members in `state/komga_member_keys.reset_failed` have neither. Repair needs a separate owner decision (runbook, section 4). |
+
+## Owner-requested, 2026-10-30: a password reset also resets the Komga copy and renews Home's key
+
+Pre-beta audit docs/audits/2026-10-30-komga-auth-cleanup-audit.md (brief: remove redundant Home <-> Komga
+authentication without an auth rewrite; a member must never be asked for an obsolete password). Extends "Komga member
+keys are minted where the password lives" to the one other place the password is in a flow. Runbook:
+docs/runbooks/komga-password-sync.md. Draft until the owner merges and applies it.
+
+| Decision | Consequence |
+|---|---|
+| **Komga's API cannot take Authentik tokens, so per-member keys and the Komga password copy stay** | Komga 1.25.0 has no OAuth2 resource server and mints keys for the signed-in account only. Home keeps consuming keys minted inside Authentik flows; no admin key returns to Home; members never paste keys (unchanged). |
+| **The reset flow syncs Komga** | Additive policy `avrana-komga-password-sync` on `avrana-recovery`'s write binding (which must re-evaluate policies): for a Comics member, set the Komga password to the new one with the admin API key (create the account if missing, enrollment roles), then mint and file the `avrana-home` key exactly as enrollment does (`source=recovery`). Never fails the reset; nothing secret logged. The same binding is in the unapplied `avrana-account` password flow. |
+| **Connect comics stays as the fallback and asks for the CURRENT password** | Copy no longer says "use the one you joined with"; a failing password points to the reset, which heals the account. Members damaged by the old provisioner (`reset_failed`) repair themselves with one reset: the "Open" row of the S-01 decision is answered this way, no owner-held password needed. |
+| **Komga's web login: hide the form, let Authentik sign members in** | Owner setting (Komga Server settings -> UI): hide login fields; auto login only if the iPhone pass accepts its popup. Destination preservation across Komga's OAuth2 login is an upstream limit (first visit per 7-day session lands on the dashboard); not built around. |
+| **Deferred** | Connected Apps UI, universal SSO, a "Connect via Avrana" flow that would retire Home's password form. |

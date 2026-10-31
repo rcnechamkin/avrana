@@ -13,7 +13,7 @@
 {%- elif r == "disconnected_here" %}Disconnected from Home. Comics couldn't be reached to remove the connection there too: in Comics, open Account settings, then API keys, and delete the key named avrana-home.
 {%- elif r == "not_connected" %}Comics wasn't connected.
 {%- elif r == "already_connected" %}Comics is already connected.
-{%- elif r == "wrong_password" %}That password didn't work for Comics. Check it and try again.
+{%- elif r == "wrong_password" %}That password didn't work for Comics. Check it and try again. If it keeps failing, reset your Avrana password from the sign-in screen (Forgot password?): a reset reconnects Comics by itself.
 {%- elif r == "no_password" %}Type your password to connect.
 {%- elif r == "komga_unavailable" %}Comics couldn't be reached. Try again in a few minutes.
 {%- elif r == "busy" %}Too many tries. Wait 15 minutes, then try again.
@@ -37,7 +37,7 @@
   </section>
   <section class="kgroup" aria-labelledby="cx-connect">
     <h3 class="kgroup-h" id="cx-connect">Connect comics</h3>
-    <p class="note">Type your Avrana password once. Home uses it to connect to Comics and doesn't keep it. If you've changed your Avrana password since you joined, use the one you joined with.</p>
+    <p class="note">Type your current Avrana password once. Home uses it to connect to Comics and doesn't keep it. Comics normally connects by itself when you join or reset your password, so this is only for when that didn't happen.</p>
     <form class="srch" method="post" action="/me/comics" data-once>
       <input type="hidden" name="t" value="{{ cx.token }}"><input type="hidden" name="do" value="connect">
 {#- For password managers only: not named, so it is never posted (the form's fields are allow-listed). #}

@@ -205,9 +205,19 @@ entries:
   - model: authentik_flows.flowstagebinding
     identifiers: {target: !KeyOf flow-password, order: 20}
     attrs: {stage: !KeyOf stage-new-password, evaluate_on_plan: true, re_evaluate_policies: false}
+  # re_evaluate_policies: the Komga password sync (avrana-recovery.yaml) hangs off this binding too, so a password
+  # change here keeps the member's Komga copy and Home's key current, exactly like a reset. Apply avrana-recovery.yaml
+  # first: the policy is defined there and found here by name.
   - model: authentik_flows.flowstagebinding
+    id: binding-password-write
     identifiers: {target: !KeyOf flow-password, order: 30}
-    attrs: {stage: !KeyOf stage-write, evaluate_on_plan: true, re_evaluate_policies: false}
+    attrs: {stage: !KeyOf stage-write, evaluate_on_plan: true, re_evaluate_policies: true}
+  - model: authentik_policies.policybinding
+    identifiers:
+      target: !KeyOf binding-password-write
+      policy: !Find [authentik_policies_expression.expressionpolicy, [name, avrana-komga-password-sync]]
+      order: 0
+    attrs: {enabled: true, timeout: 60}
   - model: authentik_flows.flowstagebinding
     identifiers: {target: !KeyOf flow-password, order: 40}
     attrs: {stage: !KeyOf back-password, evaluate_on_plan: true, re_evaluate_policies: false}

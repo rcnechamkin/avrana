@@ -153,10 +153,14 @@ class IntakeTests(Fixture):
         self.assertEqual(self.put({"key": key, "source": "enrollment"}, subject="ABC").status_code, 404)
         self.assertEqual(read_keys(self.path), ())
 
-    def test_unknown_subject_is_refused_unless_enrollment(self):
+    def test_unknown_subject_is_refused_unless_enrollment_or_recovery(self):
         key, _ = self.komga.mint_for("U2")
         self.assertEqual(self.put({"key": key, "source": "connect"}).status_code, 403)
         self.assertEqual(read_keys(self.path), ())
+        # A password reset (avrana-komga-password-sync) may run for a member Home has never seen.
+        self.assertEqual(self.put({"key": key, "key_id": "K", "source": "recovery"}).status_code, 204)
+        self.assertEqual(dict(read_keys(self.path)), {"bob@example.com": key})
+        self.assertIn('"reason": "recovery"', self.logs().replace("'", '"'))
 
     def test_komga_down_is_503(self):
         key, _ = self.komga.mint_for("U2")

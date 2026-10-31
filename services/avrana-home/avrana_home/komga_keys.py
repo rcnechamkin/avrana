@@ -7,6 +7,9 @@ reaches the keys file (member_keys.py) in one of two ways, both ending in `KeyIn
   * Enrollment (Authentik stage `avrana-komga-key-mint`, services/authentik/blueprints/avrana-enrollment.yaml): while
     the new member's chosen password is still in the flow, Authentik signs in to Komga AS the member, makes the key
     named `avrana-home` and PUTs it to `/internal/komga-key/<subject>` with the intake token (app/intake.py).
+  * A password reset (Authentik policy `avrana-komga-password-sync`, services/authentik/blueprints/avrana-recovery.yaml;
+    docs/runbooks/komga-password-sync.md): the same mint, with `source` `recovery`, right after the policy set the
+    member's Komga password to the new Avrana one, so a reset never leaves an obsolete Komga password behind.
   * "Connect comics" on Me -> Comics: the member types their password once; `KomgaKeyClient.mint` signs in to Komga as
     them with HTTP Basic, replaces their older `avrana-home` key and returns the new one. The password lives only in
     that call's arguments and the request header it builds; it is never logged, stored, put in a URL or in an
@@ -36,7 +39,7 @@ from .provision import ProvisionFailed, http_sender
 
 KEY_COMMENT = "avrana-home"
 SUBJECT = re.compile(r"[0-9a-f]{64}")          # sha256 hex of the Authentik `sub` (identity_bindings.digest)
-SOURCES = ("enrollment", "connect")
+SOURCES = ("enrollment", "recovery", "connect")
 MAX_PASSWORD = 256
 
 # KeyIntake outcomes (fixed ids: logged, and mapped to HTTP statuses by app/intake.py).
@@ -140,10 +143,10 @@ class KeyIntake:
 
     def allowed(self, subject: str, source: str) -> bool:
         """The subject rule for the HTTP intake. A subject bound in the identity bindings file is a known member:
-        accepted from either source. An unknown one (no binding yet, or the file unavailable or not configured) is
-        accepted ONLY with source `enrollment`: the enrollment stage runs before the member's first sign-in, so before
-        Home has bound them."""
-        if source == "enrollment":
+        accepted from any source. An unknown one (no binding yet, or the file unavailable or not configured) is
+        accepted ONLY from Authentik's own stages: `enrollment` runs before the member's first sign-in, so before Home
+        has bound them, and `recovery` may run for a member who has never opened Home."""
+        if source in ("enrollment", "recovery"):
             return True
         return self._known(subject) is True
 
