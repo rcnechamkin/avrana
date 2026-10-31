@@ -8,11 +8,15 @@ _sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)
 from tests import _netguard  # noqa: E402,F401  (installs the network guard, also when run directly)
 import json
 import logging
+import os
+import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 
 from avrana_home.adapters.komga import ALLOWED_ROUTES, SHARED_VIEWER, GuardedTransport, KomgaAdapter
 from avrana_home.contract import ForbiddenRequest, Kind, SectionState
+from avrana_home.member_keys import MemberKeyStore
+from avrana_home.principal import principal_from_headers
 from avrana_home.resilience import MAX_IMAGE_BYTES, MAX_JSON_BYTES, FakeClock, UrllibTransport
 from tests.fake_jellyfin import FakeOpener, FakeTransport
 from tests.fake_komga import FIXTURES, PNG, FakeKomga
@@ -53,7 +57,7 @@ class Constructor(Base):
             KomgaAdapter(self.transport)                               # the default is refusal
 
     def test_there_is_no_user_route_and_no_member_mapping(self):
-        self.assertEqual([r.name for r in ALLOWED_ROUTES], ["books", "book", "thumbnail", "series"])
+        self.assertEqual([r.name for r in ALLOWED_ROUTES], ["books", "book", "thumbnail", "series", "self"])
         self.assertEqual(self.adapter.resolve_user(self.a).upstream_id, SHARED_VIEWER)
         self.assertEqual(self.adapter.resolve_user(self.b).upstream_id, SHARED_VIEWER)
         self.assertEqual(self.fake.requests, [])
@@ -68,6 +72,94 @@ class Constructor(Base):
             with self.assertRaises(ForbiddenRequest, msg=path):
                 g.request("GET", path, query, 1.0, 1000)
         self.assertEqual(self.fake.paths(), ["/api/v1/series/SERIESAAA001"])
+
+
+class AdminKeyRefused(Base):
+    """AVR-782: in real mode (main.py passes refuse_admin_key) the everyday shared key must be a regular account's."""
+
+    def setUp(self):
+        super().setUp()
+        self.adapter = KomgaAdapter(self.transport, clock=self.clock, owner_confirms_no_member_restrictions=True,
+                                    refuse_admin_key=True)
+
+    def test_a_regular_key_is_checked_once_then_serves_as_before(self):
+        self.fake.serve("/api/v2/users/me", {"id": "U1", "roles": ["USER"]})
+        self.assertEqual(titles(self.adapter.recent_items(self.a)), RECENT_TITLES)
+        self.adapter.cache.clear()
+        self.assertEqual(titles(self.adapter.recent_items(self.b)), RECENT_TITLES)
+        self.assertEqual(self.fake.paths().count("/api/v2/users/me"), 1)
+        self.assertEqual(self.fake.paths()[0], "/api/v2/users/me")         # before any shared read
+
+    def test_an_admin_key_makes_comics_unavailable_and_reads_nothing(self):
+        self.fake.serve("/api/v2/users/me", {"id": "U1", "roles": ["ADMIN", "FILE_DOWNLOAD"]})
+        with self.assertLogs("avrana_home", logging.WARNING) as logs:
+            for who in (self.a, self.b):
+                result = self.adapter.recent_items(who)
+                self.assertEqual(result.state, SectionState.UNAVAILABLE)
+                self.assertEqual(result.items, ())
+        self.assertTrue(any("SharedKeyIsAdmin" in line for line in logs.output))
+        self.assertEqual(self.fake.paths(), ["/api/v2/users/me"])          # asked once, no book ever read
+        self.assertEqual(self.adapter.item(self.a, "BOOKAAAA0001").state, SectionState.UNAVAILABLE)
+        self.assertEqual(self.fake.paths(), ["/api/v2/users/me"])
+
+    def test_a_malformed_or_failed_answer_refuses_this_call_and_asks_again(self):
+        self.fake.serve("/api/v2/users/me", {"id": "U1"})                  # no roles list: cannot tell
+        self.assertEqual(self.adapter.recent_items(self.a).state, SectionState.UNAVAILABLE)
+        self.fake.overrides["/api/v2/users/me"] = ("status", 500)
+        self.adapter.breaker.success(self.adapter.breaker.acquire())
+        self.assertEqual(self.adapter.recent_items(self.a).state, SectionState.UNAVAILABLE)
+        self.fake.serve("/api/v2/users/me", {"id": "U1", "roles": []})
+        self.adapter.breaker.success(self.adapter.breaker.acquire())
+        self.assertEqual(titles(self.adapter.recent_items(self.a)), RECENT_TITLES)
+        self.assertEqual(self.fake.paths().count("/api/v2/users/me"), 3)
+
+    def test_a_real_komga_record_is_read_by_its_role_names(self):
+        for roles, admin in ((["USER"], False), (["FILE_DOWNLOAD", "PAGE_STREAMING", "USER"], False),
+                             (["ADMIN", "USER"], True), (["admin"], True), ([" Admin "], True)):
+            with self.subTest(roles=roles):
+                adapter = KomgaAdapter(self.transport, clock=self.clock, owner_confirms_no_member_restrictions=True,
+                                       refuse_admin_key=True)
+                self.fake.serve("/api/v2/users/me", {"id": "U1", "roles": roles})
+                result = adapter.recent_items(self.a)
+                self.assertEqual(result.state, SectionState.UNAVAILABLE if admin else SectionState.OK)
+
+    def test_a_refused_key_is_unavailable_and_recovers_without_a_restart(self):
+        self.fake.overrides["/api/v2/users/me"] = ("status", 401)
+        self.assertEqual(self.adapter.recent_items(self.a).state, SectionState.UNAVAILABLE)
+        self.assertEqual(self.fake.paths(), ["/api/v2/users/me"])          # nothing read on an unproven key
+        self.fake.overrides.pop("/api/v2/users/me")
+        self.adapter.breaker.success(self.adapter.breaker.acquire())
+        self.assertEqual(titles(self.adapter.recent_items(self.a)), RECENT_TITLES)
+
+    def test_an_unreachable_komga_never_counts_as_a_regular_key(self):
+        self.fake.overrides["/api/v2/users/me"] = ("raise", OSError("down"))
+        self.assertEqual(self.adapter.recent_items(self.a).state, SectionState.UNAVAILABLE)
+        self.assertIsNone(self.adapter._admin_key)                         # still unknown: asked again next time
+        self.assertEqual(self.fake.paths(), ["/api/v2/users/me"])
+
+    def test_a_refusal_is_never_cached_as_a_section(self):
+        self.fake.serve("/api/v2/users/me", {"id": "U1", "roles": ["ADMIN", "USER"]})
+        self.assertEqual(self.adapter.recent_items(self.a).state, SectionState.UNAVAILABLE)
+        self.assertEqual(self.adapter.recent_items(self.a).state, SectionState.UNAVAILABLE)
+
+    def test_a_member_key_does_not_get_round_an_admin_everyday_key(self):
+        self.fake.serve("/api/v2/users/me", {"id": "U1", "roles": ["ADMIN", "USER"]})
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, "keys")
+            keys = MemberKeyStore(path, writable=True)
+            keys.put("a@example.test", "0123456789abcdef0123456789abcdef")
+            adapter = KomgaAdapter(self.transport, clock=self.clock, owner_confirms_no_member_restrictions=True,
+                                   refuse_admin_key=True, member_keys=keys,
+                                   member_transport=lambda key: self.transport)
+            who = principal_from_headers({"X-authentik-username": "member-a", "X-authentik-email": "a@example.test",
+                                          "X-authentik-groups": "avrana-users|avrana-comics"})
+            self.assertEqual(adapter.continue_items(who).state, SectionState.UNAVAILABLE)
+        self.assertEqual(self.fake.paths(), ["/api/v2/users/me"])
+
+    def test_mock_and_test_adapters_do_not_ask(self):
+        plain = KomgaAdapter(self.transport, clock=self.clock, owner_confirms_no_member_restrictions=True)
+        plain.recent_items(self.a)
+        self.assertNotIn("/api/v2/users/me", self.fake.paths())
 
 
 class SharedView(Base):
@@ -479,7 +571,8 @@ class GuardAndSecrets(Base):
     def test_only_get_on_listed_routes_and_no_query_keys_beyond_the_list(self):
         g = GuardedTransport(self.transport).bind(SHARED_VIEWER)
         for method, path, query in (("POST", "/api/v1/books", None), ("GET", "/api/v2/users", None),
-                                    ("GET", "/api/v2/users/me", None), ("GET", "/api/v1/users/me", None),
+                                    ("POST", "/api/v2/users/me", None), ("GET", "/api/v2/users/me", {"x": "1"}),
+                                    ("GET", "/api/v2/users/me/api-keys", None), ("GET", "/api/v1/users/me", None),
                                     ("DELETE", "/api/v1/books/BOOKAAAA0001", None),
                                     ("GET", "/api/v1/books/ondeck", None),
                                     ("POST", "/api/v1/series/SERIESAAA001", None),
@@ -502,7 +595,7 @@ class GuardAndSecrets(Base):
             GuardedTransport(self.transport).bind("../x")
         with self.assertRaises(ForbiddenRequest):
             GuardedTransport(self.transport).bind("USERAAAAAAAA1")      # a real-looking Komga user id is refused
-        self.assertEqual([r.name for r in ALLOWED_ROUTES], ["books", "book", "thumbnail", "series"])
+        self.assertEqual([r.name for r in ALLOWED_ROUTES], ["books", "book", "thumbnail", "series", "self"])
         for word in ("latest", "updated"):
             self.assertEqual(self.adapter.item(self.a, word).items, ())
             self.assertEqual(self.adapter.fetch_artwork(self.a, f"komga/book/{word}").state, SectionState.EMPTY)

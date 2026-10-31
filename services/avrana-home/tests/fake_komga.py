@@ -71,6 +71,9 @@ class FakeKomga:
                     if term and term in b["metadata"]["title"].casefold()]
             page = {"content": hits[:int(query.get("size", "20"))], "number": 0, "totalElements": len(hits)}
             return self._json(page)
+        if path == "/api/v2/users/me":        # the shared account's own record: a regular account (AVR-782)
+            return self._json({"id": "SHAREDUSER01", "email": "viewer@example.test",
+                               "roles": ["USER"]})
         parts = path.strip("/").split("/")
         if parts[:3] == ["api", "v1", "books"] and len(parts) == 4:
             return self._lookup(self.books, parts[3])
