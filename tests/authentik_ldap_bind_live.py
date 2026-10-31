@@ -191,7 +191,7 @@ def setup():
             post(api, f"/api/v3/core/groups/{run.group_pk(group)}/add_user/", {"pk": member["pk"]}, want=204)
 
     invalidation = run.flow_pk(INVALIDATION_FLOW)
-    providers = [api.one("/api/v3/providers/ldap/?name=calibre-ldap")["pk"]]
+    providers = [api.one("/api/v3/providers/ldap/?name__iexact=calibre-ldap")["pk"]]
     video = run.group_pk("avrana-videos")
     for name, slug, dn_base, mode, flow in EXTRA_PROVIDERS:
         pk = run.flow_pk(flow)
@@ -245,7 +245,7 @@ def cutover_before_restart():
     api = run.api
     ok, why = run.bind(CUTOVER, "holder")
     run.check("cutover: before the change a holder is refused on the cached provider", ok is False, why)
-    provider = api.one("/api/v3/providers/ldap/?name=ci-cutover")
+    provider = api.one("/api/v3/providers/ldap/?name__iexact=ci-cutover")
     pk = run.flow_pk(BIND_FLOW)
     status, body = api.call("PATCH", f"/api/v3/providers/ldap/{provider['pk']}/",
                             {"authentication_flow": pk, "authorization_flow": pk})
@@ -415,7 +415,7 @@ def browser():
     run.check("browser flow: its stages are unchanged and it keeps the MFA stage",
               names == ["default-authentication-identification", "default-authentication-password",
                         "default-authentication-mfa-validation", "default-authentication-login"], names)
-    calibre = api.one("/api/v3/providers/ldap/?name=calibre-ldap")
+    calibre = api.one("/api/v3/providers/ldap/?name__iexact=calibre-ldap")
     run.check("calibre-ldap: both pointers name the bind flow",
               str(calibre["authentication_flow"]) == str(bind["pk"]) and str(calibre["authorization_flow"]) == str(bind["pk"]),
               calibre)
