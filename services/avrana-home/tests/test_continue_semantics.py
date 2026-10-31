@@ -180,7 +180,7 @@ class ViewModelBoundaries(unittest.TestCase):
 
     def test_kind_labels_are_member_language(self):
         self.assertEqual({"movie": "Movie", "episode": "Episode", "series": "Series", "audiobook": "Audiobook",
-                          "comic": "Comic", "ebook": "Book"}, KIND_LABEL)
+                          "comic": "Comic", "comic_series": "Comic series", "ebook": "Book"}, KIND_LABEL)
 
     def test_new_this_week_is_always_open_without_progress(self):
         res = SectionResult.of(Service.JELLYFIN, "recent", ())

@@ -32,7 +32,7 @@ CONTINUE_HEADING = {"jellyfin": "Continue watching", "audiobookshelf": "Continue
                     "komga": "Continue reading", "calibre-web": "Continue reading"}
 # Member language for what a thing is (CardVM.kind_label). Never an upstream product name.
 KIND_LABEL = {"movie": "Movie", "episode": "Episode", "series": "Series", "audiobook": "Audiobook",
-              "comic": "Comic", "ebook": "Book"}
+              "comic": "Comic", "ebook": "Book", "comic_series": "Comic series"}
 _VERB = {"movie": "watched", "episode": "watched", "series": "watched", "audiobook": "listened",
          "comic": "read", "ebook": "read"}
 _MINUTES_KINDS = frozenset({"movie", "episode", "series"})   # time left in total minutes (_duration_words)
@@ -234,7 +234,7 @@ def _item_vm(it: dict) -> Optional[ItemVM]:
     service = it.get("service") if it.get("service") in SERVICE_LABEL else ""
     item_id = it.get("id") if isinstance(it.get("id"), str) else None
     home = it.get("_home") if it.get("_home") in SERVICE_LABEL else ""
-    mark = _plain(it.get("subtitle") or "") or None if it.get("kind") in ("episode", "comic") else None
+    mark = _plain(it.get("subtitle") or "") or None if it.get("kind") in ("episode", "comic", "comic_series") else None
     if mark and title.endswith(mark):
         mark = None                                  # "Saga #12" already says "#12"
     return ItemVM(title, href, str(it.get("kind", "")), detail,
@@ -294,7 +294,7 @@ SERVICE_ORDER = ("jellyfin", "audiobookshelf", "komga", "calibre-web")
 _PLACE_SERVICES = {"watch": ("jellyfin",), "listen": ("audiobookshelf",), "comics": ("komga",),
                    "books": ("calibre-web",), "read": ("komga", "calibre-web")}
 SHAPE = {"movie": "poster", "series": "poster", "episode": "still", "audiobook": "square",
-         "comic": "comic", "ebook": "book"}
+         "comic": "comic", "ebook": "book", "comic_series": "comic"}
 NOTHING_IN_PROGRESS = ("Nothing in progress. Whatever you start in a library appears here, "
                        "ready to pick up where you stopped.")
 # "Recently", never "this week": the upstream lists are not date-bounded (memo section 4, wording fix).

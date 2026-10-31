@@ -30,10 +30,10 @@ from ..adapters.audiobookshelf import AudiobookshelfAdapter
 from ..adapters.jellyfin import JellyfinAdapter
 from ..adapters.calibre_web import CalibreWebAdapter
 from ..adapters.komga import KomgaAdapter
-from ..aggregate import gather, gather_pairs, health_summary, search as run_search, waves
+from ..aggregate import gather, gather_catalog, gather_pairs, health_summary, search as run_search, waves
 from urllib.parse import urlencode
 
-from ..contract import REQUIRED_GROUP, MediaAdapter, SectionState, Service, build_handoff_url
+from ..contract import CATALOG_PAGE, REQUIRED_GROUP, MediaAdapter, SectionState, Service, build_handoff_url
 from ..cache import MemberCache
 from ..member_keys import MemberKeyStore, member_key_id
 from ..identity_bindings import digest as subject_digest
@@ -44,6 +44,7 @@ from ..accountreader import END_OUTCOMES as SESSION_OUTCOMES, AccountReader, sai
 from ..memberstore import (CONFLICT as STORE_CONFLICT, HOME_PLACES, INVALID as STORE_INVALID, SAVED as STORE_SAVED,
                            MemberStore)
 from . import avatar as avatar_mod
+from . import catalogvm
 from . import customize as customize_mod
 from ..resilience import SystemClock, UrllibTransport
 from . import catalogue as catalogue_mod
@@ -66,7 +67,8 @@ from . import forms as forms_mod
 from . import security as security_mod
 from .identity import (IdentityResolver, Viewer, customize_from_scope, get_viewer, has_identity_headers,
                        home_filter_from_scope, intake_bearer_from_scope, intake_is_json, peer_host_from_scope,
-                       if_none_match_from_scope, library_chip_from_scope, library_view_from_scope, more_from_scope,
+                       if_none_match_from_scope, library_chip_from_scope, library_group_from_scope,
+                       library_page_from_scope, library_view_from_scope, more_from_scope,
                        new_tab_from_scope, release_chip_from_scope,
                        same_origin_form_post, same_origin_upload_post, search_term_from_scope, security_result_from_scope, show_from_scope,
                        tv_result_from_scope)
@@ -75,12 +77,13 @@ from .middleware import MAX_FORM_BODY, MAX_INTAKE_BODY, MAX_UPLOAD_BODY, NOT_IMP
 from . import recovery
 from . import comics as comics_mod
 from . import intake as intake_mod
-from .routing import (ME_ROUTE, AccountFacts, Decision, chooser_intro, continue_decision, decide, library_decision,
+from .routing import (ME_ROUTE, AccountFacts, Decision, chooser_intro, continue_decision, decide,
+                      library_catalog_decision, library_decision,
                       me_decision, normalise_target, not_found, parse_title_route, search_decision, title_decision,
                       trouble_decision)
 from .settings import Settings, is_sealed_preview
 from .viewmodel import (ACCOUNT_LIBRARY, CONTINUE_PAGE_MOST, CONTINUE_PATH, CONTRIBUTE_PATH, HOME_FETCH,
-                        INTERSTITIAL_SHELL, LIBRARY_PLACE, NO_LIBRARY, REQUEST_FOR, SERVICE_LABEL, account_access,
+                        INTERSTITIAL_SHELL, LIBRARY_ASKS, LIBRARY_PLACE, NO_LIBRARY, REQUEST_FOR, SERVICE_LABEL, account_access,
                         build_continue_page, build_home, build_library, build_me, build_search, build_shell,
                         build_places, build_title, extra_sections_for, has_library, home_start, initial_of,
                         library_extra_sections, place_link, title_href)
@@ -175,6 +178,7 @@ def build_adapters(settings: Settings, cache: MemberCache) -> list:
         komga_adapter = KomgaAdapter(
             komga_transport, timeout=settings.timeout, cache=cache,
             owner_confirms_no_member_restrictions=komga_confirmed, member_keys=keys,
+            book_libraries=frozenset(settings.komga_book_libraries),
             member_transport=(lambda key: UrllibTransport(settings.komga_base_url, {"X-API-Key": key})) if keys else None,
             provisioning="komga" in settings.provision_accounts)
         komga_adapter.cache = cache
@@ -554,6 +558,41 @@ def create_app(settings: Settings, *, adapters: Optional[Sequence[MediaAdapter]]
                 return render("request_mine.html", page=mine_mod.MinePageVM(), shell=shell)
             page = await my_requests(viewer, username, formats)
             return render("request_mine.html", page=dataclasses.replace(page, notice=said), shell=shell)
+
+        if route == "/library" and settings.library_catalog and settings.home_sections and adapter_list:
+            # The Library as a complete catalogue (handoff 02, 03). The same gate as the shelves below: a shell page, a
+            # verified member, else the standard 404. Only the libraries this member's groups open are ever asked or
+            # named; `?lib=` outside them is the Overview, exactly as a library that does not exist, and never echoed.
+            if viewer.principal is None:
+                scope["avrana_route"] = "not_found"
+                return respond(not_found())
+            tiles = decide("/", viewer.groups, cat).context["tiles"]
+            asks = tuple(("/" + path, label, desc) for path, label, desc in tiles if path in LIBRARY_ASKS)
+            held = [a for a in adapter_list if a.catalog_groups and viewer.principal.has_group(a.required_group)]
+            if not has_library(tiles) or not held:
+                decision = library_catalog_decision(catalogvm.LibraryCatalogVM(no_library=True))
+            else:
+                mine = [(a.service.value, a.catalog_groups) for a in held]
+                chosen = next((a for a in held if a.service.value == library_chip_from_scope(scope)), None)
+                if chosen is None:
+                    asked = [(a, a.catalog_groups[0], 1, catalogvm.COVERS) for a in held]
+                else:
+                    group = catalogvm.clean_group(library_group_from_scope(scope), chosen.catalog_groups)
+                    number = catalogvm.clean_page(library_page_from_scope(scope))
+                    asked = [(chosen, group, number, CATALOG_PAGE)]
+                got = await run_in_threadpool(gather_catalog, viewer.principal, adapter_list, asked)
+                pages = {a.service.value: dict(r.to_dict(), total=r.total, has_next=r.has_next, reason=r.reason)
+                         for (a, _g, _n, _s), r in zip(asked, got)}
+                connect = comics_mod.ROUTE if comics_on and comics_member(viewer) else None
+                if chosen is None:
+                    page = catalogvm.build_overview(mine, pages, asks=asks, connect_href=connect)
+                else:
+                    page = catalogvm.build_catalog(mine, chosen.service.value, group, pages[chosen.service.value],
+                                                   page=number, view=catalogvm.clean_view(library_view_from_scope(scope)),
+                                                   title_services=title_services, connect_href=connect)
+                decision = library_catalog_decision(page)
+            scope["avrana_route"] = decision.label
+            return respond(decision, scope, shell=shell_for(viewer, "library"))
 
         if route == "/library" and settings.home_sections and adapter_list:
             # The Library page (Concept K MK-5a, AVR-719): a shell page like /search, only with the shell on and for a

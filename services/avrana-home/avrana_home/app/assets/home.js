@@ -651,6 +651,24 @@
     return url.pathname + url.search + url.hash;
   }
 
+  /* The Library's menus close with Escape or a tap elsewhere; without this they are still plain <details> of links. */
+  function libraryMenus() {
+    var menus = document.querySelectorAll('details.lib-switch,details.lib-layout');
+    if (!menus.length) return;
+    function each(fn) { Array.prototype.forEach.call(menus, fn); }
+    document.addEventListener('keydown', function (event) {
+      if (event.key !== 'Escape') return;
+      each(function (m) {
+        if (!m.hasAttribute('open')) return;
+        m.removeAttribute('open');
+        m.querySelector('summary').focus();
+      });
+    });
+    document.addEventListener('click', function (event) {
+      each(function (m) { if (m.hasAttribute('open') && !m.contains(event.target)) m.removeAttribute('open'); });
+    });
+  }
+
   function layout() {
     var menu = document.querySelector('details.lib-layout');
     if (!menu || !window.history || typeof window.history.replaceState !== 'function') return;
@@ -996,6 +1014,7 @@
   sheet();
   chrome();
   layout();
+  libraryMenus();
   once();
   more();
   railButtons();

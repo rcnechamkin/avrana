@@ -167,11 +167,11 @@ class PeerOverride:
 
 
 def make_client(settings=None, adapters=None, peer=("203.0.113.7", 50000), wrap=None, quick_connect=None,
-                account_reader=None, member_store=None):
+                account_reader=None, member_store=None, komga_key_client=None):
     from fastapi.testclient import TestClient
     from avrana_home.app.main import create_app
     app = create_app(settings or make_settings(), adapters=adapters, quick_connect=quick_connect,
-                     account_reader=account_reader, member_store=member_store)
+                     account_reader=account_reader, member_store=member_store, komga_key_client=komga_key_client)
     outer = PeerOverride(wrap(app) if wrap else app, peer)
     client = TestClient(outer, base_url="http://portal.test", follow_redirects=False,
                         raise_server_exceptions=False)

@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% from "_parts.html" import card, layout_icon, tab_nav %}
+{% block title %}{% if page.chosen_label %}{{ page.chosen_label }} · {% endif %}Library · Avrana{% endblock %}
+{% block body %}
+{# The Library as a complete catalogue (handoff 02, 06; HOME_LIBRARY_CATALOG). Server-rendered and whole without script:
+   the switcher is a native <details> of plain links, every grouping, layout and page is an address. Only this member's
+   own libraries are in the markup. The menus are matte: no new glass. #}
+  <div class="lib-head">
+{% if page.no_library or not page.chosen %}
+    <h2 class="topic" id="h-library">Library</h2>
+{% else %}
+    <details class="lib-switch">
+      <summary class="lib-switch-btn"><h2 class="topic" id="h-library">{{ page.chosen_label }}</h2><svg class="chev" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="m3.5 6 4.5 4.5L12.5 6"/></svg><span class="sr">, switch library</span></summary>
+      <ul class="lib-menu">
+{% for m in page.menu %}
+        <li><a href="{{ m.href }}"{% if m.current %} aria-current="page"{% endif %}>{{ m.label }}</a></li>
+{% endfor %}
+      </ul>
+    </details>
+{% endif %}
+{% if page.views and page.items %}
+    <div class="lib-tools">
+      <details class="lib-layout" data-layout="{{ page.view }}">
+        <summary class="lib-layout-btn lib-matte">{{ layout_icon(page.view) }}<span class="sr">Layout: <span class="lib-layout-t">{{ page.view_label }}</span></span></summary>
+        <ul class="lib-layout-menu lib-menu">
+{% for key, label, href, current in page.views %}
+          <li><a class="lib-view" href="{{ href }}" data-view="{{ key }}"{% if current %} aria-current="true"{% endif %}>{{ layout_icon(key) }}<span class="lib-view-t">{{ label }}</span></a></li>
+{% endfor %}
+        </ul>
+      </details>
+    </div>
+{% endif %}
+  </div>
+{% if page.no_library %}
+  <section class="shelf" aria-labelledby="h-none">
+    <h2 id="h-none">No library yet</h2>
+    <p class="said">{{ no_library_said }}</p>
+    <p class="said"><a class="link" href="/help">Help</a></p>
+  </section>
+{% elif not page.chosen %}
+{% if page.retry_href %}
+  <div class="k-warn" role="status">
+    <svg class="k-warn-ic" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false"><path d="M12 4.5 2.75 19.5h18.5z"/><path d="M12 10v4.25M12 16.9v.1"/></svg>
+    <div class="k-warn-text"><p>A library isn't answering right now.</p></div>
+    <a class="k-warn-act" href="{{ page.retry_href }}">Try again<span class="sr"> to load your libraries</span></a>
+  </div>
+{% endif %}
+  <ul class="lib-cats" aria-labelledby="h-library">
+{% for c in page.categories %}
+    <li><a class="lib-cat" href="{{ c.href }}">
+      <span class="lib-cat-covers" aria-hidden="true">{% for src in c.covers %}<img src="{{ src }}" alt="" width="64" height="96" loading="lazy" decoding="async">{% endfor %}</span>
+      <span class="lib-cat-t"><span class="sr">Browse </span>{{ c.label }}</span>
+      {% if c.count %}<span class="lib-cat-d">{{ c.count }}</span>{% elif c.note %}<span class="lib-cat-d">{{ c.note }}</span>{% endif +%}
+    </a></li>
+{% endfor %}
+  </ul>
+{% if page.asks %}
+  <p class="lib-more"><a href="/search">Search</a>{% for href, label, _d in page.asks %} · <a href="{{ href }}">{{ label|trusted }}</a>{% endfor %}</p>
+{% endif %}
+{% else %}
+{% if page.groups %}
+  {{ tab_nav("Group " ~ page.chosen_label, page.groups) }}
+{% endif %}
+  <section class="shelf lib-catalog" aria-labelledby="h-library">
+{% if page.count %}
+    <p class="lib-count">{{ page.count }}</p>
+{% endif %}
+{% if page.message %}
+    <p class="said">{{ page.message }}{% if page.setup_href %} <a class="link" href="{{ page.setup_href }}">{% if page.setup_label %}{{ page.setup_label }}{% else %}What to do next<span class="sr"> about {{ page.chosen_label }}</span>{% endif %}</a>{% endif %}{% if page.retry_href %} <a class="link" href="{{ page.retry_href }}">Try again<span class="sr"> to load {{ page.chosen_label }}</span></a>{% endif %}</p>
+{% endif %}
+{% if page.items %}
+    <ul class="{{ page.list_class }}" data-lib-list>
+{% for c in page.items %}{{ card(c) }}
+{% endfor %}
+    </ul>
+{% endif %}
+{% if page.prev_href or page.next_href %}
+    <nav class="lib-pages" aria-label="Pages of {{ page.chosen_label }}">
+{% if page.prev_href %}      <a href="{{ page.prev_href }}" rel="prev">Previous<span class="sr"> page</span></a>
+{% endif %}
+      <span class="lib-page-n">Page {{ page.page }}</span>
+{% if page.next_href %}      <a href="{{ page.next_href }}" rel="next">Next<span class="sr"> page</span></a>
+{% endif %}
+    </nav>
+{% endif %}
+  </section>
+{% endif %}
+{% endblock %}
+{% block footer %}    {% if not shell %}<a class="link" href="/">Back to home</a>{% endif %}{% endblock %}
