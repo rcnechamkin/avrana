@@ -9,6 +9,7 @@ on:
     paths:
       - services/authentik/blueprints/avrana-enrollment.yaml
       - services/authentik/docker-compose.yml
+      - scripts/authentik-policy-literal-check.sh
       - tests/authentik_enrollment_live.sh
       - tests/authentik_enrollment_live.py
       - .github/workflows/enrollment-policy.yml

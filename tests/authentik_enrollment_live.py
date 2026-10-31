@@ -2,8 +2,12 @@
 
 Run by tests/authentik_enrollment_live.sh (CI workflow enrollment-policy.yml), never against production:
 
-  stub           a stand-in Jellyfin at 10.0.0.218:8096 (GET /Users with the run's key; names from JF_USERS)
+  stub           stand-ins at 10.0.0.218: Jellyfin on 8096 and Komga on 25600. Each takes only the run's key, and they
+                 count what they were asked to create (GET :8096/__seen, counts only)
   checks         apply avrana-enrollment.yaml, then ask Authentik's own policy engine and flow executor
+  provision      AVR-791: an enrollment through the login stage, so jellyfin-create and komga-create run for real
+  refused        a key file is absent or holds a key Komga refuses: sign-up must refuse on the prompt, nobody written
+  gap            the race the prompt cannot stop (file gone after the prompt): loud, no account made, no key shown
   jellyfin-down  the same policy with the stub stopped: sign-up must refuse, not pass
 
 Standard library only. Synthetic names; every credential is generated per run by the shell script.
@@ -13,6 +17,7 @@ import http.server
 import json
 import os
 import sys
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -28,23 +33,49 @@ UNAVAILABLE = "briefly unavailable"
 
 
 def stub():
-    key, users = os.environ["JF_KEY"], [u for u in os.environ["JF_USERS"].split(",") if u]
+    jellyfin_key, komga_key = os.environ["JF_KEY"], os.environ["KOMGA_KEY"]
+    users = [u for u in os.environ["JF_USERS"].split(",") if u]
+    seen = {"jellyfin_new": 0, "komga_new": 0, "wrong_key": 0}
 
     class Handler(http.server.BaseHTTPRequestHandler):
-        def do_GET(self):
-            if self.path != "/Users" or self.headers.get("X-MediaBrowser-Token") != key:
-                self.send_response(401)
-                self.end_headers()
-                return
-            body = json.dumps([{"Name": n, "Id": f"{i:032x}"} for i, n in enumerate(users)]).encode()
-            self.send_response(200)
+        def reply(self, status, body=None):
+            self.send_response(status)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
-            self.wfile.write(body)
+            if body is not None:
+                self.wfile.write(json.dumps(body).encode())
+
+        def authorised(self):
+            komga = self.server.server_address[1] == 25600
+            ok = (self.headers.get("X-API-Key") == komga_key if komga
+                  else self.headers.get("X-MediaBrowser-Token") == jellyfin_key)
+            if not ok:
+                seen["wrong_key"] += 1
+                self.reply(401)
+            return ok
+
+        def do_GET(self):
+            if self.path == "/__seen":
+                self.reply(200, seen)
+            elif self.path not in ("/Users", "/api/v2/users"):
+                self.reply(404)
+            elif self.authorised():
+                self.reply(200, [{"Name": n, "Id": f"{i:032x}"} for i, n in enumerate(users)]
+                           if self.path == "/Users" else [])
+
+        def do_POST(self):
+            self.rfile.read(int(self.headers.get("Content-Length") or 0))
+            if self.path not in ("/Users/New", "/api/v2/users"):
+                self.reply(404)
+            elif self.authorised():
+                seen["jellyfin_new" if self.path == "/Users/New" else "komga_new"] += 1
+                self.reply(200, {"Id": "0" * 32, "Policy": {}})
 
         def log_message(self, *args):
             pass
-    http.server.HTTPServer(("0.0.0.0", 8096), Handler).serve_forever()
+    komga = http.server.ThreadingHTTPServer(("0.0.0.0", 25600), Handler)
+    threading.Thread(target=komga.serve_forever, daemon=True).start()
+    http.server.ThreadingHTTPServer(("0.0.0.0", 8096), Handler).serve_forever()
 
 
 class Api:
@@ -134,10 +165,121 @@ def expect(label, ok, detail=""):
     return ok
 
 
+def sentinels():
+    values = [v for v in os.environ["SENTINELS"].split(",") if v]
+    assert len(values) == 2
+    return values
+
+
+def no_sentinel_in_any_expression(api):
+    """The admin API returns the stored text of every expression policy: neither generated key may be in it."""
+    rows, page = [], 1
+    while page:
+        body = api.get(f"/api/v3/policies/expression/?page_size=100&page={page}")
+        rows += body["results"]
+        page = body["pagination"]["next"]
+    carrying = sorted(r["name"] for r in rows if any(v in r["expression"] for v in sentinels()))
+    return expect(f"no generated key in the text of any of {len(rows)} expression policies", not carrying,
+                  f"carrying a key: {carrying}")
+
+
+def seen():
+    with urllib.request.urlopen("http://10.0.0.218:8096/__seen", timeout=10) as r:
+        return json.loads(r.read())
+
+
+def sign_up(api, flow, username, **invitation):
+    """A fresh visitor, through a fresh invitation, up to the answer to the prompt. Returns that answer."""
+    visitor = Api()
+    status, invite = api.call("POST", "/api/v3/stages/invitation/invitations/",
+                              dict({"name": "ci-" + username, "single_use": True, "flow": flow["pk"]}, **invitation))
+    assert status == 201, (status, invite)
+    executor = "/api/v3/flows/executor/" + FLOW + "/?query=" + urllib.parse.quote("itoken=" + invite["pk"])
+    status, challenge = visitor.call("GET", executor, auth=False, opener=visitor.anon)
+    assert challenge.get("component") == "ak-stage-prompt", (status, challenge.get("component"))
+    form = {"component": "ak-stage-prompt", "username": username, "name": "Synthetic Person",
+            "email": username + "@example.test", "password": "ci-Synthetic-Passw0rd-xyz",
+            "password_repeat": "ci-Synthetic-Passw0rd-xyz"}
+    return visitor.call("POST", executor, form, auth=False, opener=visitor.anon)[1]
+
+
+LIBRARIES = {"fixed_data": {"avrana_groups": "avrana-users,avrana-videos,avrana-comics"}}
+
+
+def provision():
+    """The email stage cannot finish on a network with no mail host, and the provisioning policies sit after it. This
+    throwaway copy of the flow loses that one binding, so the login stage's policies run as they do after an email link.
+    The user stays inactive, so the login itself is refused: what counts is what reached the stand-ins, with which key."""
+    api = Api()
+    flow = api.one("/api/v3/flows/instances/?slug=" + FLOW)
+    binding = api.one(f"/api/v3/flows/bindings/?target={flow['pk']}&order=30")
+    status, body = api.call("DELETE", f"/api/v3/flows/bindings/{binding['pk']}/")
+    assert status == 204, (status, body)
+    before = seen()
+    sign_up(api, flow, "provisioned-member", **LIBRARIES)
+    after = seen()
+    results = [
+        expect("jellyfin-create reached Jellyfin with the key from the file",
+               after["jellyfin_new"] == before["jellyfin_new"] + 1, f"{before} -> {after}"),
+        expect("komga-create reached Komga with the key from the file",
+               after["komga_new"] == before["komga_new"] + 1, f"{before} -> {after}"),
+        expect("no stand-in saw a wrong key", after["wrong_key"] == 0, after),
+        no_sentinel_in_any_expression(api)]
+    if not all(results):
+        raise SystemExit("provisioning did not use the key files")
+
+
+def refused():
+    api = Api()
+    flow = api.one("/api/v3/flows/instances/?slug=" + FLOW)
+    policy = api.one("/api/v3/policies/expression/?name=" + POLICY)
+    me = api.get("/api/v3/core/users/me/")["user"]["pk"]
+    label, name = sys.argv[2], "refused-" + sys.argv[2]
+    before = seen()
+    passing, messages = policy_test(api, me, policy["pk"], name)
+    reply = sign_up(api, flow, name, **LIBRARIES)
+    after = seen()
+    results = [
+        expect(f"{label}: the policy refuses and says try again", passing is False and UNAVAILABLE in messages,
+               f"passing={passing} {messages}"),
+        expect(f"{label}: the flow stays on the prompt with the same message",
+               reply.get("component") == "ak-stage-prompt" and UNAVAILABLE in json.dumps(reply),
+               json.dumps(reply)[:300]),
+        expect(f"{label}: nobody was written", not api.get("/api/v3/core/users/?username=" + name)["results"]),
+        expect(f"{label}: no account was asked for", (after["jellyfin_new"], after["komga_new"])
+               == (before["jellyfin_new"], before["komga_new"]), f"{before} -> {after}"),
+        expect(f"{label}: nothing about the path reaches the member",
+               "/run/" not in json.dumps(reply) and "/run/" not in messages)]
+    if not all(results):
+        raise SystemExit(f"{label}: sign-up was not refused cleanly")
+
+
+def gap():
+    api = Api()
+    flow = api.one("/api/v3/flows/instances/?slug=" + FLOW)
+    stage = api.one("/api/v3/stages/prompt/stages/?name=avrana-enrollment-prompt")
+    status, body = api.call("PATCH", f"/api/v3/stages/prompt/stages/{stage['pk']}/", {"validation_policies": []})
+    assert status == 200, (status, body)
+    before = seen()
+    sign_up(api, flow, "gap-member", **LIBRARIES)
+    after = seen()
+    events = api.get("/api/v3/events/events/?action=policy_exception&page_size=50")["results"]
+    results = [expect("file gone after the prompt: no account was asked for",
+                      (after["jellyfin_new"], after["komga_new"]) == (before["jellyfin_new"], before["komga_new"]),
+                      f"{before} -> {after}")]
+    for name in ("avrana-jellyfin-create", "avrana-komga-create"):
+        pk = str(api.one("/api/v3/policies/expression/?name=" + name)["pk"]).replace("-", "")
+        mine = [e for e in events if str(e["context"].get("policy_uuid", "")).replace("-", "") == pk]
+        results.append(expect(f"{name}: a policy_exception event says so", len(mine) >= 1, len(events)))
+        results.append(expect(f"{name}: and it holds no key", not any(v in json.dumps(mine) for v in sentinels())))
+    if not all(results):
+        raise SystemExit("the gap was silent")
+
+
 def checks():
     api = Api()
     apply_blueprint(api)
-    results = []
+    results = [no_sentinel_in_any_expression(api)]
     policy = api.one("/api/v3/policies/expression/?name=" + POLICY)
     stage = api.one("/api/v3/stages/prompt/stages/?name=avrana-enrollment-prompt")
     results.append(expect("the prompt stage runs the username policy",
@@ -209,4 +351,5 @@ def jellyfin_down():
 
 
 if __name__ == "__main__":
-    {"stub": stub, "checks": checks, "jellyfin-down": jellyfin_down}[sys.argv[1]]()
+    {"stub": stub, "checks": checks, "provision": provision, "refused": refused, "gap": gap,
+     "jellyfin-down": jellyfin_down}[sys.argv[1]]()
