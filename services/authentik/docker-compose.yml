@@ -36,7 +36,7 @@ services:
     restart: unless-stopped
 
   server:
-    image: ghcr.io/goauthentik/server@sha256:ed120caf710ccf82ef0026f0bc74e51615bc95ebff228a7a2d6fc60c441c3868
+    image: ghcr.io/goauthentik/server@sha256:0ab5658f7f4963f2964cffe0963fa1ef2fa84c21a259489d6fdded789d82492e
     container_name: authentik-server
     command: server
     env_file: [.env]
@@ -76,7 +76,7 @@ services:
     restart: unless-stopped
 
   worker:
-    image: ghcr.io/goauthentik/server@sha256:ed120caf710ccf82ef0026f0bc74e51615bc95ebff228a7a2d6fc60c441c3868
+    image: ghcr.io/goauthentik/server@sha256:0ab5658f7f4963f2964cffe0963fa1ef2fa84c21a259489d6fdded789d82492e
     container_name: authentik-worker
     command: worker
     env_file: [.env, blueprints.env]
@@ -110,7 +110,7 @@ services:
   # frontend network (service "server"); reachable by Calibre-Web over the shared
   # avrana-ldap network so LDAP never touches the LAN. Token in .env (AUTHENTIK_LDAP_TOKEN).
   ldap:
-    image: ghcr.io/goauthentik/ldap@sha256:68a595f5a7b75fb3615f1609725adaf1d45f743aafece715d943b9706074c307
+    image: ghcr.io/goauthentik/ldap@sha256:cee7a3bf4868c823281a24a49b0c9615f9f9742fb27f85af476a4dc287c39bac
     container_name: authentik-ldap
     environment:
       AUTHENTIK_HOST: http://server:9000
