@@ -90,6 +90,7 @@ SERIES_SORT = "metadata.titleSort,asc"       # SeriesDtoDao's own key, with Komg
 FOR_YOU_DAYS = 30
 WEEK_DAYS = 7                    # Home's "This week in comics" card: what arrived in the last seven days
 NO_MEMBER_KEY = "no_member_key"               # the provisioning trigger (provision.py)
+CATALOG_NO_KEY = "no_member_key"              # the catalogue's own reason: Me -> Comics connects this member
 # Two or more trailing "(...)" groups: the year, "(Digital)", the scanner's tag. Komga's `metadata.title` falls back to
 # the file name when a book has no metadata, and that is how file names end ("Saga 055 (2021) (Digital) (Group)").
 _FILE_TAGS = re.compile(r"(?:\s*\([^()]{0,60}\)){2,}\s*$")
@@ -308,7 +309,7 @@ class KomgaAdapter(GuardedAdapter):
             return self._not_permitted("catalog")
         guard = self._member_guard(principal.email)
         if guard is None:
-            return SectionResult(self.service, "catalog", SectionState.NOT_LINKED, reason=NO_MEMBER_KEY)
+            return SectionResult(self.service, "catalog", SectionState.NOT_LINKED, reason=CATALOG_NO_KEY)
         return self._catalog_section(principal, group, page, size, lambda _u, _g, n, s: self._series_page(guard, n, s))
 
     def fetch_artwork(self, principal: MemberPrincipal, ref: str) -> ArtworkResult:
