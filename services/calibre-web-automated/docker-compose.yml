@@ -14,7 +14,7 @@
 # the whole reason we added it, after the Audiobookshelf app -> iOS share ->
 # Kindle path failed with "incompatible file type".
 #
-# Pinned to v4.0.6 (Feb 2026) rather than :latest. CWA is actively maintained,
+# Pinned to v4.0.8 (Sep 2026) rather than :latest. CWA is actively maintained,
 # but this host pins deliberately so an unattended pull can't change behaviour
 # under us -- bump on purpose. Valid registry tags use a lowercase 'v' prefix.
 #
@@ -24,13 +24,13 @@
 
 services:
   calibre-web-automated:
-    # Avrana image = upstream crocodilestick/calibre-web-automated:v4.0.6 + a build-time patch
+    # Avrana image = upstream crocodilestick/calibre-web-automated:v4.0.8 + a build-time patch
     # for clean Kindle titles (MIME attachment filename = "{title}.epub"; see ./Dockerfile and
     # ./avrana-patch/). Bump the FROM tag in ./Dockerfile and this pin together, on purpose.
     build:
       context: .
       dockerfile: Dockerfile
-    image: avrana-calibre-web-automated:v4.0.6-kindlefilename
+    image: avrana-calibre-web-automated:v4.0.8-kindlefilename
     container_name: calibre-web-automated
     security_opt:
       - no-new-privileges:true
@@ -127,12 +127,12 @@ networks:
 #   2. CHANGE THE ADMIN PASSWORD IMMEDIATELY (Admin -> Edit Users). Default
 #      creds are public knowledge. LAN-only here (not published via the
 #      cloudflared tunnel, same posture as shelfmark/audiobookshelf), but the
-#      default password still goes.
+#      default password still goes. (History: this was LAN-only. It is PUBLIC now, as
+#      books.avrana.net through the cloudflared tunnel, docs/services/cloudflare-tunnel.md.)
 #   3. Send-to-Kindle: Admin -> Basic Configuration -> E-mail server settings
 #      (SMTP sender), then each user sets their @kindle.com address. The SMTP
 #      "from" address must be on Amazon's Approved Personal Document senders
 #      list or Amazon silently drops the mail.
 #
-# Auth / exposure: LAN-only, no reverse-proxy auth added. If ever exposed,
-#   turn on proper auth and never publish the default-cred instance.
+# Auth / exposure: public through the tunnel, LDAP login, no reverse-proxy auth in front.
 # ---------------------------------------------------------------------------

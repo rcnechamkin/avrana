@@ -1,6 +1,6 @@
 # Avrana CWA patch — clean Kindle titles
 
-Custom Calibre-Web-Automated image = upstream `crocodilestick/calibre-web-automated:v4.0.6`
+Custom Calibre-Web-Automated image = upstream `crocodilestick/calibre-web-automated:v4.0.8`
 plus one small build-time patch.
 
 ## What it fixes
@@ -40,7 +40,7 @@ signal that upstream changed.
 
 ## Upgrade procedure (bumping CWA)
 
-1. Change the tag in **both** `Dockerfile` (`FROM …:vX`) and `docker-compose.yml`
+1. Change the tag and digest in **both** `Dockerfile` (`CWA_BASE_IMAGE`) and `docker-compose.yml`
    (`image:` comment / build context) to the new version.
 2. `docker compose build calibre-web-automated`.
 3. If the build **fails** at `apply_avrana_patches.py`, the upstream source moved. Pull the new

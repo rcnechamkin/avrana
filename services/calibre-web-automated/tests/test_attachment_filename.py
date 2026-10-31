@@ -5,7 +5,7 @@ Run INSIDE the patched image (it needs the full cps package):
 
     docker run --rm --entrypoint python3 \
       -v "$PWD/tests:/avrana-tests:ro" \
-      avrana-calibre-web-automated:v4.0.6-kindlefilename \
+      avrana-calibre-web-automated:v4.0.8-kindlefilename \
       -m pytest -q /avrana-tests
 
 Covers: normal EPUB delivery, converted (non-epub) delivery, punctuation/Unicode, and missing

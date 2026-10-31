@@ -1,0 +1,54 @@
+# RC3 (AVR-789): the upstream security pins against REAL, throwaway containers. The old version is attacked first as the
+# control, then the pinned version must refuse the same requests, carry the old data forward and roll back. No secrets:
+# every credential is generated per run, the data is synthetic, and every service sits on an --internal Docker network
+# (no internet, no LAN). Never touches production. The Authentik digests are exercised by enrollment-policy.yml.
+name: rc3-upstream-proof
+
+on:
+  pull_request:
+    paths:
+      - services/audiobookshelf/docker-compose.yml
+      - services/authentik/docker-compose.yml
+      - services/shelfmark/docker-compose.yml
+      - services/calibre-web-automated/**
+      - tests/rc3_upstream_live.sh
+      - tests/rc3_upstream_live.py
+      - .github/workflows/rc3-upstream-proof.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rc3-upstream-proof-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pins:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Every digest carries the version the docs claim
+        run: bash tests/rc3_upstream_live.sh pins
+
+  audiobookshelf:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Traversal control, migration, negatives, rollback
+        run: bash tests/rc3_upstream_live.sh abs
+
+  calibre-web-automated:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Access-control control, migration, negatives, rollback
+        run: bash tests/rc3_upstream_live.sh cwa

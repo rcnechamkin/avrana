@@ -9,15 +9,17 @@
 # files (see the volume comment below). Libation's direct "auto-upload to
 # Audiobookshelf" feature is still deliberately unused.
 #
-# iOS playback is via AudioBooth, which talks to this server. LAN-only for
-# now: the cloudflared tunnel (~/.cloudflared/config.yml) is NOT configured to
-# publish this, matching how Sonarr/Radarr/SAB are kept off the tunnel. To
-# reach it from cellular later, add an ingress hostname -> http://localhost:13378.
+# iOS playback is via AudioBooth, which talks to this server. PUBLIC: the
+# cloudflared tunnel publishes this as listen.avrana.net (docs/services/cloudflare-tunnel.md),
+# so an upstream advisory here is internet-reachable. Treat the pin below accordingly.
 # ---------------------------------------------------------------------------
 
 services:
   audiobookshelf:
-    image: ghcr.io/advplyr/audiobookshelf@sha256:180acad33d69c99ed208676465d8edcb268fa46967735579a7810859885b1a8e
+    # 2.37.2, multi-arch index digest. GHSA-m5hp-x2xc-7jqq needs >= 2.37.0 (2.36.1 is still affected).
+    # Upgrade and rollback: docs/runbooks/rc3-upstream-upgrades.md. Keep ABS_IMAGE in
+    # services/backups/restore-test.py the same.
+    image: ghcr.io/advplyr/audiobookshelf@sha256:b897c33f05972fb1bf484f7487bc878fa91ec8691335c1db6e2929c3a7658efa
     container_name: audiobookshelf
 
     # This image has no PUID/PGID support and runs as root unless told

@@ -92,7 +92,7 @@ SYSTEM_UNITS = ["sabnzbd.service", "mylar3.service", "cloudflared-avrana.service
 USER_UNITS = ["avrana-backup.service", "avrana-backup.timer", "services-health.service",
               "services-health.timer", "avrana-boot-verify.service", "avrana-boot-verify.timer"]
 ABS_IMAGE = ("ghcr.io/advplyr/audiobookshelf@sha256:"
-             "180acad33d69c99ed208676465d8edcb268fa46967735579a7810859885b1a8e")
+             "b897c33f05972fb1bf484f7487bc878fa91ec8691335c1db6e2929c3a7658efa")
 ABS_NAME, ABS_PORT = "abs-restore-test", "18378"
 # Written into every off-host copy of a run by offhost-backup.py. Metadata, not a restore payload.
 OFFHOST_MARKER = "OFFHOST-COMPLETE.json"
